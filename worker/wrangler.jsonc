@@ -1,0 +1,17 @@
+{
+  "$schema": "../node_modules/wrangler/config-schema.json",
+  "name": "stickyard",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-15",
+  "workers_dev": true,
+  "observability": { "enabled": true },
+  "durable_objects": {
+    "bindings": [{ "name": "ROOM", "class_name": "Room" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Room"] }],
+  "vars": {
+    // The only configured browser origin allowed to open /ws (scheme + host, no path).
+    // Comma-separated if more are ever needed. localhost/127.0.0.1 on any port are always allowed for dev.
+    "ALLOWED_ORIGINS": "https://kishore510.github.io"
+  }
+}
