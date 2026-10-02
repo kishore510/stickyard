@@ -1,0 +1,110 @@
+# Project Brief: Stickyard
+
+Last updated: 2 October 2026 (thread 2). Update the status table and session log at the end of every thread, then re-upload.
+
+## 1. Purpose
+
+A personal, for-fun build project: a real-time collaborative whiteboard of sticky notes for workshops and retros. Join by link or QR code and a typed name, no accounts. Learning goal: build a collaboration app properly (rooms, presence, sync, reconnect, persistence, abuse limits). Optional AI later (summary, sentiment analysis).
+
+Positioning hypothesis (untested): the retro and workshop board you can start in 10 seconds with no sign-in. Wedge = frictionless joining plus facilitation (silent brainstorm, timer, voting, structured outcome). Check against Microsoft Whiteboard, Miro and similar before relying on it.
+
+## 2. Non-goals
+
+- Beating Miro, Mural or Microsoft Whiteboard
+- Rich drawing, ink, or shape libraries
+- Accounts, verified identity, enterprise admin
+- Work use or organisation-specific content. Examples and fixtures stay generic.
+- Huge rooms (cap is small and enforced)
+- Anything that needs file uploads or integrations
+
+## 3. Key decisions (initial; revise as we go)
+
+| Area | Decision |
+|---|---|
+| Repo | New repo, separate from Chalkline. Public (needed for free GitHub Pages). One repo: `web/`, `worker/`, `shared/` |
+| Front end | Vite, React, TypeScript strict, Zustand, Tailwind, Vitest. Canvas approach TBD (own light canvas vs library) |
+| Relay | Cloudflare Worker + one Durable Object per room, SQLite-backed, WebSocket Hibernation API, free plan |
+| Hosting | GitHub Pages via Actions for web; `wrangler deploy` for worker; hash routes (`#/room/CODE`) |
+| Worker URL | Free `workers.dev` address, held in one config constant so it can move |
+| Protocol | Zod message schemas in `shared/`, used by both sides. Protocol version in the join handshake; friendly "please reload" on mismatch |
+| Sync | v1 server-authoritative, last-write-wins, optimistic client updates. Yjs considered later, after feeling the problem |
+| Identity | Room code + typed name. Names are unverified and the UI says so. Server assigns colour and ids; never trust client-claimed name/colour/id |
+| Room creation | Joining is open with the link; creating is gated by a create passcode held as a Worker secret (constant-time compare, rate-limited failures, never logged). Room codes are long, random and HMAC-signed; the Worker verifies the signature before addressing any Durable Object |
+| Abuse control | Per-IP and global daily room-creation caps; `CREATION_ENABLED` kill switch (env var) stops new rooms without a redeploy; per-room caps on size, notes, message size and message rate |
+| Host | Creator receives a separate host token for lock, timer and end session (slice 6). The link alone can't do that |
+| Secrets | `CREATE_PASSCODE` and `ROOM_SIGNING_KEY` only as Worker secrets and `.dev.vars` (gitignored). Tests use fake values. GitHub secret scanning and push protection on |
+| Security | Worker checks `Origin` (Pages origin + localhost dev; stops other websites, not scripts); Zod-validates every message; long unguessable room codes; no secrets in the repo |
+| Storage keys | Prefixed with the app name (shared `github.io` origin); nothing sensitive in browser storage |
+| Cursors | Throttled (~20/s), never stored |
+| Timer | Sent as start time + duration; each client counts down locally |
+| Cost control | Free plan acts as a cap; check current Cloudflare limits before designing around any number |
+| Dev environment | Raspberry Pi 5 (arm64) is a build machine only. Verify wrangler works on arm64 in slice 0; fallback is a deployed dev Worker |
+| Verification | `npx tsc --noEmit`, `npm test`, `npm run build` (web and worker) |
+| Design | Tokens (CSS variables), light and dark, mobile-first, pointer events, 44px touch targets, no hover-only features, `dvh` and safe-area insets |
+| AI (late) | Optional, explicit buttons only, summary and sentiment, add-only. Key handling decided at that phase (BYO client key vs Worker-held key) |
+
+## 4. Working rules
+
+- One slice at a time, on its own branch (`phase-...`). Never commit directly to `main` (except the very first commit). Stop for review at the end of each slice.
+- Each protocol or stored-schema change = version bump + compatibility handling + tests, in its own branch.
+- Never put real secrets in files, tests, logs or prompts. If one is ever committed, rotate it immediately; deleting the file is not enough because it stays in git history.
+- Definition of done: `tsc`, tests and build pass; every message validates against the shared schema; works at 360, 768 and 1280px in light and dark; primary actions reachable by touch; no hard-coded colours or sizes outside the token file; CHANGELOG.md updated and version bumped; short summary of what was built, what differed from assumptions, and what was left out.
+- Claude Code may build more than asked; always review against the slice scope.
+- After the one-time credential setup, Claude Code handles repo, CI, secrets and deploys itself (see section 10).
+
+## 5. Claude Code prompt skeleton
+
+```
+Read CLAUDE.md. <Slice name>, on a `phase-...` branch. Do NOT start <list of other slices>.
+
+First read the current <relevant code areas>. Where they differ from what is assumed below, follow the existing code and list the differences in your final summary.
+
+[If protocol/schema change] THIS IS A PROTOCOL OR SCHEMA CHANGE. Bump the version, add compatibility handling and tests. Keep it in this branch only.
+
+## Protocol / data
+## Behaviour (numbered)
+## UI (touch: 44px targets, bottom sheet on phone, both themes, 360/768/1280px)
+## Cross-cutting (optimistic updates, reconnect, permissions, abuse limits, accessibility)
+## Tests first
+## Fixtures
+
+Keep tsc, tests and build green. Stop for review with a summary of what was built, what differed from these assumptions, and what was left out.
+```
+
+## 6. Status
+
+| Slice | Scope | Status |
+|---|---|---|
+| 0 | Repo, CI, Pages deploy, Worker deploy, secrets hygiene, protocol version, Origin check | Prompt written, not started |
+| 1 | Echo room, gated room creation, signed room codes | Not started |
+| 2 | Shared stickies, last-write-wins | Not started |
+| 3 onwards | See PHASE_PLAN.md | Not started |
+
+## 7. Open decisions
+
+- Name availability for Stickyard (GitHub, npm, domain, existing products). Name chosen: Stickyard
+- Canvas: own light canvas vs a library
+- v1 target: retros/brainstorms (suggested) vs general canvas
+- Whether to adopt Yjs after slice 2
+- AI key handling
+- Visual identity (accent colour, logo)
+- Per-friend invite codes (revocable) vs one shared create passcode
+- Real-world comparison: spend 10 minutes in Microsoft Whiteboard and list what annoys me
+
+## 8. Thread habits
+
+Start a thread with the slice and what I want (for example "Slice 1, write the Claude Code prompt"). If it depends on earlier work, paste Claude Code's last summary, especially its "differed from assumptions" list. End a thread by asking for the session log line and status changes, then update and re-upload this file. Paste code or diffs when I want a review; the project holds the plan, not live code.
+
+## 9. Session log
+
+- Thread 1: Chose the idea (collaborative sticky-note whiteboard), architecture (GitHub Pages + Cloudflare Worker/Durable Objects), and drafted this brief. Next: slice 0 prompt.
+- Thread 2: Wrote the slice 0 prompt (including repo creation and secrets hygiene). Decided the room-creation model: open join, passcode-gated creation, signed room codes, kill switch, host token. Next: run slice 0, then slice 1 prompt.
+
+## 10. One-time manual setup
+
+Claude Code can create the repo, enable Pages, set secrets and deploy, but needs credentials from me once:
+
+1. GitHub: logged in on the Pi (`gh auth login`).
+2. Cloudflare: one scoped API token plus account ID, created in the dashboard (slice 0 prompt makes Claude Code check current Cloudflare docs and state exactly which permissions to grant). I set them myself with `gh secret set`, never pasted into chat or files.
+3. First Worker deploy: Cloudflare may ask me to register a `workers.dev` subdomain once.
+4. Before slice 1: generate the create passcode (`openssl rand -base64 24`) and a signing key, store both in a password manager, and set them with `wrangler secret put` when slice 1 asks. Create rooms from phone or Pi, not a managed work device.
