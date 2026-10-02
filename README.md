@@ -70,7 +70,18 @@ gh secret set CLOUDFLARE_API_TOKEN    # prompts for the value; nothing lands in 
 gh secret set CLOUDFLARE_ACCOUNT_ID
 ```
 
+The Cloudflare API token needs only **Account → Workers Scripts → Edit**, scoped to this one account (enough for Worker + Durable Object migrations + workers.dev). Deployed relay: `https://stickyard.kishore510.workers.dev`.
+
 The allowed browser origin for `/ws` is `ALLOWED_ORIGINS` in `worker/wrangler.jsonc`. `localhost` / `127.0.0.1` over http on any port are always allowed for dev. This stops other websites using the relay from a browser. It does not stop scripts, which can fake the header.
+
+Manual Origin check (use `--http1.1`; over HTTP/2 there is no `Upgrade` header, so you'd get 426):
+
+```sh
+WS=(--http1.1 -s -o /dev/null -w "%{http_code}\n" -H "Upgrade: websocket" -H "Connection: Upgrade" \
+    -H "Sec-WebSocket-Version: 13" -H "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==")
+curl -m 5 "${WS[@]}" -H "Origin: https://kishore510.github.io" https://stickyard.kishore510.workers.dev/ws  # 101 (then times out: socket stays open)
+curl "${WS[@]}" -H "Origin: https://evil.example" https://stickyard.kishore510.workers.dev/ws               # 403
+```
 
 ## Secrets
 
