@@ -7,7 +7,9 @@ import {
   MAX_NOTE_TEXT,
   MAX_SERVER_MESSAGE_BYTES,
   NOTE_COLORS,
-  NOTE_SIZE,
+  NOTE_DEFAULTS,
+  NOTE_DEFAULT_H,
+  NOTE_DEFAULT_W,
   clampNotePosition,
   cleanNoteText,
   clientMessageSchema,
@@ -19,12 +21,12 @@ import {
 } from "../src/index";
 
 /*
- * Protocol v3: shared sticky notes. Fixtures are generic on purpose.
+ * Protocol v3 (and v4's note fields): shared sticky notes. Fixtures are generic on purpose.
  */
 
 const ID_A = "AAAAAAAAAAAAAAAA";
 const NOTE_ID = "NNNNNNNNNNNNNNNN";
-const note: Note = { id: NOTE_ID, x: 100, y: 200, text: "Idea one", color: "yellow", rev: 1, authorId: ID_A };
+const note: Note = { id: NOTE_ID, x: 100, y: 200, ...NOTE_DEFAULTS, text: "Idea one", color: "yellow", rev: 1, authorId: ID_A };
 
 describe("note constants", () => {
   it("are the slice 2 defaults", () => {
@@ -32,8 +34,8 @@ describe("note constants", () => {
     expect(MAX_NOTE_TEXT).toBe(280);
     expect(NOTE_COLORS).toContain("yellow");
     expect(NOTE_COLORS).toContain("pink");
-    expect(BOARD_WIDTH).toBeGreaterThan(NOTE_SIZE);
-    expect(BOARD_HEIGHT).toBeGreaterThan(NOTE_SIZE);
+    expect(BOARD_WIDTH).toBeGreaterThan(NOTE_DEFAULT_W);
+    expect(BOARD_HEIGHT).toBeGreaterThan(NOTE_DEFAULT_H);
     expect(MAX_SERVER_MESSAGE_BYTES).toBeGreaterThan(MAX_MESSAGE_BYTES);
   });
 });
@@ -42,7 +44,7 @@ describe("clampNotePosition", () => {
   it.each([
     [{ x: 0, y: 0 }, { x: 0, y: 0 }],
     [{ x: 10, y: 20 }, { x: 10, y: 20 }],
-    [{ x: BOARD_WIDTH, y: BOARD_HEIGHT }, { x: BOARD_WIDTH - NOTE_SIZE, y: BOARD_HEIGHT - NOTE_SIZE }],
+    [{ x: BOARD_WIDTH, y: BOARD_HEIGHT }, { x: BOARD_WIDTH - NOTE_DEFAULT_W, y: BOARD_HEIGHT - NOTE_DEFAULT_H }],
     [{ x: -50, y: -1 }, { x: 0, y: 0 }],
     [{ x: 10.6, y: 3.2 }, { x: 11, y: 3 }],
   ])("%j -> %j", (input, expected) => {
@@ -117,7 +119,6 @@ describe("client note messages", () => {
     ["noteEdit with a number text", { ...edit, text: 42 }],
     ["noteEdit with a bad id", { ...edit, id: "short" }],
     ["noteEdit without id", { type: "noteEdit", text: "x" }],
-    ["noteEdit with a colour", { ...edit, color: "pink" }],
     ["noteEdit with a claimed author", { ...edit, authorId: ID_A }],
     // noteMove
     ["noteMove without final", { type: "noteMove", id: NOTE_ID, x: 1, y: 1 }],

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { PROTOCOL_VERSION, type Note, type Participant } from "@stickyard/shared";
+import { PROTOCOL_VERSION, type Note, NOTE_DEFAULTS, type Participant } from "@stickyard/shared";
 import type { SocketFactory, SocketHandlers } from "../src/connection/socket";
 import { BOARD_NODE_ID, createDragHandlers, createNoteNodeMapper, type NoteFlowNode } from "../src/canvas/nodes";
 import { RoomSession, type RoomView } from "../src/rooms/session";
@@ -26,8 +26,8 @@ const alex: Participant = { id: "AAAAAAAAAAAAAAAA", name: "Alex", colourIndex: 0
 const sam: Participant = { id: "BBBBBBBBBBBBBBBB", name: "Sam", colourIndex: 1 };
 const N1 = "NNNNNNNNNNNNNNN1";
 const N2 = "NNNNNNNNNNNNNNN2";
-const one: Note = { id: N1, x: 40, y: 60, text: "One", color: "yellow", rev: 1, authorId: sam.id };
-const two: Note = { id: N2, x: 400, y: 300, text: "Two", color: "blue", rev: 1, authorId: sam.id };
+const one: Note = { id: N1, x: 40, y: 60, ...NOTE_DEFAULTS, text: "One", color: "yellow", rev: 1, authorId: sam.id };
+const two: Note = { id: N2, x: 400, y: 300, ...NOTE_DEFAULTS, text: "Two", color: "blue", rev: 1, authorId: sam.id };
 
 function room(notes: Note[] = [one, two]) {
   let socket: FakeSocket | undefined;

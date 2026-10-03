@@ -6,11 +6,14 @@ import {
   MAX_MESSAGE_BYTES,
   MAX_NOTES_PER_ROOM,
   MAX_NOTE_TEXT,
-  NOTE_SIZE,
+  NOTE_DEFAULT_H,
+  NOTE_DEFAULT_W,
+  PROTOCOL_VERSION,
   type Note,
   type ServerMessage,
 } from "@stickyard/shared";
 import { SOCKET_LIMITS } from "../src/limits";
+import { SCHEMA_VERSION } from "../src/noteStore";
 import type { Room } from "../src/room";
 import { TestClient, nextOfType, specRoomCode } from "./helpers";
 
@@ -94,7 +97,7 @@ describe("snapshot", () => {
     const { code, a } = await pair();
     await addNote(a);
     const lurker = await TestClient.open(code);
-    expect(await lurker.request({ type: "hello", protocolVersion: 3 })).toMatchObject({ type: "welcome" });
+    expect(await lurker.request({ type: "hello", protocolVersion: PROTOCOL_VERSION })).toMatchObject({ type: "welcome" });
     expect(await lurker.quiet()).toBe(true);
     closeAll(a, lurker);
   });
@@ -135,14 +138,14 @@ describe("noteAdd", () => {
     const { a, b } = await pair();
     a.send(addMsg("r", "x", BOARD_WIDTH, BOARD_HEIGHT));
     const { note } = await nextOfType(a, "noteAdded");
-    expect(note).toMatchObject({ x: BOARD_WIDTH - NOTE_SIZE, y: BOARD_HEIGHT - NOTE_SIZE });
+    expect(note).toMatchObject({ x: BOARD_WIDTH - NOTE_DEFAULT_W, y: BOARD_HEIGHT - NOTE_DEFAULT_H });
     closeAll(a, b);
   });
 
   it("before join gets not_joined, with the clientRef", async () => {
     const { code } = await newRoom();
     const c = await TestClient.open(code);
-    await c.request({ type: "hello", protocolVersion: 3 });
+    await c.request({ type: "hello", protocolVersion: PROTOCOL_VERSION });
     expect(await c.request(addMsg("r9"))).toMatchObject({ type: "error", code: "not_joined", clientRef: "r9" });
     c.close();
   });
@@ -281,7 +284,7 @@ describe("noteMove", () => {
     const { a, b } = await pair();
     const note = await addNote(a);
     a.send({ type: "noteMove", id: note.id, x: BOARD_WIDTH, y: BOARD_HEIGHT, final: true });
-    expect(await nextOfType(a, "noteMoved")).toMatchObject({ x: BOARD_WIDTH - NOTE_SIZE, y: BOARD_HEIGHT - NOTE_SIZE });
+    expect(await nextOfType(a, "noteMoved")).toMatchObject({ x: BOARD_WIDTH - NOTE_DEFAULT_W, y: BOARD_HEIGHT - NOTE_DEFAULT_H });
     closeAll(a, b);
   });
 });
@@ -339,7 +342,7 @@ describe("not joined", () => {
   ])("%s before join gets not_joined, with the note id", async (_label, message) => {
     const { code } = await newRoom();
     const c = await TestClient.open(code);
-    await c.request({ type: "hello", protocolVersion: 3 });
+    await c.request({ type: "hello", protocolVersion: PROTOCOL_VERSION });
     expect(await c.request(message)).toMatchObject({ type: "error", code: "not_joined", noteId: "NNNNNNNNNNNNNNNN" });
     c.close();
   });
@@ -415,12 +418,13 @@ describe("persistence", () => {
     c.close();
   });
 
-  it("records a schema version", async () => {
+  it("records the current schema version", async () => {
     const { a, b, stub } = await pair();
     const version = await runInDurableObject(stub, (_room, state) =>
       state.storage.sql.exec<{ value: number }>("SELECT value FROM meta WHERE key = 'schema_version'").one().value,
     );
-    expect(version).toBe(1);
+    expect(version).toBe(SCHEMA_VERSION);
+    expect(SCHEMA_VERSION).toBe(2);
     closeAll(a, b);
   });
 
