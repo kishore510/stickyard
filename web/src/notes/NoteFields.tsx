@@ -1,21 +1,18 @@
 import { useEffect, useId, useRef, type FocusEvent, type KeyboardEvent } from "react";
 import { Trash2 } from "lucide-react";
-import { MAX_NOTE_TEXT, NOTE_COLORS, codePointLength } from "@stickyard/shared";
+import { MAX_NOTE_TEXT, codePointLength } from "@stickyard/shared";
 import { Button } from "../components/ui/button";
 import { FieldError, Label } from "../components/ui/field";
 import { Input } from "../components/ui/input";
 import { Textarea } from "../components/ui/textarea";
-import { cn } from "../lib/utils";
-import type { BoardNote } from "./board";
-import { NOTE_COLOR_CLASSES, NOTE_COLOR_NAMES } from "./colours";
+import type { BoardNote, StylePatch } from "./board";
 import { confirmDelete } from "./label";
+import { ColourSection, READ_ONLY, Section, SizeSection, TextSection } from "./StyleFields";
 import { joinTitleBody, splitTitleBody } from "./titleBody";
 
-export const COLOUR_LATER = "Changing colour arrives in a later update.";
-
 /**
- * A note's fields: Title (its first line) and Body (the rest), a character count, its colour
- * (read-only for now), who added it, and Delete. The Properties panel (md and up) and the phone
+ * A note's fields: Title (its first line) and Body (the rest), a character count, its colour,
+ * text style (size, bold, italic, alignment, text colour) and size, who added it, and Delete. The Properties panel (md and up) and the phone
  * editor sheet both use these, so they behave the same.
  *
  * The text is one value (title and body joined with a line break). What's typed is a local
@@ -30,6 +27,8 @@ export function NoteFields({
   author,
   onDraft,
   onCommit,
+  onStyle,
+  onSize,
   onDelete,
   commitOnBlur,
   showDelete = true,
@@ -44,6 +43,10 @@ export function NoteFields({
   onDraft: (text: string) => void;
   /** Saves the draft, if there is one. */
   onCommit: () => void;
+  /** Colour and text style: one optimistic edit per change. */
+  onStyle: (change: StylePatch) => void;
+  /** Width/Height fields: one final resize, already clamped. */
+  onSize: (w: number, h: number) => void;
   onDelete: () => void;
   commitOnBlur: boolean;
   /** The Properties panel has Delete in its header instead. */
@@ -138,7 +141,7 @@ export function NoteFields({
           />
         </div>
         <div className="flex flex-wrap justify-between gap-sm text-sm text-fg-muted">
-          <span id={`${id}-help`}>{live ? "Enter saves. Shift+Enter adds a new line." : "Read only while disconnected."}</span>
+          <span id={`${id}-help`}>{live ? "Enter saves. Shift+Enter adds a new line." : READ_ONLY}</span>
           <span id={`${id}-count`} aria-live="polite" className="tabular-nums">
             {length} / {MAX_NOTE_TEXT}
           </span>
@@ -146,45 +149,17 @@ export function NoteFields({
         {tooLong && <FieldError>Notes can be up to {MAX_NOTE_TEXT} characters.</FieldError>}
       </div>
 
-      <section className="flex flex-col gap-ms border-t border-border pt-md">
-        <h3 id={`${id}-colour`} className="text-xs font-semibold tracking-wide text-fg-muted uppercase">
-          Colour
-        </h3>
-        <div role="radiogroup" aria-labelledby={`${id}-colour`} aria-describedby={`${id}-colour-later`} aria-disabled="true" className="flex flex-wrap gap-2xs">
-          {NOTE_COLORS.map((key) => (
-            <button
-              key={key}
-              type="button"
-              role="radio"
-              aria-checked={key === entry.note.color}
-              aria-label={NOTE_COLOR_NAMES[key]}
-              title={`${NOTE_COLOR_NAMES[key]}: ${COLOUR_LATER}`}
-              disabled
-              className="flex size-touch items-center justify-center rounded-md"
-            >
-              <span
-                aria-hidden="true"
-                className={cn(
-                  "size-swatch rounded-full border border-border-strong",
-                  NOTE_COLOR_CLASSES[key],
-                  key === entry.note.color ? "ring-2 ring-accent ring-offset-2 ring-offset-surface" : "opacity-50",
-                )}
-              />
-            </button>
-          ))}
-        </div>
-        <p id={`${id}-colour-later`} className="text-sm text-fg-muted">
-          {COLOUR_LATER}
-        </p>
-      </section>
+      {!live && <p className="rounded-md bg-surface-muted p-ms text-sm text-fg-muted">{READ_ONLY} Colour, text and size can be changed once you rejoin.</p>}
+      <ColourSection note={entry.note} live={live} onStyle={onStyle} />
+      <TextSection note={entry.note} live={live} onStyle={onStyle} />
+      <SizeSection note={entry.note} live={live && entry.confirmed !== null} onSize={onSize} />
 
-      <section className="flex flex-col gap-ms border-t border-border pt-md">
-        <h3 className="text-xs font-semibold tracking-wide text-fg-muted uppercase">Details</h3>
+      <Section title="Details">
         <p className="text-sm">
           <span className="text-fg-muted">Added by </span>
           <span className="break-words">{author}</span>
         </p>
-      </section>
+      </Section>
 
       {showDelete && (
         <div>

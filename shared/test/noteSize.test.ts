@@ -241,7 +241,9 @@ describe("notes on the wire (v4)", () => {
       rev: Number.MAX_SAFE_INTEGER,
     };
     const raw = encodeMessage({ type: "snapshot", notes: Array.from({ length: MAX_NOTES_PER_ROOM }, () => big) });
-    const bytes = new TextEncoder().encode(raw).length;
+    // Every character is ASCII here (the surrogates are escaped), so length is bytes.
+    expect(/^[\x20-\x7e]*$/.test(raw)).toBe(true);
+    const bytes = raw.length;
     // docs/LIMITS.md records this figure; update both together.
     expect(bytes).toBeLessThanOrEqual(400 * 1024);
     expect(bytes).toBeLessThan(MAX_SERVER_MESSAGE_BYTES);

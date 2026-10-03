@@ -1,9 +1,9 @@
 import type { CSSProperties } from "react";
 import type { Node, NodeChange } from "@xyflow/react";
 import { BOARD_HEIGHT, BOARD_WIDTH } from "@stickyard/shared";
-import { isLocalId, type Board, type BoardNote } from "../notes/board";
+import { isHeld, isLocalId, type Board, type BoardNote } from "../notes/board";
 import { noteSize } from "../notes/size";
-import { boardToFlow, flowToBoard } from "./geometry";
+import { boardToFlow, flowToBoard, type Size } from "./geometry";
 import { EMPTY_SELECTION, isSelected, type Selection } from "./selection";
 
 /*
@@ -16,7 +16,8 @@ import { EMPTY_SELECTION, isSelected, type Selection } from "./selection";
 
 export const BOARD_NODE_ID = "sy-board";
 
-export type NoteFlowNode = Node<{ entry: BoardNote; editable: boolean; selected: boolean }, "note">;
+/** `resizable`: show the resize handles (selected, editable, not under Hand, and confirmed). */
+export type NoteFlowNode = Node<{ entry: BoardNote; editable: boolean; selected: boolean; resizable: boolean }, "note">;
 export type BoardFlowNode = Node<Record<string, never>, "board">;
 export type CanvasNode = NoteFlowNode | BoardFlowNode;
 
@@ -44,26 +45,35 @@ export const BOARD_NODE: BoardFlowNode = {
  * get double-clicks, clicks and focus. Shared, so nodes stay cheap to compare.
  */
 const NOTE_STYLE: CSSProperties = { pointerEvents: "all" };
+/** Each note stays on the board: React Flow stops drags and resize handles at its edges. */
+const NOTE_EXTENT: [[number, number], [number, number]] = [
+  [0, 0],
+  [BOARD_WIDTH, BOARD_HEIGHT],
+];
 
 function toNode(entry: BoardNote, editable: boolean, movable: boolean, selected: boolean): NoteFlowNode {
   const { width, height } = noteSize(entry.note);
+  const confirmed = !isLocalId(entry.note.id);
   return {
     id: entry.note.id,
     type: "note",
     position: boardToFlow(entry.note),
-    data: { entry, editable, selected },
+    data: { entry, editable, selected, resizable: selected && editable && movable && confirmed },
     // Known size (from the size lookup): React Flow needn't measure before showing, fitting or
     // drawing the minimap, and the note fills its node.
     width,
     height,
     measured: { width, height },
     style: NOTE_STYLE,
+    // Moved or resized here: no easing (that's for other people's changes).
+    ...(isHeld(entry) ? { className: "sy-held" } : {}),
+    extent: NOTE_EXTENT,
     // Notes waiting for their server id can't move yet (moves need the id).
-    draggable: editable && movable && !isLocalId(entry.note.id),
+    draggable: editable && movable && confirmed,
     selectable: false,
     focusable: false,
-    // The note being dragged sits above the rest.
-    zIndex: entry.dragging ? 1 : 0,
+    // The note being dragged or resized, and the selected one (its handles), sit above the rest.
+    zIndex: isHeld(entry) ? 2 : selected ? 1 : 0,
   };
 }
 
@@ -98,6 +108,8 @@ export function createNoteNodeMapper(): (board: Board, editable: boolean, movabl
 export interface DragActions {
   startDrag(id: string): boolean;
   moveNote(id: string, x: number, y: number, final: boolean): void;
+  /** The note's size, so positions are clamped at it (the session clamps again either way). */
+  sizeOf?(id: string): Size;
 }
 
 /**
@@ -114,13 +126,13 @@ export function createDragHandlers(actions: DragActions) {
     onNodesChange(changes: NodeChange<CanvasNode>[]) {
       for (const change of changes) {
         if (change.type !== "position" || !change.dragging || !change.position || !active.has(change.id)) continue;
-        const p = flowToBoard(change.position);
+        const p = flowToBoard(change.position, actions.sizeOf?.(change.id));
         actions.moveNote(change.id, p.x, p.y, false);
       }
     },
     onNodeDragStop(node: Pick<CanvasNode, "id" | "position">) {
       if (!active.delete(node.id)) return;
-      const p = flowToBoard(node.position);
+      const p = flowToBoard(node.position, actions.sizeOf?.(node.id));
       actions.moveNote(node.id, p.x, p.y, true);
     },
   };

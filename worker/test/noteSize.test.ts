@@ -51,7 +51,7 @@ async function shared(a: TestClient, b: TestClient, x?: number, y?: number): Pro
 
 const rowsWritten = (stub: DurableObjectStub<Room>) => runInDurableObject(stub, (room: Room) => room.rowsWritten);
 
-interface StoredRow {
+interface StoredRow extends Record<string, SqlStorageValue> {
   id: string;
   x: number;
   y: number;

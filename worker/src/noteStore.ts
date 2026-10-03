@@ -1,27 +1,50 @@
-import { noteSchema, type Note } from "@stickyard/shared";
+import { NOTE_DEFAULTS, clampNoteRect, noteSchema, type Note } from "@stickyard/shared";
 
 /**
  * A room's notes, in its Durable Object's SQLite. Written only on commits (add, edit, final
- * move, delete), never per drag message. Held in memory once loaded, so reads after the
- * first are free; loaded again when the object wakes from hibernation.
+ * move or resize, delete), never per drag or resize message. Held in memory once loaded, so
+ * reads after the first are free; loaded again when the object wakes from hibernation.
  *
  * Schema versions (bump SCHEMA_VERSION and add a step to `migrate` for any change):
  *   1 (slice 2): meta(key, value) and notes(id, x, y, text, color, rev, author_id).
+ *   2 (slice 2.7): notes gains w, h, font_size, bold, italic, text_color, align. Every new
+ *     column is NOT NULL with the default as its DEFAULT, so existing rows get the default size
+ *     and style, and older code that inserts or updates without them still works (rollback).
  */
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 2;
+
+/** Columns added by version 2, with their SQL definitions. Defaults come from NOTE_DEFAULTS. */
+const V2_COLUMNS: [name: string, definition: string][] = [
+  ["w", `INTEGER NOT NULL DEFAULT ${NOTE_DEFAULTS.w}`],
+  ["h", `INTEGER NOT NULL DEFAULT ${NOTE_DEFAULTS.h}`],
+  ["font_size", `TEXT NOT NULL DEFAULT '${NOTE_DEFAULTS.fontSize}'`],
+  ["bold", `INTEGER NOT NULL DEFAULT ${Number(NOTE_DEFAULTS.bold)}`],
+  ["italic", `INTEGER NOT NULL DEFAULT ${Number(NOTE_DEFAULTS.italic)}`],
+  ["text_color", `TEXT NOT NULL DEFAULT '${NOTE_DEFAULTS.textColor}'`],
+  ["align", `TEXT NOT NULL DEFAULT '${NOTE_DEFAULTS.align}'`],
+];
 
 interface NoteRow extends Record<string, SqlStorageValue> {
   id: string;
   x: number;
   y: number;
+  w: number;
+  h: number;
   text: string;
   color: string;
+  font_size: string;
+  bold: number;
+  italic: number;
+  text_color: string;
+  align: string;
   rev: number;
   author_id: string;
 }
 
+const COLUMNS = "id, x, y, w, h, text, color, font_size, bold, italic, text_color, align, rev, author_id";
+
 export class NoteStore {
-  /** Rows written by this instance. Tests use it to prove drags don't write. */
+  /** Rows written by this instance. Tests use it to prove drags and resizes don't write. */
   rowsWritten = 0;
   private cache: Map<string, Note> | null = null;
 
@@ -29,6 +52,10 @@ export class NoteStore {
     this.migrate();
   }
 
+  /**
+   * Brings the database up to SCHEMA_VERSION, one step at a time. Each step runs only when the
+   * stored version is below it (so never twice), and is safe to repeat if it was interrupted.
+   */
   private migrate(): void {
     this.sql.exec("CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value INTEGER NOT NULL)");
     const row = this.sql.exec<{ value: number }>("SELECT value FROM meta WHERE key = 'schema_version'").toArray()[0];
@@ -47,15 +74,38 @@ export class NoteStore {
         )`,
       );
     }
+    if (version < 2) {
+      const existing = new Set(this.sql.exec<{ name: string }>("SELECT name FROM pragma_table_info('notes')").toArray().map((c) => c.name));
+      for (const [name, definition] of V2_COLUMNS) {
+        if (!existing.has(name)) this.sql.exec(`ALTER TABLE notes ADD COLUMN ${name} ${definition}`);
+      }
+    }
     this.write("INSERT OR REPLACE INTO meta (key, value) VALUES ('schema_version', ?)", SCHEMA_VERSION);
   }
 
-  /** Every note, in creation order. Rows that don't validate are skipped, never fatal. */
+  /**
+   * Every note, in creation order. Rows that don't validate are skipped, never fatal. A note
+   * that older code left partly off the board at its size is clamped back on (in memory; it's
+   * saved with its next change).
+   */
   private notes(): Map<string, Note> {
     if (this.cache) return this.cache;
     const cache = new Map<string, Note>();
-    for (const row of this.sql.exec<NoteRow>("SELECT id, x, y, text, color, rev, author_id FROM notes ORDER BY rowid")) {
-      const parsed = noteSchema.safeParse({ ...row, authorId: row.author_id });
+    for (const row of this.sql.exec<NoteRow>(`SELECT ${COLUMNS} FROM notes ORDER BY rowid`)) {
+      const rect = clampNoteRect({ x: row.x, y: row.y, w: row.w, h: row.h });
+      const parsed = noteSchema.safeParse({
+        id: row.id,
+        ...rect,
+        text: row.text,
+        color: row.color,
+        fontSize: row.font_size,
+        bold: row.bold === 1,
+        italic: row.italic === 1,
+        textColor: row.text_color,
+        align: row.align,
+        rev: row.rev,
+        authorId: row.author_id,
+      });
       if (parsed.success) cache.set(parsed.data.id, parsed.data);
     }
     this.cache = cache;
@@ -75,22 +125,18 @@ export class NoteStore {
   }
 
   insert(note: Note): void {
-    this.write(
-      "INSERT INTO notes (id, x, y, text, color, rev, author_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
-      note.id,
-      note.x,
-      note.y,
-      note.text,
-      note.color,
-      note.rev,
-      note.authorId,
-    );
+    this.write(`INSERT INTO notes (${COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, ...values(note));
     this.notes().set(note.id, note);
   }
 
-  /** Saves a changed note (its position, text and rev). Keeps its place in creation order. */
+  /** Saves a changed note (everything but its id and author). Keeps its place in creation order. */
   update(note: Note): void {
-    this.write("UPDATE notes SET x = ?, y = ?, text = ?, rev = ? WHERE id = ?", note.x, note.y, note.text, note.rev, note.id);
+    this.write(
+      `UPDATE notes SET x = ?, y = ?, w = ?, h = ?, text = ?, color = ?, font_size = ?, bold = ?, italic = ?, text_color = ?, align = ?, rev = ?
+       WHERE id = ?`,
+      ...values(note).slice(1, -1),
+      note.id,
+    );
     this.notes().set(note.id, note);
   }
 
@@ -104,4 +150,9 @@ export class NoteStore {
     cursor.toArray();
     this.rowsWritten += cursor.rowsWritten;
   }
+}
+
+/** A note's column values, in COLUMNS order. */
+function values(n: Note): SqlStorageValue[] {
+  return [n.id, n.x, n.y, n.w, n.h, n.text, n.color, n.fontSize, Number(n.bold), Number(n.italic), n.textColor, n.align, n.rev, n.authorId];
 }

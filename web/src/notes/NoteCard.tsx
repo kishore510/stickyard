@@ -1,19 +1,25 @@
 import { createContext, memo, useContext, useEffect, useRef, type KeyboardEvent, type PointerEvent } from "react";
-import type { NodeProps } from "@xyflow/react";
+import { NodeResizer, type NodeProps } from "@xyflow/react";
+import { NOTE_MAX_H, NOTE_MAX_W, NOTE_MIN_H, NOTE_MIN_W, type NoteRect } from "@stickyard/shared";
 import type { NoteFlowNode } from "../canvas/nodes";
 import { cn } from "../lib/utils";
 import type { BoardNote } from "./board";
 import { NOTE_COLOR_CLASSES } from "./colours";
 import { confirmDelete, noteLabel } from "./label";
+import { keyResize } from "./size";
+import { NOTE_ALIGN_CLASSES, NOTE_FONT_SIZE_CLASSES, NOTE_TEXT_COLOR_CLASSES } from "./style";
 
 /** Arrow keys move by this many board units; with Shift, by KEY_STEP_BIG. */
 const KEY_STEP = 10;
 const KEY_STEP_BIG = 50;
-/** After the last arrow key press, the position is committed (stored) this much later. */
+/** After the last arrow key press, the position (or size) is committed (stored) this much later. */
 const KEY_COMMIT_MS = 400;
 
 export interface NoteActions {
   moveNote(id: string, x: number, y: number, final: boolean): void;
+  /** A resize handle was grabbed. False if the note can't be resized now. */
+  startResize(id: string): boolean;
+  resizeNote(id: string, rect: NoteRect, final: boolean): void;
   /** Opens the note's editor: the Properties panel from md up, the editor sheet on phones. */
   openEditor(id: string): void;
   deleteNote(id: string): void;
@@ -35,8 +41,10 @@ export const NoteHelpContext = createContext("");
  * One note on the board. Note text is untrusted and only ever rendered as React text.
  * React Flow drags the whole note (mouse, pen or touch; it handles the movement threshold).
  * A click or keyboard focus selects it. A tap edits it (not under Hand); a double-click edits
- * it under any tool. Keys: Enter edits, arrow keys move (Shift for bigger steps), Delete
- * deletes, Escape clears the selection. Its size comes from the node (notes/size.ts).
+ * it under any tool. Keys: Enter edits, arrow keys move (Shift for bigger steps), Alt+arrow keys
+ * resize (Shift for bigger steps), Delete deletes, Escape clears the selection. Its size comes
+ * from the node (notes/size.ts); its text style from the note's keys (notes/style.ts), applied
+ * to the whole text.
  */
 export function NoteCard({ entry, editable, selected }: { entry: BoardNote; editable: boolean; selected: boolean }) {
   const actions = useContext(NoteActionsContext);
@@ -69,6 +77,17 @@ export function NoteCard({ entry, editable, selected }: { entry: BoardNote; edit
       ArrowUp: [0, -step],
       ArrowDown: [0, step],
     };
+    if (e.altKey && delta[e.key]) {
+      // Alt+arrows resize (top-left fixed). Not Ctrl or Meta: those belong to the browser.
+      e.preventDefault();
+      const rect = keyResize(note, e.key, e.shiftKey);
+      if (pending || !rect || !actions.startResize(note.id)) return;
+      actions.resizeNote(note.id, rect, false);
+      actions.revealNote(note.id);
+      clearTimeout(keyCommit.current);
+      keyCommit.current = setTimeout(() => actions.resizeNote(note.id, latest.current, true), KEY_COMMIT_MS);
+      return;
+    }
     const move = delta[e.key];
     if (move) {
       e.preventDefault();
@@ -123,7 +142,7 @@ export function NoteCard({ entry, editable, selected }: { entry: BoardNote; edit
       }}
       onKeyDown={onKeyDown}
       className={cn(
-        "flex size-full flex-col overflow-hidden rounded-sm border border-border p-sm text-sm text-note-fg shadow-md",
+        "flex size-full flex-col overflow-hidden rounded-sm border border-border p-sm text-note-fg shadow-md",
         "touch-none select-none",
         NOTE_COLOR_CLASSES[note.color],
         editable ? "cursor-grab" : "cursor-default",
@@ -133,14 +152,48 @@ export function NoteCard({ entry, editable, selected }: { entry: BoardNote; edit
       )}
     >
       {/* Plain text only; wraps, keeps line breaks, and clips at the note's edge. */}
-      <span aria-hidden="true" className="min-h-0 flex-1 overflow-hidden break-words whitespace-pre-wrap">
+      <span
+        aria-hidden="true"
+        className={cn(
+          "min-h-0 flex-1 overflow-hidden break-words whitespace-pre-wrap",
+          NOTE_FONT_SIZE_CLASSES[note.fontSize],
+          NOTE_TEXT_COLOR_CLASSES[note.textColor],
+          NOTE_ALIGN_CLASSES[note.align],
+          note.bold && "font-bold",
+          note.italic && "italic",
+        )}
+      >
         {note.text}
       </span>
     </div>
   );
 }
 
-/** The React Flow node for a note. Memoised: a note re-renders only when its own entry changes. */
-export const NoteNode = memo(function NoteNode({ data }: NodeProps<NoteFlowNode>) {
-  return <NoteCard entry={data.entry} editable={data.editable} selected={data.selected} />;
+const rectOf = (p: { x: number; y: number; width: number; height: number }): NoteRect => ({ x: p.x, y: p.y, w: p.width, h: p.height });
+
+/**
+ * The React Flow node for a note. Memoised: a note re-renders only when its own entry changes.
+ * When selected (and editable), React Flow's resizer shows handles at the corners (and lines
+ * along the edges), as in Chalkline: the opposite corner stays put, min/max and the board's
+ * edges (the node's extent) stop it, and the session sends the changes (throttled, then final).
+ */
+export const NoteNode = memo(function NoteNode({ id, data }: NodeProps<NoteFlowNode>) {
+  const actions = useContext(NoteActionsContext);
+  return (
+    <>
+      <NodeResizer
+        isVisible={data.resizable}
+        minWidth={NOTE_MIN_W}
+        minHeight={NOTE_MIN_H}
+        maxWidth={NOTE_MAX_W}
+        maxHeight={NOTE_MAX_H}
+        handleClassName="sy-resize-handle"
+        lineClassName="sy-resize-line"
+        onResizeStart={() => actions?.startResize(id)}
+        onResize={(_, p) => actions?.resizeNote(id, rectOf(p), false)}
+        onResizeEnd={(_, p) => actions?.resizeNote(id, rectOf(p), true)}
+      />
+      <NoteCard entry={data.entry} editable={data.editable} selected={data.selected} />
+    </>
+  );
 });

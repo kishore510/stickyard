@@ -1,15 +1,16 @@
-import { clampNotePosition, type Note, type NoteColor } from "@stickyard/shared";
+import { NOTE_DEFAULTS, clampNotePosition, clampNoteRect, type Note, type NoteColor, type NoteRect, type NoteStyle } from "@stickyard/shared";
 
 /*
  * The board as this page sees it: the server's notes plus optimistic local changes.
  * Pure functions (no I/O), each returning a new Board, or the same one when nothing changed.
  *
- * Rules (protocol v3, last-write-wins):
+ * Rules (protocol v4, last-write-wins):
  * - `confirmed` is the last state the server sent; `note` is what's shown (confirmed plus
  *   local changes). A rejected change rolls `note` back to `confirmed`.
  * - A server update whose rev is lower than the confirmed rev is stale and ignored.
  * - A local draft (text being typed) is kept apart from `note`, so remote updates never clobber it.
- * - While a note is being dragged here, remote positions are confirmed but not shown.
+ * - While a note is being dragged or resized here, remote positions and sizes are confirmed but
+ *   not shown (its rect stays where this page put it until release).
  */
 
 export interface BoardNote {
@@ -22,7 +23,16 @@ export interface BoardNote {
   /** Text being edited here and not yet committed. */
   draft: string | null;
   dragging: boolean;
+  resizing: boolean;
 }
+
+/** The style fields (and colour) one change may set. */
+export type StylePatch = Partial<NoteStyle>;
+const STYLE_KEYS = ["color", "fontSize", "bold", "italic", "textColor", "align"] as const satisfies readonly (keyof NoteStyle)[];
+
+/** Being moved or resized here: its rect is this page's until release. */
+export const isHeld = (entry: BoardNote) => entry.dragging || entry.resizing;
+const rectOf = (n: NoteRect): NoteRect => ({ x: n.x, y: n.y, w: n.w, h: n.h });
 
 export interface Board {
   /** In creation order (later notes sit on top). */
@@ -47,6 +57,7 @@ const confirmedEntry = (note: Note): BoardNote => ({
   clientRef: null,
   draft: null,
   dragging: false,
+  resizing: false,
 });
 
 /** Applies `change` to the note with `id`; the same board if there's none. */
@@ -54,8 +65,10 @@ function patch(board: Board, id: string, change: (entry: BoardNote) => BoardNote
   const index = board.notes.findIndex((n) => n.note.id === id);
   const entry = board.notes[index];
   if (!entry) return board;
+  const next = change(entry);
+  if (next === entry) return board;
   const notes = [...board.notes];
-  notes[index] = change(entry);
+  notes[index] = next;
   return { ...board, notes };
 }
 
@@ -75,8 +88,8 @@ export function applyAdded(board: Board, note: Note, clientRef?: string): Board 
     if (temp) {
       return patch(board, temp.note.id, (entry) => ({
         ...entry,
-        // Keep text committed while the add was in flight; the session sends it as an edit.
-        note: { ...note, text: entry.note.text },
+        // Keep text and style set while the add was in flight; the session sends them as an edit.
+        note: { ...note, text: entry.note.text, ...pickStyle(entry.note) },
         confirmed: note,
         clientRef: null,
       }));
@@ -87,7 +100,7 @@ export function applyAdded(board: Board, note: Note, clientRef?: string): Board 
   return { ...board, notes: [...board.notes, confirmedEntry(note)] };
 }
 
-/** Text (or colour) changed. */
+/** Text, colour or style changed (the whole note). */
 export function applyUpdated(board: Board, note: Note): Board {
   const pendingDelete = board.removed.find((n) => n.note.id === note.id);
   if (pendingDelete) {
@@ -100,7 +113,7 @@ export function applyUpdated(board: Board, note: Note): Board {
   return patch(board, note.id, (e) => ({
     ...e,
     confirmed: note,
-    note: e.dragging ? { ...note, x: e.note.x, y: e.note.y } : note,
+    note: isHeld(e) ? { ...note, ...rectOf(e.note) } : note,
   }));
 }
 
@@ -112,8 +125,19 @@ export function applyMoved(
   if (!entry || isStale(entry, move.rev)) return board;
   return patch(board, move.id, (e) => {
     const confirmed = move.final && e.confirmed ? { ...e.confirmed, x: move.x, y: move.y, rev: move.rev } : e.confirmed;
-    const position = e.dragging ? { x: e.note.x, y: e.note.y } : { x: move.x, y: move.y };
+    const position = isHeld(e) ? { x: e.note.x, y: e.note.y } : { x: move.x, y: move.y };
     return { ...e, confirmed, note: { ...e.note, ...position, rev: Math.max(e.note.rev, move.rev) } };
+  });
+}
+
+export function applyResized(board: Board, resize: NoteRect & { id: string; rev: number; final: boolean }): Board {
+  const entry = findNote(board, resize.id);
+  if (!entry || isStale(entry, resize.rev)) return board;
+  return patch(board, resize.id, (e) => {
+    const rect = rectOf(resize);
+    const confirmed = resize.final && e.confirmed ? { ...e.confirmed, ...rect, rev: resize.rev } : e.confirmed;
+    const shown = isHeld(e) ? rectOf(e.note) : rect;
+    return { ...e, confirmed, note: { ...e.note, ...shown, rev: Math.max(e.note.rev, resize.rev) } };
   });
 }
 
@@ -140,7 +164,7 @@ export function rollback(board: Board, id: string): Board {
     notes.splice(Math.min(index, notes.length), 0, entry.confirmed ? { ...entry, note: entry.confirmed } : entry);
     return { notes, removed: board.removed.filter((n) => n !== removed) };
   }
-  return patch(board, id, (e) => (e.confirmed ? { ...e, note: e.confirmed, dragging: false } : e));
+  return patch(board, id, (e) => (e.confirmed ? { ...e, note: e.confirmed, dragging: false, resizing: false } : e));
 }
 
 /* ── Local, optimistic ─────────────────────────────────────────────── */
@@ -151,6 +175,7 @@ export function addLocal(
 ): Board {
   const note: Note = {
     id: localId(add.clientRef),
+    ...NOTE_DEFAULTS,
     ...clampNotePosition(add.x, add.y),
     text: add.text,
     color: add.color,
@@ -159,7 +184,7 @@ export function addLocal(
   };
   return {
     ...board,
-    notes: [...board.notes, { note, confirmed: null, clientRef: add.clientRef, draft: null, dragging: false }],
+    notes: [...board.notes, { note, confirmed: null, clientRef: add.clientRef, draft: null, dragging: false, resizing: false }],
   };
 }
 
@@ -173,11 +198,47 @@ export function setDraft(board: Board, id: string, draft: string | null): Board 
   return patch(board, id, (e) => (e.draft === draft ? e : { ...e, draft }));
 }
 
+/** Colour and style, shown at once. The same board when nothing changes. */
+export function styleLocal(board: Board, id: string, change: StylePatch): Board {
+  const entry = findNote(board, id);
+  if (!entry) return board;
+  const next = { ...entry.note, ...definedStyle(change) };
+  if (STYLE_KEYS.every((k) => next[k] === entry.note[k])) return board;
+  return patch(board, id, (e) => ({ ...e, note: next }));
+}
+
+/** The style fields that differ between two versions of a note (for a deferred edit). */
+export function styleChanges(from: Note, to: Note): StylePatch {
+  return Object.fromEntries(STYLE_KEYS.filter((k) => from[k] !== to[k]).map((k) => [k, to[k]])) as StylePatch;
+}
+
+function pickStyle(n: Note): NoteStyle {
+  return { color: n.color, fontSize: n.fontSize, bold: n.bold, italic: n.italic, textColor: n.textColor, align: n.align };
+}
+
+function definedStyle(change: StylePatch): StylePatch {
+  return Object.fromEntries(STYLE_KEYS.filter((k) => change[k] !== undefined).map((k) => [k, change[k]])) as StylePatch;
+}
+
+/** Moves a note, clamped at its own size. */
 export function moveLocal(board: Board, id: string, x: number, y: number): Board {
-  const position = clampNotePosition(x, y);
-  return patch(board, id, (e) =>
-    e.note.x === position.x && e.note.y === position.y ? e : { ...e, note: { ...e.note, ...position } },
-  );
+  return patch(board, id, (e) => {
+    const position = clampNotePosition(x, y, e.note);
+    return e.note.x === position.x && e.note.y === position.y ? e : { ...e, note: { ...e.note, ...position } };
+  });
+}
+
+/** Resizes a note (position and size together), clamped: size within min/max, then on the board. */
+export function resizeLocal(board: Board, id: string, rect: NoteRect): Board {
+  return patch(board, id, (e) => {
+    const r = clampNoteRect(rect);
+    const n = e.note;
+    return n.x === r.x && n.y === r.y && n.w === r.w && n.h === r.h ? e : { ...e, note: { ...n, ...r } };
+  });
+}
+
+export function setResizing(board: Board, id: string, resizing: boolean): Board {
+  return patch(board, id, (e) => (e.resizing === resizing ? e : { ...e, resizing }));
 }
 
 export function setDragging(board: Board, id: string, dragging: boolean): Board {
@@ -190,6 +251,6 @@ export function deleteLocal(board: Board, id: string): Board {
   if (!entry) return board;
   return {
     notes: board.notes.filter((n) => n !== entry),
-    removed: [...board.removed, { ...entry, dragging: false, index }],
+    removed: [...board.removed, { ...entry, dragging: false, resizing: false, index }],
   };
 }

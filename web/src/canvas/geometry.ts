@@ -1,4 +1,4 @@
-import { BOARD_HEIGHT, BOARD_WIDTH, NOTE_SIZE, clampNotePosition } from "@stickyard/shared";
+import { BOARD_HEIGHT, BOARD_WIDTH, NOTE_DEFAULT_W, clampNotePosition } from "@stickyard/shared";
 import { DEFAULT_NOTE_SIZE, noteSize } from "../notes/size";
 
 /*
@@ -6,8 +6,8 @@ import { DEFAULT_NOTE_SIZE, noteSize } from "../notes/size";
  *
  * Coordinates: React Flow's flow coordinates ARE board units (1 unit = 1 CSS px at zoom 1),
  * with the board's top-left at (0, 0). A note's node sits at the note's x/y. flowToBoard is
- * the one conversion back: whole units, clamped so the note stays on the board (the server
- * clamps the same way). A viewport is React Flow's transform: screen = flow * zoom + (x, y).
+ * the one conversion back: whole units, clamped so the note (at its size) stays on the board
+ * (the server clamps the same way). A viewport is React Flow's transform: screen = flow * zoom + (x, y).
  */
 
 export interface XY {
@@ -22,6 +22,11 @@ export interface Rect extends XY, Size {}
 export interface Viewport extends XY {
   zoom: number;
 }
+/** A note's position and, when it has one, its size (notes/size.ts fills in the default). */
+export interface Placed extends XY {
+  w?: number;
+  h?: number;
+}
 
 /** What a plain mouse wheel does. Ctrl+wheel and pinch always zoom. Flip to "zoom" for wheel-zooms. */
 export const WHEEL_BEHAVIOUR: "pan" | "zoom" = "pan";
@@ -33,14 +38,14 @@ export const FIT_MAX_ZOOM = 1;
 /** Each zoom in/out step multiplies or divides the zoom by this. */
 export const ZOOM_FACTOR = 1.25;
 /** How far past the board's edge the view can be panned, in board units. */
-export const PAN_MARGIN = NOTE_SIZE;
+export const PAN_MARGIN = NOTE_DEFAULT_W;
 /** A new note on a taken spot steps down and right by this much, up to STACK_TRIES times. */
 export const STACK_OFFSET = 24;
 export const STACK_TRIES = 8;
 
-/** Flow position -> board position: whole units, kept on the board. */
-export function flowToBoard(p: XY): XY {
-  return clampNotePosition(p.x, p.y);
+/** Flow position -> board position: whole units, keeping a note of `size` on the board. */
+export function flowToBoard(p: XY, size: Size = DEFAULT_NOTE_SIZE): XY {
+  return clampNotePosition(p.x, p.y, { w: size.width, h: size.height });
 }
 
 /** Board position -> flow position (the same numbers; see the note above). */
@@ -97,7 +102,7 @@ export function clampViewport(v: Viewport, size: Size): Viewport {
 }
 
 /** The box around every note (each note's full size, from the size lookup), or null for none. */
-export function notesBounds(notes: XY[]): Rect | null {
+export function notesBounds(notes: Placed[]): Rect | null {
   if (notes.length === 0) return null;
   const x = Math.min(...notes.map((n) => n.x));
   const y = Math.min(...notes.map((n) => n.y));
@@ -110,7 +115,7 @@ export function notesBounds(notes: XY[]): Rect | null {
  * Fit to notes: every note inside `padding` (screen px) of the edges, zoom at most
  * FIT_MAX_ZOOM. An empty board is centred at zoom 1.
  */
-export function fitViewport(notes: XY[], size: Size, padding: number): Viewport {
+export function fitViewport(notes: Placed[], size: Size, padding: number): Viewport {
   const bounds = notesBounds(notes);
   if (!bounds) return clampViewport(centreOn({ x: BOARD_WIDTH / 2, y: BOARD_HEIGHT / 2 }, 1, size), size);
   const room = (screen: number) => Math.max(1, screen - 2 * padding);
@@ -120,10 +125,11 @@ export function fitViewport(notes: XY[], size: Size, padding: number): Viewport 
 }
 
 /**
- * Where a new note goes: centred on `centre` (the viewport centre), on the board. If a note
- * already starts (nearly) there, step down and right so they don't stack exactly.
+ * Where a new (default-size) note goes: centred on `centre` (the viewport centre), on the board.
+ * If a note of any size already starts (nearly) there, step down and right so they don't stack
+ * exactly.
  */
-export function newNotePosition(centre: XY, notes: XY[]): XY {
+export function newNotePosition(centre: XY, notes: Placed[]): XY {
   const taken = (p: XY) => notes.some((n) => Math.abs(n.x - p.x) < STACK_OFFSET / 2 && Math.abs(n.y - p.y) < STACK_OFFSET / 2);
   let p = flowToBoard({ x: centre.x - DEFAULT_NOTE_SIZE.width / 2, y: centre.y - DEFAULT_NOTE_SIZE.height / 2 });
   for (let i = 0; i < STACK_TRIES && taken(p); i++) {
@@ -143,7 +149,7 @@ export function dropPosition(client: XY, rect: Rect, v: Viewport, size: Size): X
   const inside = client.x >= rect.x && client.x <= rect.x + rect.width && client.y >= rect.y && client.y <= rect.y + rect.height;
   if (!inside) return null;
   const p = screenToFlow({ x: client.x - rect.x, y: client.y - rect.y }, v);
-  return flowToBoard({ x: p.x - size.width / 2, y: p.y - size.height / 2 });
+  return flowToBoard({ x: p.x - size.width / 2, y: p.y - size.height / 2 }, size);
 }
 
 /**

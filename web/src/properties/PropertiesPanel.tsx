@@ -4,7 +4,7 @@ import { BOARD_HEIGHT, BOARD_WIDTH, MAX_NOTES_PER_ROOM, type Participant } from 
 import { Button } from "../components/ui/button";
 import { useBoardUi } from "../canvas/uiStore";
 import { onlySelected } from "../canvas/selection";
-import { findNote, type Board } from "../notes/board";
+import { findNote, type Board, type StylePatch } from "../notes/board";
 import { NOTE_COLOR_NAMES } from "../notes/colours";
 import { authorName, confirmDelete } from "../notes/label";
 import { NoteFields } from "../notes/NoteFields";
@@ -24,6 +24,8 @@ export interface PropertiesRoom {
   participants: readonly Participant[];
   setDraft(id: string, draft: string | null): void;
   editNote(id: string, text: string): boolean;
+  styleNote(id: string, change: StylePatch): boolean;
+  setNoteSize(id: string, w: number, h: number): boolean;
   deleteNote(id: string): void;
 }
 
@@ -79,6 +81,8 @@ export function PropertiesContent({ room, collapse }: { room: PropertiesRoom; co
             onCommit={() => {
               if (entry.draft !== null) room.editNote(entry.note.id, entry.draft);
             }}
+            onStyle={(change) => room.styleNote(entry.note.id, change)}
+            onSize={(w, h) => room.setNoteSize(entry.note.id, w, h)}
             onDelete={() => room.deleteNote(entry.note.id)}
             showDelete={false}
             commitOnBlur

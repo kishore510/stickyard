@@ -12,6 +12,7 @@ import {
   viewportCentre,
   zoomAround,
   zoomStep,
+  type Placed,
   type Size,
   type Viewport,
   type XY,
@@ -38,7 +39,7 @@ export function useCanvasView() {
     return {
       size,
       /** Fits the view to these notes (centred on the board if none). */
-      fit: (notes: XY[], animate = true) => go(fitViewport(notes, size(), readPxToken("--sy-fit-padding", 72)), animate),
+      fit: (notes: Placed[], animate = true) => go(fitViewport(notes, size(), readPxToken("--sy-fit-padding", 72)), animate),
       zoomIn: () => go(zoomAround(viewport(), size(), zoomStep(viewport().zoom, 1)), true),
       zoomOut: () => go(zoomAround(viewport(), size(), zoomStep(viewport().zoom, -1)), true),
       resetZoom: () => go(zoomAround(viewport(), size(), 1), true),
@@ -51,7 +52,7 @@ export function useCanvasView() {
       /** The flow point at the centre of the view. */
       centre: () => viewportCentre(viewport(), size()),
       /** Pans (same zoom) to show a note that is off screen. */
-      reveal: (note: XY) => {
+      reveal: (note: Placed) => {
         const v = viewport();
         const { width, height } = size();
         const n = noteSize(note);

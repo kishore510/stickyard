@@ -219,6 +219,8 @@ export function RoomScreen({ code }: { code: string }) {
           author={authorName(editing.note.authorId, view)}
           onDraft={(text) => room.setDraft(editing.note.id, text)}
           onCommit={() => room.editNote(editing.note.id, editing.draft ?? editing.note.text)}
+          onStyle={(change) => room.styleNote(editing.note.id, change)}
+          onSize={(w, h) => room.setNoteSize(editing.note.id, w, h)}
           onDelete={() => room.deleteNote(editing.note.id)}
         />
       )}

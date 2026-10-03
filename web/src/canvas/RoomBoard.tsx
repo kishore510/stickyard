@@ -234,6 +234,8 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
     board: view.board,
     startDrag: room.startDrag,
     moveNote: room.moveNote,
+    startResize: room.startResize,
+    resizeNote: room.resizeNote,
     deleteNote: room.deleteNote,
     openEditor,
   };
@@ -317,6 +319,8 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
                 participants: view.participants,
                 setDraft: room.setDraft,
                 editNote: room.editNote,
+                styleNote: room.styleNote,
+                setNoteSize: room.setNoteSize,
                 deleteNote: room.deleteNote,
               }}
             />

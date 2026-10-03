@@ -68,7 +68,7 @@ describe("note size lookup", () => {
   it("is the note's own size (v4); new notes are the default size", () => {
     const note: Note = { id: "N1", x: 1, y: 2, ...NOTE_DEFAULTS, text: "", color: "yellow", rev: 1, authorId: "A" };
     expect(noteSize(note)).toEqual({ width: NOTE_DEFAULT_W, height: NOTE_DEFAULT_H });
-    expect(noteSize({ ...note, id: "N2", w: 300, h: 120 })).toEqual({ width: 300, height: 120 });
+    expect(noteSize({ ...note, w: 300, h: 120 })).toEqual({ width: 300, height: 120 });
   });
 });
 

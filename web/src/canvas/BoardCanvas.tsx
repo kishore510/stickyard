@@ -1,10 +1,11 @@
 import { MiniMap, ReactFlow, useStore } from "@xyflow/react";
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { BOARD_HEIGHT, BOARD_WIDTH } from "@stickyard/shared";
+import { BOARD_HEIGHT, BOARD_WIDTH, type NoteRect } from "@stickyard/shared";
 import { readPxToken } from "../lib/cssVar";
 import { useMediaQuery } from "../lib/useMediaQuery";
 import { cn } from "../lib/utils";
 import { findNote, type Board } from "../notes/board";
+import { DEFAULT_NOTE_SIZE, noteSize } from "../notes/size";
 import { NoteActionsContext, NoteHelpContext, NoteNode, type NoteActions } from "../notes/NoteCard";
 import { MAX_ZOOM, MIN_ZOOM, WHEEL_BEHAVIOUR, dragThreshold, panExtent } from "./geometry";
 import { createDragHandlers, createNoteNodeMapper, type CanvasNode } from "./nodes";
@@ -35,11 +36,11 @@ export interface BoardRoom {
   board: Board;
   startDrag(id: string): boolean;
   moveNote(id: string, x: number, y: number, final: boolean): void;
+  startResize(id: string): boolean;
+  resizeNote(id: string, rect: NoteRect, final: boolean): void;
   openEditor(id: string): void;
   deleteNote(id: string): void;
 }
-
-
 
 /**
  * The board canvas: React Flow, controlled. Notes come from the room's board as memoised nodes;
@@ -78,12 +79,18 @@ export function BoardCanvas({
       createDragHandlers({
         startDrag: (id) => latest.current.startDrag(id),
         moveNote: (id, x, y, final) => latest.current.moveNote(id, x, y, final),
+        sizeOf: (id) => {
+          const entry = findNote(latest.current.board, id);
+          return entry ? noteSize(entry.note) : DEFAULT_NOTE_SIZE;
+        },
       }),
     [],
   );
   const actions = useMemo<NoteActions>(
     () => ({
       moveNote: (id, x, y, final) => latest.current.moveNote(id, x, y, final),
+      startResize: (id) => latest.current.startResize(id),
+      resizeNote: (id, rect, final) => latest.current.resizeNote(id, rect, final),
       openEditor: (id) => latest.current.openEditor(id),
       deleteNote: (id) => latest.current.deleteNote(id),
       revealNote: (id) => {
@@ -156,7 +163,7 @@ export function BoardCanvas({
     <section aria-label="Board" className={cn("absolute inset-0", panOnly && "[&_.react-flow__pane]:cursor-grab")}>
       <p id={helpId} className="sr-only">
         {editable
-          ? "Press Enter to edit, arrow keys to move (Shift for bigger steps), Delete to delete."
+          ? "Press Enter to edit, arrow keys to move, Alt and arrow keys to resize (Shift for bigger steps), Delete to delete."
           : "Read only while disconnected."}
       </p>
       <NoteHelpContext.Provider value={helpId}>
