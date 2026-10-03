@@ -24,7 +24,7 @@ function render(node: React.ReactNode) {
   return host;
 }
 
-const SRC = new URL("../src/", import.meta.url).pathname;
+const SRC = `${process.cwd()}/src/`;
 
 describe("StickyardMark", () => {
   it("is decorative: the whole SVG is aria-hidden and has no accessible text", () => {
@@ -72,7 +72,8 @@ describe("StickyardMark", () => {
     expect(html).toContain("var(--sy-brand-");
     const tokens = readFileSync(`${SRC}styles/tokens.css`, "utf8");
     for (const name of new Set([...html.matchAll(/var\((--sy-brand-[\w-]+)\)/g)].map((m) => m[1]))) {
-      expect(tokens, name).toMatch(new RegExp(`${name}:\\s*#[0-9a-f]{6,8};`));
+      // Every colour is a hex token in tokens.css (the drift timing is the one non-colour token).
+      expect(tokens, name).toMatch(new RegExp(name?.includes("drift") ? `${name}:` : `${name}:\\s*#[0-9a-f]{6,8};`));
     }
   });
 

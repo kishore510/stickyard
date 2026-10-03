@@ -194,3 +194,24 @@
 .react-flow__panel.sy-minimap.sy-minimap-lifted {
   margin-bottom: var(--sy-above-bar);
 }
+
+/* The welcome mark's cursors drift slowly (src/brand/StickyardMark.tsx); still under reduced motion. */
+.sy-mark-drift {
+  transform-box: fill-box;
+  animation: sy-mark-drift var(--sy-brand-drift-duration) ease-in-out infinite alternate;
+}
+
+@keyframes sy-mark-drift {
+  from {
+    transform: translate(0, 0);
+  }
+  to {
+    transform: translate(var(--sy-brand-drift), calc(var(--sy-brand-drift) * -1));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sy-mark-drift {
+    animation: none;
+  }
+}

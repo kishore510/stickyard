@@ -113,6 +113,11 @@ Free-plan limits: `docs/LIMITS.md`.
 - React Flow: node `zIndex` = `note.z`; `FLOW_STACKING` (`elevateNodesOnSelect: false`, `zIndexMode: "manual"`) is spread on `<ReactFlow>`; held and selected notes are no longer raised; the board node sits at `-NOTE_Z_LIMIT - 1`. DOM (and so Tab) order and the minimap stay in creation order on purpose: reordering DOM nodes would blur a note being edited in place when someone else restacks.
 - UI: `notes/OrderFields.tsx` (`ORDER_COMMANDS`, `OrderSection` with labelled Bring to front / Send to back buttons) in Properties (one note via `NoteFields`, several via `SelectionFields`), the phone editor sheet, and an "Order" group in `SelectionBar`. Disabled while disconnected or before a note is confirmed. No keyboard shortcut (Chalkline has none; it uses layers).
 
+## Welcome screen (v0.8.1)
+- Web only. `#/` (`screens/HomeScreen.tsx`) is a welcome screen: `brand/StickyardMark.tsx`, the wordmark as the page's one `h1` (live text, Inter), the tagline, the Start and Join cards (behaviour, validation and messages unchanged; field and button share a row so both fit above the fold at 360 x 640), three one-line points (`data-welcome-points`, only what exists), and the quieter `ConnectionStatus`. Phones: mark beside the text; from md up: mark above, cards side by side (`max-w-welcome`). `#/room/<code>` still goes straight to the name sheet (no mark there).
+- `StickyardMark`: inline SVG adapted from the logo artwork (four notes, three cursors labelled Alex, Sam, Priya; no background, grid, glows, badge or baked-in text). `aria-hidden`; colours only via `var(--sy-brand-*)` (tokens.css, same in both themes, set as style props so var() works in SVG); gradient and filter ids from `useId` (unique per instance); `max-w-full`, width from `w-brand-mark` / `md:w-brand-mark-lg`. Cursors drift via `.sy-mark-drift` in index.css (`--sy-brand-drift*`), `animation: none` under reduced motion. The top bar's `components/Logo.tsx` mark and the favicon are unchanged.
+- New tokens: `--sy-brand-*`, `--sy-brand-mark(-lg)`, `--sy-welcome-max`, `--sy-text-display` (`text-display`, registered in `cn`'s tailwind-merge config). No storage or Privacy change.
+
 ## Working rules
 - One slice at a time on its own `phase-...` branch. Never commit to `main`. Stop for review at the end of each slice.
 - Do not build beyond the slice scope.

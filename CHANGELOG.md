@@ -2,6 +2,16 @@
 
 All notable changes to Stickyard, newest first. The format follows Keep a Changelog. Versions are 0.x: a minor bump for each slice and a patch bump for each follow-up fix. This file is shown in the app under **What’s new**, so entries are written for the people using it.
 
+## [0.8.1] - 2026-10-03
+
+### Added
+- A welcome screen: the start page now shows the Stickyard logo and name, a one-line summary of what Stickyard is, Start a session and Join a session side by side on a wider screen, and three short points about what works today.
+
+### Changed
+- The start page now opens with the Stickyard logo. Starting and joining work exactly as before, and on a phone both are on screen without scrolling.
+- The connection status on the start page is quieter.
+- Opening a session link still goes straight to typing your name.
+
 ## [0.8.0] - 2026-10-03
 
 ### Added
