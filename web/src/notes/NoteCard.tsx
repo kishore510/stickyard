@@ -1,11 +1,11 @@
-import { useEffect, useRef, type KeyboardEvent, type PointerEvent } from "react";
+import { createContext, memo, useContext, useEffect, useRef, type KeyboardEvent, type PointerEvent } from "react";
+import type { NodeProps } from "@xyflow/react";
+import type { NoteFlowNode } from "../canvas/nodes";
 import { cn } from "../lib/utils";
 import type { BoardNote } from "./board";
 import { NOTE_COLOR_CLASSES } from "./colours";
 import { confirmDelete, noteLabel } from "./label";
 
-/** Pointer travel (px) before a press becomes a drag rather than a tap. */
-const DRAG_THRESHOLD = 4;
 /** Arrow keys move by this many board units; with Shift, by KEY_STEP_BIG. */
 const KEY_STEP = 10;
 const KEY_STEP_BIG = 50;
@@ -13,88 +13,41 @@ const KEY_STEP_BIG = 50;
 const KEY_COMMIT_MS = 400;
 
 export interface NoteActions {
-  startDrag(id: string): boolean;
   moveNote(id: string, x: number, y: number, final: boolean): void;
   openEditor(id: string): void;
   deleteNote(id: string): void;
+  /** Pans the view to show the note, if it's off screen. */
+  revealNote(id: string): void;
+  /** False while the Hand tool is on: taps pan rather than edit. */
+  canTapEdit(): boolean;
 }
+
+/** Stable for the life of the board (the provider's value never changes), so notes don't re-render for it. */
+export const NoteActionsContext = createContext<NoteActions | null>(null);
+/** Id of the board's keyboard instructions. */
+export const NoteHelpContext = createContext("");
 
 /**
  * One note on the board. Note text is untrusted and only ever rendered as React text.
- * Drag to move (pointer events, so mouse, pen and touch), tap or Enter to edit,
- * arrow keys to move, Delete to delete.
+ * React Flow drags the whole note (mouse, pen or touch; it handles the movement threshold).
+ * A tap edits it; a mouse needs a double-click (a single click just focuses it). Keys: Enter
+ * edits, arrow keys move (Shift for bigger steps), Delete deletes.
  */
-export function NoteCard({
-  entry,
-  editable,
-  describedBy,
-  actions,
-}: {
-  entry: BoardNote;
-  editable: boolean;
-  /** Id of the keyboard instructions. */
-  describedBy: string;
-  actions: NoteActions;
-}) {
+export function NoteCard({ entry, editable }: { entry: BoardNote; editable: boolean }) {
+  const actions = useContext(NoteActionsContext);
+  const describedBy = useContext(NoteHelpContext);
   const { note, dragging } = entry;
   const pending = entry.confirmed === null;
-  const press = useRef<{
-    pointer: number;
-    startX: number;
-    startY: number;
-    noteX: number;
-    noteY: number;
-    drag: boolean;
-  } | null>(null);
+  const pointerType = useRef("mouse");
   const keyCommit = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const latest = useRef(note);
   latest.current = note;
 
   useEffect(() => () => clearTimeout(keyCommit.current), []);
 
-  const onPointerDown = (e: PointerEvent<HTMLDivElement>) => {
-    if (!editable || e.button !== 0) return;
-    e.stopPropagation();
-    e.currentTarget.setPointerCapture?.(e.pointerId);
-    press.current = {
-      pointer: e.pointerId,
-      startX: e.clientX,
-      startY: e.clientY,
-      noteX: note.x,
-      noteY: note.y,
-      drag: false,
-    };
-  };
-
-  const onPointerMove = (e: PointerEvent<HTMLDivElement>) => {
-    const p = press.current;
-    if (!p || p.pointer !== e.pointerId) return;
-    const dx = e.clientX - p.startX;
-    const dy = e.clientY - p.startY;
-    if (!p.drag) {
-      if (Math.hypot(dx, dy) < DRAG_THRESHOLD) return;
-      if (!actions.startDrag(note.id)) {
-        press.current = null;
-        return;
-      }
-      p.drag = true;
-    }
-    actions.moveNote(note.id, p.noteX + dx, p.noteY + dy, false);
-  };
-
-  const onPointerUp = (e: PointerEvent<HTMLDivElement>) => {
-    const p = press.current;
-    press.current = null;
-    if (!p || p.pointer !== e.pointerId) return;
-    if (p.drag) actions.moveNote(note.id, p.noteX + e.clientX - p.startX, p.noteY + e.clientY - p.startY, true);
-    else actions.openEditor(note.id);
-  };
-
-  const onPointerCancel = () => {
-    const p = press.current;
-    press.current = null;
-    // Commit wherever the note got to.
-    if (p?.drag) actions.moveNote(note.id, latest.current.x, latest.current.y, true);
+  if (!actions) return null;
+  const edit = () => {
+    if (editable && actions.canTapEdit()) actions.openEditor(note.id);
   };
 
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
@@ -111,11 +64,9 @@ export function NoteCard({
       e.preventDefault();
       if (pending) return;
       actions.moveNote(note.id, note.x + move[0], note.y + move[1], false);
+      actions.revealNote(note.id);
       clearTimeout(keyCommit.current);
-      keyCommit.current = setTimeout(
-        () => actions.moveNote(note.id, latest.current.x, latest.current.y, true),
-        KEY_COMMIT_MS,
-      );
+      keyCommit.current = setTimeout(() => actions.moveNote(note.id, latest.current.x, latest.current.y, true), KEY_COMMIT_MS);
       return;
     }
     if (e.key === "Enter" || e.key === " ") {
@@ -139,18 +90,31 @@ export function NoteCard({
       aria-disabled={!editable || undefined}
       aria-busy={pending || undefined}
       data-note-id={note.id}
-      onPointerDown={onPointerDown}
-      onPointerMove={onPointerMove}
-      onPointerUp={onPointerUp}
-      onPointerCancel={onPointerCancel}
+      onPointerDown={(e: PointerEvent<HTMLDivElement>) => {
+        pointerType.current = e.pointerType || "mouse";
+      }}
+      // React Flow swallows the click that ends a drag, so these only see taps and clicks.
+      onClick={() => {
+        if (pointerType.current !== "mouse") edit();
+      }}
+      onDoubleClick={edit}
+      onFocus={(e) => {
+        // Keyboard focus only: a press that starts a drag mustn't pan the view.
+        let keyboard = false;
+        try {
+          keyboard = e.currentTarget.matches(":focus-visible");
+        } catch {
+          // Older engines: no :focus-visible.
+        }
+        if (keyboard) actions.revealNote(note.id);
+      }}
       onKeyDown={onKeyDown}
-      style={{ transform: `translate(${note.x}px, ${note.y}px)` }}
       className={cn(
-        "absolute top-0 left-0 flex size-note flex-col overflow-hidden rounded-sm border border-border p-sm text-sm text-note-fg shadow-md",
+        "flex size-note flex-col overflow-hidden rounded-sm border border-border p-sm text-sm text-note-fg shadow-md",
         "touch-none select-none",
         NOTE_COLOR_CLASSES[note.color],
         editable ? "cursor-grab" : "cursor-default",
-        dragging ? "z-10 cursor-grabbing shadow-lg" : "sy-note-motion",
+        dragging && "cursor-grabbing shadow-lg",
         pending && "border-dashed opacity-75",
       )}
     >
@@ -161,3 +125,8 @@ export function NoteCard({
     </div>
   );
 }
+
+/** The React Flow node for a note. Memoised: a note re-renders only when its own entry changes. */
+export const NoteNode = memo(function NoteNode({ data }: NodeProps<NoteFlowNode>) {
+  return <NoteCard entry={data.entry} editable={data.editable} />;
+});

@@ -11,7 +11,8 @@ Draft roadmap. When a slice starts, rewrite its prompt against the real code (se
 | 0 Setup | Repo, CI, Pages deploy, Worker deploy, secrets hygiene, protocol version, Origin check | Done (v0.1.0) |
 | 0.5 App shell | App shell and design system: top bar, menu, Help / What's new / About sheets, theme, tokens | Done (v0.2.0) |
 | 1 Echo room | Two tabs, join by code and name; gated room creation; signed room codes | Done (v0.3.0, protocol v2) |
-| 2 Shared stickies | Add/edit/move/delete, last-write-wins, optimistic updates | Built, in review (v0.4.0, protocol v3) |
+| 2 Shared stickies | Add/edit/move/delete, last-write-wins, optimistic updates | Done (v0.4.0, protocol v3) |
+| 2.5 Board UX | Full-bleed React Flow canvas, tool rail / phone ribbon, zoom and fit, minimap, floating chat, Participants sheet | Done (v0.5.0, UI only) |
 | 3 Presence | Names, colours, live cursors (throttled, not stored) | Not started |
 | 4 Reconnect | Resync after drops, offline queue | Not started |
 | 5 Persistence | Room saved in the Durable Object; room expiry | Not started |
@@ -86,7 +87,7 @@ Draft roadmap. When a slice starts, rewrite its prompt against the real code (se
 ## Open questions
 
 - Stickyard name availability
-- Canvas: own vs library
+- Canvas: own vs library (settled in slice 2.5: React Flow, controlled)
 - Retros/brainstorms first vs general canvas
 - Yjs timing
 - Real limits on the Cloudflare free plan at build time

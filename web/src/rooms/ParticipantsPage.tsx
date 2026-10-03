@@ -1,0 +1,93 @@
+import { Check, Copy, LogOut } from "lucide-react";
+import { useState } from "react";
+import { MAX_NAME_LENGTH, MAX_PARTICIPANTS } from "@stickyard/shared";
+import { Button } from "../components/ui/button";
+import { cn } from "../lib/utils";
+import { participantColourClass } from "./colours";
+import { roomLink } from "./link";
+import { useRoomUi } from "./roomStore";
+
+/*
+ * The Participants sheet (#/participants): who's in the session now, the unverified-names
+ * notice, the room link and Leave. Names are untrusted: rendered as text only.
+ */
+
+function CopyLink({ code }: { code: string }) {
+  const [state, setState] = useState<"idle" | "copied" | "failed">("idle");
+  const link = roomLink(code, window.location.origin, import.meta.env.BASE_URL);
+  const copy = () => {
+    const done = navigator.clipboard?.writeText(link);
+    if (!done) return setState("failed");
+    done.then(
+      () => setState("copied"),
+      () => setState("failed"),
+    );
+  };
+  return (
+    <div className="flex flex-col gap-sm">
+      <Button onClick={copy} className="self-start">
+        {state === "copied" ? <Check /> : <Copy />}
+        Copy link
+      </Button>
+      <p role="status" className="text-sm break-all text-fg-muted">
+        {state === "copied" && "Link copied. Anyone with it can join."}
+        {state === "failed" && `Couldn’t copy. The link is: ${link}`}
+      </p>
+    </div>
+  );
+}
+
+export function ParticipantsPage() {
+  const room = useRoomUi((s) => s.room);
+  if (!room) return <p className="pb-md">You’re not in a session. Join one from the start page.</p>;
+  const people = room.live ? room.participants : [];
+
+  return (
+    <div className="flex flex-col gap-lg pb-md">
+      <section aria-labelledby="participants-heading" className="flex flex-col gap-sm">
+        <h3 id="participants-heading" className="text-base font-semibold">
+          In this session now ({people.length} of {MAX_PARTICIPANTS})
+        </h3>
+        {!room.live && <p className="text-sm text-fg-muted">Reconnect to see who’s here.</p>}
+        <ul aria-label="People in this session" className="flex flex-col gap-xs">
+          {people.map((p) => (
+            <li key={p.id} className="flex min-h-touch items-center gap-sm rounded-md border border-border bg-surface px-ms">
+              <span aria-hidden="true" className={cn("inline-block size-dot shrink-0 rounded-full", participantColourClass(p.colourIndex))} />
+              <span className="min-w-0 break-words">{p.name}</span>
+              {p.id === room.you?.id && <span className="text-fg-muted"> (you)</span>}
+            </li>
+          ))}
+        </ul>
+        <p className="rounded-md bg-surface-muted p-ms text-sm">
+          Names aren’t verified: anyone with the link can join, and anyone can type any name (up to {MAX_NAME_LENGTH}{" "}
+          characters).
+        </p>
+      </section>
+
+      <section aria-labelledby="invite-heading" className="flex flex-col gap-sm">
+        <h3 id="invite-heading" className="text-base font-semibold">
+          Invite
+        </h3>
+        <p className="text-sm text-fg-muted">Share the session’s link. Anyone with it can join.</p>
+        <CopyLink code={room.code} />
+      </section>
+
+      <section aria-labelledby="leave-heading" className="flex flex-col gap-sm">
+        <h3 id="leave-heading" className="text-base font-semibold">
+          Leave
+        </h3>
+        <p className="text-sm text-fg-muted">Your notes stay on the board.</p>
+        <Button
+          className="self-start"
+          onClick={() => {
+            room.leave();
+            window.location.hash = "#/";
+          }}
+        >
+          <LogOut />
+          Leave session
+        </Button>
+      </section>
+    </div>
+  );
+}

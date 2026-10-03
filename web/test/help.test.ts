@@ -5,7 +5,7 @@ import { buildTopics, parseFrontMatter, searchTopics } from "../src/help/topics"
 
 describe("help topics", () => {
   it("loads the topics, quick start first", () => {
-    expect(HELP_TOPICS.map((t) => t.id)).toEqual(["quick-start", "sessions", "notes", "names", "connection", "touch-and-keyboard"]);
+    expect(HELP_TOPICS.map((t) => t.id)).toEqual(["quick-start", "sessions", "notes", "participants", "chat", "names", "connection", "touch-and-keyboard"]);
     expect(topicById("sessions")?.title).toBe("Starting and joining a session");
     expect(topicById(QUICK_START_ID)?.title).toBe("Quick start");
   });
@@ -35,7 +35,7 @@ describe("help topics", () => {
 
   it("help topics only claim what exists: no cursors, QR codes, timers or votes yet", () => {
     const all = HELP_TOPICS.map((t) => t.text).join("\n");
-    expect(all).not.toMatch(/qr code|cursor|timer|vote|voting|zoom|minimap/);
+    expect(all).not.toMatch(/qr code|cursor|timer|vote|voting/);
   });
 
   it("rejects a file without valid front matter", () => {

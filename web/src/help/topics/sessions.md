@@ -15,15 +15,14 @@ A **session** is one shared room with its own link. Its address looks like `#/ro
 
 ## Sharing and joining
 
-- In a session, choose **Copy link** and share it with the people you want to invite. Anyone with the link can join.
+- In a session, open **Participants** (the people button at the top) and choose **Copy link**, then share it with the people you want to invite. Anyone with the link can join.
 - To join, open the link, or paste it (or just its code) into **Join a session** on the start page. Then type your name and choose **Join**.
 - A session holds up to 20 people at once. If it's full, try again when someone leaves.
 - If a link has been cut short or mistyped, you'll see "This link isn't valid". Ask for the link again.
 
 ## In a session
 
-- The **board** holds the session's notes. See [Notes](help:notes).
-- **People** lists everyone who's in the session now, each with a coloured dot.
-- Type in **Message** and choose **Send**: everyone in the session sees it straight away, with your name. Messages can be up to 280 characters.
-- Messages aren't saved. Someone who joins later doesn't see earlier messages.
-- **Leave** takes you back to the start page. Your notes stay on the board. If your connection drops, choose **Rejoin**.
+- The **board** fills the screen and holds the session's notes. See [Notes](help:notes).
+- **Participants** lists who's here and has **Copy link** and **Leave session**. See [Participants](help:participants).
+- **Chat** sends short messages to everyone in the session; they aren't saved. See [Chat](help:chat).
+- **Leave session** takes you back to the start page. Your notes stay on the board. If your connection drops, choose **Rejoin**.

@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { cn } from "../lib/utils";
 import { APP_VERSION } from "../version";
 import { openSheet } from "./nav";
 import { TopBar } from "./TopBar";
@@ -21,17 +22,23 @@ function SkipLink() {
 
 /**
  * The app shell: skip link, top bar (header + nav), page content (main) and footer.
- * The floating bottom bar (Chalkline's thumb toolbar) is rendered by the room screen
- * (notes/AddNoteBar.tsx), fixed above the safe area, with a spacer so content isn't hidden.
+ * `bleed` (a session): the page is exactly the screen's height and never scrolls; main is the
+ * full-bleed board (edge to edge, its floating controls keep clear of the safe areas), and
+ * there's no footer (the version is in About).
  */
-export function Shell({ children }: { children: ReactNode }) {
+export function Shell({ children, bleed = false }: { children: ReactNode; bleed?: boolean }) {
   return (
-    <div className="flex min-h-(--sy-viewport-h) flex-col">
+    <div className={cn("flex flex-col", bleed ? "h-(--sy-viewport-h) overflow-hidden" : "min-h-(--sy-viewport-h)")}>
       <SkipLink />
       <TopBar />
-      <main id="main" tabIndex={-1} className="sy-safe-x flex flex-1 flex-col outline-none">
+      <main
+        id="main"
+        tabIndex={-1}
+        className={cn("flex flex-1 flex-col outline-none", bleed ? "relative min-h-0 overflow-hidden" : "sy-safe-x")}
+      >
         {children}
       </main>
+      {!bleed && (
       <footer className="sy-safe-x sy-safe-bottom flex justify-center pt-sm">
         <a
           href="#/about"
@@ -45,6 +52,7 @@ export function Shell({ children }: { children: ReactNode }) {
           Stickyard v{APP_VERSION}
         </a>
       </footer>
+      )}
     </div>
   );
 }

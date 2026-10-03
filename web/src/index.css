@@ -1,4 +1,6 @@
 @import "tailwindcss";
+/* React Flow (the board canvas). Unlayered, so the overrides at the end are unlayered too. */
+@import "@xyflow/react/dist/style.css";
 /* Inter, bundled with the app (no font requests to other sites). */
 @import "@fontsource-variable/inter";
 @import "./styles/tokens.css";
@@ -58,10 +60,6 @@
   background-size: var(--sy-board-grid) var(--sy-board-grid);
 }
 
-/* Notes moved by someone else ease to each new position; ones you drag follow the pointer. */
-@utility sy-note-motion {
-  transition: transform var(--sy-duration-move) linear;
-}
 
 /* Sheets slide in: up from the bottom on phones, in from the right from md up. */
 @utility sy-sheet-in {
@@ -92,4 +90,59 @@
   from {
     opacity: 0;
   }
+}
+
+/*
+ * React Flow, themed from tokens. The canvas owns every touch gesture (no page zoom,
+ * scrolling or callouts) and never shows scrollbars.
+ */
+.react-flow {
+  --xy-background-color: var(--sy-canvas);
+  --xy-minimap-background-color: var(--sy-surface);
+  --xy-minimap-mask-background-color: var(--sy-minimap-mask);
+  --xy-minimap-mask-stroke-color: var(--sy-border-strong);
+  --xy-minimap-mask-stroke-width: var(--sy-border-width);
+  --xy-minimap-node-background-color: var(--sy-border-strong);
+  --xy-attribution-background-color: transparent;
+
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  scrollbar-width: none;
+}
+
+.react-flow::-webkit-scrollbar {
+  display: none;
+}
+
+.react-flow__attribution {
+  color: var(--sy-fg-muted);
+  font-size: var(--sy-text-xs);
+}
+
+.react-flow__attribution a {
+  color: inherit;
+}
+
+/* Notes moved by someone else ease to each new position; ones you drag follow the pointer. */
+.react-flow__node-note {
+  transition: transform var(--sy-duration-move) linear;
+}
+
+.react-flow__node-note.dragging {
+  transition: none;
+}
+
+/* The minimap: bottom right, clear of the safe area. */
+.react-flow__panel.sy-minimap {
+  margin: 0 var(--sy-edge-right) var(--sy-edge-bottom) 0;
+  border: var(--sy-border-width) solid var(--sy-border);
+  border-radius: var(--sy-radius-md);
+  overflow: hidden;
+  box-shadow: 0 2px 8px var(--sy-shadow);
+}
+
+.react-flow__panel.sy-minimap svg {
+  display: block;
 }

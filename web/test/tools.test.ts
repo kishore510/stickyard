@@ -25,7 +25,7 @@ describe("tool registry", () => {
     for (const t of TOOLS) {
       expect(t.label.trim()).not.toBe("");
       expect(t.icon).toBeDefined();
-      expect(t.surfaces.length).toBeGreaterThan(0);
+      expect(Object.keys(t.slots).length).toBeGreaterThan(0);
     }
   });
 

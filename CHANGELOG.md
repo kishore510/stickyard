@@ -2,6 +2,28 @@
 
 All notable changes to Stickyard, newest first. The format follows Keep a Changelog. Versions are 0.x: a minor bump for each slice and a patch bump for each follow-up fix. This file is shown in the app under **What’s new**, so entries are written for the people using it.
 
+## [0.5.0] - 2026-10-03
+
+### Added
+- **A full-screen board.** The board now fills the screen under the top bar, like a whiteboard, with a clear edge so you can see where it ends. Nothing on the page scrolls.
+- **Zoom.** Pinch, or hold **Ctrl** and scroll. On a wider screen, the bar at the bottom has zoom out, the zoom level (choose it to go back to 100%), zoom in, **Fit to notes**, **Hand** and an **Overview map** in the corner.
+- **Fit to notes** shows all the notes at once. A session now opens fitted to its notes.
+- **Tools on the left** on a wider screen: **Select**, **Hand** and **Add note**, with the note colour below. On a phone, one bar at the bottom has the colour, **Add note**, **Fit to notes** and **Hand**.
+- **Hand** makes every drag move the board, even over a note. On a computer, you can also hold **Space** and drag.
+- **Keyboard shortcuts:** **+** and **-** zoom, **0** goes to 100%, **F** fits, **V** is Select, **H** is Hand, **N** adds a note and **M** shows the overview map.
+- **Participants**: the people button at the top lists who's in the session, with **Copy link** and **Leave session**.
+- **Chat**: a chat button (at the top on a phone, at the bottom right on a wider screen), with a dot when there are messages you haven't seen.
+- Help: new **Participants** and **Chat** topics; **Notes** covers panning, zooming, fit and shortcuts.
+
+### Changed
+- Grab a note anywhere to drag it, with a mouse or a finger. A tap never moves a note by accident.
+- Tap a note to edit it. With a mouse, double-click it (a single click no longer opens it).
+- Scrolling with a mouse wheel or trackpad now moves around the board; hold **Ctrl** to zoom.
+- Dragging a note near the edge of the screen moves the board along with it.
+- New notes appear in the middle of what you can see, a little lower and to the right if a note is already there.
+- The message box and the list of people have moved off the page, into **Chat** and **Participants**. **Copy link** and **Leave** are in **Participants**.
+- About's **Privacy** says that your place on the board, the zoom, and the tool and colour you pick aren't stored or sent.
+
 ## [0.4.0] - 2026-10-03
 
 ### Added

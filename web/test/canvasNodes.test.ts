@@ -57,7 +57,7 @@ function room(notes: Note[] = [one, two]) {
     moveNote: (id, x, y, final) => session.moveNote(id, x, y, final),
   });
   const node = (id: string) => {
-    const n = nodes().find((m) => m.id === id);
+    const n = nodes().find((m): m is NoteFlowNode => m.type === "note" && m.id === id);
     if (!n) throw new Error(`no node ${id}`);
     return n;
   };
@@ -107,7 +107,7 @@ describe("notes as React Flow nodes", () => {
     r.sock().handlers.onClose();
     const r2 = room();
     r2.sock().handlers.onClose();
-    expect(r2.nodes().slice(1).every((n: NoteFlowNode) => n.draggable === false)).toBe(true);
+    expect(r2.nodes().slice(1).every((n) => n.draggable === false)).toBe(true);
   });
 });
 
@@ -151,7 +151,7 @@ describe("dragging through the canvas layer", () => {
     expect(r.nodes().map((n) => n.id)).toEqual([BOARD_NODE_ID, N2]);
     const sent = r.moves().length;
     dragTo(r, N1, 80, 90);
-    r.drag.onNodeDragStop({ ...two, id: N1, type: "note", position: { x: 80, y: 90 }, data: r.node(N2).data });
+    r.drag.onNodeDragStop({ id: N1, position: { x: 80, y: 90 } });
     vi.advanceTimersByTime(1000);
     expect(r.moves()).toHaveLength(sent);
   });
