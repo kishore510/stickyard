@@ -1,8 +1,8 @@
 ---
 title: Notes
 order: 3
-summary: Add notes from the palette, edit, colour, style and resize them in Properties, move and delete them; pan, zoom and fit the board.
-keywords: note, notes, sticky, board, add, edit, move, drag, delete, colour, color, text, title, body, size, width, height, bigger, smaller, handle, corner, font, bold, italic, align, alignment, left, centre, center, right, style, palette, tile, properties, panel, select, selection, collapse, resize, pan, hand, zoom, pinch, wheel, fit, overview, map, shortcut, full, saved
+summary: Add notes from the palette, edit, colour, style and resize them in Properties, select several to move, arrange or delete together; pan, zoom and fit the board.
+keywords: marquee, multi, several, many, group, arrange, align, distribute, match, right-click, middle, note, notes, sticky, board, add, edit, move, drag, delete, colour, color, text, title, body, size, width, height, bigger, smaller, handle, corner, font, bold, italic, align, alignment, left, centre, center, right, style, palette, tile, properties, panel, select, selection, collapse, resize, pan, hand, zoom, pinch, wheel, fit, overview, map, shortcut, full, saved
 ---
 Every session has one shared **board**. Everyone in the session sees the same notes, and changes show up for everyone as they happen. The board fills the screen; its edge is the outline around the dotted area, and notes always stay inside it.
 
@@ -18,6 +18,28 @@ Every session has one shared **board**. Everyone in the session sees the same no
 
 - Click a note, or move to it with **Tab**, to select it. It gets a coloured outline. Click an empty part of the board, or press **Esc**, to clear the selection.
 - On a wider screen, the **Properties** panel on the right shows the selected note. With nothing selected, it shows how many notes the board has and its size.
+
+## Selecting several notes
+
+On a wider screen, with a mouse:
+
+- Drag across an empty part of the board to draw a **marquee**: every note it touches is selected. Hold **Shift** while you start dragging to add to what's already selected.
+- **Shift**-click or **Ctrl**-click (**Cmd**-click on a Mac) a note to add it to the selection, or take it out.
+- **Ctrl+A** (**Cmd+A**) selects every note. **Esc**, or a click on an empty part of the board, clears the selection.
+- Drag any selected note to move them all together. They keep their places relative to each other, and stop together at the edge of the board. Dragging a note that isn't selected selects just that note.
+- With a note of the selection focused, the **arrow keys** move them all (**Shift** for bigger steps), and **Delete** deletes them all (you're asked first if any has text).
+- Properties shows how many are selected, with a bin to delete them. Their colour, text style and size are shown as **Mixed** where they differ; for now, colour and text style change one note at a time.
+- Others see the notes move as you drag (for big selections, the first 50 move live and the rest catch up when you let go).
+- On a phone (or with a finger or pen), you select one note at a time, and dragging an empty part of the board moves around it.
+
+## Arranging notes
+
+With two or more notes selected (and **Select** on), a bar appears at the top of the board:
+
+- **Align**: line them up on their left edges, centres or right edges, or their top edges, middles or bottom edges.
+- **Distribute**: space three or more evenly across or down, with equal gaps between them. The outermost two stay where they are.
+- **Match size**: give them the width, height, or both, of the first selected note (within the usual 96 to 480).
+- Notes always stay on the board. Everyone sees the change at once.
 
 ## Editing a note
 
@@ -60,9 +82,10 @@ Every session has one shared **board**. Everyone in the session sees the same no
 
 ## Moving around the board
 
-- Drag an empty part of the board to move around (on a phone, swipe it). With two fingers, drag to move around and pinch to zoom.
+- On a phone, or with a finger or pen, drag (swipe) an empty part of the board to move around. With two fingers, drag to move around and pinch to zoom.
+- With a mouse, drag with the **right** or **middle** button to move around (dragging with the left button draws a marquee; see above). The board has no right-click menu.
 - With a mouse wheel or trackpad, scrolling moves around the board. Hold **Ctrl** (or pinch on a trackpad) to zoom.
-- **Hand** makes every drag move the board, even on a note, so you can look around without moving anything. On a computer, you can also hold **Space** and drag.
+- **Hand** makes every drag move the board, even on a note or with the left button, so you can look around without moving anything. On a computer, you can also hold **Space** and drag.
 - **Fit to notes** shows all the notes at once (or the middle of the board if it's empty). A session opens fitted like this.
 - On a wider screen, the bar at the bottom has **Zoom out**, the zoom level (choose it to go back to 100%), **Zoom in**, **Fit to notes**, **Select** and **Hand**, and the **Overview map**. The map in the corner shows the whole board and where you are; drag in it to move around.
 
@@ -73,8 +96,9 @@ When you're not typing in a box:
 - **+** and **-** zoom in and out, **0** goes back to 100%, and **F** fits the view to the notes.
 - **V** is Select, **H** is Hand, **N** adds a note (on a wider screen, in the colour you last added), and **M** shows or hides the overview map.
 - **[** collapses or expands the palette, and **]** collapses or expands Properties.
+- **Ctrl+A** (**Cmd+A**) selects every note, and **Esc** clears the selection.
 
-With a note focused: **arrow keys** move it, **Alt+arrow keys** resize it (add **Shift** for bigger steps), **Enter** edits it, **Delete** deletes it and **Esc** clears the selection.
+With a note focused: **arrow keys** move it (and the rest of the selection, if several are selected), **Alt+arrow keys** resize it when it's the only one selected (add **Shift** for bigger steps), **Enter** edits it, **Delete** deletes it (or the whole selection) and **Esc** clears the selection.
 
 ## Deleting a note
 

@@ -7,9 +7,13 @@ import {
   onlySelected,
   pruneSelection,
   renameInSelection,
+  marqueeSelection,
+  orderedIds,
+  selectAll,
   selectOnly,
   toggleSelected,
 } from "../src/canvas/selection";
+import { useBoardUi } from "../src/canvas/uiStore";
 import { noteSize } from "../src/notes/size";
 import { joinTitleBody, splitTitleBody } from "../src/notes/titleBody";
 
@@ -98,5 +102,57 @@ describe("title and body", () => {
   ])("round-trips %s", (_label, text) => {
     const { title, body } = splitTitleBody(text);
     expect(joinTitleBody(title, body)).toBe(text);
+  });
+});
+
+describe("multi-select (slice 2.8)", () => {
+  const notes = [
+    { id: "a", x: 0, y: 0, w: 100, h: 100 },
+    { id: "b", x: 200, y: 0, w: 100, h: 100 },
+    { id: "c", x: 0, y: 300, w: 100, h: 100 },
+  ];
+
+  it("a marquee selects every note it touches (partly is enough), in board order", () => {
+    expect([...marqueeSelection(notes, { x: 50, y: 50, width: 200, height: 10 }, EMPTY_SELECTION, false)]).toEqual(["a", "b"]);
+    expect([...marqueeSelection(notes, { x: 101, y: 101, width: 50, height: 50 }, EMPTY_SELECTION, false)]).toEqual([]);
+  });
+
+  it("a marquee replaces the selection, or with Shift adds to what was selected when it started", () => {
+    const base = selectOnly(EMPTY_SELECTION, "c");
+    const box = { x: 250, y: 50, width: 10, height: 10 };
+    expect([...marqueeSelection(notes, box, base, false)]).toEqual(["b"]);
+    expect([...marqueeSelection(notes, box, base, true)]).toEqual(["c", "b"]);
+  });
+
+  it("a marquee drawn right-to-left or bottom-to-top (negative size) works the same", () => {
+    expect([...marqueeSelection(notes, { x: 250, y: 60, width: -200, height: -10 }, EMPTY_SELECTION, false)]).toEqual(["a", "b"]);
+  });
+
+  it("returns the same set when nothing changed", () => {
+    const sel = marqueeSelection(notes, { x: 0, y: 0, width: 10, height: 10 }, EMPTY_SELECTION, false);
+    expect(marqueeSelection(notes, { x: 1, y: 1, width: 10, height: 10 }, EMPTY_SELECTION, false, sel)).toBe(sel);
+  });
+
+  it("selectAll takes every id; orderedIds keeps the selection's own order (the first is the reference)", () => {
+    expect([...selectAll(["a", "b", "c"])]).toEqual(["a", "b", "c"]);
+    const sel = toggleSelected(selectOnly(EMPTY_SELECTION, "c"), "a");
+    expect(orderedIds(sel)).toEqual(["c", "a"]);
+  });
+
+  it("the store toggles, sets and selects all; pruning keeps only notes that still exist", () => {
+    const ui = useBoardUi.getState();
+    ui.resetRoom();
+    ui.select("a");
+    useBoardUi.getState().toggle("b");
+    expect([...useBoardUi.getState().selection]).toEqual(["a", "b"]);
+    useBoardUi.getState().toggle("a");
+    expect([...useBoardUi.getState().selection]).toEqual(["b"]);
+    useBoardUi.getState().selectAll(["a", "b", "c"]);
+    expect(useBoardUi.getState().selection.size).toBe(3);
+    useBoardUi.getState().pruneSelected((id) => id !== "b");
+    expect([...useBoardUi.getState().selection]).toEqual(["a", "c"]);
+    useBoardUi.getState().setSelection(new Set(["c"]));
+    expect([...useBoardUi.getState().selection]).toEqual(["c"]);
+    useBoardUi.getState().resetRoom();
   });
 });

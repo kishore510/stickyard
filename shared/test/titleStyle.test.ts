@@ -22,8 +22,8 @@ const edit = (fields: Record<string, unknown>) => clientMessageSchema.safeParse(
 const TITLE_FIELDS = ["titleFontSize", "titleBold", "titleItalic", "titleTextColor"] as const;
 
 describe("title style (protocol v6)", () => {
-  it("is protocol 6, and the title's defaults match the body's", () => {
-    expect(PROTOCOL_VERSION).toBe(6);
+  it("is protocol 6 or later, and the title's defaults match the body's", () => {
+    expect(PROTOCOL_VERSION).toBeGreaterThanOrEqual(6);
     expect(NOTE_DEFAULTS.titleFontSize).toBe(NOTE_DEFAULTS.fontSize);
     expect(NOTE_DEFAULTS.titleBold).toBe(NOTE_DEFAULTS.bold);
     expect(NOTE_DEFAULTS.titleItalic).toBe(NOTE_DEFAULTS.italic);

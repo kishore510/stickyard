@@ -33,6 +33,13 @@ describe("help topics", () => {
     expect(notes?.text).toContain("last wins");
   });
 
+  it("the Notes topic covers selecting several notes, the marquee, right-drag panning and arranging (slice 2.8)", () => {
+    const notes = HELP_TOPICS.find((t) => t.id === "notes")?.text ?? "";
+    for (const claim of ["selecting several notes", "marquee", "shift", "ctrl+a", "right", "middle", "arranging notes", "align", "distribute", "match size", "first selected", "selected"]) {
+      expect(notes, claim).toContain(claim);
+    }
+  });
+
   it("the Notes topic covers the palette, selecting, the Properties panel and panel shortcuts", () => {
     const notes = HELP_TOPICS.find((t) => t.id === "notes")?.text ?? "";
     // Topic text is lower-cased for search.

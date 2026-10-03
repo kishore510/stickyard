@@ -76,6 +76,13 @@ Estimates against the free allowances above (checked 2 October 2026; not re-chec
 
 **Requests.** A drag or a resize sends about 20 messages a second (20:1 billing → about 1 DO request/s per person dragging). The per-socket bucket is now 30/s with a burst of 40 (it was 5/s), so a script on one socket can spend up to about 1.5 DO requests/s. Twenty violations within 10 seconds close the socket.
 
+**Batches (protocol v7, slice 2.8).** A group move, arrange or group delete goes out as `noteBatch` messages of up to `MAX_BATCH_ENTRIES` = 50 entries.
+- *Writes:* a final batch of N changed notes is **N row writes** (one per moved, resized or deleted note; unchanged entries write nothing) in one SQLite transaction. Arranging all 200 notes is 200 rows (4 batches); dragging a 50-note selection and dropping it is 50 rows. A busy workshop that arranges often might add a few thousand rows a day, still well inside 100,000. A live group drag (`final: false`) writes nothing (tested).
+- *Requests:* a batch is **one message** (one token from the 30/s bucket, and 1/20 of a DO request), whatever its size. The web sends a live group drag at most every 100 ms (`GROUP_MOVE_INTERVAL_MS`), so dragging a group costs about 10 messages a second, half a single-note drag.
+- *Entries budget:* entries also spend a separate per-socket bucket, `BATCH_LIMITS` in `worker/src/limits.ts`: **600 entries a second, burst 1,000**. A 50-note live drag needs 500 a second; a 200-note arrange needs 200 at once. A batch over budget is dropped with `rate_limited` naming its notes (the sender rolls them back) and counts as a violation, exactly like the message bucket (20 in 10 s close the socket). Relaying is the main cost here: one live 50-entry batch fans out as a message of about 3.5 KB to each other participant.
+- *Message cap:* `MAX_MESSAGE_BYTES` stays at **4 KiB**. The largest valid batch (50 resize entries with 4-digit positions and maximum sizes) is under it (`shared/test/batch.test.ts` checks), so no raise was needed. A `notesBatchApplied` of 50 results is about 5 KB, far under the 512 KiB server message cap.
+- *Snapshot:* unchanged by v7 (401,829 bytes worst case).
+
 **Storage.** At most 200 notes × about 1.3 KB (slice 2.7 adds seven small columns, size and style keys; 2.7.1 one more, the title's alignment) = well under 1 MB per room. Rooms don't expire yet (slice 5), so storage grows with the number of rooms that have notes.
 
 **Messages out.** The web accepts server messages up to `MAX_SERVER_MESSAGE_BYTES` (512 KiB). Outgoing messages aren't billed as requests.

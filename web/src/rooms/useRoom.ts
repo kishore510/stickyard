@@ -56,6 +56,10 @@ export function useRoom(code: string) {
     setNoteSize: (id: string, w: number, h: number) => session.current?.setNoteSize(id, w, h) ?? false,
     styleNote: (id: string, change: StylePatch) => session.current?.styleNote(id, change) ?? false,
     deleteNote: (id: string) => session.current?.deleteNote(id),
+    startGroupDrag: (ids: readonly string[]) => session.current?.startGroupDrag(ids) ?? false,
+    moveGroup: (positions: readonly { id: string; x: number; y: number }[], final: boolean) => session.current?.moveGroup(positions, final),
+    applyRects: (rects: readonly (NoteRect & { id: string })[]) => session.current?.applyRects(rects) ?? false,
+    deleteNotes: (ids: readonly string[]) => session.current?.deleteNotes(ids),
     leave: () => session.current?.close(),
   };
 }

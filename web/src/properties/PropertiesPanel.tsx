@@ -1,19 +1,22 @@
 import type { ReactNode } from "react";
 import { Trash2 } from "lucide-react";
-import { BOARD_HEIGHT, BOARD_WIDTH, MAX_NOTES_PER_ROOM, type Participant } from "@stickyard/shared";
+import { BOARD_HEIGHT, BOARD_WIDTH, MAX_NOTES_PER_ROOM, NOTE_STYLE_FIELDS, type Note, type Participant } from "@stickyard/shared";
 import { Button } from "../components/ui/button";
 import { useBoardUi } from "../canvas/uiStore";
-import { onlySelected } from "../canvas/selection";
+import { onlySelected, orderedIds } from "../canvas/selection";
 import { findNote, type Board, type StylePatch } from "../notes/board";
 import { NOTE_COLOR_NAMES } from "../notes/colours";
 import { authorName, confirmDelete } from "../notes/label";
 import { NoteFields } from "../notes/NoteFields";
+import { ColourSection, PartTextSection, SizeSection, type MixedFields } from "../notes/StyleFields";
 
 /*
  * The Properties panel's content (md and up, inside the SidePanel frame), laid out like
  * Chalkline's: a sticky tab row with the collapse button, a header naming what's selected (with
  * Delete), then its fields. Nothing selected: a summary of the board. One note: its fields
- * (notes/NoteFields.tsx), which are the note editor from md up. Read-only while disconnected.
+ * (notes/NoteFields.tsx), which are the note editor from md up. Several: "N selected" with
+ * Delete, and their colour, text style and size shown read-only ("Mixed" where they differ);
+ * changing those for several notes at once isn't possible yet. Read-only while disconnected.
  */
 
 export interface PropertiesRoom {
@@ -27,6 +30,36 @@ export interface PropertiesRoom {
   styleNote(id: string, change: StylePatch): boolean;
   setNoteSize(id: string, w: number, h: number): boolean;
   deleteNote(id: string): void;
+  deleteNotes(ids: readonly string[]): void;
+}
+
+/** The style and size fields whose values differ between these notes. */
+export function mixedFields(notes: readonly Note[]): MixedFields {
+  const first = notes[0];
+  if (!first) return new Set();
+  const keys = [...NOTE_STYLE_FIELDS, "w", "h"] as const;
+  return new Set(keys.filter((k) => notes.some((n) => n[k] !== first[k])));
+}
+
+const noop = () => {};
+
+/** Several notes selected: what they share, read-only (they move, arrange and delete together). */
+function SelectionFields({ notes }: { notes: Note[] }) {
+  const first = notes[0];
+  if (!first) return null;
+  const mixed = mixedFields(notes);
+  return (
+    <>
+      <p className="rounded-md bg-surface-muted p-ms text-sm text-fg-muted">
+        Drag one to move them all, or use the bar at the top of the board to align, distribute or match their size. Colour and text style
+        change one note at a time.
+      </p>
+      <ColourSection note={first} live={false} onStyle={noop} mixed={mixed} />
+      <PartTextSection part="title" note={first} live={false} onStyle={noop} mixed={mixed} />
+      <PartTextSection part="body" note={first} live={false} onStyle={noop} mixed={mixed} />
+      <SizeSection note={first} live={false} onSize={noop} mixed={mixed} />
+    </>
+  );
 }
 
 function Summary({ count }: { count: number }) {
@@ -46,6 +79,7 @@ export function PropertiesContent({ room, collapse }: { room: PropertiesRoom; co
   const id = onlySelected(selection);
   const entry = id === null ? undefined : findNote(room.board, id);
   const text = entry ? (entry.draft ?? entry.note.text) : "";
+  const many = selection.size > 1 ? orderedIds(selection).flatMap((n) => findNote(room.board, n)?.note ?? []) : [];
 
   return (
     <div className="px-md">
@@ -54,7 +88,26 @@ export function PropertiesContent({ room, collapse }: { room: PropertiesRoom; co
         <h2 className="flex min-h-touch min-w-0 flex-1 items-center justify-center border-b-2 border-accent text-sm font-medium">Properties</h2>
       </div>
       <div className="flex min-h-touch items-center gap-xs">
-        <h3 className="min-w-0 flex-1 truncate text-sm font-semibold">{entry ? `${NOTE_COLOR_NAMES[entry.note.color]} note` : "Board"}</h3>
+        <h3 className="min-w-0 flex-1 truncate text-sm font-semibold">
+          {many.length > 1 ? `${many.length} selected` : entry ? `${NOTE_COLOR_NAMES[entry.note.color]} note` : "Board"}
+        </h3>
+        {many.length > 1 && (
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label={`Delete ${many.length} notes`}
+            title={`Delete ${many.length} notes (Del)`}
+            disabled={!room.live}
+            onClick={() => {
+              if (!confirmDelete(many.map((n) => n.text).join(""))) return;
+              room.deleteNotes(many.map((n) => n.id));
+              useBoardUi.getState().clearSelection();
+            }}
+            className="text-status-error"
+          >
+            <Trash2 />
+          </Button>
+        )}
         {entry && (
           <Button
             variant="ghost"
@@ -72,7 +125,9 @@ export function PropertiesContent({ room, collapse }: { room: PropertiesRoom; co
         )}
       </div>
       <div className="flex flex-col gap-md pb-md">
-        {entry ? (
+        {many.length > 1 ? (
+          <SelectionFields notes={many} />
+        ) : entry ? (
           <NoteFields
             entry={entry}
             live={room.live}

@@ -35,3 +35,15 @@ export const SOCKET_LIMITS = {
   maxViolations: 20,
   violationWindowMs: 10_000,
 } as const;
+
+/**
+ * A noteBatch counts as one message against SOCKET_LIMITS, and its entries also count against
+ * this per-socket budget. The web sends a live group drag of up to 50 notes at most every
+ * 100 ms (500 entries a second), and final changes in chunks of 50, so a 200-note arrange (200
+ * entries) fits the burst. Over-budget batches are dropped and count as violations, exactly as
+ * for SOCKET_LIMITS.
+ */
+export const BATCH_LIMITS = {
+  entriesPerSecond: 600,
+  entriesBurst: 1000,
+} as const;

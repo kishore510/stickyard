@@ -1402,3 +1402,210 @@ describe("room error screens", () => {
     expect(document.querySelector("main h1")?.textContent).toBe("Please reload");
   });
 });
+
+describe("multi-select and arrange (slice 2.8, md up)", () => {
+  const N1 = "NNNNNNNNNNNNNNN1";
+  const N2 = "NNNNNNNNNNNNNNN2";
+  const N3 = "NNNNNNNNNNNNNNN3";
+  const one: Note = { id: N1, x: 40, y: 60, ...NOTE_DEFAULTS, text: "Idea one", color: "pink", rev: 1, authorId: sam.id };
+  const two: Note = { id: N2, x: 400, y: 300, ...NOTE_DEFAULTS, text: "", color: "blue", rev: 1, authorId: sam.id };
+  const three: Note = { id: N3, x: 800, y: 100, ...NOTE_DEFAULTS, text: "", color: "blue", bold: true, rev: 1, authorId: sam.id };
+  const properties = () => document.querySelector<HTMLElement>('aside[aria-label="Properties"]');
+  const notes = () => [...document.querySelectorAll<HTMLElement>('[aria-roledescription="note"]')];
+  const selected = () => notes().filter((n) => n.getAttribute("aria-current") === "true").map((n) => n.dataset.noteId);
+  const bar = () => document.querySelector<HTMLElement>('[role="toolbar"][aria-label="Selection"]');
+  const batches = (socket: FakeWebSocket) => (socket.sent as Record<string, unknown>[]).filter((m) => m.type === "noteBatch");
+  async function withNotes(...list: Note[]) {
+    setWide(true);
+    const socket = await inRoom();
+    await server(socket, { data: { type: "snapshot", notes: list } });
+    // The board is loaded on demand: wait for it.
+    for (let i = 0; i < 100 && notes().length < list.length; i++) await settle();
+    return socket;
+  }
+  async function pointer(target: EventTarget, type: string, init: PointerEventInit) {
+    await act(async () => {
+      target.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, pointerType: "mouse", button: 0, ...init }));
+    });
+  }
+  async function noteClick(i: number, init: MouseEventInit = {}) {
+    const el = notes()[i];
+    if (!el) throw new Error("no note");
+    await pointer(el, "pointerdown", { shiftKey: init.shiftKey ?? false, ctrlKey: init.ctrlKey ?? false });
+    await act(async () => {
+      el.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, ...init }));
+    });
+    await settle();
+  }
+  async function key(k: string, target: EventTarget = document.body, init: KeyboardEventInit = {}) {
+    await act(async () => {
+      target.dispatchEvent(new KeyboardEvent("keydown", { key: k, bubbles: true, cancelable: true, ...init }));
+    });
+    await settle();
+  }
+
+  it("Shift- or Ctrl-click toggles notes; a plain click selects just one", async () => {
+    await withNotes(one, two, three);
+    await noteClick(0);
+    await noteClick(1, { shiftKey: true });
+    expect(selected()).toEqual([N1, N2]);
+    await noteClick(2, { ctrlKey: true });
+    expect(selected()).toEqual([N1, N2, N3]);
+    await noteClick(1, { shiftKey: true });
+    expect(selected()).toEqual([N1, N3]);
+    await noteClick(1);
+    expect(selected()).toEqual([N2]);
+  });
+
+  it("Ctrl+A selects every note, Escape clears; neither fires while typing in a field", async () => {
+    await withNotes(one, two, three);
+    await key("a", document.body, { ctrlKey: true });
+    expect(selected()).toEqual([N1, N2, N3]);
+    await key("Escape");
+    expect(selected()).toEqual([]);
+    await noteClick(0);
+    const title = properties()?.querySelector<HTMLInputElement>('input[name="title"]');
+    await key("a", title ?? document.body, { ctrlKey: true });
+    expect(selected()).toEqual([N1]);
+  });
+
+  it("a mouse drag on empty canvas draws a marquee and selects what it touches; Shift adds; a click clears", async () => {
+    await withNotes(one, two, three);
+    const pane = document.querySelector<HTMLElement>(".react-flow__pane");
+    if (!pane) throw new Error("no pane");
+    // Board units to client pixels, through the canvas's current transform.
+    const [tx, ty, zoom] = (document.querySelector(".react-flow__viewport")?.getAttribute("style") ?? "").match(/-?[\d.]+/g)?.map(Number) ?? [0, 0, 1];
+    const at = (x: number, y: number) => ({ clientX: (tx ?? 0) + x * (zoom ?? 1), clientY: (ty ?? 0) + y * (zoom ?? 1) });
+    // From the board's top-left to just past the second note: the first two, not the third.
+    await pointer(pane, "pointerdown", at(0, 0));
+    await pointer(window, "pointermove", at(600, 500));
+    expect(document.querySelector("[data-marquee]")).not.toBeNull();
+    await pointer(window, "pointerup", at(600, 500));
+    await settle();
+    expect(document.querySelector("[data-marquee]")).toBeNull();
+    expect(selected()).toEqual([N1, N2]);
+    // Shift adds to the selection.
+    await pointer(pane, "pointerdown", { ...at(790, 90), shiftKey: true });
+    await pointer(window, "pointermove", { ...at(850, 150), shiftKey: true });
+    await pointer(window, "pointerup", { ...at(850, 150), shiftKey: true });
+    await settle();
+    expect(selected()).toEqual([N1, N2, N3]);
+    // A click (no movement) on empty canvas clears it.
+    await pointer(pane, "pointerdown", at(2000, 1500));
+    await pointer(window, "pointerup", at(2000, 1500));
+    await act(async () => pane.click());
+    await settle();
+    expect(selected()).toEqual([]);
+  });
+
+  it("touch on empty canvas never draws a marquee (it pans)", async () => {
+    await withNotes(one, two);
+    const pane = document.querySelector<HTMLElement>(".react-flow__pane");
+    if (!pane) throw new Error("no pane");
+    await pointer(pane, "pointerdown", { clientX: 0, clientY: 0, pointerType: "touch" });
+    await pointer(window, "pointermove", { clientX: 600, clientY: 600, pointerType: "touch" });
+    expect(document.querySelector("[data-marquee]")).toBeNull();
+    await pointer(window, "pointerup", { clientX: 600, clientY: 600, pointerType: "touch" });
+    expect(selected()).toEqual([]);
+  });
+
+  it("the canvas has no browser context menu (right-drag pans)", async () => {
+    await withNotes(one);
+    const board = document.querySelector<HTMLElement>('section[aria-label="Board"]');
+    const event = new MouseEvent("contextmenu", { bubbles: true, cancelable: true });
+    await act(async () => {
+      board?.querySelector(".react-flow__pane")?.dispatchEvent(event);
+    });
+    expect(event.defaultPrevented).toBe(true);
+  });
+
+  it("Properties shows N selected, Mixed for differing values, style fields disabled, and Delete (asks first)", async () => {
+    const socket = await withNotes(one, two, three);
+    await key("a", document.body, { ctrlKey: true });
+    expect(properties()?.textContent).toContain("3 selected");
+    const colour = properties()?.querySelector('[aria-label="Note colour"]');
+    expect(colour?.textContent).toContain("Mixed");
+    expect(colour?.querySelector('[aria-pressed="true"]')).toBeNull();
+    expect(properties()?.querySelector('[aria-label="Body text style"] [aria-label="Bold body"]')?.getAttribute("aria-pressed")).toBe("mixed");
+    const controls = [...(properties()?.querySelectorAll<HTMLButtonElement | HTMLSelectElement | HTMLInputElement>("section button, section select, section input") ?? [])];
+    expect(controls.length).toBeGreaterThan(20);
+    expect(controls.every((c) => c.disabled)).toBe(true);
+    expect(properties()?.querySelector('input[name="title"]')).toBeNull();
+    const confirm = vi.fn(() => true);
+    vi.stubGlobal("confirm", confirm);
+    await click(properties()?.querySelector<HTMLElement>('[aria-label="Delete 3 notes"]') ?? undefined);
+    expect(confirm).toHaveBeenCalled();
+    expect(batches(socket)).toEqual([
+      {
+        type: "noteBatch",
+        final: true,
+        ops: [
+          { op: "delete", id: N1 },
+          { op: "delete", id: N2 },
+          { op: "delete", id: N3 },
+        ],
+      },
+    ]);
+    expect(notes()).toHaveLength(0);
+    expect(selected()).toEqual([]);
+  });
+
+  it("the selection bar shows for 2+ notes: align sends one batch; distribute needs 3", async () => {
+    const socket = await withNotes(one, two, three);
+    await noteClick(0);
+    expect(bar()).toBeNull();
+    await noteClick(1, { shiftKey: true });
+    expect(bar()).not.toBeNull();
+    const distribute = bar()?.querySelector<HTMLButtonElement>('[aria-label="Distribute horizontally (equal gaps)"]');
+    expect(distribute?.disabled).toBe(true);
+    await click(bar()?.querySelector<HTMLElement>('[aria-label="Align left edges"]') ?? undefined);
+    expect(batches(socket).at(-1)).toEqual({ type: "noteBatch", final: true, ops: [{ op: "move", id: N2, x: 40, y: 300 }] });
+    expect(notes()[1]?.closest(".react-flow__node")?.getAttribute("style")).toContain("translate(40px");
+    await noteClick(2, { shiftKey: true });
+    expect(bar()?.querySelector<HTMLButtonElement>('[aria-label="Distribute horizontally (equal gaps)"]')?.disabled).toBe(false);
+    await click(bar()?.querySelector<HTMLElement>('[aria-label="Match width to the first selected"]') ?? undefined);
+    for (const label of ["Align centres horizontally", "Align right edges", "Align top edges", "Align centres vertically", "Align bottom edges", "Distribute vertically (equal gaps)", "Match height to the first selected", "Match size to the first selected"]) {
+      expect(bar()?.querySelector(`[aria-label="${label}"]`), label).not.toBeNull();
+    }
+  });
+
+  it("arrow keys move the whole selection; Alt+arrows don't resize several notes", async () => {
+    const socket = await withNotes(one, two);
+    await key("a", document.body, { ctrlKey: true });
+    await key("ArrowRight", notes()[0] as HTMLElement);
+    expect(batches(socket).at(-1)).toEqual({
+      type: "noteBatch",
+      final: false,
+      ops: [
+        { op: "move", id: N1, x: 50, y: 60 },
+        { op: "move", id: N2, x: 410, y: 300 },
+      ],
+    });
+    await act(() => new Promise((resolve) => setTimeout(resolve, 500)));
+    expect(batches(socket).at(-1)).toMatchObject({ final: true });
+    const before = (socket.sent as Record<string, unknown>[]).length;
+    await key("ArrowRight", notes()[0] as HTMLElement, { altKey: true });
+    expect((socket.sent as Record<string, unknown>[]).slice(before).filter((m) => m.type === "noteResize" || m.type === "noteBatch")).toEqual([]);
+  });
+
+  it("Delete on a focused note deletes the whole selection, asking first when any has text", async () => {
+    const socket = await withNotes(one, two);
+    await key("a", document.body, { ctrlKey: true });
+    const confirm = vi.fn(() => false);
+    vi.stubGlobal("confirm", confirm);
+    await key("Delete", notes()[1] as HTMLElement);
+    expect(confirm).toHaveBeenCalled();
+    expect(batches(socket)).toEqual([]);
+    confirm.mockReturnValue(true);
+    await key("Delete", notes()[1] as HTMLElement);
+    expect(batches(socket).at(-1)).toMatchObject({ ops: [{ op: "delete", id: N1 }, { op: "delete", id: N2 }] });
+  });
+
+  it("selection is pruned when someone else deletes a selected note", async () => {
+    const socket = await withNotes(one, two, three);
+    await key("a", document.body, { ctrlKey: true });
+    await server(socket, { data: { type: "notesBatchApplied", final: true, results: [{ type: "noteDeleted", id: N2 }] } });
+    expect(selected()).toEqual([N1, N3]);
+    expect(properties()?.textContent).toContain("2 selected");
+  });
+});
