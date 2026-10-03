@@ -6,6 +6,12 @@ export const PROTOCOL_VERSION = 1;
 /** Hard cap on a single WebSocket message, in UTF-8 bytes. Checked before JSON.parse. */
 export const MAX_MESSAGE_BYTES = 4096;
 
+/* Slice 1 stub constants (tests first). */
+export const MAX_NAME_LENGTH = 24;
+export const MAX_TEXT_LENGTH = 280;
+export const MAX_PARTICIPANTS = 20;
+export const PALETTE_SIZE = 8;
+
 const protocolVersion = z.number().int().nonnegative();
 
 // Non-strict on purpose: a future client may add fields to `hello`, and we still
@@ -34,3 +40,10 @@ export const errorMessageSchema = z.object({
 
 export const serverMessageSchema = z.discriminatedUnion("type", [welcomeSchema, errorMessageSchema]);
 export type ServerMessage = z.infer<typeof serverMessageSchema>;
+
+/* Slice 1 stub type (tests first). */
+export interface Participant {
+  id: string;
+  name: string;
+  colourIndex: number;
+}

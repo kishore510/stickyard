@@ -1,6 +1,7 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { PALETTE_SIZE } from "@stickyard/shared";
 import { BREAKPOINTS } from "../src/styles/breakpoints";
 
 const SRC = new URL("../src/", import.meta.url).pathname;
@@ -44,6 +45,24 @@ describe("design tokens", () => {
       expect(contrast(c.accent!, c[bg]!), `accent on ${bg}`).toBeGreaterThanOrEqual(4.5);
     }
     expect(contrast(c["accent-fg"]!, c.accent!), "accent-fg on accent").toBeGreaterThanOrEqual(4.5);
+  });
+
+  it.each([':root,\n[data-theme="light"]', '[data-theme="dark"]'])(
+    "participant colours: one per palette slot in %s, each visible on the page and on cards",
+    (selector) => {
+      const c = theme(selector);
+      const names = Object.keys(c).filter((n) => /^participant-\d+$/.test(n));
+      expect(names).toEqual(Array.from({ length: PALETTE_SIZE }, (_, i) => `participant-${i + 1}`));
+      for (const name of names) {
+        // Non-text graphics need 3:1 (WCAG 1.4.11). The name is always shown next to the dot.
+        expect(contrast(c[name]!, c.surface!), `${name} on surface`).toBeGreaterThanOrEqual(3);
+        expect(contrast(c[name]!, c.bg!), `${name} on bg`).toBeGreaterThanOrEqual(3);
+      }
+    },
+  );
+
+  it("participant colours are mapped to Tailwind utilities", () => {
+    for (let i = 1; i <= PALETTE_SIZE; i++) expect(tokens).toContain(`--color-participant-${i}: var(--sy-participant-${i});`);
   });
 
   it("no colours outside tokens.css", () => {

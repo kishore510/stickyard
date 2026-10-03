@@ -2,6 +2,7 @@ import { PROTOCOL_VERSION } from "@stickyard/shared";
 import { isAllowedOrigin, parseAllowedOrigins } from "./origin";
 
 export { Room } from "./room";
+export { Limiter } from "./limiter";
 
 // Slice 0 routes every socket to one fixed object. Real room routing arrives in slice 1.
 const PLACEHOLDER_ROOM = "check";
