@@ -19,14 +19,18 @@ Draft roadmap. When a slice starts, rewrite its prompt against the real code (se
 | 2.7.2 Title styling | Separate size, bold, italic and text colour for a note's title and body. Protocol v6 + stored-schema migration (3 -> 4) | Done (v0.6.2) |
 | 2.8 Multi-select and arrange | Marquee and multi-select, floating selection bar (align, distribute, match size), group move/delete, batch update message. Protocol v7 | Done (v0.7.0) |
 | 2.9 Inline note editing | Type on the note itself from md up (two styled textareas), double-click/Enter/new note start it; web only, no protocol change | Done (v0.7.1) |
-| 3 Presence | Live cursors (throttled, never stored), join/leave toasts, avatar stack. Protocol v8 | Not started |
+| Z-order | Bring to front / send to back (a z field: protocol and stored-schema change, own branch). Expected next | Not started |
+| Frames | Named, resizable, coloured areas behind notes. Own protocol and stored-schema change, after z-order | Not started |
+| Templates | Retro, start/stop/continue, 2x2, sprint planning, built from frames and labelled notes | Not started |
+| 6 (part) Timer and lock board | Cut-down slice 6: shared timer and lock board only | Not started |
 | 4 Reconnect | Resync after drops, offline queue | Not started |
+| 3a Presence: avatars and toasts | Avatar stack in the top bar, join/leave toasts. Probably no protocol change (uses `participant_joined`/`participant_left`) | Not started |
 | 5 Persistence | Room expiry and clear messaging (basic note persistence exists since slice 2) | Not started |
-| 6 Facilitation | Shared timer, lock board, silent brainstorm + reveal, dot voting, host token, facilitator-defined note palette | Not started |
-| Z-order | Bring to front / send to back (a z field: stored-schema change, own branch). Required before or with 7a | Not started |
+| 6 (rest) Facilitation | Silent brainstorm + reveal, dot voting, host token, facilitator-defined note palette | Not started |
+| 3b Presence: live cursors | Live cursors (throttled, never stored). Protocol change | Deferred |
 | 7a Text box and shapes | Text box and basic shapes (rectangle, oval, diamond), reusing 2.7's sizing and colour work | Not started |
 | 7b Arrows | (i) Free endpoints and a line style; (ii) endpoints bound to notes and shapes, re-routed when a bound object moves, with a rule for deleting a bound object | Not started |
-| 7c Structure | Group boxes, columns/templates (retro, 2x2), grouping, Stencils tab and Save as stencil, export (PNG/Markdown) | Not started |
+| 7c Structure (remaining) | Group boxes, affinity grouping, Stencils tab and Save as stencil, export (PNG/Markdown). Frames and templates moved to their own slices | Not started |
 | 8 Phone view | Phone participant view, QR join | Not started |
 | 9 Hardening | Message-rate limits, load test, accessibility pass | Not started |
 | 10 AI | Summary and sentiment analysis, explicit buttons, add-only | Optional, last |
@@ -38,9 +42,10 @@ Draft roadmap. When a slice starts, rewrite its prompt against the real code (se
 - Success criterion for the core: two phones and a laptop editing the same board reliably.
 - Build slice 2 by hand (last-write-wins) before considering Yjs, so the problem Yjs solves is understood.
 - Test on the live deployment; merge and deploy each slice, roll back if needed (single user).
-- Every new object type (timer, text box, group box) needs its own protocol/schema change with a version bump, caps and tests. The palette gets its tile with one registry entry; no placeholder tiles for things that don't exist.
-- Each protocol or stored-schema change is its own slice and branch (2.7, 2.7.1, 2.7.2, 2.8, 3 are separate for that reason).
-- Protocol numbers: 2.8 is v7 and 3 is v8. Numbers after v8 are assigned when each slice starts, not in advance.
+- Every new object type (frame, timer, text box, group box) needs its own protocol/schema change with a version bump, caps and tests. The palette gets its tile with one registry entry; no placeholder tiles for things that don't exist.
+- Each protocol or stored-schema change is its own slice and branch (2.7, 2.7.1, 2.7.2, 2.8, z-order, frames, 3b are separate for that reason).
+- Protocol numbers are assigned when each slice starts, not in advance (v7 is the current one, since 2.8). Z-order is expected to be next.
+- Order after 2.9 (decided 3 October 2026): Z-order, Frames, Templates, Timer and lock board (cut-down 6), Reconnect (4), 3a, Persistence and expiry (5), remaining facilitation (6), 3b cursors, 7a, 7b, 7c (remaining), 8, 9, 10. Slice numbers are kept as names; the table above is in build order.
 
 ## Slice notes
 
@@ -110,16 +115,20 @@ Draft roadmap. When a slice starts, rewrite its prompt against the real code (se
 - Properties panel shows "N selected" with delete (confirm) and mixed-value display.
 - One batch message for multi-note changes (move, resize, delete), capped in entries and bytes: each entry validated, each note gets its own rev bump, one SQLite transaction, one broadcast. It counts as one message for the rate budget.
 - Phone: multi-select is out of scope.
-- Save as stencil waits for slice 7. Z-order is not in 2.8 (see the Z-order slice, before or with 7a); a layers panel is backlog.
+- Save as stencil waits for slice 7. Z-order is not in 2.8 (see the Z-order slice, expected next); a layers panel is backlog.
 
 ### 2.9 Inline note editing (web only) — done, v0.7.1
 - From md up (mouse, pen, keyboard) a note's text is edited on the note: two plain textareas styled like the note, placeholders "Type a title" / "Type body", the existing draft mechanism, noteEdit on commit. New notes, double-click (title or body) and Enter start it; Properties stays in sync and is used for off-screen notes and finger taps. Phones keep the sheet.
 
-### 3 Presence (protocol v8)
+### 3a Presence: avatars and toasts
+- Split from slice 3. Avatar stack in the top bar (participant colours, overflow count) opens the Participants sheet; join/leave toasts.
+- Probably no protocol change: `joined`, `participant_joined` and `participant_left` already carry what is needed. Confirm against the code when the slice starts.
+
+### 3b Presence: live cursors (protocol change, deferred)
+- Split from slice 3. Comes after the remaining facilitation work.
 - `cursor { x, y }` in board units, max ~15/s, only when position changed, only while another participant is present, paused when the tab is hidden or the pointer leaves the board. Phones receive only.
 - Server: separate cursor rate budget, forward to others only, zero SQLite writes (tested), sender identity, name and colour always from the socket's participant record, clamped to the board.
 - Client: remote cursors hide after ~5 s idle and on leave/disconnect, cleared on reconnect; labels plain text, truncated; motion in its own memoised layer so notes don't re-render.
-- Join/leave toasts; avatar stack in the top bar opens the Participants sheet.
 - LIMITS.md: record measured request cost per active user; confirm idle rooms still hibernate.
 - Phone sending its own touch position: possible later option, not in this slice.
 
@@ -132,13 +141,20 @@ Draft roadmap. When a slice starts, rewrite its prompt against the real code (se
 - Rooms expire after a set idle time; clear messaging about it. (Basic note persistence already exists.)
 
 ### 6 Facilitation
-- Timer (start time + duration, local countdown), lock board, silent brainstorm with reveal, dot voting with a vote budget.
+- Split in two. A cut-down slice comes early (after templates): shared timer (start time + duration, local countdown) and lock board. The rest comes after persistence: silent brainstorm with reveal, dot voting with a vote budget.
 - Host token issued at creation; facilitator role and what happens if the host leaves; "end session".
 - Facilitator-defined note palette: host-only, a small list of { id, colorKey, label } stored in the room, chosen from a larger fixed set of token colours (12 to 16), not arbitrary hex. Caps on entries and label length; labels are untrusted plain text. Stored-schema change in its own branch.
 - Timer tile appears in the palette under a Facilitation category.
 
-### Z-order (before or with 7a)
-- Bring to front / send to back, because shapes will overlap notes. Needs a z field: a stored-schema change in its own branch.
+### Z-order (expected next)
+- Bring to front / send to back, because frames and shapes will overlap notes. Needs a z field: a stored-schema change in its own branch.
+
+### Frames
+- A named, resizable, coloured area that always sits behind notes. Its own protocol and stored-schema change, after z-order. Reuses the 2.7 sizing and colour work and the 2.8 selection and batch work where it can; its palette tile is one registry entry.
+- Open design question: does moving a frame move the notes inside it (and what counts as inside: fully or partly covered)? Decide when the slice starts.
+
+### Templates
+- Retro, start/stop/continue, 2x2, sprint planning. Built from frames and labelled notes, so no new object type is expected; how a template is applied (one batch, caps, an empty board only or anywhere) is decided when the slice starts.
 
 ### 7a Text box and basic shapes
 - Text box, and a small fixed set of shapes: rectangle, oval, diamond. Reuses the sizing and colour work from 2.7.
@@ -150,7 +166,7 @@ Draft roadmap. When a slice starts, rewrite its prompt against the real code (se
 - Connectors get their own palette category, again one entry per tile.
 
 ### 7c Structure
-- Group box objects (their own protocol change), templates: retro, 2x2, start/stop/continue, affinity grouping.
+- Group box objects (their own protocol change), affinity grouping. (Templates and frames moved to their own slices before reconnect.)
 - Stencils tab in the left panel with packaged areas (sprint planning, brainstorming area and similar), and Save as stencil from a selection.
 - Export to Markdown and PNG.
 
@@ -171,7 +187,7 @@ Draft roadmap. When a slice starts, rewrite its prompt against the real code (se
 - Retros/brainstorms first vs general canvas
 - Per-friend invite codes
 - Real title field on notes (currently the first line of text acts as title; a real field is a schema change, could join 2.7)
-- Shapes and arrows (7a/7b) before or after facilitation (6): not decided. The slice order above is unchanged.
+- ~~Shapes and arrows (7a/7b) before or after facilitation (6)~~: decided 3 October 2026. Frames, templates and a cut-down facilitation slice (timer, lock board) come first; the rest of facilitation comes before 7a/7b. See "Order and principles".
 - Borrowed from the Miro comparison (notes, not scope changes):
   - A small floating toolbar next to a selected note (colour, delete). Candidate to share a component with the 2.8 selection bar.
   - Corner resize keeps the aspect ratio and Shift frees it (review point for 2.7, which currently resizes freely).
