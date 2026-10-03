@@ -17,6 +17,7 @@ import {
   NOTE_MIN_H,
   NOTE_MIN_W,
   NOTE_TEXT_COLORS,
+  NOTE_Z_LIMIT,
   PROTOCOL_VERSION,
   clampNotePosition,
   clampNoteRect,
@@ -224,7 +225,7 @@ describe("notes on the wire (v4)", () => {
 
   /**
    * Worst case per note: the longest id/author, 4-digit positions, max sizes, the longest style
-   * keys, rev at MAX_SAFE_INTEGER, and text that encodes as large as possible. JSON.stringify
+   * keys, z at its lower bound, rev at MAX_SAFE_INTEGER, and text that encodes as large as possible. JSON.stringify
    * writes a lone surrogate as a 6-byte \\uXXXX escape, which beats 4-byte emoji.
    */
   it("the largest possible snapshot fits under the server message cap (recorded in docs/LIMITS.md)", () => {
@@ -248,6 +249,8 @@ describe("notes on the wire (v4)", () => {
       italic: false,
       titleBold: false,
       titleItalic: false,
+      // z at its widest (the minus sign makes the lower bound one character longer).
+      z: -NOTE_Z_LIMIT,
       rev: Number.MAX_SAFE_INTEGER,
     };
     const raw = encodeMessage({ type: "snapshot", notes: Array.from({ length: MAX_NOTES_PER_ROOM }, () => big) });

@@ -1766,3 +1766,91 @@ describe("inline editing (slice 2.9, md up)", () => {
     expect(titleArea()).toBeNull();
   });
 });
+
+describe("stacking order (slice z-order)", () => {
+  const N1 = "NNNNNNNNNNNNNNN1";
+  const N2 = "NNNNNNNNNNNNNNN2";
+  const N3 = "NNNNNNNNNNNNNNN3";
+  const one: Note = { id: N1, x: 40, y: 60, ...NOTE_DEFAULTS, text: "Idea one", color: "pink", z: 0, rev: 1, authorId: sam.id };
+  const two: Note = { id: N2, x: 100, y: 100, ...NOTE_DEFAULTS, text: "", color: "blue", z: 1, rev: 1, authorId: sam.id };
+  const three: Note = { id: N3, x: 160, y: 140, ...NOTE_DEFAULTS, text: "", color: "green", z: 2, rev: 1, authorId: sam.id };
+  const properties = () => document.querySelector<HTMLElement>('aside[aria-label="Properties"]');
+  const notes = () => [...document.querySelectorAll<HTMLElement>('[aria-roledescription="note"]')];
+  const bar = () => document.querySelector<HTMLElement>('[role="toolbar"][aria-label="Selection"]');
+  const orders = (socket: FakeWebSocket) => (socket.sent as Record<string, unknown>[]).filter((m) => m.type === "notesOrder");
+  const inside = (root: HTMLElement | null, text: string) =>
+    [...(root?.querySelectorAll<HTMLButtonElement>("button") ?? [])].find((b) => b.textContent?.trim() === text);
+  const zIndexOf = (noteId: string) => document.querySelector<HTMLElement>(`.react-flow__node[data-id="${noteId}"]`)?.style.zIndex;
+  async function withNotes(wide: boolean, ...list: Note[]) {
+    setWide(wide);
+    const socket = await inRoom();
+    await server(socket, { data: { type: "snapshot", notes: list } });
+    for (let i = 0; i < 100 && notes().length < list.length; i++) await settle();
+    return socket;
+  }
+  async function select(i: number, init: MouseEventInit = {}) {
+    const el = notes()[i];
+    if (!el) throw new Error("no note");
+    await act(async () => {
+      el.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, cancelable: true, pointerType: "mouse", button: 0, shiftKey: init.shiftKey ?? false }));
+      el.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, ...init }));
+    });
+    await settle();
+  }
+
+  it("each note's z is its stacking on the canvas, and a selected note isn't raised", async () => {
+    await withNotes(true, three, one, two);
+    expect([zIndexOf(N1), zIndexOf(N2), zIndexOf(N3)]).toEqual(["0", "1", "2"]);
+    await select(1);
+    expect(zIndexOf(N1)).toBe("0");
+  });
+
+  it("Properties has an Order section for one note: Bring to front and Send to back, as visible text", async () => {
+    const socket = await withNotes(true, one, two, three);
+    await select(0);
+    const section = [...(properties()?.querySelectorAll("section") ?? [])].find((s) => s.querySelector("h3")?.textContent === "Order");
+    expect(section).toBeDefined();
+    await click(inside(section ?? null, "Bring to front"));
+    expect(orders(socket)).toEqual([{ type: "notesOrder", ids: [N1], action: "front" }]);
+    expect(zIndexOf(N1)).toBe("3");
+    await click(inside(section ?? null, "Send to back"));
+    expect(orders(socket).at(-1)).toEqual({ type: "notesOrder", ids: [N1], action: "back" });
+    // Disabled while disconnected.
+    await server(socket, "close");
+    expect(inside(properties(), "Bring to front")?.disabled).toBe(true);
+    expect(inside(properties(), "Send to back")?.disabled).toBe(true);
+  });
+
+  it("several selected: the same two actions in Properties and in the selection bar, for all of them", async () => {
+    const socket = await withNotes(true, one, two, three);
+    await select(0);
+    await select(2, { shiftKey: true });
+    expect(properties()?.querySelector("h3")?.textContent).toContain("2 selected");
+    const order = bar()?.querySelector<HTMLElement>('[role="group"][aria-label="Order"]');
+    expect(order?.querySelector('[aria-label="Bring to front"]')).not.toBeNull();
+    await click(order?.querySelector<HTMLElement>('[aria-label="Send to back"]') ?? undefined);
+    expect(orders(socket).at(-1)).toEqual({ type: "notesOrder", ids: [N1, N3], action: "back" });
+    await click(inside(properties(), "Bring to front"));
+    expect(orders(socket).at(-1)).toEqual({ type: "notesOrder", ids: [N1, N3], action: "front" });
+  });
+
+  it("a remote reorder restacks the canvas", async () => {
+    const socket = await withNotes(true, one, two, three);
+    await server(socket, { data: { type: "notesOrdered", results: [{ id: N3, z: -1, rev: 2 }] } });
+    expect(zIndexOf(N3)).toBe("-1");
+  });
+
+  it("phone: the editor sheet has the same two buttons for its note", async () => {
+    const socket = await withNotes(false, one, two);
+    const note = notes()[0];
+    await act(async () => {
+      note?.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, pointerType: "touch", button: 0 }));
+    });
+    await click(note);
+    expect(dialog()?.querySelector("h2")?.textContent).toBe("Edit note");
+    await click(inside(dialog(), "Bring to front"));
+    expect(orders(socket)).toEqual([{ type: "notesOrder", ids: [N1], action: "front" }]);
+    await click(inside(dialog(), "Send to back"));
+    expect(orders(socket).at(-1)).toEqual({ type: "notesOrder", ids: [N1], action: "back" });
+  });
+});
