@@ -15,12 +15,16 @@ Draft roadmap. When a slice starts, rewrite its prompt against the real code (se
 | 2.5 Board UX | React Flow canvas, full-bleed board, view bar, minimap, floating chat, Participants sheet, tool rail, phone ribbon. Web only | Done (v0.5.0) |
 | 2.6 Panels | Resizable, collapsible left palette (categories, six coloured note tiles, drag onto board) and right Properties panel; selection model as a set. Web only | Done (v0.5.1) |
 | 2.7 Note size, colour and text style | Resize notes (per-note size, resize handles, Width/Height); change a note's colour; text style (size, bold, italic, text colour, left/centre/right). Protocol v4 + stored-schema migration (1 -> 2) | Done (v0.6.0) |
-| 2.8 Multi-select and arrange | Marquee and multi-select, floating selection bar (align, distribute, match size), group move/delete, batch update message. Protocol v5 | Not started |
-| 3 Presence | Live cursors (throttled, never stored), join/leave toasts, avatar stack. Protocol v6 | Not started |
+| 2.7.1 Title alignment | Separate alignment for a note's title and body. Protocol v5 + stored-schema migration (2 -> 3) | Done (v0.6.1) |
+| 2.8 Multi-select and arrange | Marquee and multi-select, floating selection bar (align, distribute, match size), group move/delete, batch update message. Protocol v6 | Not started |
+| 3 Presence | Live cursors (throttled, never stored), join/leave toasts, avatar stack. Protocol v7 | Not started |
 | 4 Reconnect | Resync after drops, offline queue | Not started |
 | 5 Persistence | Room expiry and clear messaging (basic note persistence exists since slice 2) | Not started |
 | 6 Facilitation | Shared timer, lock board, silent brainstorm + reveal, dot voting, host token, facilitator-defined note palette | Not started |
-| 7 Structure | Text boxes, group boxes, columns/templates (retro, 2x2), grouping, Stencils tab and Save as stencil, export (PNG/Markdown) | Not started |
+| Z-order | Bring to front / send to back (a z field: stored-schema change, own branch). Required before or with 7a | Not started |
+| 7a Text box and shapes | Text box and basic shapes (rectangle, oval, diamond), reusing 2.7's sizing and colour work | Not started |
+| 7b Arrows | (i) Free endpoints and a line style; (ii) endpoints bound to notes and shapes, re-routed when a bound object moves, with a rule for deleting a bound object | Not started |
+| 7c Structure | Group boxes, columns/templates (retro, 2x2), grouping, Stencils tab and Save as stencil, export (PNG/Markdown) | Not started |
 | 8 Phone view | Phone participant view, QR join | Not started |
 | 9 Hardening | Message-rate limits, load test, accessibility pass | Not started |
 | 10 AI | Summary and sentiment analysis, explicit buttons, add-only | Optional, last |
@@ -34,6 +38,7 @@ Draft roadmap. When a slice starts, rewrite its prompt against the real code (se
 - Test on the live deployment; merge and deploy each slice, roll back if needed (single user).
 - Every new object type (timer, text box, group box) needs its own protocol/schema change with a version bump, caps and tests. The palette gets its tile with one registry entry; no placeholder tiles for things that don't exist.
 - Each protocol or stored-schema change is its own slice and branch (2.7, 2.8, 3 are separate for that reason).
+- Protocol numbers: 2.8 is v6 and 3 is v7. Numbers after v7 are assigned when each slice starts, not in advance.
 
 ## Slice notes
 
@@ -88,15 +93,18 @@ Draft roadmap. When a slice starts, rewrite its prompt against the real code (se
 - v3 clients get "please reload". Tests first, as for every protocol change.
 - Added at the user's request: text style keys on `noteEdit` (font size s/m/l/xl, bold, italic, text colour with Auto, alignment left/centre/right), styles applying to the whole note. Also, outside the slice scope at the user's request: the menu stacks above the side panels, chat messages show when they arrived, and the floating chat can be resized.
 
-### 2.8 Multi-select and arrange (protocol v5)
+### 2.7.1 Title alignment (protocol v5) — done, v0.6.1
+- Notes gain `titleAlign`: the title (first line) and the body are aligned separately (left, centre, right). Stored schema 2 -> 3; existing titles take the note's existing alignment, so nothing looks different.
+
+### 2.8 Multi-select and arrange (protocol v6)
 - Selection set from 2.6 becomes real: marquee on the Select tool, Shift/Ctrl-click to toggle, Ctrl+A. Dragging one selected note moves the whole selection.
 - Floating selection bar at the top of the canvas, like Chalkline: Align (left, centre, right, top, middle, bottom), Distribute (horizontal, vertical), Match size (width, height, both). Pure, tested layout functions.
 - Properties panel shows "N selected" with delete (confirm) and mixed-value display.
 - One batch message for multi-note changes (move, resize, delete), capped in entries and bytes: each entry validated, each note gets its own rev bump, one SQLite transaction, one broadcast. It counts as one message for the rate budget.
 - Phone: multi-select is out of scope.
-- Save as stencil waits for slice 7. Layers and bring-to-front/back are backlog.
+- Save as stencil waits for slice 7. Z-order is not in 2.8 (see the Z-order slice, before or with 7a); a layers panel is backlog.
 
-### 3 Presence (protocol v6)
+### 3 Presence (protocol v7)
 - `cursor { x, y }` in board units, max ~15/s, only when position changed, only while another participant is present, paused when the tab is hidden or the pointer leaves the board. Phones receive only.
 - Server: separate cursor rate budget, forward to others only, zero SQLite writes (tested), sender identity, name and colour always from the socket's participant record, clamped to the board.
 - Client: remote cursors hide after ~5 s idle and on leave/disconnect, cleared on reconnect; labels plain text, truncated; motion in its own memoised layer so notes don't re-render.
@@ -118,8 +126,20 @@ Draft roadmap. When a slice starts, rewrite its prompt against the real code (se
 - Facilitator-defined note palette: host-only, a small list of { id, colorKey, label } stored in the room, chosen from a larger fixed set of token colours (12 to 16), not arbitrary hex. Caps on entries and label length; labels are untrusted plain text. Stored-schema change in its own branch.
 - Timer tile appears in the palette under a Facilitation category.
 
-### 7 Structure
-- Text box and group box objects (each its own protocol change), templates: retro, 2x2, start/stop/continue, affinity grouping.
+### Z-order (before or with 7a)
+- Bring to front / send to back, because shapes will overlap notes. Needs a z field: a stored-schema change in its own branch.
+
+### 7a Text box and basic shapes
+- Text box, and a small fixed set of shapes: rectangle, oval, diamond. Reuses the sizing and colour work from 2.7.
+- Each object type is its own protocol change with a version bump, caps and tests. Its palette tile is one registry entry in a new category; no placeholder tiles before the object exists.
+
+### 7b Arrows
+- Step (i): arrows with free endpoints and a line style.
+- Step (ii): endpoints bound to notes and shapes, re-routed when a bound object moves, and a rule for what happens when a bound object is deleted.
+- Connectors get their own palette category, again one entry per tile.
+
+### 7c Structure
+- Group box objects (their own protocol change), templates: retro, 2x2, start/stop/continue, affinity grouping.
 - Stencils tab in the left panel with packaged areas (sprint planning, brainstorming area and similar), and Save as stencil from a selection.
 - Export to Markdown and PNG.
 
@@ -140,7 +160,11 @@ Draft roadmap. When a slice starts, rewrite its prompt against the real code (se
 - Retros/brainstorms first vs general canvas
 - Per-friend invite codes
 - Real title field on notes (currently the first line of text acts as title; a real field is a schema change, could join 2.7)
-- Layers and z-order (bring to front/back): needs a z field; could join 2.8
+- Shapes and arrows (7a/7b) before or after facilitation (6): not decided. The slice order above is unchanged.
+- Borrowed from the Miro comparison (notes, not scope changes):
+  - A small floating toolbar next to a selected note (colour, delete). Candidate to share a component with the 2.8 selection bar.
+  - Corner resize keeps the aspect ratio and Shift frees it (review point for 2.7, which currently resizes freely).
+  - Stronger note colours: check the `--sy-note-*` tokens in light and dark; notes and palette tiles look pale next to Miro. The fix would be token-only, possibly a patch release.
 - Canvas: decided, React Flow (slice 2.5). Revisit only if performance with many movers is poor.
 - Visual identity: settled in slice 0.5 (Chalkline-derived)
 
@@ -153,4 +177,4 @@ Draft roadmap. When a slice starts, rewrite its prompt against the real code (se
 - Revocable invite codes per friend
 - Spin-offs reusing the relay (planning poker, vote room)
 - Phone sends its touch position as a cursor while a finger is down
-- Layers panel and z-order
+- Layers panel

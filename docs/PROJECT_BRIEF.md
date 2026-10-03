@@ -1,17 +1,17 @@
 # Project Brief: Stickyard
 
-Last updated: 3 October 2026 (thread 4). Update the status table and session log at the end of every thread, then re-upload.
+Last updated: 3 October 2026 (thread 5). Update the status table and session log at the end of every thread, then re-upload.
 
 ## 1. Purpose
 
 A personal, for-fun build project: a real-time collaborative whiteboard of sticky notes for workshops and retros. Join by link or QR code and a typed name, no accounts. Learning goal: build a collaboration app properly (rooms, presence, sync, reconnect, persistence, abuse limits). Optional AI later (summary, sentiment analysis).
 
-Positioning hypothesis (untested): the retro and workshop board you can start in 10 seconds with no sign-in. Wedge = frictionless joining plus facilitation (silent brainstorm, timer, voting, structured outcome). Check against Microsoft Whiteboard, Miro and similar before relying on it.
+Positioning hypothesis: the retro and workshop board you can start in 10 seconds with no sign-in. Wedge = frictionless joining plus facilitation (silent brainstorm, timer, voting, structured outcome). Checked against Miro on 3 October 2026 and the wedge holds: Miro Lite needs no sign-in, but its board expires after 24 hours unless you sign up, and sharing is a separate step. Stickyard's counterpoint is a link plus a typed name, and facilitation.
 
 ## 2. Non-goals
 
 - Beating Miro, Mural or Microsoft Whiteboard
-- Rich drawing, ink, or shape libraries
+- Freehand ink, or a large shape library. (A small fixed set of shapes and connectors for planning is in scope.)
 - Accounts, verified identity, enterprise admin
 - Work use or organisation-specific content. Examples and fixtures stay generic.
 - Huge rooms (cap is small and enforced)
@@ -78,8 +78,10 @@ Keep tsc, tests and build green. Stop for review with a summary of what was buil
 | 0 | Repo, CI, Pages deploy, Worker deploy, secrets hygiene, protocol version, Origin check | Done (v0.1.0, PR #1) |
 | 0.5 | App shell and design system: top bar, menu, Help / What's new / About sheets, theme, tokens from Chalkline | Done (v0.2.0) |
 | 1 | Echo room, gated room creation, signed room codes | Done (v0.3.0, protocol v2) |
-| 2 | Shared stickies, last-write-wins | Not started |
-| 3 onwards | See PHASE_PLAN.md | Not started |
+| 2 | Shared stickies, last-write-wins | Done (v0.4.0, protocol v3) |
+| 2.5 to 2.7 | Board UX, panels, note size, colour and text style | Done (v0.5.0 to v0.6.0, protocol v4); see PHASE_PLAN.md |
+| 2.7.1 | Separate title and body alignment | Done (v0.6.1, protocol v5, stored schema 3) |
+| 2.8 onwards | See PHASE_PLAN.md | Not started |
 
 ## 7. Open decisions
 
@@ -90,7 +92,8 @@ Keep tsc, tests and build green. Stop for review with a summary of what was buil
 - AI key handling
 - Visual identity: decided in slice 0.5 (Chalkline's warm neutral + blue accent, Inter, sticky-note mark); revisit only if it needs its own identity
 - Per-friend invite codes (revocable) vs one shared create passcode
-- Real-world comparison: spend 10 minutes in Microsoft Whiteboard and list what annoys me
+- ~~Real-world comparison~~: done 3 October 2026, against Miro (not Microsoft Whiteboard). See the positioning note in section 1
+- Shapes and arrows (slices 7a and 7b) before or after facilitation (slice 6): not decided
 
 ## 8. Thread habits
 
@@ -102,6 +105,7 @@ Start a thread with the slice and what I want (for example "Slice 1, write the C
 - Thread 2: Wrote the slice 0 prompt (including repo creation and secrets hygiene). Decided the room-creation model: open join, passcode-gated creation, signed room codes, kill switch, host token. Next: run slice 0, then slice 1 prompt.
 - Thread 3: Slice 0 merged to main (PR #1) and deployed. Slice 0.5 (app shell and design system) built from Chalkline's patterns: top bar with menu and theme toggle, Help / What's new / About as hash-routed sheets, tokens and Inter bundled locally, v0.2.0. Next: slice 1 prompt.
 - Thread 4: Slice 1 built tests-first (red commit, then green): protocol v2 (join/say/echo, participants), passcode-gated `POST /rooms` with a limiter Durable Object (hashed client keys, lockout, daily caps), HMAC-signed room codes verified before any Durable Object, `CREATION_ENABLED` kill switch via a workflow, secrets pushed from GitHub secrets by the deploy job, name sheet and echo room UI, v0.3.0. Next: slice 2 prompt.
+- Thread 5 (3 October 2026): Slices 2.7 (v0.6.0, protocol v4) and 2.7.1 title alignment (v0.6.1, protocol v5, stored schema 3) merged; Miro comparison done; scope now allows a small set of shapes and connectors (slice 7 split into 7a/7b/7c, z-order required before or with 7a). Next: slice 2.8 prompt.
 
 ## 10. One-time manual setup
 
