@@ -20,6 +20,7 @@ Draft roadmap. When a slice starts, rewrite its prompt against the real code (se
 | 2.8 Multi-select and arrange | Marquee and multi-select, floating selection bar (align, distribute, match size), group move/delete, batch update message. Protocol v7 | Done (v0.7.0) |
 | 2.9 Inline note editing | Type on the note itself from md up (two styled textareas), double-click/Enter/new note start it; web only, no protocol change | Done (v0.7.1) |
 | Z-order | Bring to front / send to back (a z field). Protocol v8 + stored-schema migration (4 -> 5) | Done (v0.8.0) |
+| Welcome screen | Start page becomes a welcome screen with the new Stickyard mark (inline SVG, brand tokens), tagline and three points; Start and Join unchanged. Web only | Done (v0.8.1) |
 | Frames | Named, resizable, coloured areas behind notes. Own protocol and stored-schema change, after z-order | Not started |
 | Templates | Retro, start/stop/continue, 2x2, sprint planning, built from frames and labelled notes | Not started |
 | 6 (part) Timer and lock board | Cut-down slice 6: shared timer and lock board only | Not started |

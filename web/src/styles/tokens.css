@@ -141,6 +141,9 @@
   --sy-icon-sm: 16px;
   --sy-icon-lg: 24px;
   --sy-logo: 28px;
+  /* The welcome screen's mark (src/brand/StickyardMark.tsx): its width on phones and from md up. */
+  --sy-brand-mark: 7rem;
+  --sy-brand-mark-lg: 15rem;
   --sy-dot: 0.75rem;
   /* "What's new" dot on the menu button. */
   --sy-badge-dot: 8px;
@@ -154,6 +157,8 @@
   --sy-header-h: 56px;
   --sy-toolbar-gap: 4px;
   --sy-content-max: 36rem;
+  /* The welcome screen's column from md up (the two actions side by side). */
+  --sy-welcome-max: 52rem;
   /* Menu popover, and the label column in About's details. */
   --sy-menu-width: 18rem;
   --sy-menu-max-h: 80dvh;
@@ -248,6 +253,8 @@
   --sy-text-lg: 1.125rem;
   --sy-text-xl: 1.25rem;
   --sy-text-2xl: 1.5rem;
+  /* The welcome screen's wordmark. */
+  --sy-text-display: 2.25rem;
 
   /* Motion */
   --sy-duration-fast: 120ms;
@@ -269,6 +276,36 @@
   :root {
     --sy-panel-handle: var(--sy-touch-min);
   }
+}
+
+/* ── Brand mark ────────────────────────────────────────────────────────
+   The welcome screen's mark (src/brand/StickyardMark.tsx). The same in light and dark: the
+   notes are their own paper, and the cursors use the deeper tag shades with a light edge and a
+   shadow, so they read on the light page and the dark one. */
+:root {
+  --sy-brand-amber-from: #fbbf24;
+  --sy-brand-amber-to: #f59e0b;
+  --sy-brand-amber-fold: #b45309;
+  --sy-brand-amber-line: #78350f;
+  --sy-brand-coral-from: #fb7185;
+  --sy-brand-coral-to: #f43f5e;
+  --sy-brand-coral-fold: #be123c;
+  --sy-brand-coral-tag: #be123c;
+  --sy-brand-cyan-from: #38bdf8;
+  --sy-brand-cyan-to: #0284c7;
+  --sy-brand-cyan-fold: #0369a1;
+  --sy-brand-cyan-tag: #0369a1;
+  --sy-brand-emerald-from: #34d399;
+  --sy-brand-emerald-to: #059669;
+  --sy-brand-emerald-fold: #047857;
+  --sy-brand-emerald-tag: #047857;
+  /* Lines on the notes, cursor edges and cursor label text. */
+  --sy-brand-ink: #ffffff;
+  --sy-brand-shadow: #0000004d;
+  --sy-brand-shadow-strong: #00000066;
+  /* The cursors' slow drift (off under reduced motion; see index.css). */
+  --sy-brand-drift: 3px;
+  --sy-brand-drift-duration: 7s;
 }
 
 /* Reduce motion: every animation length is 0. */
@@ -345,6 +382,8 @@
   --spacing-icon-sm: var(--sy-icon-sm);
   --spacing-icon-lg: var(--sy-icon-lg);
   --spacing-logo: var(--sy-logo);
+  --spacing-brand-mark: var(--sy-brand-mark);
+  --spacing-brand-mark-lg: var(--sy-brand-mark-lg);
   --spacing-dot: var(--sy-dot);
   --spacing-badge: var(--sy-badge-dot);
   --spacing-handle-w: var(--sy-handle-width);
@@ -374,6 +413,7 @@
 
   --container-*: initial;
   --container-content: var(--sy-content-max);
+  --container-welcome: var(--sy-welcome-max);
   --container-sheet: var(--sy-sheet-width);
 
   --radius-*: initial;
@@ -406,6 +446,8 @@
   --text-xl--line-height: 1.75rem;
   --text-2xl: var(--sy-text-2xl);
   --text-2xl--line-height: 2rem;
+  --text-display: var(--sy-text-display);
+  --text-display--line-height: 2.5rem;
   /* Note text, by font size key. */
   --text-note-s: var(--sy-note-font-s);
   --text-note-s--line-height: 1.35;

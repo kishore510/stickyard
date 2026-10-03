@@ -85,6 +85,7 @@ Keep tsc, tests and build green. Stop for review with a summary of what was buil
 | 2.8 | Multi-select and arrange, batch message | Done (v0.7.0, protocol v7) |
 | 2.9 | Inline note editing | Done (v0.7.1, web only) |
 | Z-order | Bring to front / send to back | Done (v0.8.0, protocol v8, stored schema 5) |
+| Welcome | Welcome screen with the new logo mark | Done (v0.8.1, web only) |
 | 3 onwards | See PHASE_PLAN.md | See PHASE_PLAN.md |
 
 ## 7. Open decisions
@@ -110,6 +111,7 @@ Start a thread with the slice and what I want (for example "Slice 1, write the C
 - Thread 4: Slice 1 built tests-first (red commit, then green): protocol v2 (join/say/echo, participants), passcode-gated `POST /rooms` with a limiter Durable Object (hashed client keys, lockout, daily caps), HMAC-signed room codes verified before any Durable Object, `CREATION_ENABLED` kill switch via a workflow, secrets pushed from GitHub secrets by the deploy job, name sheet and echo room UI, v0.3.0. Next: slice 2 prompt.
 - Thread 5 (3 October 2026): Slices 2.7 (v0.6.0, protocol v4) and 2.7.1 title alignment (v0.6.1, protocol v5, stored schema 3) merged; Miro comparison done; scope now allows a small set of shapes and connectors (slice 7 split into 7a/7b/7c, z-order required before or with 7a). Next: slice 2.8 prompt.
 - Thread 6 (3 October 2026): Slices 2.7.2 title styling (v0.6.2, protocol v6, stored schema 4), 2.8 multi-select and arrange (v0.7.0, protocol v7) and 2.9 inline editing (v0.7.1, web only) merged. Re-ordered the plan: slice 3 split into 3a (avatars, toasts) and 3b (live cursors, deferred); new Frames and Templates slices after z-order; slice 6 split, with timer and lock board early; shapes-versus-facilitation question closed. Docs-only tidy of CLAUDE.md and the changelog. Next: z-order slice prompt.
+- Thread 6, later (3 October 2026): Z-order merged and deployed (v0.8.0, protocol v8, stored schema 5). Frames stopped before building: with 30 frames and 60-character titles the worst-case snapshot (419,360 bytes) would breach the 400 KiB tripwire, so it needs a decision first. Welcome screen with the new logo mark built (v0.8.1, web only). Next: decide how frames fit the snapshot budget, then the frames prompt.
 
 ## 10. One-time manual setup
 

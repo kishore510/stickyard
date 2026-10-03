@@ -39,16 +39,16 @@ export function ConnectionStatus() {
 
   const copy = COPY[status];
   return (
-    <section aria-labelledby="status-heading" className="flex flex-col gap-sm">
+    <section aria-labelledby="status-heading" className="flex flex-col gap-sm md:items-center md:text-center">
       <h2 id="status-heading" className="sr-only">
         Connection
       </h2>
       <div role="status" aria-live="polite" aria-atomic="true" className="flex flex-col gap-2xs">
-        <p className="flex items-center gap-sm font-medium">
+        <p className="flex items-center gap-sm text-sm font-medium">
           <span aria-hidden="true" className={`inline-block size-dot shrink-0 rounded-full ${copy.dot}`} />
           {copy.label}
         </p>
-        <p className="text-sm text-fg-muted">
+        <p className="text-xs text-fg-muted">
           {copy.detail} Relay: {new URL(WORKER_URL).host}
         </p>
       </div>
