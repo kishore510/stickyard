@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { MAX_NOTES_PER_ROOM, PROTOCOL_VERSION, type Note, type Participant } from "@stickyard/shared";
+import { MAX_NOTES_PER_ROOM, MAX_NOTE_TEXT, PROTOCOL_VERSION, type Note, type Participant } from "@stickyard/shared";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -492,6 +492,7 @@ describe("the board", () => {
   const sentOfType = (socket: FakeWebSocket, type: string) =>
     (socket.sent as Record<string, unknown>[]).filter((m) => m.type === type);
   const textarea = () => dialog()?.querySelector("textarea") ?? null;
+  const titleField = () => dialog()?.querySelector<HTMLInputElement>('input[name="title"]') ?? null;
   async function typeArea(value: string) {
     const el = textarea();
     if (!el) throw new Error("no editor");
@@ -499,6 +500,11 @@ describe("the board", () => {
       Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set?.call(el, value);
       el.dispatchEvent(new Event("input", { bubbles: true }));
     });
+  }
+  async function typeTitle(value: string) {
+    const el = titleField();
+    if (!el) throw new Error("no title field");
+    await type(el, value);
   }
   async function key(el: HTMLElement | null | undefined, k: string, init: KeyboardEventInit = {}) {
     if (!el) throw new Error("no element");
@@ -526,11 +532,11 @@ describe("the board", () => {
     expect(position(notes()[0])).toBe("translate(40px,60px)");
   });
 
-  it("Add note sends noteAdd with the chosen colour and opens the editor; Enter saves", async () => {
+  it("Add note opens the add sheet; a colour tile sends noteAdd and opens the editor; Enter saves", async () => {
     const socket = await withNotes();
-    await click(document.querySelector<HTMLElement>('[aria-label^="Note colour"]') ?? undefined);
-    await click(document.querySelector<HTMLElement>('[role="radio"][aria-label="Blue"]') ?? undefined);
     await click(document.querySelector<HTMLElement>('[aria-label="Add note"]') ?? undefined);
+    expect(dialog()?.querySelector("h2")?.textContent).toBe("Add note");
+    await click(dialog()?.querySelector<HTMLElement>('[aria-label="Blue note"]') ?? undefined);
     const [add] = sentOfType(socket, "noteAdd");
     expect(add).toMatchObject({ color: "blue", text: "" });
     expect(notes()).toHaveLength(1);
@@ -538,18 +544,28 @@ describe("the board", () => {
     await server(socket, {
       data: { type: "noteAdded", clientRef: add?.clientRef, note: { ...one, color: "blue", text: "", authorId: alex.id } },
     });
-    await typeArea("Idea one");
-    await key(textarea(), "Enter");
+    await typeTitle("Idea one");
+    await key(titleField(), "Enter");
     await settle();
     expect(sentOfType(socket, "noteEdit")).toEqual([{ type: "noteEdit", id: N1, text: "Idea one" }]);
     expect(dialog()).toBeNull();
     expect(notes()[0]?.textContent).toBe("Idea one");
   });
 
-  it("Shift+Enter doesn't save (it's a new line)", async () => {
+  it("the editor shows the first line as Title and the rest as Body, and joins them on save", async () => {
+    const socket = await withNotes({ ...one, text: "Idea one\nline two" });
+    await key(notes()[0], "Enter");
+    expect(titleField()?.value).toBe("Idea one");
+    expect(textarea()?.value).toBe("line two");
+    await typeArea("line two\nline three");
+    await click(byText("button", "Done"));
+    expect(sentOfType(socket, "noteEdit")).toEqual([{ type: "noteEdit", id: N1, text: "Idea one\nline two\nline three" }]);
+  });
+
+  it("Shift+Enter in Body doesn't save (it's a new line)", async () => {
     const socket = await withNotes(one);
     await key(notes()[0], "Enter");
-    await typeArea("Idea one\nmore");
+    await typeArea("more");
     await key(textarea(), "Enter", { shiftKey: true });
     expect(dialog()).not.toBeNull();
     expect(sentOfType(socket, "noteEdit")).toEqual([]);
@@ -558,9 +574,9 @@ describe("the board", () => {
   it("a remote edit while typing doesn't replace the draft", async () => {
     const socket = await withNotes(one);
     await key(notes()[0], "Enter");
-    await typeArea("My draft");
+    await typeTitle("My draft");
     await server(socket, { data: { type: "noteUpdated", note: { ...one, text: "Remote text", rev: 2 } } });
-    expect(textarea()?.value).toBe("My draft");
+    expect(titleField()?.value).toBe("My draft");
     await click(byText("button", "Done"));
     expect(sentOfType(socket, "noteEdit").at(-1)).toEqual({ type: "noteEdit", id: N1, text: "My draft" });
   });
@@ -611,15 +627,17 @@ describe("the board", () => {
   });
 });
 
-describe("board layout: rail and view bar from md up, ribbon on phones", () => {
+describe("board layout: palette and Properties panels from md up, ribbon on phones", () => {
   const N1 = "NNNNNNNNNNNNNNN1";
   const one: Note = { id: N1, x: 40, y: 60, text: "Idea one", color: "yellow", rev: 1, authorId: sam.id };
-  const rail = () => document.querySelector<HTMLElement>('[role="toolbar"][aria-label="Tools"]');
   const viewBar = () => document.querySelector<HTMLElement>('[role="toolbar"][aria-label="View"]');
   const ribbon = () => document.querySelector<HTMLElement>('[role="toolbar"][aria-label="Board tools"]');
   const toolIds = (bar: HTMLElement | null) => [...(bar?.querySelectorAll<HTMLElement>("[data-tool]") ?? [])].map((b) => b.dataset.tool);
-  const addNote = () => document.querySelector<HTMLButtonElement>('[aria-label="Add note"]');
   const note = () => document.querySelector<HTMLElement>('[aria-roledescription="note"]');
+  const palette = () => document.querySelector<HTMLElement>('aside[aria-label="Palette"]');
+  const properties = () => document.querySelector<HTMLElement>('aside[aria-label="Properties"]');
+  const tiles = () => [...(palette()?.querySelectorAll<HTMLButtonElement>("[data-palette-item]") ?? [])];
+  const propTitle = () => properties()?.querySelector<HTMLInputElement>('input[name="title"]') ?? null;
   async function withNotes(...list: Note[]) {
     const socket = await inRoom();
     await server(socket, { data: { type: "snapshot", notes: list } });
@@ -630,61 +648,101 @@ describe("board layout: rail and view bar from md up, ribbon on phones", () => {
       el?.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, pointerType, button: 0 }));
     });
   }
+  async function dblclick(el: HTMLElement | null) {
+    await act(async () => {
+      el?.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+    });
+    await settle();
+  }
+  async function press(k: string, target: EventTarget = document.body) {
+    await act(async () => {
+      target.dispatchEvent(new KeyboardEvent("keydown", { key: k, bubbles: true, cancelable: true }));
+    });
+    await settle();
+  }
 
-  it("phone: no rail; one ribbon built from the registry, with the colour choice", async () => {
+  it("phone: no panels and no colour picker; one ribbon built from the registry", async () => {
     const { toolsFor } = await import("../src/canvas/tools");
     await withNotes(one);
-    expect(rail()).toBeNull();
+    expect(palette()).toBeNull();
+    expect(properties()).toBeNull();
     expect(viewBar()).toBeNull();
     expect(toolIds(ribbon())).toEqual(toolsFor("ribbon").map((t) => t.id));
-    expect(ribbon()?.querySelector('[aria-label^="Note colour"]')).not.toBeNull();
+    expect(document.querySelector('[aria-label^="Note colour"]')).toBeNull();
     expect(document.querySelector(".react-flow__minimap")).toBeNull();
   });
 
-  it("md up: rail and view bar from the registry; no ribbon; minimap shown", async () => {
+  it("md up: palette on the left, Properties on the right, view bar from the registry; no rail, ribbon or colour picker", async () => {
     setWide(true);
     const { toolsFor } = await import("../src/canvas/tools");
     await withNotes(one);
     expect(ribbon()).toBeNull();
-    expect(toolIds(rail())).toEqual(toolsFor("rail").map((t) => t.id));
+    expect(document.querySelector('[role="toolbar"][aria-label="Tools"]')).toBeNull();
+    expect(document.querySelector('[aria-label^="Note colour"]')).toBeNull();
+    expect(palette()).not.toBeNull();
+    expect(properties()?.querySelector("h2")?.textContent).toBe("Properties");
     expect(toolIds(viewBar())).toEqual(toolsFor("viewbar").map((t) => t.id));
+    // Panels sit either side of the canvas, in that order.
+    const row = palette()?.parentElement;
+    expect(row?.lastElementChild).toBe(properties());
+    expect(row?.querySelector('[aria-label="Board"]')).not.toBeNull();
     expect(document.querySelector(".react-flow__minimap")).not.toBeNull();
     await click(viewBar()?.querySelector<HTMLElement>('[data-tool="minimap"]') ?? undefined);
     expect(document.querySelector(".react-flow__minimap")).toBeNull();
   });
 
+  it("Select and Hand are a two-way toggle in the view bar", async () => {
+    setWide(true);
+    await withNotes(one);
+    const pressed = () => toolIds(viewBar()).filter((id) => viewBar()?.querySelector(`[data-tool="${id}"]`)?.getAttribute("aria-pressed") === "true");
+    expect(pressed()).toEqual(["select"]);
+    await click(viewBar()?.querySelector<HTMLElement>('[data-tool="hand"]') ?? undefined);
+    expect(pressed()).toEqual(["hand"]);
+    await click(viewBar()?.querySelector<HTMLElement>('[data-tool="select"]') ?? undefined);
+    expect(pressed()).toEqual(["select"]);
+  });
+
   it.each([
     ["phone", false],
     ["md up", true],
-  ])("%s: Add note is disabled with a reason when full or disconnected", async (_label, isWide) => {
+  ])("%s: adding is disabled with a reason when full or disconnected", async (_label, isWide) => {
     setWide(isWide);
+    const adders = () =>
+      isWide ? tiles() : [document.querySelector<HTMLButtonElement>('[aria-label="Add note"]')].filter((b) => b !== null);
     const socket = await withNotes(...Array.from({ length: MAX_NOTES_PER_ROOM }, (_, i) => ({ ...one, id: `N${String(i).padStart(15, "0")}` })));
-    expect(addNote()?.disabled).toBe(true);
+    expect(adders().length).toBeGreaterThan(0);
+    expect(adders().every((b) => b.disabled)).toBe(true);
     expect(document.body.textContent).toContain(`The board is full (${MAX_NOTES_PER_ROOM} notes)`);
     await server(socket, { data: { type: "noteDeleted", id: `N${"0".repeat(15)}` } });
-    expect(addNote()?.disabled).toBe(false);
+    expect(adders().every((b) => !b.disabled)).toBe(true);
     await server(socket, "close");
-    expect(addNote()?.disabled).toBe(true);
+    expect(adders().every((b) => b.disabled)).toBe(true);
+    expect(adders()[0]?.title).toContain("Reconnect to add or change notes.");
     expect(document.body.textContent).toContain("Reconnect to add or change notes.");
   });
 
-  it("the colour, tool and viewport survive a breakpoint change (rotate or resize)", async () => {
+  it("the tool, selection, panel layout and viewport survive a breakpoint change", async () => {
     await withNotes(one);
-    await click(document.querySelector<HTMLElement>('[aria-label^="Note colour"]') ?? undefined);
-    await click(document.querySelector<HTMLElement>('[role="radio"][aria-label="Pink"]') ?? undefined);
     await click(ribbon()?.querySelector<HTMLElement>('[data-tool="hand"]') ?? undefined);
+    await act(async () => note()?.focus());
     const flow = document.querySelector(".react-flow");
     await act(async () => setWide(true));
     await settle();
     expect(ribbon()).toBeNull();
-    expect(rail()?.querySelector('[data-tool="hand"]')?.getAttribute("aria-pressed")).toBe("true");
-    expect(rail()?.querySelector('[aria-label^="Note colour"]')?.getAttribute("aria-label")).toBe("Note colour: Pink");
+    expect(viewBar()?.querySelector('[data-tool="hand"]')?.getAttribute("aria-pressed")).toBe("true");
+    // The note focused on the phone is the one selected in Properties.
+    expect(propTitle()?.value).toBe("Idea one");
     // The same canvas stays mounted, so the viewport isn't reset.
     expect(document.querySelector(".react-flow")).toBe(flow);
+    await click(palette()?.querySelector<HTMLElement>('[aria-label="Collapse palette"]') ?? undefined);
     await act(async () => setWide(false));
     await settle();
+    expect(palette()).toBeNull();
     expect(ribbon()?.querySelector('[data-tool="hand"]')?.getAttribute("aria-pressed")).toBe("true");
-    expect(ribbon()?.querySelector('[aria-label^="Note colour"]')?.getAttribute("aria-label")).toBe("Note colour: Pink");
+    await act(async () => setWide(true));
+    await settle();
+    expect(palette()?.querySelector('[aria-label="Expand palette"]')).not.toBeNull();
+    expect(propTitle()?.value).toBe("Idea one");
   });
 
   it("a tap on a note edits it; a mouse needs a double-click", async () => {
@@ -692,10 +750,7 @@ describe("board layout: rail and view bar from md up, ribbon on phones", () => {
     await pointer(note(), "mouse");
     await click(note() ?? undefined);
     expect(dialog()).toBeNull();
-    await act(async () => {
-      note()?.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
-    });
-    await settle();
+    await dblclick(note());
     expect(dialog()?.querySelector("h2")?.textContent).toBe("Edit note");
     await click(byText("button", "Done"));
     await pointer(note(), "touch");
@@ -711,27 +766,389 @@ describe("board layout: rail and view bar from md up, ribbon on phones", () => {
     expect(dialog()).toBeNull();
   });
 
+  it.each([
+    ["phone", false],
+    ["md up", true],
+  ])("regression, %s: under Hand, double-click and Enter on a note still open its editor", async (_label, isWide) => {
+    setWide(isWide);
+    await withNotes(one);
+    const bar = () => (isWide ? viewBar() : ribbon());
+    await click(bar()?.querySelector<HTMLElement>('[data-tool="hand"]') ?? undefined);
+    expect(bar()?.querySelector('[data-tool="hand"]')?.getAttribute("aria-pressed")).toBe("true");
+    // React Flow must still hand the note pointer events (see canvasNodes.test.ts).
+    expect(note()?.closest<HTMLElement>(".react-flow__node")?.style.pointerEvents).toBe("all");
+    const editorOpen = () => (isWide ? document.activeElement === propTitle() : dialog()?.querySelector("h2")?.textContent === "Edit note");
+    await pointer(note(), "mouse");
+    await dblclick(note());
+    expect(editorOpen()).toBe(true);
+    if (!isWide) await click(byText("button", "Done"));
+    else await act(async () => propTitle()?.blur());
+    await press("Enter", note() ?? document.body);
+    expect(editorOpen()).toBe(true);
+  });
+
+  it("under Select, double-click and Enter open the editor too", async () => {
+    setWide(true);
+    await withNotes(one);
+    await pointer(note(), "mouse");
+    await dblclick(note());
+    expect(document.activeElement).toBe(propTitle());
+    await act(async () => propTitle()?.blur());
+    await press("Enter", note() ?? document.body);
+    expect(document.activeElement).toBe(propTitle());
+  });
+
   it("the ribbon hides while the note editor is open, so it never sits over the keyboard", async () => {
     await withNotes(one);
-    await act(async () => {
-      note()?.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
-    });
+    await press("Enter", note() ?? document.body);
     expect(dialog()?.querySelector("h2")?.textContent).toBe("Edit note");
     expect(ribbon()).toBeNull();
   });
 
-  it("keyboard shortcuts: H toggles the hand, N adds a note, and the view bar shows the zoom", async () => {
+  it("keyboard shortcuts: H toggles the hand, N adds a note and focuses its Title, and the view bar shows the zoom", async () => {
     setWide(true);
     const socket = await withNotes(one);
-    await act(async () => {
-      document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "h", bubbles: true }));
-    });
-    expect(rail()?.querySelector('[data-tool="hand"]')?.getAttribute("aria-pressed")).toBe("true");
+    await press("h");
+    expect(viewBar()?.querySelector('[data-tool="hand"]')?.getAttribute("aria-pressed")).toBe("true");
     expect(viewBar()?.querySelector('[data-tool="zoom-reset"]')?.textContent).toMatch(/^\d+%$/);
+    await press("n");
+    expect((socket.sent as { type: string; color?: string }[]).find((m) => m.type === "noteAdd")?.color).toBe("yellow");
+    expect(document.activeElement).toBe(propTitle());
+  });
+});
+
+describe("the palette (md up)", () => {
+  const N1 = "NNNNNNNNNNNNNNN1";
+  const one: Note = { id: N1, x: 40, y: 60, text: "Idea one", color: "yellow", rev: 1, authorId: sam.id };
+  const palette = () => document.querySelector<HTMLElement>('aside[aria-label="Palette"]');
+  const properties = () => document.querySelector<HTMLElement>('aside[aria-label="Properties"]');
+  const tiles = () => [...(palette()?.querySelectorAll<HTMLButtonElement>("[data-palette-item]") ?? [])];
+  const search = () => palette()?.querySelector<HTMLInputElement>('input[type="search"]') ?? null;
+  const separator = () => palette()?.querySelector<HTMLElement>('[role="separator"]') ?? null;
+  const propTitle = () => properties()?.querySelector<HTMLInputElement>('input[name="title"]') ?? null;
+  const sentOfType = (socket: FakeWebSocket, t: string) => (socket.sent as Record<string, unknown>[]).filter((m) => m.type === t);
+  async function withNotes(...list: Note[]) {
+    setWide(true);
+    const socket = await inRoom();
+    await server(socket, { data: { type: "snapshot", notes: list } });
+    return socket;
+  }
+  async function press(k: string, target: EventTarget = document.body, init: KeyboardEventInit = {}) {
     await act(async () => {
-      document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "n", bubbles: true }));
+      target.dispatchEvent(new KeyboardEvent("keydown", { key: k, bubbles: true, cancelable: true, ...init }));
     });
-    expect((socket.sent as { type: string }[]).some((m) => m.type === "noteAdd")).toBe(true);
+    await settle();
+  }
+  const saved = (key: string) => JSON.parse(localStorage.getItem(key) ?? "null") as unknown;
+
+  it("shows the Notes category: one tile per colour, named for screen readers, with a token-coloured preview", async () => {
+    await withNotes();
+    expect(palette()?.querySelector("h3")?.textContent).toBe("Notes");
+    expect(tiles().map((t) => t.getAttribute("aria-label"))).toEqual([
+      "Yellow note",
+      "Pink note",
+      "Blue note",
+      "Green note",
+      "Orange note",
+      "Purple note",
+    ]);
+    expect(tiles()[1]?.querySelector('[data-preview]')?.className).toContain("bg-note-pink");
+    expect(tiles()[1]?.textContent).toContain("Pink");
+    // No Stencils tab until a stencil exists.
+    expect(palette()?.querySelector('[role="tablist"]')).toBeNull();
+    expect(palette()?.textContent).not.toMatch(/stencil/i);
+  });
+
+  it("clicking a tile adds a note of that colour at the viewport centre, selects it and focuses its Title", async () => {
+    const socket = await withNotes();
+    await click(tiles().find((t) => t.getAttribute("aria-label") === "Green note"));
+    const [add] = sentOfType(socket, "noteAdd");
+    expect(add).toMatchObject({ color: "green", text: "" });
+    expect(document.activeElement).toBe(propTitle());
+    // Confirmed while typing: the selection follows the note to its server id.
+    await server(socket, { data: { type: "noteAdded", clientRef: add?.clientRef, note: { ...one, color: "green", text: "", authorId: alex.id } } });
+    expect(propTitle()).not.toBeNull();
+    await type(propTitle() as HTMLInputElement, "Fresh idea");
+    await press("Enter", propTitle() ?? document.body);
+    expect(sentOfType(socket, "noteEdit")).toEqual([{ type: "noteEdit", id: N1, text: "Fresh idea" }]);
+    // No modal editor from md up: the Properties panel is the editor.
+    expect(dialog()).toBeNull();
+  });
+
+  it("search filters tiles by label and keywords, and says when nothing matches", async () => {
+    await withNotes();
+    await type(search() as HTMLInputElement, "pink");
+    expect(tiles().map((t) => t.getAttribute("aria-label"))).toEqual(["Pink note"]);
+    await type(search() as HTMLInputElement, "zebra");
+    expect(tiles()).toEqual([]);
+    expect(palette()?.querySelector("h3")).toBeNull();
+    expect(palette()?.textContent).toContain("No matches");
+    await type(search() as HTMLInputElement, "");
+    expect(tiles()).toHaveLength(6);
+  });
+
+  it("collapses to a strip with an expand button, from the header or with [, and remembers it", async () => {
+    await withNotes();
+    await click(palette()?.querySelector<HTMLElement>('[aria-label="Collapse palette"]') ?? undefined);
+    expect(tiles()).toEqual([]);
+    expect(palette()?.querySelector('[aria-label="Expand palette"]')?.getAttribute("aria-expanded")).toBe("false");
+    expect(saved("stickyard:palette-panel")).toEqual({ width: null, collapsed: true });
+    await press("[");
+    expect(tiles()).toHaveLength(6);
+    expect(saved("stickyard:palette-panel")).toEqual({ width: null, collapsed: false });
+  });
+
+  it("the resize handle is an accessible separator: arrow keys, Shift, Home, End and double-click to reset", async () => {
+    const { PANEL_LIMITS, KEY_STEP, KEY_STEP_BIG } = await import("../src/panels/layout");
+    const { min, initial } = PANEL_LIMITS.palette;
+    await withNotes();
+    const sep = separator();
+    expect(sep?.getAttribute("aria-orientation")).toBe("vertical");
+    expect(sep?.tabIndex).toBe(0);
+    expect(Number(sep?.getAttribute("aria-valuenow"))).toBe(initial);
+    expect(Number(sep?.getAttribute("aria-valuemin"))).toBe(min);
+    const max = Number(sep?.getAttribute("aria-valuemax"));
+    expect(max).toBeGreaterThan(initial);
+    await press("ArrowRight", separator() ?? document.body);
+    expect(Number(separator()?.getAttribute("aria-valuenow"))).toBe(initial + KEY_STEP);
+    await press("ArrowLeft", separator() ?? document.body, { shiftKey: true });
+    expect(Number(separator()?.getAttribute("aria-valuenow"))).toBe(initial + KEY_STEP - KEY_STEP_BIG);
+    await press("Home", separator() ?? document.body);
+    expect(Number(separator()?.getAttribute("aria-valuenow"))).toBe(min);
+    await press("End", separator() ?? document.body);
+    expect(Number(separator()?.getAttribute("aria-valuenow"))).toBe(max);
+    expect(saved("stickyard:palette-panel")).toEqual({ width: max, collapsed: false });
+    await act(async () => {
+      separator()?.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+    });
+    await settle();
+    expect(Number(separator()?.getAttribute("aria-valuenow"))).toBe(initial);
+    expect(saved("stickyard:palette-panel")).toEqual({ width: null, collapsed: false });
+  });
+
+  it("restores the saved layout, and ignores a malformed one", async () => {
+    const { PANEL_LIMITS } = await import("../src/panels/layout");
+    localStorage.setItem("stickyard:palette-panel", JSON.stringify({ width: PANEL_LIMITS.palette.min + 8, collapsed: false }));
+    localStorage.setItem("stickyard:properties-panel", "{not json");
+    await withNotes();
+    expect(Number(separator()?.getAttribute("aria-valuenow"))).toBe(PANEL_LIMITS.palette.min + 8);
+    const propSep = properties()?.querySelector('[role="separator"]');
+    expect(Number(propSep?.getAttribute("aria-valuenow"))).toBe(PANEL_LIMITS.properties.initial);
+  });
+});
+
+describe("the Properties panel (md up)", () => {
+  const N1 = "NNNNNNNNNNNNNNN1";
+  const N2 = "NNNNNNNNNNNNNNN2";
+  const one: Note = { id: N1, x: 40, y: 60, text: "Idea one\nThe details", color: "pink", rev: 1, authorId: sam.id };
+  const two: Note = { id: N2, x: 400, y: 300, text: "", color: "blue", rev: 1, authorId: "ZZZZZZZZZZZZZZZZ" };
+  const properties = () => document.querySelector<HTMLElement>('aside[aria-label="Properties"]');
+  const notes = () => [...document.querySelectorAll<HTMLElement>('[aria-roledescription="note"]')];
+  const propTitle = () => properties()?.querySelector<HTMLInputElement>('input[name="title"]') ?? null;
+  const propBody = () => properties()?.querySelector<HTMLTextAreaElement>('textarea[name="body"]') ?? null;
+  const sentOfType = (socket: FakeWebSocket, t: string) => (socket.sent as Record<string, unknown>[]).filter((m) => m.type === t);
+  async function withNotes(...list: Note[]) {
+    setWide(true);
+    const socket = await inRoom();
+    await server(socket, { data: { type: "snapshot", notes: list } });
+    return socket;
+  }
+  async function press(k: string, target: EventTarget, init: KeyboardEventInit = {}) {
+    await act(async () => {
+      target.dispatchEvent(new KeyboardEvent("keydown", { key: k, bubbles: true, cancelable: true, ...init }));
+    });
+    await settle();
+  }
+  async function typeBody(value: string) {
+    const el = propBody();
+    if (!el) throw new Error("no body");
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set?.call(el, value);
+      el.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+  }
+  async function selectNote(i: number) {
+    await act(async () => {
+      notes()[i]?.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, pointerType: "mouse", button: 0 }));
+    });
+    await click(notes()[i]);
+  }
+
+  it("nothing selected: a board summary", async () => {
+    await withNotes(one, two);
+    const text = properties()?.textContent ?? "";
+    expect(text).toContain(`2 of ${MAX_NOTES_PER_ROOM}`);
+    expect(text).toContain("3200 × 2000");
+    expect(propTitle()).toBeNull();
+  });
+
+  it("clicking a note selects it (styled from tokens) and shows Title, Body, colour, author and Delete", async () => {
+    await withNotes(one, two);
+    await selectNote(0);
+    expect(notes()[0]?.getAttribute("aria-current")).toBe("true");
+    expect(notes()[0]?.className).toContain("ring-accent");
+    expect(propTitle()?.value).toBe("Idea one");
+    expect(propBody()?.value).toBe("The details");
+    const swatches = [...(properties()?.querySelectorAll<HTMLButtonElement>('[role="radio"]') ?? [])];
+    expect(swatches).toHaveLength(6);
+    expect(swatches.every((b) => b.disabled)).toBe(true);
+    expect(swatches.find((b) => b.getAttribute("aria-checked") === "true")?.getAttribute("aria-label")).toBe("Pink");
+    expect(properties()?.textContent).toContain("Changing colour arrives in a later update");
+    expect(properties()?.textContent).toContain("Sam");
+    expect(byText("aside button", /Delete note/)).toBeDefined();
+    // Someone this page never saw.
+    await selectNote(1);
+    expect(properties()?.textContent).toContain("Not in the session now");
+  });
+
+  it("keyboard focus selects too, and Escape clears the selection", async () => {
+    await withNotes(one, two);
+    await act(async () => notes()[1]?.focus());
+    expect(notes()[1]?.getAttribute("aria-current")).toBe("true");
+    expect(propTitle()?.value).toBe("");
+    await press("Escape", notes()[1] as HTMLElement);
+    expect(notes()[1]?.getAttribute("aria-current")).toBeNull();
+    expect(propTitle()).toBeNull();
+  });
+
+  it("clicking empty board space clears the selection", async () => {
+    await withNotes(one, two);
+    await selectNote(0);
+    await click(document.querySelector<HTMLElement>(".react-flow__pane") ?? undefined);
+    expect(propTitle()).toBeNull();
+    expect(notes()[0]?.getAttribute("aria-current")).toBeNull();
+  });
+
+  it("edits save on Enter or when focus leaves the fields; Shift+Enter in Body is a new line", async () => {
+    const socket = await withNotes(one);
+    await selectNote(0);
+    await type(propTitle() as HTMLInputElement, "Better idea");
+    await press("Enter", propTitle() as HTMLElement);
+    expect(sentOfType(socket, "noteEdit")).toEqual([{ type: "noteEdit", id: N1, text: "Better idea\nThe details" }]);
+    await typeBody("The details\nand more");
+    await press("Enter", propBody() as HTMLElement, { shiftKey: true });
+    expect(sentOfType(socket, "noteEdit")).toHaveLength(1);
+    // Moving from Body to Title doesn't save; leaving the fields does.
+    await act(async () => {
+      propBody()?.dispatchEvent(new FocusEvent("focusout", { bubbles: true, relatedTarget: propTitle() }));
+    });
+    expect(sentOfType(socket, "noteEdit")).toHaveLength(1);
+    await act(async () => {
+      propBody()?.dispatchEvent(new FocusEvent("focusout", { bubbles: true, relatedTarget: document.body }));
+    });
+    await settle();
+    expect(sentOfType(socket, "noteEdit").at(-1)).toEqual({ type: "noteEdit", id: N1, text: "Better idea\nThe details\nand more" });
+  });
+
+  it("counts characters against the cap and refuses to save past it", async () => {
+    const socket = await withNotes(one);
+    await selectNote(0);
+    expect(properties()?.textContent).toContain(`20 / ${MAX_NOTE_TEXT}`);
+    await typeBody("x".repeat(MAX_NOTE_TEXT));
+    expect(properties()?.textContent).toContain(`Notes can be up to ${MAX_NOTE_TEXT} characters.`);
+    await press("Enter", propBody() as HTMLElement);
+    expect(sentOfType(socket, "noteEdit")).toEqual([]);
+  });
+
+  it("a remote edit while typing doesn't replace the draft; a refused edit rolls back", async () => {
+    const socket = await withNotes(one);
+    await selectNote(0);
+    await type(propTitle() as HTMLInputElement, "Mine");
+    await server(socket, { data: { type: "noteUpdated", note: { ...one, text: "Theirs", rev: 2 } } });
+    expect(propTitle()?.value).toBe("Mine");
+    await press("Enter", propTitle() as HTMLElement);
+    expect(sentOfType(socket, "noteEdit").at(-1)).toEqual({ type: "noteEdit", id: N1, text: "Mine" });
+    await server(socket, { data: { type: "error", code: "rate_limited", noteId: N1 } });
+    expect(propTitle()?.value).toBe("Theirs");
+  });
+
+  it("renders note text as plain text, never HTML", async () => {
+    const evil = '<img src=x onerror="alert(1)">';
+    await withNotes({ ...one, text: evil });
+    await selectNote(0);
+    expect(propTitle()?.value).toBe(evil);
+    expect(properties()?.querySelector("img")).toBeNull();
+  });
+
+  it("Delete asks first when the note has text, then deletes and shows the board summary", async () => {
+    const socket = await withNotes(one);
+    await selectNote(0);
+    const confirm = vi.fn(() => true);
+    vi.stubGlobal("confirm", confirm);
+    await click(byText("aside button", /Delete note/));
+    expect(confirm).toHaveBeenCalled();
+    expect(sentOfType(socket, "noteDelete")).toEqual([{ type: "noteDelete", id: N1 }]);
+    expect(propTitle()).toBeNull();
+    expect(properties()?.textContent).toContain(`0 of ${MAX_NOTES_PER_ROOM}`);
+  });
+
+  it("disconnected: everything is read-only", async () => {
+    const socket = await withNotes(one);
+    await selectNote(0);
+    await server(socket, "close");
+    expect(propTitle()?.disabled).toBe(true);
+    expect(propBody()?.disabled).toBe(true);
+    expect(byText("aside button", /Delete note/)?.hasAttribute("disabled")).toBe(true);
+  });
+
+  it("collapses with ] and from its header, and remembers it", async () => {
+    await withNotes(one);
+    await press("]", document.body);
+    expect(properties()?.querySelector("h2")).toBeNull();
+    expect(properties()?.querySelector('[aria-label="Expand Properties"]')).not.toBeNull();
+    expect(JSON.parse(localStorage.getItem("stickyard:properties-panel") ?? "null")).toEqual({ width: null, collapsed: true });
+    await click(properties()?.querySelector<HTMLElement>('[aria-label="Expand Properties"]') ?? undefined);
+    expect(properties()?.querySelector("h2")?.textContent).toBe("Properties");
+    await click(properties()?.querySelector<HTMLElement>('[aria-label="Collapse Properties"]') ?? undefined);
+    expect(properties()?.querySelector("h2")).toBeNull();
+  });
+
+  it("editing a note (double-click) expands a collapsed Properties panel", async () => {
+    await withNotes(one);
+    await press("]", document.body);
+    await act(async () => {
+      notes()[0]?.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+    });
+    await settle();
+    expect(document.activeElement).toBe(propTitle());
+  });
+});
+
+describe("phone: add sheet and editor sheet", () => {
+  const N1 = "NNNNNNNNNNNNNNN1";
+  const one: Note = { id: N1, x: 40, y: 60, text: "Idea one\nThe details", color: "orange", rev: 1, authorId: sam.id };
+  const sentOfType = (socket: FakeWebSocket, t: string) => (socket.sent as Record<string, unknown>[]).filter((m) => m.type === t);
+  async function withNotes(...list: Note[]) {
+    const socket = await inRoom();
+    await server(socket, { data: { type: "snapshot", notes: list } });
+    return socket;
+  }
+
+  it("Add note opens a sheet built from the same palette registry", async () => {
+    const { paletteSections, PALETTE_CATEGORIES } = await import("../src/palette/registry");
+    await withNotes();
+    await click(document.querySelector<HTMLElement>('[aria-label="Add note"]') ?? undefined);
+    const labels = [...(dialog()?.querySelectorAll<HTMLElement>("[data-palette-item]") ?? [])].map((t) => t.getAttribute("aria-label"));
+    const expected = paletteSections(PALETTE_CATEGORIES, "add", { live: true, noteCount: 0 }, "").flatMap((s) => s.items.map((i) => i.label));
+    expect(labels).toEqual(expected);
+    expect(document.querySelector('aside[aria-label="Palette"]')).toBeNull();
+  });
+
+  it("tapping a note opens the editor sheet with Title, Body, read-only colour, author and Delete", async () => {
+    const socket = await withNotes(one);
+    const note = document.querySelector<HTMLElement>('[aria-roledescription="note"]');
+    await act(async () => {
+      note?.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, pointerType: "touch", button: 0 }));
+    });
+    await click(note ?? undefined);
+    expect(dialog()?.querySelector("h2")?.textContent).toBe("Edit note");
+    expect(dialog()?.querySelector<HTMLInputElement>('input[name="title"]')?.value).toBe("Idea one");
+    expect(dialog()?.querySelector<HTMLTextAreaElement>('textarea[name="body"]')?.value).toBe("The details");
+    expect([...(dialog()?.querySelectorAll<HTMLButtonElement>('[role="radio"]') ?? [])].every((b) => b.disabled)).toBe(true);
+    expect(dialog()?.textContent).toContain("Sam");
+    vi.stubGlobal("confirm", () => true);
+    await click(byText('[role="dialog"] button', /Delete note/));
+    expect(sentOfType(socket, "noteDelete")).toEqual([{ type: "noteDelete", id: N1 }]);
   });
 });
 

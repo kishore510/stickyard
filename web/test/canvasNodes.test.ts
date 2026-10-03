@@ -3,6 +3,7 @@ import { PROTOCOL_VERSION, type Note, type Participant } from "@stickyard/shared
 import type { SocketFactory, SocketHandlers } from "../src/connection/socket";
 import { BOARD_NODE_ID, createDragHandlers, createNoteNodeMapper, type NoteFlowNode } from "../src/canvas/nodes";
 import { RoomSession, type RoomView } from "../src/rooms/session";
+import { EMPTY_SELECTION, selectOnly } from "../src/canvas/selection";
 
 /*
  * The canvas layer between React Flow and the room session: notes in, memoised nodes out;
@@ -62,7 +63,11 @@ function room(notes: Note[] = [one, two]) {
     return n;
   };
   const moves = () => sock().sent.filter((m) => m.type === "noteMove");
-  return { session, sock, nodes, node, drag, moves };
+  const board = () => {
+    if (!view) throw new Error("no view");
+    return view.board;
+  };
+  return { session, sock, nodes, node, drag, moves, board };
 }
 
 /** What React Flow reports while a node is dragged to (x, y). */
@@ -181,5 +186,40 @@ describe("dragging through the canvas layer", () => {
     ]);
     expect(r.moves()).toEqual([]);
     expect(r.node(N1).position).toEqual({ x: 40, y: 60 });
+  });
+});
+
+describe("tools and selection on nodes", () => {
+  it("notes take pointer events under every tool, so double-click and focus reach them under Hand", () => {
+    // Regression: React Flow gives a node that is neither draggable nor selectable
+    // pointer-events: none, so under Hand (notes not draggable) clicks went to the pane.
+    const r = room();
+    const map = createNoteNodeMapper();
+    for (const movable of [true, false]) {
+      const notes = map(r.board(), true, movable).slice(1);
+      expect(notes.every((n) => n.style?.pointerEvents === "all"), `movable ${movable}`).toBe(true);
+    }
+    // Hand: not draggable (so a drag starting on a note pans), but still clickable.
+    expect(map(r.board(), true, false)[1]?.draggable).toBe(false);
+    // The board itself never takes pointer events (a click there is a click on empty space).
+    expect(map(r.board(), true, true)[0]?.style?.pointerEvents).toBe("none");
+  });
+
+  it("nodes carry their selected state; selecting one note replaces only that note's node", () => {
+    const r = room();
+    const map = createNoteNodeMapper();
+    const board = r.board();
+    const before = map(board, true, true, EMPTY_SELECTION);
+    const after = map(board, true, true, selectOnly(EMPTY_SELECTION, N2));
+    expect(before.slice(1).map((n) => n.type === "note" && n.data.selected)).toEqual([false, false]);
+    expect(after[1]).toBe(before[1]);
+    expect(after[2]).not.toBe(before[2]);
+    expect(after[2]?.type === "note" && after[2].data.selected).toBe(true);
+  });
+
+  it("node size comes from the note size lookup", () => {
+    const r = room();
+    expect(r.node(N1).width).toBe(160);
+    expect(r.node(N1).height).toBe(160);
   });
 });
