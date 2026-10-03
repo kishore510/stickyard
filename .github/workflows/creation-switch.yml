@@ -1,0 +1,43 @@
+name: Room creation switch
+
+# The kill switch for starting new sessions. Run it from the Actions tab or the GitHub
+# mobile app: Actions > Room creation switch > Run workflow > on/off.
+# It sets the Worker secret CREATION_ENABLED ("true" or "false"). Secrets survive later
+# deploys, so the setting sticks until this is run again. Existing sessions keep working.
+
+on:
+  workflow_dispatch:
+    inputs:
+      creation:
+        description: "Allow starting new sessions?"
+        type: choice
+        options: ["off", "on"]
+        default: "off"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-worker
+  cancel-in-progress: false
+
+jobs:
+  switch:
+    name: Set CREATION_ENABLED
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - name: wrangler secret put CREATION_ENABLED
+        working-directory: worker
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          VALUE: ${{ inputs.creation == 'on' && 'true' || 'false' }}
+        run: |
+          printf '%s' "$VALUE" | npx wrangler secret put CREATION_ENABLED > /dev/null
+          echo "Room creation is now ${{ inputs.creation }}."

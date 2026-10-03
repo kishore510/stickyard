@@ -176,7 +176,7 @@ function CopyLink({ code }: { code: string }) {
         {state === "copied" ? <Check /> : <Copy />}
         Copy link
       </Button>
-      <p role="status" className="basis-full text-sm text-fg-muted">
+      <p role="status" className="order-last basis-full text-sm text-fg-muted">
         {state === "copied" && "Link copied. Anyone with it can join."}
         {state === "failed" && `Couldn’t copy. The link is: ${link}`}
       </p>

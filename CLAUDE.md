@@ -28,7 +28,18 @@ Free-plan limits: `docs/LIMITS.md`.
 - What's new renders root `CHANGELOG.md` (Keep a Changelog: `## [x.y.z] - YYYY-MM-DD`, `### Added/Changed/Fixed`, user-facing wording). Its newest entry must equal the version, and all four package.json versions must match (tests check). Bump with `npm version x.y.z --no-git-tag-version --workspaces --include-workspace-root`, and update the `@stickyard/shared` range in web/worker.
 - Build info (version, short commit, build date, credits) is injected by `web/vite.config.ts`; About reads it via `web/src/version.ts`. Copy details = version, build, protocol, browser only.
 - About > Privacy must stay true: any slice that changes what is stored in the browser or sent anywhere updates that text in the same change.
-- Storage keys: `STORAGE_KEYS` in `web/src/storage.ts` (`stickyard:theme`, `stickyard:last-seen-version`); always read/write via `readKey`/`writeKey` (never throw).
+- Storage keys: `STORAGE_KEYS` in `web/src/storage.ts` (`stickyard:theme`, `stickyard:last-seen-version`, `stickyard:name`); always read/write via `readKey`/`writeKey` (never throw).
+
+## Rooms and protocol v2 (slice 1)
+- `PROTOCOL_VERSION = 2`. Client: `hello`, `join { name }`, `say { text }`. Server: `welcome`, `error`, `joined`, `participant_joined`, `participant_left`, `echo`. `/ws` without a code only answers a v1 hello with `version_mismatch` (compatibility for old pages); keep that until a later protocol bump replaces it.
+- Room code `<id>.<sig>` (see `worker/src/roomCode.ts`). The Worker verifies it, in constant time, BEFORE touching any Durable Object; invalid codes all get the same 404. Rooms are addressed by `id`.
+- All secret comparisons go through `safeEqual` (`worker/src/crypto.ts`: SHA-256 both sides, `timingSafeEqual`).
+- Secrets `CREATE_PASSCODE`, `ROOM_SIGNING_KEY` (pushed from GitHub secrets by the deploy job) and the kill switch `CREATION_ENABLED` (set by the "Room creation switch" workflow). Missing secrets fail closed.
+- Abuse limits live in `worker/src/limits.ts`; participant and text caps in `shared/src/protocol.ts`. One `Limiter` DO (fixed name) stores only HMAC-hashed client keys, writes only when a counter changes.
+- Room DOs store nothing (slice 5 adds persistence). Per-socket state (hello, participant, token bucket) lives in the WebSocket attachment so it survives hibernation.
+- Server assigns participant ids and `colourIndex`; `echo.from` comes from the socket. Names/text are cleaned with `cleanName`/`cleanText` (shared) and rendered as text only.
+- No `console.` in `worker/src` (test enforces). Never log bodies, names, text, passcodes, codes or IPs.
+- Web: `#/room/<code>`; sheets opened from a room show over it (`App.tsx` keeps the base page). The create passcode is never stored; `stickyard:name` holds the last-used name.
 
 ## Working rules
 - One slice at a time on its own `phase-...` branch. Never commit to `main`. Stop for review at the end of each slice.

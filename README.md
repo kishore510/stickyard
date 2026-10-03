@@ -6,7 +6,7 @@ Personal learning project. Front end on GitHub Pages, relay on a Cloudflare Work
 
 See [docs/PROJECT_BRIEF.md](docs/PROJECT_BRIEF.md), [docs/PHASE_PLAN.md](docs/PHASE_PLAN.md) and [docs/LIMITS.md](docs/LIMITS.md).
 
-**Status:** slice 0.5 (app shell and design system, v0.2.0). The home page is still the connection check (Pages → WebSocket → Worker → Durable Object → handshake reply), now inside the app shell with Help, What's new and About.
+**Status:** slice 1 (echo rooms, v0.3.0, protocol v2). Start a session with the create passcode, share its link, join by link and name, and see each other's messages echoed. No sticky notes yet.
 
 ## Layout
 
@@ -24,6 +24,7 @@ Requires Node 24 (see `.nvmrc`; `nvm use`). Works on a Raspberry Pi 5 (arm64), i
 
 ```sh
 npm install
+cp worker/.dev.vars.example worker/.dev.vars   # then fill in your own local values (gitignored)
 
 # terminal 1: relay on http://127.0.0.1:8787
 cd worker && npx wrangler dev --ip 127.0.0.1 --port 8787
@@ -48,7 +49,19 @@ npm test            # vitest; worker tests run inside workerd
 npm run build       # web build + worker dry-run bundle
 ```
 
-Endpoints: `GET /health` returns `{ "ok": true, "protocolVersion": 1 }`. `GET /ws` is the WebSocket (Origin-checked).
+`worker/.dev.vars` holds local-only values for `CREATE_PASSCODE`, `ROOM_SIGNING_KEY` and `CREATION_ENABLED=true`. Use made-up values, never the production ones. Tests use their own obviously fake values (`worker/vitest.config.ts`).
+
+Endpoints (all browser calls are Origin-checked; see below):
+
+| Endpoint | What |
+|---|---|
+| `GET /health` | `{ "ok": true, "protocolVersion": 2 }`. No Durable Object. Used for the start page's status line |
+| `POST /rooms` | Body `{ "passcode": "..." }` (max 1 KB). `200 { code }`, `401 invalid_passcode`, `429 rate_limited` + `Retry-After`, `503 creation_disabled` / `not_configured`, `400` / `413` |
+| `GET /rooms/check?room=<code>` | `200` if the code's signature is valid, else `404`. No Durable Object |
+| `GET /ws?room=<code>` | The room WebSocket. Origin, then signature, then the room's Durable Object. Invalid codes: one generic `404` |
+| `GET /ws` (no code) | Only answers a v1 `hello` with `version_mismatch` so old cached pages say "please reload" |
+
+Room codes are `<id>.<sig>`: 16 random bytes and a 128-bit HMAC-SHA256 of `stickyard-room-v1:<id>` keyed by `ROOM_SIGNING_KEY`, both base64url. Abuse limits (passcode lockout, daily creation caps, per-socket message rate) are in `worker/src/limits.ts`; the participant cap and text limits are in `shared/src/protocol.ts`.
 
 ## Deploy
 
@@ -85,11 +98,40 @@ curl "${WS[@]}" -H "Origin: https://evil.example" https://stickyard.kishore510.w
 
 ## Secrets
 
-No secrets are ever committed. Later slices will add these, set only with `wrangler secret put` (production) or `worker/.dev.vars` (local, gitignored):
+No secrets are ever committed. The Worker needs two:
 
-| Secret | Slice | Purpose |
-|---|---|---|
-| `CREATE_PASSCODE` | 1 | Gates room creation |
-| `ROOM_SIGNING_KEY` | 1 | HMAC key for signed room codes |
+| Secret | Purpose |
+|---|---|
+| `CREATE_PASSCODE` | Gates starting a session (compared in constant time, never logged) |
+| `ROOM_SIGNING_KEY` | HMAC key for room codes, and for hashing client IPs in the limiter |
 
-CI deploy credentials (`CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`) live only in GitHub Actions secrets. Tests use obviously fake values. GitHub secret scanning and push protection are on. If a secret is ever committed, rotate it: deleting the file doesn't remove it from history.
+If either is missing, creating **and** joining are refused (503); `/health` still works.
+
+They are stored as **GitHub Actions secrets** with the same names, and the deploy job pushes them to the Worker (`wrangler secret bulk`, reading JSON from stdin; the values are never on a command line, on disk or in the log). Set or rotate them on the Pi; each command prompts for the value, so it never lands in shell history:
+
+```sh
+gh secret set CREATE_PASSCODE
+gh secret set ROOM_SIGNING_KEY
+gh workflow run ci.yml --ref main   # re-deploys and pushes the new values
+```
+
+Rotating `ROOM_SIGNING_KEY` invalidates every existing room link. Rotating `CREATE_PASSCODE` only affects starting new sessions.
+
+The same Cloudflare API token (**Account → Workers Scripts → Edit**) covers deploys and secrets. CI deploy credentials (`CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`) live only in GitHub Actions secrets. Locally, `worker/.dev.vars` (gitignored, see `worker/.dev.vars.example`) holds made-up values. Tests use obviously fake values. GitHub secret scanning and push protection are on. If a secret is ever committed, rotate it: deleting the file doesn't remove it from history.
+
+## Kill switch (stop new sessions)
+
+`CREATION_ENABLED` is also a Worker secret. Starting sessions works only when it is exactly `true`; anything else (including unset) returns `503 creation_disabled`. Existing sessions keep working either way.
+
+Flip it from a phone in under a minute, no code change: **GitHub mobile app → stickyard → Actions → Room creation switch → Run workflow → on/off**. Or from the Pi:
+
+```sh
+gh workflow run creation-switch.yml -f creation=off
+gh workflow run creation-switch.yml -f creation=on
+```
+
+Secrets survive later deploys, so the setting sticks until the switch is run again.
+
+## What Cloudflare may log
+
+Our code logs nothing about requests (a test forbids `console.` in `worker/src`). Workers observability is on, so Cloudflare keeps short-term invocation logs with request metadata: the URL (for `/ws` and `/rooms/check` this includes the **room code**), method, status, headers such as `Origin` and `User-Agent`, approximate location, and possibly the client IP. The create passcode is only ever in a POST body, which is not logged.

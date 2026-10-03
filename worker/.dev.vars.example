@@ -1,0 +1,6 @@
+# Copy to worker/.dev.vars (gitignored) for `wrangler dev`, and fill in your own LOCAL values.
+# Never put the production values here or anywhere in the repo.
+CREATE_PASSCODE=
+ROOM_SIGNING_KEY=
+# The kill switch: room creation works only when this is exactly "true".
+CREATION_ENABLED=true
