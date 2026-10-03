@@ -37,8 +37,8 @@ const NOTE_ID = "NNNNNNNNNNNNNNNN";
 const note: Note = { id: NOTE_ID, x: 100, y: 200, ...NOTE_DEFAULTS, text: "Idea one", color: "yellow", rev: 1, authorId: ID_A };
 
 describe("protocol v4 constants", () => {
-  it("is protocol 4", () => {
-    expect(PROTOCOL_VERSION).toBe(4);
+  it("is protocol 4 or later (v5 adds titleAlign)", () => {
+    expect(PROTOCOL_VERSION).toBeGreaterThanOrEqual(4);
   });
 
   it("sizes are integers, default between min and max, and the largest note fits the board", () => {
@@ -67,6 +67,7 @@ describe("protocol v4 constants", () => {
       italic: false,
       textColor: "auto",
       align: "left",
+      titleAlign: "left",
     });
   });
 });

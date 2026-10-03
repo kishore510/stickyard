@@ -1138,7 +1138,7 @@ describe("the Properties panel (md up)", () => {
     expect(propBody()?.disabled).toBe(true);
     expect(byText("aside button", /Delete note/)?.hasAttribute("disabled")).toBe(true);
     const controls = [...(properties()?.querySelectorAll<HTMLButtonElement | HTMLInputElement | HTMLSelectElement>(
-      '[aria-label="Note colour"] button, [aria-label="Text colour"] button, [aria-label="Text style"] button, [aria-label="Alignment"] button, input[name="width"], input[name="height"], select[name="fontSize"]',
+      '[aria-label="Note colour"] button, [aria-label="Text colour"] button, [aria-label="Text style"] button, [aria-label="Title alignment"] button, [aria-label="Body alignment"] button, input[name="width"], input[name="height"], select[name="fontSize"]',
     ) ?? [])];
     expect(controls.length).toBeGreaterThan(15);
     expect(controls.every((c) => c.disabled)).toBe(true);
@@ -1157,7 +1157,7 @@ describe("the Properties panel (md up)", () => {
     expect(notes()[0]?.className).toContain("bg-note-pink");
   });
 
-  it("Text section: size, Bold/Italic toggles (aria-pressed), text colour and alignment each send their field", async () => {
+  it("Text section: size, Bold/Italic toggles (aria-pressed), text colour, and title and body alignment each send their field", async () => {
     const socket = await withNotes(one);
     await selectNote(0);
     const size = properties()?.querySelector<HTMLSelectElement>('select[name="fontSize"]');
@@ -1174,23 +1174,39 @@ describe("the Properties panel (md up)", () => {
     expect(properties()?.querySelector('[aria-label="Text style"] [aria-label="Bold"]')?.getAttribute("aria-pressed")).toBe("true");
     await click(properties()?.querySelector<HTMLElement>('[aria-label="Text style"] [aria-label="Italic"]') ?? undefined);
     await click(properties()?.querySelector<HTMLElement>('[aria-label="Text colour"] [aria-label="Blue"]') ?? undefined);
-    const right = properties()?.querySelector<HTMLElement>('[aria-label="Alignment"] [aria-label="Align right"]');
-    await click(right ?? undefined);
-    expect(properties()?.querySelector('[aria-label="Alignment"] [aria-label="Align right"]')?.getAttribute("aria-checked")).toBe("true");
+    await click(properties()?.querySelector<HTMLElement>('[aria-label="Title alignment"] [aria-label="Align title centre"]') ?? undefined);
+    await click(properties()?.querySelector<HTMLElement>('[aria-label="Body alignment"] [aria-label="Align body right"]') ?? undefined);
+    expect(properties()?.querySelector('[aria-label="Title alignment"] [aria-label="Align title centre"]')?.getAttribute("aria-checked")).toBe("true");
+    expect(properties()?.querySelector('[aria-label="Title alignment"] [aria-label="Align title left"]')?.getAttribute("aria-checked")).toBe("false");
+    expect(properties()?.querySelector('[aria-label="Body alignment"] [aria-label="Align body right"]')?.getAttribute("aria-checked")).toBe("true");
     expect(sentOfType(socket, "noteEdit")).toEqual([
       { type: "noteEdit", id: N1, fontSize: "xl" },
       { type: "noteEdit", id: N1, bold: true },
       { type: "noteEdit", id: N1, italic: true },
       { type: "noteEdit", id: N1, textColor: "blue" },
+      { type: "noteEdit", id: N1, titleAlign: "center" },
       { type: "noteEdit", id: N1, align: "right" },
     ]);
-    // The note shows it, from token classes only.
-    const text = notes()[0]?.querySelector("span");
+    // The note shows it, from token classes only: style on the whole text, alignment per part.
+    const text = notes()[0]?.querySelector("[data-note-text]");
     expect(text?.className).toContain("text-note-xl");
     expect(text?.className).toContain("font-bold");
     expect(text?.className).toContain("italic");
     expect(text?.className).toContain("text-note-text-blue");
-    expect(text?.className).toContain("text-right");
+    const title = notes()[0]?.querySelector("[data-note-title]");
+    const body = notes()[0]?.querySelector("[data-note-body]");
+    expect(title?.textContent).toBe("Idea one");
+    expect(title?.className).toContain("text-center");
+    expect(body?.textContent).toBe("The details");
+    expect(body?.className).toContain("text-right");
+  });
+
+  it("a note with only a title has no body block; text stays plain", async () => {
+    await withNotes({ ...one, text: "<b>Just a title</b>", titleAlign: "right" });
+    expect(notes()[0]?.querySelector("[data-note-title]")?.textContent).toBe("<b>Just a title</b>");
+    expect(notes()[0]?.querySelector("[data-note-title]")?.className).toContain("text-right");
+    expect(notes()[0]?.querySelector("[data-note-body]")).toBeNull();
+    expect(notes()[0]?.querySelector("b")).toBeNull();
   });
 
   it("Width and Height commit on Enter or blur, clamped, as one final noteResize", async () => {
@@ -1318,7 +1334,8 @@ describe("phone: add sheet and editor sheet", () => {
     expect(dialog()?.querySelector('input[name="width"]')).not.toBeNull();
     expect(dialog()?.querySelector('input[name="height"]')).not.toBeNull();
     expect(dialog()?.querySelector('[aria-label="Text colour"]')).not.toBeNull();
-    expect(dialog()?.querySelector('[aria-label="Alignment"]')).not.toBeNull();
+    expect(dialog()?.querySelector('[aria-label="Title alignment"]')).not.toBeNull();
+    expect(dialog()?.querySelector('[aria-label="Body alignment"]')).not.toBeNull();
     expect(dialog()?.textContent).toContain("Sam");
     vi.stubGlobal("confirm", () => true);
     await click(byText('[role="dialog"] button', /Delete note/));

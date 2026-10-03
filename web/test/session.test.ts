@@ -470,6 +470,8 @@ describe("notes", () => {
     expect(lastSent(t)).toEqual({ type: "noteEdit", id: N1, bold: true });
     t.session.styleNote(N1, { align: "right" });
     expect(lastSent(t)).toEqual({ type: "noteEdit", id: N1, align: "right" });
+    t.session.styleNote(N1, { titleAlign: "center" });
+    expect(lastSent(t)).toEqual({ type: "noteEdit", id: N1, titleAlign: "center" });
     t.sock().receive({ type: "error", code: "bad_message", message: "x", noteId: N1 });
     expect(t.view().board.notes[0]?.note).toEqual(one);
     expect(t.view().noteNotice).toBeTruthy();
