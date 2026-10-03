@@ -14,7 +14,7 @@ Draft roadmap. When a slice starts, rewrite its prompt against the real code (se
 | 2 Shared stickies | Add/edit/move/delete, last-write-wins, optimistic updates, minimal SQLite persistence | Done (v0.4.0, protocol v3) |
 | 2.5 Board UX | React Flow canvas, full-bleed board, view bar, minimap, floating chat, Participants sheet, tool rail, phone ribbon. Web only | Done (v0.5.0) |
 | 2.6 Panels | Resizable, collapsible left palette (categories, six coloured note tiles, drag onto board) and right Properties panel; selection model as a set. Web only | Done (v0.5.1) |
-| 2.7 Note size and colour | Resize notes (per-note size, resize handles); change a note's colour after adding. Protocol v4 + stored-schema migration | Not started |
+| 2.7 Note size, colour and text style | Resize notes (per-note size, resize handles, Width/Height); change a note's colour; text style (size, bold, italic, text colour, left/centre/right). Protocol v4 + stored-schema migration (1 -> 2) | Done (v0.6.0) |
 | 2.8 Multi-select and arrange | Marquee and multi-select, floating selection bar (align, distribute, match size), group move/delete, batch update message. Protocol v5 | Not started |
 | 3 Presence | Live cursors (throttled, never stored), join/leave toasts, avatar stack. Protocol v6 | Not started |
 | 4 Reconnect | Resync after drops, offline queue | Not started |
@@ -62,7 +62,7 @@ Draft roadmap. When a slice starts, rewrite its prompt against the real code (se
 - Server is the source of truth; clients send intents. Optimistic local update with rollback, rev-based stale rejection, throttled drag batches.
 - Caps: 200 notes per room, 280 characters, message size, per-socket message rate.
 - Notes persisted in the Durable Object's SQLite on commits only (add, edit, final move, delete). No expiry yet.
-- Known gaps, planned: a note's colour cannot be changed after adding (noteEdit carries text only), and notes are a fixed 160 by 160 (both in slice 2.7).
+- Known gaps, closed in slice 2.7: colour change after adding, and per-note size.
 
 ### 2.5 Board UX
 - React Flow canvas, controlled: notes stay in our store. Full-bleed board, no scrollbars, pan by gesture, pinch/Ctrl+wheel zoom, fit-to-notes, minimap from `md`.
@@ -80,12 +80,13 @@ Draft roadmap. When a slice starts, rewrite its prompt against the real code (se
 - No Stencils tab until a stencil exists.
 - Also diagnose and fix: editing a note while the Hand tool is active.
 
-### 2.7 Note size and colour (protocol v4)
+### 2.7 Note size, colour and text style (protocol v4) — done, v0.6.0
 - Notes gain width and height in board units. Existing notes migrate to the default size (stored-schema version bump, migration tested). Min and max size constants; the server clamps so a note stays fully on the board.
 - Resize handles on the selected note (corners), pointer events, 44px touch hit areas, keyboard resize. Non-final resize messages are throttled and broadcast only; persisted on the final message (same rule as moves).
 - Note text wraps and clips safely at any size; the 280-character cap is unchanged.
 - Optional `color` on `noteEdit`, so colour can change after adding. Properties panel enables the swatches and shows width/height fields.
 - v3 clients get "please reload". Tests first, as for every protocol change.
+- Added at the user's request: text style keys on `noteEdit` (font size s/m/l/xl, bold, italic, text colour with Auto, alignment left/centre/right), styles applying to the whole note. Also, outside the slice scope at the user's request: the menu stacks above the side panels, chat messages show when they arrived, and the floating chat can be resized.
 
 ### 2.8 Multi-select and arrange (protocol v5)
 - Selection set from 2.6 becomes real: marquee on the Select tool, Shift/Ctrl-click to toggle, Ctrl+A. Dragging one selected note moves the whole selection.

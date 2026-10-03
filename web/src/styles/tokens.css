@@ -190,6 +190,10 @@
   --sy-minimap-height: 125px;
   --sy-chat-width: 22rem;
   --sy-chat-height: min(30rem, 60dvh);
+  /* Resizing the chat panel: limits (mirrored in src/chat/chatSize.ts; a test checks). */
+  --sy-chat-min-w: 256px;
+  --sy-chat-min-h: 240px;
+  --sy-chat-max-w: 640px;
   /* A floating bar's height: a touch target plus the bar's padding and border. */
   --sy-bar-h: calc(var(--sy-touch-min) + 2 * var(--sy-space-xs) + 2 * var(--sy-border-width));
   --sy-edge-bottom: max(var(--sy-gutter), var(--sy-safe-bottom));

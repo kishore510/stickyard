@@ -459,6 +459,36 @@ describe("chat", () => {
     expect(messages()?.textContent).toContain("Hello all");
   });
 
+  it("each message shows when it arrived, as a <time> with the full date in its tooltip", async () => {
+    const socket = await inRoom();
+    await server(socket, { data: { type: "echo", from: sam.id, text: "Hi" } });
+    await openFromTopBar("Chat");
+    const time = messages()?.querySelector("time");
+    expect(time?.getAttribute("datetime")).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+    expect(time?.getAttribute("title")).toBeTruthy();
+    expect(time?.textContent).toMatch(/\d/);
+  });
+
+  it("from md up, the chat panel has a resize grip (arrow keys too; double-click resets), and keeps the size", async () => {
+    setWide(true);
+    await inRoom();
+    await click(document.querySelector<HTMLElement>('[data-chat-dock] [aria-label^="Chat"]') ?? undefined);
+    const panel = () => document.querySelector<HTMLElement>('[data-chat-dock] [role="region"]');
+    const grip = () => panel()?.querySelector<HTMLElement>('[aria-label="Resize chat"]');
+    expect(grip()).toBeTruthy();
+    expect(panel()?.className).toContain("w-chat-w");
+    await act(async () => {
+      grip()?.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowLeft", bubbles: true, cancelable: true }));
+    });
+    expect(panel()?.style.width).toMatch(/px$/);
+    expect(JSON.parse(localStorage.getItem("stickyard:chat-panel") ?? "null")).toMatchObject({ width: expect.any(Number) });
+    await act(async () => {
+      grip()?.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+    });
+    expect(panel()?.style.width).toBe("");
+    expect(panel()?.className).toContain("w-chat-w");
+  });
+
   it("renders chat text and names as plain text, never HTML", async () => {
     const socket = await inRoom();
     const evil = '<img src=x onerror="alert(1)"><b>bold</b>';
@@ -670,6 +700,16 @@ describe("board layout: palette and Properties panels from md up, ribbon on phon
     expect(toolIds(ribbon())).toEqual(toolsFor("ribbon").map((t) => t.id));
     expect(document.querySelector('[aria-label^="Note colour"]')).toBeNull();
     expect(document.querySelector(".react-flow__minimap")).toBeNull();
+  });
+
+  it("md up: the top bar (and its menu) stacks above the side panels, below sheets", async () => {
+    setWide(true);
+    await inRoom();
+    const z = (el: Element | null) => Number(/\bz-(\d+)\b/.exec(el?.className ?? "")?.[1] ?? 0);
+    const header = document.querySelector("header");
+    const panel = document.querySelector('aside[aria-label="Properties"]');
+    expect(z(header)).toBeGreaterThan(z(panel));
+    expect(z(header)).toBeLessThan(50);
   });
 
   it("md up: palette on the left, Properties on the right, view bar from the registry; no rail, ribbon or colour picker", async () => {

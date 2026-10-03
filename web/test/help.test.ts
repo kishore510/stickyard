@@ -39,9 +39,17 @@ describe("help topics", () => {
     for (const claim of ["palette", "drag a tile", "properties", "title", "body", "collapse", "resize", "[", "]"]) {
       expect(notes, claim).toContain(claim);
     }
-    // No Stencils tab or colour changes yet.
+    // No Stencils tab yet; colour change, text style and resizing exist (slice 2.7).
     expect(notes).not.toMatch(/stencil/i);
-    expect(notes).toContain("changing colour arrives in a later update");
+    expect(notes).not.toContain("arrives in a later update");
+    for (const claim of ["resizing a note", "alt", "width", "height", "colour and text style", "bold", "italic", "align right", "text colour", "auto"]) {
+      expect(notes, claim).toContain(claim);
+    }
+  });
+
+  it("the Chat topic covers timestamps and resizing", () => {
+    const chat = HELP_TOPICS.find((t) => t.id === "chat")?.text ?? "";
+    for (const claim of ["when it arrived", "grip", "arrow keys", "remembers the size"]) expect(chat, claim).toContain(claim);
   });
 
   it("help topics only claim what exists: no cursors, QR codes, timers or votes yet", () => {

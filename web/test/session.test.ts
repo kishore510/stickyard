@@ -183,7 +183,7 @@ describe("in the room", () => {
     const t = joined();
     t.sock().receive({ type: "echo", from: sam.id, text: "hi" });
     t.sock().receive({ type: "participant_left", id: sam.id });
-    expect(t.view().messages).toEqual([{ key: expect.any(Number), from: sam.id, name: "Sam", colourIndex: 1, text: "hi" }]);
+    expect(t.view().messages).toEqual([{ key: expect.any(Number), from: sam.id, name: "Sam", colourIndex: 1, text: "hi", at: expect.any(Number) }]);
   });
 
   it("ignores echoes from unknown senders", () => {

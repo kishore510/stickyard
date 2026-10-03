@@ -1,8 +1,8 @@
 ---
 title: Notes
 order: 3
-summary: Add notes from the palette, edit them in Properties, move and delete them; pan, zoom and fit the board.
-keywords: note, notes, sticky, board, add, edit, move, drag, delete, colour, color, text, title, body, palette, tile, properties, panel, select, selection, collapse, resize, pan, hand, zoom, pinch, wheel, fit, overview, map, shortcut, full, saved
+summary: Add notes from the palette, edit, colour, style and resize them in Properties, move and delete them; pan, zoom and fit the board.
+keywords: note, notes, sticky, board, add, edit, move, drag, delete, colour, color, text, title, body, size, width, height, bigger, smaller, handle, corner, font, bold, italic, align, alignment, left, centre, center, right, style, palette, tile, properties, panel, select, selection, collapse, resize, pan, hand, zoom, pinch, wheel, fit, overview, map, shortcut, full, saved
 ---
 Every session has one shared **board**. Everyone in the session sees the same notes, and changes show up for everyone as they happen. The board fills the screen; its edge is the outline around the dotted area, and notes always stay inside it.
 
@@ -26,9 +26,24 @@ Every session has one shared **board**. Everyone in the session sees the same no
 - **Title** is the note's first line and **Body** is the rest. They're saved as one text, with a line break between them.
 - **Enter** saves. **Shift+Enter** starts a new line. On a wider screen, clicking away from the fields also saves. On a phone, leaving the editor (**Done**, **Esc**, **X**, tapping outside it) saves.
 - Notes can be up to 280 characters; a counter shows how many you've used. Long text is cut off on the board; the whole text is in the editor.
-- Properties also shows the note's colour and who added it. Changing colour arrives in a later update.
+- Properties also shows who added the note.
 - Notes are plain text: formatting and links are shown exactly as typed.
 - If two people change the same note, the change that reaches the relay last wins. What you're typing isn't replaced while you type; when you save, your text wins (unless someone saves after you).
+
+## Colour and text style
+
+- In **Properties** (on a phone, in the note's editor), choose a swatch under **Colour** to change the note's colour.
+- Under **Text**: **Size** (Small, Medium, Large, Extra large), **Bold** and **Italic**, alignment (**Align left**, **Align centre**, **Align right**), and **Text colour**. **Auto** is the usual dark text; the other colours stay readable on every note colour, in light and dark themes.
+- Styles apply to the whole note, title and body together. There's no formatting inside the text.
+- Changes show at once and everyone sees them. If one can't be saved, the note goes back to how it was.
+
+## Resizing a note
+
+- Select a note: small squares appear at its corners. Drag one to resize the note; the opposite corner stays where it is. You can also drag an edge to change just the width or height. This works with a mouse, pen or finger (the grab area is bigger than the square).
+- With a keyboard, focus a note and hold **Alt** with the **arrow keys**: **Right** and **Left** make it wider and narrower, **Down** and **Up** taller and shorter. Hold **Shift** too for bigger steps.
+- In **Properties** (or the phone editor), type a **Width** or **Height** and press **Enter** or move to another field.
+- Notes are 96 to 480 wide and tall (160 by 160 to start), and always stay inside the board. Text wraps to the new size; anything that doesn't fit is cut off on the board.
+- Others see the note change size as you drag. Resize handles are hidden with **Hand** on, and while you're disconnected.
 
 ## The side panels
 
@@ -41,7 +56,7 @@ Every session has one shared **board**. Everyone in the session sees the same no
 
 - Press anywhere on a note and drag it, with a mouse or a finger. A tap that barely moves doesn't move the note. Others see it move as you drag.
 - Drag a note near the edge of the screen and the board scrolls along with it.
-- With a keyboard, focus a note and use the **arrow keys**. Hold **Shift** for bigger steps.
+- With a keyboard, focus a note and use the **arrow keys**. Hold **Shift** for bigger steps. (**Alt** with the arrow keys resizes it instead.)
 
 ## Moving around the board
 
@@ -59,6 +74,8 @@ When you're not typing in a box:
 - **V** is Select, **H** is Hand, **N** adds a note (on a wider screen, in the colour you last added), and **M** shows or hides the overview map.
 - **[** collapses or expands the palette, and **]** collapses or expands Properties.
 
+With a note focused: **arrow keys** move it, **Alt+arrow keys** resize it (add **Shift** for bigger steps), **Enter** edits it, **Delete** deletes it and **Esc** clears the selection.
+
 ## Deleting a note
 
 Select the note and choose the bin (**Delete note**) at the top of Properties (on a phone, **Delete note** in its editor), or focus it and press **Delete**. If the note has text, you're asked first. Deleting removes the note for everyone, and it can't be undone.
@@ -66,8 +83,8 @@ Select the note and choose the bin (**Delete note**) at the top of Properties (o
 ## When something goes wrong
 
 - If a change can't be saved (for example when you change things very quickly), the note goes back to how it was and a short message says so.
-- If your connection drops, the board stays on screen but you can't change it, and **Add note** is switched off. Choose **Rejoin** to get the latest board.
+- If your connection drops, the board stays on screen but you can't change it: **Add note**, the colour, text and size controls are switched off and resize handles are hidden. Choose **Rejoin** to get the latest board.
 
 ## What's kept
 
-Notes are kept by the Stickyard relay, so they're still there when people leave and come back. Each note records its text, colour, place on the board, and a random id for the visit that added it (not your name). Where you've moved or zoomed to, the tool you picked and what's selected aren't kept or sent anywhere. The side panels' widths and whether they're collapsed are remembered in this browser only. See **About > Privacy**.
+Notes are kept by the Stickyard relay, so they're still there when people leave and come back. Each note records its text, colour, text style, size, place on the board, and a random id for the visit that added it (not your name). Where you've moved or zoomed to, the tool you picked and what's selected aren't kept or sent anywhere. The side panels' widths and whether they're collapsed are remembered in this browser only. See **About > Privacy**.

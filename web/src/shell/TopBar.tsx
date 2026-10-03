@@ -61,7 +61,7 @@ function SessionButtons() {
 /** Mark on the left; session buttons, menu and theme toggle on the right. */
 export function TopBar() {
   return (
-    <header className="sy-safe-top sticky top-0 z-30 shrink-0 border-b border-border bg-surface">
+    <header className="sy-safe-top sticky top-0 z-40 shrink-0 border-b border-border bg-surface">
       <div className="sy-safe-x flex h-header items-center justify-between gap-toolbar">
         <a href="#/" className="flex min-h-touch items-center rounded-md text-fg" aria-label="Stickyard, start page">
           <Logo />

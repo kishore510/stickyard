@@ -2,7 +2,7 @@
 title: Touch and keyboard tips
 order: 8
 summary: Taps, swipes, keys and links that make Stickyard quicker to use.
-keywords: touch, tap, swipe, keyboard, tab, escape, esc, arrow, shortcut, screen reader, theme, dark, light, back, link
+keywords: touch, tap, swipe, keyboard, tab, escape, esc, arrow, alt, resize, shortcut, screen reader, theme, dark, light, back, link
 ---
 ## Touch
 
@@ -18,7 +18,8 @@ keywords: touch, tap, swipe, keyboard, tab, escape, esc, arrow, shortcut, screen
 - **Tab** moves between buttons and links. **Enter** or **Space** chooses one. The first Tab on a page offers **Skip to content**.
 - In the menu, the **arrow keys** move between items and **Esc** closes it.
 - **Esc** closes a sheet, and focus returns to where you were.
-- On the board, **Tab** moves between notes and selects the one you reach. **Enter** edits it, the **arrow keys** move it (**Shift** for bigger steps), **Delete** deletes it and **Esc** clears the selection.
+- On the board, **Tab** moves between notes and selects the one you reach. **Enter** edits it, the **arrow keys** move it, **Alt+arrow keys** resize it (**Shift** for bigger steps with either), **Delete** deletes it and **Esc** clears the selection.
+- A selected note's corners can be dragged with a finger to resize it; the grab area is a full fingertip wide.
 - A side panel's edge is focusable: the **arrow keys** resize it (**Shift** for bigger steps), **Home** and **End** go to the narrowest and widest.
 - Board shortcuts: **+** and **-** zoom, **0** goes to 100%, **F** fits to the notes, **V** is Select, **H** is Hand, **N** adds a note, **M** shows the overview map, and **[** and **]** collapse or expand the palette and Properties. Hold **Space** and drag to move around. See [Notes](help:notes).
 

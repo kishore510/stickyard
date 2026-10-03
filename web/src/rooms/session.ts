@@ -61,6 +61,8 @@ export interface EchoEntry {
   name: string;
   colourIndex: number;
   text: string;
+  /** When it arrived here (ms since the epoch, this device's clock). */
+  at: number;
 }
 
 export interface RoomView {
@@ -445,6 +447,7 @@ export class RoomSession {
           name: sender.name,
           colourIndex: sender.colourIndex,
           text: message.text,
+          at: Date.now(),
         };
         const mine = sender.id === this.view.you?.id;
         return this.update({

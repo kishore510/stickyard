@@ -1,5 +1,5 @@
-import { MessageCircle, Send, X } from "lucide-react";
-import { memo, useEffect, useId, useRef, useState, type FormEvent } from "react";
+import { MessageCircle, MoveDiagonal2, Send, X } from "lucide-react";
+import { memo, useEffect, useId, useRef, useState, type FormEvent, type PointerEvent as ReactPointerEvent } from "react";
 import { MAX_TEXT_LENGTH } from "@stickyard/shared";
 import { Button } from "../components/ui/button";
 import { FieldError, Label } from "../components/ui/field";
@@ -9,12 +9,15 @@ import { cn } from "../lib/utils";
 import { participantColourClass } from "../rooms/colours";
 import { useRoomUi, useUnread, type PublishedRoom } from "../rooms/roomStore";
 import { Sheet } from "../shell/Sheet";
+import { chatKeyResize, dragChatSize, type ChatSize } from "./chatSize";
+import { useChatLayout } from "./chatStore";
+import { chatTime } from "./time";
 
 /*
  * Chat (slice 1's message box, moved off the page). Messages go to everyone in the session
  * through the relay and aren't saved. Names and text are untrusted: rendered as text only.
  * The composer sits at the top and the newest message first, so a phone keyboard never
- * hides what you're typing.
+ * hides what you're typing. Each message shows when it arrived here.
  */
 
 export function chatLabel(unread: number): string {
@@ -86,7 +89,8 @@ function ChatBody({ room }: { room: PublishedRoom }) {
           <li key={m.key} className="flex flex-col gap-2xs rounded-md border border-border bg-surface p-ms">
             <span className="flex items-center gap-sm text-sm font-medium">
               <span aria-hidden="true" className={cn("inline-block size-dot shrink-0 rounded-full", participantColourClass(m.colourIndex))} />
-              <span className="min-w-0 break-words">{m.name}</span>
+              <span className="min-w-0 flex-1 break-words">{m.name}</span>
+              <MessageTime at={m.at} />
             </span>
             <span className="break-words whitespace-pre-wrap">{m.text}</span>
           </li>
@@ -94,6 +98,15 @@ function ChatBody({ room }: { room: PublishedRoom }) {
       </ol>
       {room.messages.length === 0 && <p className="text-sm text-fg-muted">No messages yet. Say hello.</p>}
     </div>
+  );
+}
+
+function MessageTime({ at }: { at: number }) {
+  const t = chatTime(at);
+  return (
+    <time dateTime={t.iso} title={t.full} className="shrink-0 text-xs font-normal text-fg-muted tabular-nums">
+      {t.short}
+    </time>
   );
 }
 
@@ -121,7 +134,8 @@ const DOCK_BOTTOM = {
 /**
  * md and up: a floating chat button at the bottom right of the free canvas area (above the
  * minimap when it's shown, and above the view bar when the area is too narrow for both),
- * opening a panel above it. Not modal: the board stays usable. Esc or X closes it.
+ * opening a panel above it. Not modal: the board stays usable. Esc or X closes it. The grip at
+ * its top left resizes it (drag, or arrow keys; double-click resets), and the size is kept.
  */
 export const ChatDock = memo(function ChatDock({ bottom }: { bottom: keyof typeof DOCK_BOTTOM }) {
   const room = useRoomUi((s) => s.room);
@@ -132,6 +146,39 @@ export const ChatDock = memo(function ChatDock({ bottom }: { bottom: keyof typeo
   const panelId = useId();
   const buttonRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
+  const size = useChatLayout((s) => s.size);
+  const drag = useRef<{ x: number; y: number; start: ChatSize } | null>(null);
+
+  /** The space the panel can take: the dock, less the chat button and the gap above it. */
+  const space = (): ChatSize => {
+    const dock = panelRef.current?.parentElement;
+    const panel = panelRef.current?.getBoundingClientRect();
+    // The panel's bottom stays put (it sits on the button), so it can grow up to the dock's top.
+    const height = dock && panel ? panel.bottom - dock.getBoundingClientRect().top : Number.POSITIVE_INFINITY;
+    return { width: dock?.clientWidth || Number.POSITIVE_INFINITY, height: height || Number.POSITIVE_INFINITY };
+  };
+  const current = (): ChatSize => {
+    const r = panelRef.current?.getBoundingClientRect();
+    return { width: r?.width ?? 0, height: r?.height ?? 0 };
+  };
+  const grip = {
+    onPointerDown: (e: ReactPointerEvent<HTMLButtonElement>) => {
+      if (e.button !== 0) return;
+      e.preventDefault();
+      e.currentTarget.setPointerCapture?.(e.pointerId);
+      drag.current = { x: e.clientX, y: e.clientY, start: current() };
+    },
+    onPointerMove: (e: ReactPointerEvent<HTMLButtonElement>) => {
+      const d = drag.current;
+      if (!d) return;
+      useChatLayout.getState().preview(dragChatSize(d.start, { x: e.clientX - d.x, y: e.clientY - d.y }, space()));
+    },
+    onPointerUp: () => {
+      if (!drag.current) return;
+      drag.current = null;
+      useChatLayout.getState().commit(useChatLayout.getState().size);
+    },
+  };
 
   useEffect(() => {
     if (open) panelRef.current?.querySelector<HTMLElement>("[data-autofocus]")?.focus();
@@ -163,9 +210,28 @@ export const ChatDock = memo(function ChatDock({ bottom }: { bottom: keyof typeo
               shut();
             }
           }}
-          className="sy-fade-in pointer-events-auto flex h-chat-h min-h-0 w-chat-w max-w-full flex-col shadow-lg"
+          style={size ? { width: size.width, height: size.height } : undefined}
+          className={cn("sy-fade-in pointer-events-auto flex min-h-0 max-w-full flex-col shadow-lg", !size && "h-chat-h w-chat-w")}
         >
-          <div className="flex min-h-touch shrink-0 items-center gap-xs border-b border-border pl-md">
+          <div className="flex min-h-touch shrink-0 items-center gap-xs border-b border-border">
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label="Resize chat"
+              title="Resize chat: drag, or use the arrow keys. Double-click to reset."
+              className="cursor-nwse-resize touch-none text-fg-muted"
+              {...grip}
+              onPointerCancel={grip.onPointerUp}
+              onDoubleClick={() => useChatLayout.getState().commit(null)}
+              onKeyDown={(e) => {
+                const next = chatKeyResize(current(), e.key, e.shiftKey, space());
+                if (!next) return;
+                e.preventDefault();
+                useChatLayout.getState().commit(next);
+              }}
+            >
+              <MoveDiagonal2 />
+            </Button>
             <h2 className="min-w-0 flex-1 truncate text-sm font-semibold">Chat</h2>
             <Button variant="ghost" size="icon" aria-label="Close chat" title="Close chat (Esc)" onClick={shut}>
               <X />
