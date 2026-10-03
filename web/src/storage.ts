@@ -14,7 +14,10 @@ export const STORAGE_KEYS = {
   theme: storageKey("theme"),
   /** The app version whose What's new was last opened. */
   lastSeenVersion: storageKey("last-seen-version"),
+  /** The last name used to join a session, to prefill the name sheet. Not sensitive. */
+  name: storageKey("name"),
 } as const;
+// The create passcode is never stored: it lives only in the form's state until it is sent.
 
 export type KeyValueStore = Pick<Storage, "getItem" | "setItem">;
 

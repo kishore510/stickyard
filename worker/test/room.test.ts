@@ -286,7 +286,8 @@ describe("hibernation", () => {
     a.send({ type: "say", text: "still here" });
     expect(await nextOfType(c, "echo")).toEqual({ type: "echo", from: ja.you.id, text: "still here" });
     // And still count as joined.
-    expect(await a.request({ type: "join", name: "Again" })).toMatchObject({ code: "already_joined" });
+    a.send({ type: "join", name: "Again" });
+    expect(await nextOfType(a, "error")).toMatchObject({ code: "already_joined" });
     for (const x of [a, b, c]) x.close();
   });
 });
@@ -313,14 +314,14 @@ describe("rate limiting", () => {
     const { code } = await newRoom();
     const a = await TestClient.open(code);
     await a.enter("Alex");
-    for (let i = 0; i < SOCKET_LIMITS.burst + SOCKET_LIMITS.maxViolations + 10; i++) a.send({ type: "say", text: "spam" });
+    for (let i = 0; i < SOCKET_LIMITS.burst + SOCKET_LIMITS.maxViolations * 10; i++) a.send({ type: "say", text: "spam" });
     expect(await a.waitClose()).toBe(1008);
   });
 
   it("malformed messages count towards the limit too", async () => {
     const { code } = await newRoom();
     const a = await TestClient.open(code);
-    for (let i = 0; i < SOCKET_LIMITS.burst + SOCKET_LIMITS.maxViolations + 10; i++) a.send("not json");
+    for (let i = 0; i < SOCKET_LIMITS.burst + SOCKET_LIMITS.maxViolations * 10; i++) a.send("not json");
     expect(await a.waitClose()).toBe(1008);
   });
 });

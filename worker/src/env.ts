@@ -9,7 +9,15 @@ export type WorkerEnv = Env & Secrets;
 
 export type Config = { ok: true; passcode: string; signingKey: string } | { ok: false };
 
-/** Slice 1 stub: tests first. */
-export function readConfig(_env: Secrets): Config {
-  throw new Error("not implemented");
+/** Fails closed: both secrets must be present and non-empty. */
+export function readConfig(env: Secrets): Config {
+  const passcode = env.CREATE_PASSCODE;
+  const signingKey = env.ROOM_SIGNING_KEY;
+  if (!passcode || !signingKey) return { ok: false };
+  return { ok: true, passcode, signingKey };
+}
+
+/** The kill switch: creation is on only when CREATION_ENABLED is exactly "true". */
+export function creationEnabled(env: Secrets): boolean {
+  return env.CREATION_ENABLED === "true";
 }

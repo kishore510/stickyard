@@ -34,6 +34,15 @@
   --sy-status-ok: #1e7a3a;
   --sy-status-warn: #a14d00;
   --sy-status-error: #b3261e;
+  /* Participant colours (dots next to names; never the only cue). 3:1 on bg and surface. */
+  --sy-participant-1: #c2410c;
+  --sy-participant-2: #1d4ed8;
+  --sy-participant-3: #15803d;
+  --sy-participant-4: #7e22ce;
+  --sy-participant-5: #be185d;
+  --sy-participant-6: #0f766e;
+  --sy-participant-7: #a16207;
+  --sy-participant-8: #57534e;
 }
 
 /* ── Dark: deep slate ──────────────────────────────────────────────── */
@@ -59,6 +68,14 @@
   --sy-status-ok: #6fd68e;
   --sy-status-warn: #ffab5e;
   --sy-status-error: #ff8a80;
+  --sy-participant-1: #fb923c;
+  --sy-participant-2: #82aaff;
+  --sy-participant-3: #4ade80;
+  --sy-participant-4: #c79bff;
+  --sy-participant-5: #f78fc4;
+  --sy-participant-6: #2dd4bf;
+  --sy-participant-7: #facc15;
+  --sy-participant-8: #c8bfb6;
 }
 
 /* ── Theme-independent tokens ──────────────────────────────────────── */
@@ -161,6 +178,14 @@
   --color-status-ok: var(--sy-status-ok);
   --color-status-warn: var(--sy-status-warn);
   --color-status-error: var(--sy-status-error);
+  --color-participant-1: var(--sy-participant-1);
+  --color-participant-2: var(--sy-participant-2);
+  --color-participant-3: var(--sy-participant-3);
+  --color-participant-4: var(--sy-participant-4);
+  --color-participant-5: var(--sy-participant-5);
+  --color-participant-6: var(--sy-participant-6);
+  --color-participant-7: var(--sy-participant-7);
+  --color-participant-8: var(--sy-participant-8);
   --color-transparent: transparent;
   --color-current: currentColor;
 

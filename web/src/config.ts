@@ -10,9 +10,20 @@ const fromEnv: string | undefined = import.meta.env.VITE_WORKER_URL;
 
 export const WORKER_URL: string = fromEnv || (import.meta.env.DEV ? LOCAL_WORKER_URL : DEPLOYED_WORKER_URL);
 
-/** http(s)://host -> ws(s)://host/ws */
-export function toWebSocketUrl(workerUrl: string): string {
+/** http(s)://host + code -> ws(s)://host/ws?room=<code> */
+export function toWebSocketUrl(workerUrl: string, code: string): string {
   const url = new URL("/ws", workerUrl);
   url.protocol = url.protocol === "http:" ? "ws:" : "wss:";
+  url.searchParams.set("room", code);
   return url.toString();
+}
+
+/** The relay's GET /health, used for the start page's status line. */
+export function healthUrl(workerUrl: string): string {
+  return new URL("/health", workerUrl).toString();
+}
+
+/** A relay HTTP endpoint, e.g. apiUrl(WORKER_URL, "/rooms"). */
+export function apiUrl(workerUrl: string, path: string): URL {
+  return new URL(path, workerUrl);
 }
