@@ -1,0 +1,197 @@
+import { describe, expect, it } from "vitest";
+import { BOARD_HEIGHT, BOARD_WIDTH, NOTE_SIZE } from "@stickyard/shared";
+import {
+  FIT_MAX_ZOOM,
+  MAX_ZOOM,
+  MIN_ZOOM,
+  PAN_MARGIN,
+  STACK_OFFSET,
+  WHEEL_BEHAVIOUR,
+  boardToFlow,
+  clampViewport,
+  clampZoom,
+  dragThreshold,
+  fitViewport,
+  flowToBoard,
+  isDrag,
+  newNotePosition,
+  notesBounds,
+  panExtent,
+  screenToFlow,
+  viewportCentre,
+  zoomAround,
+  zoomStep,
+} from "../src/canvas/geometry";
+
+const phone = { width: 360, height: 560 };
+const desk = { width: 1280, height: 720 };
+const at = (x: number, y: number) => ({ x, y });
+
+describe("flow <-> board coordinates", () => {
+  it("a note's board position is its flow position", () => {
+    expect(boardToFlow({ x: 40, y: 60 })).toEqual({ x: 40, y: 60 });
+  });
+
+  it("flow positions become whole board units, clamped so the note stays on the board", () => {
+    expect(flowToBoard(at(40.4, 59.6))).toEqual({ x: 40, y: 60 });
+    expect(flowToBoard(at(-50, -1))).toEqual({ x: 0, y: 0 });
+    expect(flowToBoard(at(BOARD_WIDTH, BOARD_HEIGHT + 500))).toEqual({ x: BOARD_WIDTH - NOTE_SIZE, y: BOARD_HEIGHT - NOTE_SIZE });
+    expect(flowToBoard(at(Number.NaN, Infinity))).toEqual({ x: 0, y: 0 });
+  });
+
+  it("round-trips any position already on the board", () => {
+    for (const p of [at(0, 0), at(123, 456), at(BOARD_WIDTH - NOTE_SIZE, BOARD_HEIGHT - NOTE_SIZE)]) {
+      expect(flowToBoard(boardToFlow(p))).toEqual(p);
+    }
+  });
+
+  it("screen points map through the viewport transform", () => {
+    expect(screenToFlow(at(100, 50), { x: 20, y: 10, zoom: 2 })).toEqual({ x: 40, y: 20 });
+    expect(viewportCentre({ x: -100, y: -200, zoom: 0.5 }, phone)).toEqual({ x: (180 + 100) / 0.5, y: (280 + 200) / 0.5 });
+  });
+});
+
+describe("zoom", () => {
+  it("is clamped to the allowed range", () => {
+    expect(MIN_ZOOM).toBeGreaterThan(0);
+    expect(MAX_ZOOM).toBeGreaterThan(1);
+    expect(clampZoom(0.001)).toBe(MIN_ZOOM);
+    expect(clampZoom(100)).toBe(MAX_ZOOM);
+    expect(clampZoom(1)).toBe(1);
+    expect(clampZoom(Number.NaN)).toBe(1);
+  });
+
+  it("the minimum zoom fits the whole board on a 360px phone", () => {
+    expect(MIN_ZOOM * (BOARD_WIDTH + 2 * PAN_MARGIN)).toBeLessThanOrEqual(phone.width);
+  });
+
+  it("steps in and out, clamped", () => {
+    expect(zoomStep(1, 1)).toBeGreaterThan(1);
+    expect(zoomStep(1, -1)).toBeLessThan(1);
+    expect(zoomStep(zoomStep(1, 1), -1)).toBeCloseTo(1);
+    expect(zoomStep(MAX_ZOOM, 1)).toBe(MAX_ZOOM);
+    expect(zoomStep(MIN_ZOOM, -1)).toBe(MIN_ZOOM);
+  });
+
+  it("zooming keeps the viewport centre fixed", () => {
+    const v = { x: -300, y: -200, zoom: 1 };
+    const next = zoomAround(v, desk, 2);
+    expect(next.zoom).toBe(2);
+    expect(viewportCentre(next, desk).x).toBeCloseTo(viewportCentre(v, desk).x);
+    expect(viewportCentre(next, desk).y).toBeCloseTo(viewportCentre(v, desk).y);
+  });
+
+  it("the mouse wheel pans by default (one constant flips it to zoom)", () => {
+    expect(WHEEL_BEHAVIOUR).toBe("pan");
+  });
+});
+
+describe("fit to notes", () => {
+  it("bounds cover every note's full square", () => {
+    expect(notesBounds([])).toBeNull();
+    expect(notesBounds([at(100, 200), at(400, 50)])).toEqual({ x: 100, y: 50, width: 300 + NOTE_SIZE, height: 150 + NOTE_SIZE });
+  });
+
+  it("centres the notes, never zooming in past the fit maximum", () => {
+    const v = fitViewport([at(1000, 800)], desk, 32);
+    expect(v.zoom).toBe(FIT_MAX_ZOOM);
+    const c = viewportCentre(v, desk);
+    expect(c.x).toBeCloseTo(1000 + NOTE_SIZE / 2);
+    expect(c.y).toBeCloseTo(800 + NOTE_SIZE / 2);
+  });
+
+  it("zooms out so far-apart notes all fit inside the padding", () => {
+    const notes = [at(0, 0), at(BOARD_WIDTH - NOTE_SIZE, BOARD_HEIGHT - NOTE_SIZE)];
+    const v = fitViewport(notes, phone, 16);
+    expect(v.zoom).toBeLessThan(1);
+    expect(v.zoom).toBeGreaterThanOrEqual(MIN_ZOOM);
+    // Left and right board edges land inside the screen.
+    expect(v.x).toBeGreaterThanOrEqual(0);
+    expect(v.x + BOARD_WIDTH * v.zoom).toBeLessThanOrEqual(phone.width);
+  });
+
+  it("an empty board is centred on the board, never top-left", () => {
+    const v = fitViewport([], desk, 32);
+    const c = viewportCentre(v, desk);
+    expect(c.x).toBeCloseTo(BOARD_WIDTH / 2);
+    expect(c.y).toBeCloseTo(BOARD_HEIGHT / 2);
+  });
+
+  it("copes with a zero-sized container (before layout)", () => {
+    const v = fitViewport([at(10, 10)], { width: 0, height: 0 }, 32);
+    expect(Number.isFinite(v.x) && Number.isFinite(v.y)).toBe(true);
+    expect(v.zoom).toBeGreaterThanOrEqual(MIN_ZOOM);
+  });
+});
+
+describe("pan limits", () => {
+  it("the extent is the board plus a margin", () => {
+    expect(panExtent()).toEqual([
+      [-PAN_MARGIN, -PAN_MARGIN],
+      [BOARD_WIDTH + PAN_MARGIN, BOARD_HEIGHT + PAN_MARGIN],
+    ]);
+  });
+
+  it("a viewport panned far away is pulled back to the edge of the extent", () => {
+    const far = clampViewport({ x: 99_999, y: 99_999, zoom: 1 }, desk);
+    // The screen's top-left shows the extent's top-left corner, no further.
+    expect(screenToFlow(at(0, 0), far)).toEqual({ x: -PAN_MARGIN, y: -PAN_MARGIN });
+    const other = clampViewport({ x: -99_999, y: -99_999, zoom: 1 }, desk);
+    const bottomRight = screenToFlow(at(desk.width, desk.height), other);
+    expect(bottomRight.x).toBeCloseTo(BOARD_WIDTH + PAN_MARGIN);
+    expect(bottomRight.y).toBeCloseTo(BOARD_HEIGHT + PAN_MARGIN);
+  });
+
+  it("when the whole extent fits on screen, it is centred", () => {
+    const v = clampViewport({ x: 0, y: 0, zoom: MIN_ZOOM }, desk);
+    const c = viewportCentre(v, desk);
+    expect(c.x).toBeCloseTo(BOARD_WIDTH / 2);
+    expect(c.y).toBeCloseTo(BOARD_HEIGHT / 2);
+  });
+
+  it("a viewport inside the limits is unchanged", () => {
+    const v = { x: -500, y: -400, zoom: 1 };
+    expect(clampViewport(v, desk)).toEqual(v);
+  });
+});
+
+describe("new note placement", () => {
+  it("centres the note on the viewport centre", () => {
+    expect(newNotePosition(at(1000, 700), [])).toEqual({ x: 1000 - NOTE_SIZE / 2, y: 700 - NOTE_SIZE / 2 });
+  });
+
+  it("steps down and right while the spot is taken", () => {
+    const first = newNotePosition(at(1000, 700), []);
+    const second = newNotePosition(at(1000, 700), [first]);
+    expect(second).toEqual({ x: first.x + STACK_OFFSET, y: first.y + STACK_OFFSET });
+    const third = newNotePosition(at(1000, 700), [first, second]);
+    expect(third).toEqual({ x: first.x + 2 * STACK_OFFSET, y: first.y + 2 * STACK_OFFSET });
+  });
+
+  it("a note nearly on the spot counts as taken; one well away doesn't", () => {
+    const spot = newNotePosition(at(1000, 700), []);
+    expect(newNotePosition(at(1000, 700), [at(spot.x + 3, spot.y - 2)])).not.toEqual(spot);
+    expect(newNotePosition(at(1000, 700), [at(spot.x + NOTE_SIZE, spot.y)])).toEqual(spot);
+  });
+
+  it("is clamped to the board, and gives up stepping after a while", () => {
+    const corner = { x: BOARD_WIDTH - NOTE_SIZE, y: BOARD_HEIGHT - NOTE_SIZE };
+    expect(newNotePosition(at(BOARD_WIDTH + 900, BOARD_HEIGHT + 900), [])).toEqual(corner);
+    // Stepping can't leave the board, so a taken corner is reused rather than looping forever.
+    expect(newNotePosition(at(BOARD_WIDTH + 900, BOARD_HEIGHT + 900), [corner])).toEqual(corner);
+  });
+});
+
+describe("tap or drag", () => {
+  it("movement under the threshold is a tap", () => {
+    expect(isDrag(0, 0, 4)).toBe(false);
+    expect(isDrag(2, 2, 4)).toBe(false);
+    expect(isDrag(3, 3, 4)).toBe(true);
+    expect(isDrag(-4, 0, 4)).toBe(true);
+  });
+
+  it("touch gets a bigger threshold than a mouse", () => {
+    expect(dragThreshold(true)).toBeGreaterThan(dragThreshold(false));
+    expect(dragThreshold(false)).toBeGreaterThan(0);
+  });
+});
