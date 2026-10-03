@@ -1,6 +1,6 @@
 ---
 title: Touch and keyboard tips
-order: 4
+order: 5
 summary: Taps, swipes, keys and links that make Stickyard quicker to use.
 keywords: touch, tap, swipe, keyboard, tab, escape, esc, arrow, shortcut, screen reader, theme, dark, light, back, link
 ---

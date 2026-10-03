@@ -1,18 +1,22 @@
 ---
 title: Quick start
 order: 1
-summary: What Stickyard is, and how joining a session will work.
-keywords: start, begin, about, what, join, link, name, session
+summary: What Stickyard is, and how to start or join a session.
+keywords: start, begin, about, what, join, link, name, session, echo
 ---
 Stickyard is a shared board of sticky notes for workshops and retros. Everyone in a session will see the same board, and changes will show up for everyone as they happen.
 
 ## What works today
 
-This version is the foundation: the app itself, Help, What's new and About, and a **connection check** on the start page that shows whether your browser can reach the Stickyard relay. Boards and notes aren't here yet.
+This version is an **echo room**: people join a session by link and name, see who else is there, and see each other's messages as soon as they're sent. Boards and notes aren't here yet.
 
-## How joining will work
+## Join a session
 
-- You'll join a session by opening a link that someone shares with you.
-- You'll type a name for others to see. There are no accounts and no sign-in.
+1. Open the link someone shared with you, or paste it (or just its code) into **Join a session** on the start page.
+2. Type a name for others to see and choose **Join**. There are no accounts and no sign-in.
 
-> Names aren't checked, and anyone with a session link will be able to join. See [Names and identity](help:names).
+## Start a session
+
+Starting a session needs the **create passcode** from whoever runs this copy of Stickyard. See [Starting and joining a session](help:sessions).
+
+> Names aren't checked, and anyone with a session link can join. See [Names and identity](help:names).

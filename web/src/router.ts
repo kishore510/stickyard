@@ -8,13 +8,17 @@ import { useSyncExternalStore } from "react";
  *   #/help/<topic>    one help topic, e.g. #/help/names
  *   #/changelog       What's new
  *   #/about           About
+ *
+ * A session is `#/room/<code>`. Sheets opened from a room show over it (see App.tsx).
  */
 
 export type Sheet = { kind: "help" } | { kind: "help-topic"; id: string } | { kind: "changelog" } | { kind: "about" };
 
-export type Route = { name: "home"; sheet: Sheet | null } | { name: "not-found" };
+export type Route = { name: "home"; sheet: Sheet | null } | { name: "room"; code: string } | { name: "not-found" };
 
 const TOPIC = /^\/help\/([a-z0-9-]{1,64})$/;
+/** Any single path segment, so a malformed code still reaches the room screen ("This link isn't valid"). */
+const ROOM = /^\/room\/([^/]{1,200})$/;
 
 export function parseHash(hash: string): Route {
   const path = hash.replace(/^#/, "") || "/";
@@ -28,6 +32,8 @@ export function parseHash(hash: string): Route {
     case "/about":
       return { name: "home", sheet: { kind: "about" } };
   }
+  const code = ROOM.exec(path)?.[1];
+  if (code) return { name: "room", code };
   const topic = TOPIC.exec(path)?.[1];
   return topic ? { name: "home", sheet: { kind: "help-topic", id: topic } } : { name: "not-found" };
 }

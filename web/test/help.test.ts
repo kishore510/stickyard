@@ -4,8 +4,9 @@ import { linksIn, parseInline, parseMarkdown } from "../src/help/markdown";
 import { buildTopics, parseFrontMatter, searchTopics } from "../src/help/topics";
 
 describe("help topics", () => {
-  it("loads the slice 0.5 topics, quick start first", () => {
-    expect(HELP_TOPICS.map((t) => t.id)).toEqual(["quick-start", "names", "connection", "touch-and-keyboard"]);
+  it("loads the topics, quick start first", () => {
+    expect(HELP_TOPICS.map((t) => t.id)).toEqual(["quick-start", "sessions", "names", "connection", "touch-and-keyboard"]);
+    expect(topicById("sessions")?.title).toBe("Starting and joining a session");
     expect(topicById(QUICK_START_ID)?.title).toBe("Quick start");
   });
 
@@ -16,6 +17,18 @@ describe("help topics", () => {
         if (id) expect(topicById(id), `${topic.id} links to ${href}`).toBeDefined();
       }
     }
+  });
+
+  it("names and identity describes what exists now", () => {
+    const names = topicById("names");
+    expect(names?.text).not.toContain("isn't in this version yet");
+    expect(names?.text).toContain("anyone with the link can join");
+    expect(names?.text).toContain("24 characters");
+  });
+
+  it("help topics only claim what exists: no notes, cursors or QR codes yet", () => {
+    const all = HELP_TOPICS.map((t) => t.text).join("\n");
+    expect(all).not.toMatch(/qr code|cursor|timer|vote|voting/);
   });
 
   it("rejects a file without valid front matter", () => {

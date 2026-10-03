@@ -165,7 +165,7 @@ describe("Help", () => {
     await mount("#/help");
     expect(button(/Quick start/)).toBeDefined();
     const topics = [...(dialog()?.querySelectorAll('[aria-labelledby="help-topics"] li') ?? [])].map((li) => li.textContent);
-    expect(topics).toEqual(["Names and identity", "Connection", "Touch and keyboard tips"]);
+    expect(topics).toEqual(["Starting and joining a session", "Names and identity", "Connection", "Touch and keyboard tips"]);
   });
 
   it("search filters topics", async () => {
@@ -201,13 +201,13 @@ describe("What's new", () => {
   it("shows the current version with the This version badge", async () => {
     await mount("#/changelog");
     const current = dialog()?.querySelector('[aria-current="true"]');
-    expect(current?.querySelector("h3")?.textContent).toBe("0.2.0");
+    expect(current?.querySelector("h3")?.textContent).toBe("0.3.0");
     expect(current?.textContent).toContain("This version");
     expect(current?.textContent).toContain("Added");
   });
 
   it("the menu dot shows for an unseen version and clears after opening", async () => {
-    localStorage.setItem("stickyard:last-seen-version", "0.1.0");
+    localStorage.setItem("stickyard:last-seen-version", "0.2.0");
     await mount();
     expect(document.querySelector('[data-testid="unseen-dot"]')).not.toBeNull();
     expect(byLabel(/^Menu/)?.getAttribute("aria-label")).toBe("Menu (new: what’s changed)");
@@ -215,11 +215,11 @@ describe("What's new", () => {
     await openFromMenu("What’s new");
     await press("Escape");
     expect(document.querySelector('[data-testid="unseen-dot"]')).toBeNull();
-    expect(localStorage.getItem("stickyard:last-seen-version")).toBe("0.2.0");
+    expect(localStorage.getItem("stickyard:last-seen-version")).toBe("0.3.0");
   });
 
   it("no dot once this version has been seen", async () => {
-    localStorage.setItem("stickyard:last-seen-version", "0.2.0");
+    localStorage.setItem("stickyard:last-seen-version", "0.3.0");
     await mount();
     expect(document.querySelector('[data-testid="unseen-dot"]')).toBeNull();
   });
@@ -231,7 +231,7 @@ describe("About", () => {
 
   it("shows version, build, protocol and relay", async () => {
     await mount("#/about");
-    expect(detail("Version")).toBe("0.2.0");
+    expect(detail("Version")).toBe("0.3.0");
     expect(detail("Build")).toMatch(/^([0-9a-f]{4,40}|dev)$/);
     expect(detail("Built")).not.toBe("unknown");
     expect(detail("Protocol")).toBe(`v${PROTOCOL_VERSION}`);
@@ -248,6 +248,26 @@ describe("About", () => {
     expect(lines.map((l) => l.split(/[ :]/)[0])).toEqual(["Stickyard", "Build", "Protocol", "Browser"]);
     expect(copied[0]).not.toMatch(/relay|workers\.dev|stickyard:/i);
     expect(button("Copied")).toBeDefined();
+  });
+
+  it("Privacy matches this version", async () => {
+    await mount("#/about");
+    const privacy = dialog()?.querySelector('[aria-labelledby="about-privacy"]')?.textContent ?? "";
+    for (const claim of [
+      "visible to everyone in the session",
+      "never verified",
+      "never stored in your browser",
+      "short-term request logs",
+      "contains the session’s room code",
+      "approximate location",
+      "possibly your IP address",
+      "the last name you joined with",
+    ]) {
+      expect(privacy, claim).toContain(claim);
+    }
+    // Slice 0.5 text that is no longer true.
+    expect(privacy).not.toContain("only checks that the relay is reachable");
+    expect(privacy).not.toContain("When joining sessions arrives");
   });
 
   it("has Privacy and Credits sections", async () => {

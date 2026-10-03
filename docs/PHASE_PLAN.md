@@ -10,7 +10,7 @@ Draft roadmap. When a slice starts, rewrite its prompt against the real code (se
 |---|---|---|
 | 0 Setup | Repo, CI, Pages deploy, Worker deploy, secrets hygiene, protocol version, Origin check | Done (v0.1.0) |
 | 0.5 App shell | App shell and design system: top bar, menu, Help / What's new / About sheets, theme, tokens | Done (v0.2.0) |
-| 1 Echo room | Two tabs, join by code and name; gated room creation; signed room codes | Not started |
+| 1 Echo room | Two tabs, join by code and name; gated room creation; signed room codes | Done (v0.3.0, protocol v2) |
 | 2 Shared stickies | Add/edit/move/delete, last-write-wins, optimistic updates | Not started |
 | 3 Presence | Names, colours, live cursors (throttled, not stored) | Not started |
 | 4 Reconnect | Resync after drops, offline queue | Not started |

@@ -90,15 +90,23 @@ export function AboutPage() {
         <ul className="flex list-disc flex-col gap-xs pl-lg">
           <li>No analytics, no tracking and no ads. The font and icons are bundled with the app.</li>
           <li>
-            Stickyard connects to a relay server to sync sessions. In this version it only checks that the relay is
-            reachable, and sends nothing but the app’s protocol version.
+            When you join a session, the name you type and the messages you send are visible to everyone in the session.
+            Names are never verified. Messages are passed on by the relay and not saved.
           </li>
           <li>
-            The app is served by GitHub Pages and the relay runs on Cloudflare. Like any website, they receive your IP
-            address and browser details with each request, and Cloudflare keeps short-term request logs.
+            The create passcode is sent only to the relay, only when you start a session, and is never stored in your
+            browser.
           </li>
-          <li>This browser stores only your theme choice and the last version whose notes you opened.</li>
-          <li>There are no accounts. When joining sessions arrives, names will be typed in and never verified.</li>
+          <li>
+            The app is served by GitHub Pages and the relay runs on Cloudflare. Cloudflare keeps short-term request logs
+            that can include the web address you connect to (which contains the session’s room code), your approximate
+            location and possibly your IP address. GitHub receives similar request details.
+          </li>
+          <li>
+            This browser stores only your theme choice, the last version whose notes you opened, and the last name you
+            joined with.
+          </li>
+          <li>There are no accounts.</li>
         </ul>
       </section>
 

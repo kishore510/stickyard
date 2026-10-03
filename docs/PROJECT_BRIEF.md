@@ -1,6 +1,6 @@
 # Project Brief: Stickyard
 
-Last updated: 3 October 2026 (thread 3). Update the status table and session log at the end of every thread, then re-upload.
+Last updated: 3 October 2026 (thread 4). Update the status table and session log at the end of every thread, then re-upload.
 
 ## 1. Purpose
 
@@ -30,9 +30,9 @@ Positioning hypothesis (untested): the retro and workshop board you can start in
 | Sync | v1 server-authoritative, last-write-wins, optimistic client updates. Yjs considered later, after feeling the problem |
 | Identity | Room code + typed name. Names are unverified and the UI says so. Server assigns colour and ids; never trust client-claimed name/colour/id |
 | Room creation | Joining is open with the link; creating is gated by a create passcode held as a Worker secret (constant-time compare, rate-limited failures, never logged). Room codes are long, random and HMAC-signed; the Worker verifies the signature before addressing any Durable Object |
-| Abuse control | Per-IP and global daily room-creation caps; `CREATION_ENABLED` kill switch (env var) stops new rooms without a redeploy; per-room caps on size, notes, message size and message rate |
+| Abuse control | Per-IP and global daily room-creation caps; `CREATION_ENABLED` kill switch (Worker secret, flipped by a workflow) stops new rooms without a redeploy; per-room caps on size, notes, message size and message rate |
 | Host | Creator receives a separate host token for lock, timer and end session (slice 6). The link alone can't do that |
-| Secrets | `CREATE_PASSCODE` and `ROOM_SIGNING_KEY` only as Worker secrets and `.dev.vars` (gitignored). Tests use fake values. GitHub secret scanning and push protection on |
+| Secrets | `CREATE_PASSCODE` and `ROOM_SIGNING_KEY` only as GitHub secrets pushed to Worker secrets by the deploy job, and `.dev.vars` (gitignored). Tests use fake values. GitHub secret scanning and push protection on |
 | Security | Worker checks `Origin` (Pages origin + localhost dev; stops other websites, not scripts); Zod-validates every message; long unguessable room codes; no secrets in the repo |
 | Storage keys | Prefixed with the app name (shared `github.io` origin); nothing sensitive in browser storage |
 | Cursors | Throttled (~20/s), never stored |
@@ -77,7 +77,7 @@ Keep tsc, tests and build green. Stop for review with a summary of what was buil
 |---|---|---|
 | 0 | Repo, CI, Pages deploy, Worker deploy, secrets hygiene, protocol version, Origin check | Done (v0.1.0, PR #1) |
 | 0.5 | App shell and design system: top bar, menu, Help / What's new / About sheets, theme, tokens from Chalkline | Done (v0.2.0) |
-| 1 | Echo room, gated room creation, signed room codes | Not started |
+| 1 | Echo room, gated room creation, signed room codes | Done (v0.3.0, protocol v2) |
 | 2 | Shared stickies, last-write-wins | Not started |
 | 3 onwards | See PHASE_PLAN.md | Not started |
 
@@ -101,6 +101,7 @@ Start a thread with the slice and what I want (for example "Slice 1, write the C
 - Thread 1: Chose the idea (collaborative sticky-note whiteboard), architecture (GitHub Pages + Cloudflare Worker/Durable Objects), and drafted this brief. Next: slice 0 prompt.
 - Thread 2: Wrote the slice 0 prompt (including repo creation and secrets hygiene). Decided the room-creation model: open join, passcode-gated creation, signed room codes, kill switch, host token. Next: run slice 0, then slice 1 prompt.
 - Thread 3: Slice 0 merged to main (PR #1) and deployed. Slice 0.5 (app shell and design system) built from Chalkline's patterns: top bar with menu and theme toggle, Help / What's new / About as hash-routed sheets, tokens and Inter bundled locally, v0.2.0. Next: slice 1 prompt.
+- Thread 4: Slice 1 built tests-first (red commit, then green): protocol v2 (join/say/echo, participants), passcode-gated `POST /rooms` with a limiter Durable Object (hashed client keys, lockout, daily caps), HMAC-signed room codes verified before any Durable Object, `CREATION_ENABLED` kill switch via a workflow, secrets pushed from GitHub secrets by the deploy job, name sheet and echo room UI, v0.3.0. Next: slice 2 prompt.
 
 ## 10. One-time manual setup
 
@@ -109,4 +110,4 @@ Claude Code can create the repo, enable Pages, set secrets and deploy, but needs
 1. GitHub: logged in on the Pi (`gh auth login`).
 2. Cloudflare: one scoped API token plus account ID, created in the dashboard (slice 0 prompt makes Claude Code check current Cloudflare docs and state exactly which permissions to grant). I set them myself with `gh secret set`, never pasted into chat or files.
 3. First Worker deploy: Cloudflare may ask me to register a `workers.dev` subdomain once.
-4. Before slice 1: generate the create passcode (`openssl rand -base64 24`) and a signing key, store both in a password manager, and set them with `wrangler secret put` when slice 1 asks. Create rooms from phone or Pi, not a managed work device.
+4. Before slice 1: generate the create passcode (`openssl rand -base64 24`) and a signing key, store both in a password manager, and set them as GitHub secrets (`gh secret set CREATE_PASSCODE`, `gh secret set ROOM_SIGNING_KEY`); the deploy job pushes them to the Worker. The kill switch is the "Room creation switch" workflow. Create rooms from phone or Pi, not a managed work device.

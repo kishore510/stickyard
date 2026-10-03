@@ -55,6 +55,27 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      # Pushes CREATE_PASSCODE and ROOM_SIGNING_KEY from GitHub secrets to the Worker.
+      # The values travel only through step env vars into stdin (`secret bulk` reads JSON
+      # from stdin): never on a command line, never written to disk, never echoed.
+      # If either GitHub secret is missing the step skips, and the Worker keeps whatever
+      # it had (deploys never delete secrets; with none, creating and joining fail closed).
+      # Rotate: `gh secret set <NAME>`, then re-run this workflow.
+      - name: Push Worker secrets
+        working-directory: worker
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CREATE_PASSCODE: ${{ secrets.CREATE_PASSCODE }}
+          ROOM_SIGNING_KEY: ${{ secrets.ROOM_SIGNING_KEY }}
+        run: |
+          if [ -z "$CREATE_PASSCODE" ] || [ -z "$ROOM_SIGNING_KEY" ]; then
+            echo "::warning::CREATE_PASSCODE or ROOM_SIGNING_KEY is not set as a GitHub secret; Worker secrets left unchanged."
+            exit 0
+          fi
+          node -e 'process.stdout.write(JSON.stringify({CREATE_PASSCODE: process.env.CREATE_PASSCODE, ROOM_SIGNING_KEY: process.env.ROOM_SIGNING_KEY}))' \
+            | npx wrangler secret bulk > /dev/null
+          echo "Worker secrets updated."
 
   deploy-pages:
     name: Deploy Pages

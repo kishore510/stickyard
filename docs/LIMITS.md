@@ -53,3 +53,15 @@ Sources:
 5. **Worker CPU 10 ms per request.** Fine for routing, Origin checks and HMAC verification of room codes (slice 1). Keep heavy work in the Durable Object, which gets 30 s.
 
 Nothing else looks close: storage, connection count and message size are far above what this app needs.
+
+## Slice 1: what rooms and the limiter cost
+
+Estimates against the free allowances above (checked 2 October 2026).
+
+**Limiter Durable Object (room creation).** Every `POST /rooms` that passes the Origin, config, kill-switch and body checks makes one RPC call to the single `Limiter` object: **1 DO request**. It reads a few rows (lockout, failure counts, today's creations) on every call, but **writes only when a counter changes**: a failed passcode (1 insert, plus 1 lockout row on the 5th), or a granted creation (1 upsert). Old rows are pruned in the same calls. Refused attempts (locked out, over a cap) write nothing. Worst case per day is bounded by the caps: about 50 creations and roughly 50 failures an hour, so well under 2,000 row writes/day even under steady guessing.
+
+**Room codes.** Verified in the Worker with one HMAC before any Durable Object is addressed, so invented or tampered codes cost one Worker request and **zero** DO requests. `GET /rooms/check` (used only after a socket fails to open) is the same.
+
+**Echo traffic.** A room stores nothing (no rows read or written). Each socket opening is 1 Worker request + 1 DO request. Inbound WebSocket messages bill at 20:1, so 100 `say` messages ≈ 5 DO requests; the fan-out to other sockets is outgoing and not billed as requests. The per-socket token bucket (5/s, burst 10) caps one socket at about 0.25 DO requests/s (≈ 900/hour). Per-socket state lives in the WebSocket attachment, so idle rooms hibernate and use no duration.
+
+**Residual risk.** None of this stops a script from spending the **daily request budget** (100,000 Worker requests, 100,000 DO requests): Origin checks don't apply to scripts, invalid codes are cheap but still count as Worker requests, and a valid room link can be used to open many sockets. If that happens, the free plan **fails closed**: requests error until 00:00 UTC, then everything recovers. No bill, no data at risk; the app is simply unavailable for the rest of the day.

@@ -2,6 +2,21 @@
 
 All notable changes to Stickyard, newest first. The format follows Keep a Changelog. Versions are 0.x: a minor bump for each slice and a patch bump for each follow-up fix. This file is shown in the app under **What’s new**, so entries are written for the people using it.
 
+## [0.3.0] - 2026-10-03
+
+### Added
+- **Sessions.** Join one by opening its link, or by pasting the link or its code into **Join a session** on the start page. Type a name and you're in.
+- **Start a session** with the create passcode. Your password manager can fill it in; Stickyard never stores it. After several wrong tries, starting is paused for a while, and there's a daily limit on new sessions.
+- In a session: the list of **people** in it, each with a coloured dot next to their name; a **message** box whose messages appear for everyone straight away; **Copy link** to invite others; and **Leave**.
+- Clear messages when a link isn't valid, a session is full (20 people), the connection drops (with **Rejoin**), or your page is out of date.
+- A notice when joining that names aren't verified and anyone with the link can join.
+- Help: a new topic, **Starting and joining a session**.
+
+### Changed
+- The start page now has **Start a session** and **Join a session**, with a short connection status line below them.
+- The message format between the app and the relay is now protocol v2. A page left open from an earlier version asks you to reload.
+- Help's **Names and identity** and About's **Privacy** now describe how sessions work. This browser now also remembers the last name you joined with.
+
 ## [0.2.0] - 2026-10-03
 
 ### Added
