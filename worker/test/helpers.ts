@@ -1,6 +1,6 @@
 import { exports } from "cloudflare:workers";
 import { createExecutionContext, env, waitOnExecutionContext } from "cloudflare:test";
-import { serverMessageSchema, type ServerMessage } from "@stickyard/shared";
+import { MAX_SERVER_MESSAGE_BYTES, PROTOCOL_VERSION, parseMessage, serverMessageSchema, type ServerMessage } from "@stickyard/shared";
 import worker from "../src/index";
 import type { WorkerEnv } from "../src/env";
 
@@ -62,11 +62,11 @@ export class TestClient {
 
   constructor(readonly ws: WebSocket) {
     ws.addEventListener("message", (event) => {
-      const parsed = serverMessageSchema.safeParse(JSON.parse(String(event.data)));
-      if (!parsed.success) throw new Error(`invalid server message: ${String(event.data)}`);
+      const parsed = parseMessage(String(event.data), serverMessageSchema, MAX_SERVER_MESSAGE_BYTES);
+      if (!parsed.ok) throw new Error(`invalid server message: ${String(event.data).slice(0, 200)}`);
       const waiter = this.waiters.shift();
-      if (waiter) waiter(parsed.data);
-      else this.queue.push(parsed.data);
+      if (waiter) waiter(parsed.value);
+      else this.queue.push(parsed.value);
     });
     ws.addEventListener("close", (event) => {
       this.closeCode = event.code;
@@ -137,14 +137,19 @@ export class TestClient {
     this.ws.close(1000, "bye");
   }
 
-  /** hello + join; returns the `joined` message. */
+  /** hello + join; returns the `joined` message. The snapshot that follows it is kept in `snapshot`. */
   async enter(name: string): Promise<Extract<ServerMessage, { type: "joined" }>> {
-    const welcome = await this.request({ type: "hello", protocolVersion: 2 });
+    const welcome = await this.request({ type: "hello", protocolVersion: PROTOCOL_VERSION });
     if (welcome.type !== "welcome") throw new Error(`expected welcome, got ${JSON.stringify(welcome)}`);
     const joined = await this.request({ type: "join", name });
     if (joined.type !== "joined") throw new Error(`expected joined, got ${JSON.stringify(joined)}`);
+    const snapshot = await this.next();
+    if (snapshot.type !== "snapshot") throw new Error(`expected snapshot, got ${JSON.stringify(snapshot)}`);
+    this.snapshot = snapshot;
     return joined;
   }
+
+  snapshot: Extract<ServerMessage, { type: "snapshot" }> | null = null;
 }
 
 /** Waits until `client` gets a message of `type`, skipping others. */

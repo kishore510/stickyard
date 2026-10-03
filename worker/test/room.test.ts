@@ -29,6 +29,14 @@ describe("handshake", () => {
     c.close();
   });
 
+  it("answers a protocol v2 hello with version_mismatch (pages from before notes)", async () => {
+    const { code } = await newRoom();
+    const c = await TestClient.open(code);
+    expect(await c.request(hello(2))).toMatchObject({ type: "error", code: "version_mismatch" });
+    expect(await c.request({ type: "join", name: "Alex" })).toMatchObject({ type: "error", code: "bad_message" });
+    c.close();
+  });
+
   it("answers a future protocol version with version_mismatch", async () => {
     const { code } = await newRoom();
     const c = await TestClient.open(code);
@@ -247,7 +255,7 @@ describe("leaving", () => {
     a.close();
   });
 
-  it("an empty room stores nothing", async () => {
+  it("a room without notes stores no rows (only its schema version)", async () => {
     const { code, stub } = await newRoom();
     const a = await TestClient.open(code);
     await a.enter("Alex");
@@ -256,11 +264,10 @@ describe("leaving", () => {
     await a.waitClose();
     const stored = await runInDurableObject(stub, async (_i, state) => ({
       keys: (await state.storage.list()).size,
-      tables: state.storage.sql
-        .exec<{ name: string }>("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE '\\_cf\\_%' ESCAPE '\\'")
-        .toArray(),
+      notes: state.storage.sql.exec<{ n: number }>("SELECT COUNT(*) AS n FROM notes").one().n,
+      meta: state.storage.sql.exec<{ key: string }>("SELECT key FROM meta").toArray(),
     }));
-    expect(stored).toEqual({ keys: 0, tables: [] });
+    expect(stored).toEqual({ keys: 0, notes: 0, meta: [{ key: "schema_version" }] });
   });
 });
 
