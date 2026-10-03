@@ -424,7 +424,7 @@ describe("persistence", () => {
       state.storage.sql.exec<{ value: number }>("SELECT value FROM meta WHERE key = 'schema_version'").one().value,
     );
     expect(version).toBe(SCHEMA_VERSION);
-    expect(SCHEMA_VERSION).toBe(4);
+    expect(SCHEMA_VERSION).toBe(5);
     closeAll(a, b);
   });
 

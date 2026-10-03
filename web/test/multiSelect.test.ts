@@ -31,6 +31,7 @@ const note = (i: number, extra: Partial<Note> = {}): Note => ({
   ...NOTE_DEFAULTS,
   text: "",
   color: "yellow",
+  z: 0,
   rev: 1,
   authorId: sam.id,
   ...extra,

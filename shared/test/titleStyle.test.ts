@@ -16,7 +16,7 @@ import {
  */
 
 const NOTE_ID = "NNNNNNNNNNNNNNNN";
-const note: Note = { id: NOTE_ID, x: 1, y: 2, ...NOTE_DEFAULTS, text: "Idea one\nThe details", color: "yellow", rev: 1, authorId: "AAAAAAAAAAAAAAAA" };
+const note: Note = { id: NOTE_ID, x: 1, y: 2, ...NOTE_DEFAULTS, text: "Idea one\nThe details", color: "yellow", z: 0, rev: 1, authorId: "AAAAAAAAAAAAAAAA" };
 const edit = (fields: Record<string, unknown>) => clientMessageSchema.safeParse({ type: "noteEdit", id: NOTE_ID, ...fields }).success;
 
 const TITLE_FIELDS = ["titleFontSize", "titleBold", "titleItalic", "titleTextColor"] as const;

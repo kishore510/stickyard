@@ -222,6 +222,7 @@ export function RoomScreen({ code }: { code: string }) {
           onStyle={(change) => room.styleNote(editing.note.id, change)}
           onSize={(w, h) => room.setNoteSize(editing.note.id, w, h)}
           onDelete={() => room.deleteNote(editing.note.id)}
+          onOrder={(action) => room.orderNotes([editing.note.id], action)}
         />
       )}
     </>

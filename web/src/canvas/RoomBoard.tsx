@@ -267,7 +267,15 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
   // The selection bar: md and up, Select tool, two or more notes (in selection order).
   const selectedNotes: Placed[] =
     wide && tool === "select" && selection.size >= 2 ? orderedIds(selection).flatMap((id) => findNote(view.board, id)?.note ?? []) : [];
-  const bar = selectedNotes.length >= 2 ? <SelectionBar notes={selectedNotes} live={live} apply={(rects) => room.applyRects(rects)} /> : null;
+  const bar =
+    selectedNotes.length >= 2 ? (
+      <SelectionBar
+        notes={selectedNotes}
+        live={live}
+        apply={(rects) => room.applyRects(rects)}
+        order={(action) => room.orderNotes(selectedNotes.map((n) => n.id), action)}
+      />
+    ) : null;
 
   // The minimap and chat button share the free area's bottom-right corner with the centred view
   // bar: when there isn't room for both side by side, they move up above it.
@@ -353,6 +361,7 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
                 setNoteSize: room.setNoteSize,
                 deleteNote: room.deleteNote,
                 deleteNotes: room.deleteNotes,
+                orderNotes: room.orderNotes,
               }}
             />
           )}

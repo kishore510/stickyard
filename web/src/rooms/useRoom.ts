@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { NoteColor, NoteRect } from "@stickyard/shared";
+import type { NoteColor, NoteRect, OrderAction } from "@stickyard/shared";
 import { WORKER_URL, toWebSocketUrl } from "../config";
 import { browserSocketFactory } from "../connection/socket";
 import { useBoardUi } from "../canvas/uiStore";
@@ -60,6 +60,7 @@ export function useRoom(code: string) {
     moveGroup: (positions: readonly { id: string; x: number; y: number }[], final: boolean) => session.current?.moveGroup(positions, final),
     applyRects: (rects: readonly (NoteRect & { id: string })[]) => session.current?.applyRects(rects) ?? false,
     deleteNotes: (ids: readonly string[]) => session.current?.deleteNotes(ids),
+    orderNotes: (ids: readonly string[], action: OrderAction) => session.current?.orderNotes(ids, action) ?? false,
     leave: () => session.current?.close(),
   };
 }

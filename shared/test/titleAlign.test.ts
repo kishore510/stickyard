@@ -15,7 +15,7 @@ import {
  */
 
 const NOTE_ID = "NNNNNNNNNNNNNNNN";
-const note: Note = { id: NOTE_ID, x: 1, y: 2, ...NOTE_DEFAULTS, text: "Idea one\nThe details", color: "yellow", rev: 1, authorId: "AAAAAAAAAAAAAAAA" };
+const note: Note = { id: NOTE_ID, x: 1, y: 2, ...NOTE_DEFAULTS, text: "Idea one\nThe details", color: "yellow", z: 0, rev: 1, authorId: "AAAAAAAAAAAAAAAA" };
 
 describe("title alignment (protocol v5)", () => {
   it("is protocol 5 or later, and titleAlign defaults to left like the body", () => {

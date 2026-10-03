@@ -26,8 +26,8 @@ const alex: Participant = { id: "AAAAAAAAAAAAAAAA", name: "Alex", colourIndex: 0
 const sam: Participant = { id: "BBBBBBBBBBBBBBBB", name: "Sam", colourIndex: 1 };
 const N1 = "NNNNNNNNNNNNNNN1";
 const N2 = "NNNNNNNNNNNNNNN2";
-const one: Note = { id: N1, x: 40, y: 60, ...NOTE_DEFAULTS, text: "One", color: "yellow", rev: 1, authorId: sam.id };
-const two: Note = { id: N2, x: 400, y: 300, ...NOTE_DEFAULTS, text: "Two", color: "blue", rev: 1, authorId: sam.id };
+const one: Note = { id: N1, x: 40, y: 60, ...NOTE_DEFAULTS, text: "One", color: "yellow", z: 0, rev: 1, authorId: sam.id };
+const two: Note = { id: N2, x: 400, y: 300, ...NOTE_DEFAULTS, text: "Two", color: "blue", z: 0, rev: 1, authorId: sam.id };
 
 function room(notes: Note[] = [one, two]) {
   let socket: FakeSocket | undefined;

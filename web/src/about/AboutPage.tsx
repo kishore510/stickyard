@@ -96,7 +96,7 @@ export function AboutPage() {
           </li>
           <li>
             Notes are stored by the relay, in that session’s own storage on Cloudflare: each note’s text, colour, text
-            style (size, bold, italic, text colour and alignment, for the title and the body separately), size, place on the board, and the random id the relay
+            style (size, bold, italic, text colour and alignment, for the title and the body separately), size, place on the board, stacking order (which notes are in front), and the random id the relay
             gave the visit that added it (not your name). They stay there until someone in the session deletes them or the
             session is removed; sessions don’t expire yet. Moving or resizing a note is passed on to others while you drag,
             and only where it ends up is stored.

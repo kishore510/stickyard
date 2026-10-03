@@ -84,6 +84,7 @@ Keep tsc, tests and build green. Stop for review with a summary of what was buil
 | 2.7.2 | Separate title and body styling | Done (v0.6.2, protocol v6, stored schema 4) |
 | 2.8 | Multi-select and arrange, batch message | Done (v0.7.0, protocol v7) |
 | 2.9 | Inline note editing | Done (v0.7.1, web only) |
+| Z-order | Bring to front / send to back | Done (v0.8.0, protocol v8, stored schema 5) |
 | 3 onwards | See PHASE_PLAN.md | See PHASE_PLAN.md |
 
 ## 7. Open decisions

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { cleanName, cleanNoteText, cleanText, codePointLength } from "./clean";
+import { NOTE_Z_LIMIT, ORDER_ACTIONS } from "./stack";
 
 /**
  * Bump on any wire-format change, with compatibility handling and tests.
@@ -11,8 +12,10 @@ import { cleanName, cleanNoteText, cleanText, codePointLength } from "./clean";
  *   italic and textColor are now the body's.
  * v7 (slice 2.8): noteBatch (many moves, resizes and deletes in one message), notesBatchApplied,
  *   and errors that name refused batch entries (entries, noteIds).
+ * v8 (slice z-order): notes carry z (stacking order, server-assigned); notesOrder (bring to
+ *   front, send to back) and notesOrdered.
  */
-export const PROTOCOL_VERSION = 7;
+export const PROTOCOL_VERSION = 8;
 
 /**
  * Hard cap on a single client-to-server WebSocket message, in UTF-8 bytes. Checked before JSON.parse.
@@ -319,6 +322,46 @@ export function checkBatch(ops: readonly unknown[]): BatchCheck {
   return { valid, invalid, invalidIds: uniqueIds(invalid), duplicate };
 }
 
+/* ── Stacking order (v8) ────────────────────────────────────────────── */
+
+/**
+ * Brings notes to the front or sends them to the back, keeping their order among themselves.
+ * The envelope is strict; ids are checked one by one (checkOrder), so bad ones are named by
+ * index while the rest apply. A selection with more notes is sent in chunks of
+ * MAX_BATCH_ENTRIES, in stacking order (see RoomSession.orderNotes). Send ids as strings.
+ */
+export const notesOrderSchema = z.strictObject({
+  type: z.literal("notesOrder"),
+  ids: z.array(z.unknown()).min(1).max(MAX_BATCH_ENTRIES),
+  action: z.enum(ORDER_ACTIONS),
+});
+
+export interface OrderCheck {
+  valid: { index: number; id: string }[];
+  /** Indexes of refused ids, in order. */
+  invalid: number[];
+  /** The readable ids of a refused message (all of them when an id is named twice). */
+  invalidIds: string[];
+  /** Some note appears twice: the whole message is refused. */
+  duplicate: boolean;
+}
+
+/** Checks each id of a notesOrder. A message that names any note twice is refused whole. */
+export function checkOrder(ids: readonly unknown[]): OrderCheck {
+  const readable = ids.map((value) => {
+    const parsed = noteIdSchema.safeParse(value);
+    return parsed.success ? parsed.data : null;
+  });
+  const named = readable.filter((id): id is string => id !== null);
+  if (new Set(named).size !== named.length) {
+    return { valid: [], invalid: ids.map((_, i) => i), invalidIds: [...new Set(named)], duplicate: true };
+  }
+  const valid: OrderCheck["valid"] = [];
+  const invalid: number[] = [];
+  readable.forEach((id, index) => (id === null ? invalid.push(index) : valid.push({ index, id })));
+  return { valid, invalid, invalidIds: [], duplicate: false };
+}
+
 export const clientMessageSchema = z.discriminatedUnion("type", [
   helloSchema,
   joinSchema,
@@ -329,6 +372,7 @@ export const clientMessageSchema = z.discriminatedUnion("type", [
   noteResizeSchema,
   noteDeleteSchema,
   noteBatchSchema,
+  notesOrderSchema,
 ]);
 export type ClientMessage = z.infer<typeof clientMessageSchema>;
 
@@ -399,6 +443,8 @@ export const noteSchema = z.object({
   titleItalic: z.boolean(),
   titleTextColor: noteTextColorSchema,
   titleAlign: noteAlignSchema,
+  /** Stacking order, server-assigned: higher is in front (ties by id; see stack.ts). */
+  z: z.number().int().min(-NOTE_Z_LIMIT).max(NOTE_Z_LIMIT),
   /** Server-assigned; starts at 1 and goes up by one on every stored change. */
   rev: z.number().int().min(1),
   /** The participant who added it, from their socket. Participant ids are per visit. */
@@ -431,7 +477,7 @@ export const echoSchema = z.object({
   text: z.string().refine((text) => cleanText(text) === text),
 });
 
-/** Every note on the board, in creation order. Sent right after `joined`. */
+/** Every note on the board, in creation order (stacking is by z). Sent right after `joined`. */
 export const snapshotSchema = z.object({
   type: z.literal("snapshot"),
   notes: z.array(noteSchema).max(MAX_NOTES_PER_ROOM),
@@ -490,6 +536,22 @@ export const notesBatchAppliedSchema = z.object({
   final: z.boolean(),
 });
 
+/** One note's place in the stack after a notesOrder (or a renumbering), at its rev. */
+export const noteOrderResultSchema = z.object({
+  id: noteIdSchema,
+  z: noteSchema.shape.z,
+  rev: noteSchema.shape.rev,
+});
+
+/**
+ * Notes restacked: every note a notesOrder named (changed or not, so the sender's view matches),
+ * plus any others a renumbering at the bound moved. Sent to everyone. Up to every note in a room.
+ */
+export const notesOrderedSchema = z.object({
+  type: z.literal("notesOrdered"),
+  results: z.array(noteOrderResultSchema).min(1).max(MAX_NOTES_PER_ROOM),
+});
+
 export const serverMessageSchema = z.discriminatedUnion("type", [
   welcomeSchema,
   errorMessageSchema,
@@ -504,5 +566,6 @@ export const serverMessageSchema = z.discriminatedUnion("type", [
   noteResizedSchema,
   noteDeletedSchema,
   notesBatchAppliedSchema,
+  notesOrderedSchema,
 ]);
 export type ServerMessage = z.infer<typeof serverMessageSchema>;
