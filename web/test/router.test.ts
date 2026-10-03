@@ -13,6 +13,7 @@ describe("parseHash", () => {
     ["#/help/names", { kind: "help-topic", id: "names" }],
     ["#/changelog", { kind: "changelog" }],
     ["#/about", { kind: "about" }],
+    ["#/participants", { kind: "participants" }],
   ])("%j opens a sheet over home", (hash, sheet) => {
     expect(parseHash(hash)).toEqual({ name: "home", sheet });
     expect(sheetHash(sheet)).toBe(hash);

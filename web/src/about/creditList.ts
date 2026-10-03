@@ -5,6 +5,7 @@
  */
 export const CREDIT_LIST = [
   { name: "react", title: "React", role: "The user interface." },
+  { name: "@xyflow/react", title: "React Flow", role: "The board canvas: panning, zooming, dragging and the overview map." },
   { name: "zustand", title: "Zustand", role: "App state." },
   { name: "zod", title: "Zod", role: "Checks every message to and from the relay." },
   { name: "tailwindcss", title: "Tailwind CSS", role: "Styling, built on the design tokens." },

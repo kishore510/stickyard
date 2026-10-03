@@ -57,6 +57,25 @@ const healthy: Route = (url) =>
 
 let root: Root | undefined;
 
+/*
+ * Breakpoints: by default there's no matchMedia match (phone layout). setWide(true) makes every
+ * min-width query match (a 1280px window) and tells listeners, like a resize or rotation.
+ */
+let wide = false;
+const mediaListeners = new Set<() => void>();
+function setWide(value: boolean) {
+  wide = value;
+  for (const listener of mediaListeners) listener();
+}
+const fakeMatchMedia = (query: string) => ({
+  get matches() {
+    return wide && query.includes("min-width");
+  },
+  media: query,
+  addEventListener: (_type: string, listener: () => void) => mediaListeners.add(listener),
+  removeEventListener: (_type: string, listener: () => void) => mediaListeners.delete(listener),
+});
+
 async function mount(hash = "#/") {
   window.history.replaceState(null, "", `/${hash}`);
   vi.resetModules();
@@ -114,6 +133,9 @@ beforeEach(() => {
   FakeWebSocket.instances = [];
   fetchCalls.length = 0;
   routes = healthy;
+  wide = false;
+  mediaListeners.clear();
+  vi.stubGlobal("matchMedia", fakeMatchMedia);
   vi.stubGlobal("WebSocket", FakeWebSocket);
   vi.stubGlobal("fetch", (url: string, init?: RequestInit) => {
     fetchCalls.push([url, init]);
@@ -305,39 +327,55 @@ async function inRoom() {
   return socket;
 }
 
+/** Open a top bar button by its label prefix (e.g. "Participants", "Chat"). */
+async function openFromTopBar(label: string) {
+  await click(document.querySelector<HTMLElement>(`header [aria-label^="${label}"]`) ?? undefined);
+}
+
 describe("the room", () => {
-  it("lists participants with a colour dot from the token palette, and always the name", async () => {
+  it("is a full-bleed board: no Session heading, message box or People list on the page", async () => {
     await inRoom();
-    const people = [...document.querySelectorAll('[aria-labelledby="people-heading"] li')];
+    expect(document.querySelector("main h1")).toBeNull();
+    expect(byText("label", "Message")).toBeUndefined();
+    expect(document.querySelector('[aria-labelledby="people-heading"]')).toBeNull();
+    expect(document.querySelector('[aria-label="Board"]')).not.toBeNull();
+    // No page footer under the board.
+    expect(document.querySelector("footer")).toBeNull();
+  });
+
+  it("Participants (top bar) lists people with a colour dot from the token palette, and always the name", async () => {
+    await inRoom();
+    expect(document.querySelector('header [aria-label^="Participants"]')?.getAttribute("aria-label")).toBe("Participants (2)");
+    await openFromTopBar("Participants");
+    expect(window.location.hash).toBe("#/participants");
+    expect(dialog()?.querySelector("h2")?.textContent).toBe("Participants");
+    const people = [...(dialog()?.querySelectorAll('[aria-label="People in this session"] li') ?? [])];
     expect(people.map((li) => li.textContent?.replace(" (you)", ""))).toEqual(["Alex", "Sam"]);
     expect(people[0]?.textContent).toContain("(you)");
     expect(people[0]?.querySelector('[aria-hidden="true"]')?.className).toContain("bg-participant-1");
     // colourIndex 9 → 9 % 8 = 1 → the second palette colour.
     expect(people[1]?.querySelector('[aria-hidden="true"]')?.className).toContain("bg-participant-2");
+    expect(dialog()?.textContent).toMatch(/names aren’t verified/i);
   });
 
-  it("sends a message with Send and shows echoes", async () => {
-    const socket = await inRoom();
-    await type(input("Message"), "Hello all");
-    await submit(button("Send"));
-    expect(socket.sent.at(-1)).toEqual({ type: "say", text: "Hello all" });
-    expect(input("Message").value).toBe("");
-    await server(socket, { data: { type: "echo", from: alex.id, text: "Hello all" } });
-    const list = document.querySelector('[aria-label="Messages"]');
-    expect(list?.textContent).toContain("Alex");
-    expect(list?.textContent).toContain("Hello all");
+  it("Participants is in the menu only while in a session", async () => {
+    await mount();
+    await click(document.querySelector<HTMLElement>('[aria-label^="Menu"]') ?? undefined);
+    expect(byText('[role="menuitem"]', "Participants")).toBeUndefined();
+    await act(async () => root?.unmount());
+    document.body.innerHTML = "";
+    await inRoom();
+    await click(document.querySelector<HTMLElement>('[aria-label^="Menu"]') ?? undefined);
+    await click(byText('[role="menuitem"]', "Participants"));
+    expect(dialog()?.querySelector("h2")?.textContent).toBe("Participants");
   });
 
-  it("renders echoed text and names as plain text, never HTML", async () => {
+  it("renders participant names as plain text, never HTML", async () => {
     const socket = await inRoom();
-    const evil = '<img src=x onerror="alert(1)"><b>bold</b>';
     await server(socket, { data: { type: "participant_joined", participant: { id: "CCCCCCCCCCCCCCCC", name: "<i>Kai</i>", colourIndex: 2 } } });
-    await server(socket, { data: { type: "echo", from: "CCCCCCCCCCCCCCCC", text: evil } });
-    const list = document.querySelector('[aria-label="Messages"]');
-    expect(list?.textContent).toContain(evil);
-    expect(list?.textContent).toContain("<i>Kai</i>");
-    expect(document.querySelector("img")).toBeNull();
-    expect(list?.querySelector("b, i")).toBeNull();
+    await openFromTopBar("Participants");
+    expect(dialog()?.textContent).toContain("<i>Kai</i>");
+    expect(dialog()?.querySelector("i")).toBeNull();
   });
 
   it("announces joins and leaves in a live region", async () => {
@@ -349,17 +387,19 @@ describe("the room", () => {
     expect(live()).toContain("Sam left");
   });
 
-  it("Copy link copies the page's own room link", async () => {
+  it("Copy link (in Participants) copies the page's own room link", async () => {
     const writeText = vi.fn(() => Promise.resolve());
     Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
     await inRoom();
+    await openFromTopBar("Participants");
     await click(button("Copy link"));
     expect(writeText).toHaveBeenCalledWith(`${window.location.origin}/#/room/${CODE}`);
   });
 
-  it("Leave closes the socket and goes home", async () => {
+  it("Leave (in Participants) closes the socket and goes home", async () => {
     const socket = await inRoom();
-    await click(button("Leave"));
+    await openFromTopBar("Participants");
+    await click(button("Leave session"));
     expect(socket.closed).toBe(true);
     expect(window.location.hash).toBe("#/");
   });
@@ -378,7 +418,69 @@ describe("the room", () => {
     await click(byText('[role="menuitem"]', "Help"));
     expect(dialog()?.querySelector("h2")?.textContent).toBe("Help");
     expect(socket.closed).toBe(false);
-    expect(document.querySelector('[aria-labelledby="people-heading"]')).not.toBeNull();
+    expect(document.querySelector('[aria-label="Board"]')).not.toBeNull();
+  });
+});
+
+describe("chat", () => {
+  const chatButton = () => document.querySelector<HTMLElement>('header [aria-label^="Chat"]');
+  const messages = () => document.querySelector('[aria-label="Messages"]');
+
+  it("is collapsed by default: a button, no messages shown", async () => {
+    await inRoom();
+    expect(chatButton()?.getAttribute("aria-label")).toBe("Chat");
+    expect(chatButton()?.getAttribute("aria-expanded")).toBe("false");
+    expect(messages()).toBeNull();
+  });
+
+  it("counts unread messages from others while collapsed, and clears them on open", async () => {
+    const socket = await inRoom();
+    await server(socket, { data: { type: "echo", from: sam.id, text: "One" } });
+    await server(socket, { data: { type: "echo", from: sam.id, text: "Two" } });
+    expect(chatButton()?.getAttribute("aria-label")).toBe("Chat, 2 unread");
+    expect(chatButton()?.querySelector('[data-testid="unread-dot"]')).not.toBeNull();
+    await openFromTopBar("Chat");
+    expect(messages()?.textContent).toContain("Two");
+    await click(dialog()?.querySelector<HTMLElement>('[aria-label="Close"]') ?? undefined);
+    expect(chatButton()?.getAttribute("aria-label")).toBe("Chat");
+    expect(chatButton()?.querySelector('[data-testid="unread-dot"]')).toBeNull();
+  });
+
+  it("sends a message with Send and shows echoes; says messages aren't saved", async () => {
+    const socket = await inRoom();
+    await openFromTopBar("Chat");
+    expect(dialog()?.textContent).toMatch(/aren’t saved/i);
+    await type(input("Message"), "Hello all");
+    await submit(button("Send"));
+    expect(socket.sent.at(-1)).toEqual({ type: "say", text: "Hello all" });
+    expect(input("Message").value).toBe("");
+    await server(socket, { data: { type: "echo", from: alex.id, text: "Hello all" } });
+    expect(messages()?.textContent).toContain("Alex");
+    expect(messages()?.textContent).toContain("Hello all");
+  });
+
+  it("renders chat text and names as plain text, never HTML", async () => {
+    const socket = await inRoom();
+    const evil = '<img src=x onerror="alert(1)"><b>bold</b>';
+    await server(socket, { data: { type: "participant_joined", participant: { id: "CCCCCCCCCCCCCCCC", name: "<i>Kai</i>", colourIndex: 2 } } });
+    await server(socket, { data: { type: "echo", from: "CCCCCCCCCCCCCCCC", text: evil } });
+    await openFromTopBar("Chat");
+    expect(messages()?.textContent).toContain(evil);
+    expect(messages()?.textContent).toContain("<i>Kai</i>");
+    expect(document.querySelector("img")).toBeNull();
+    expect(messages()?.querySelector("b, i")).toBeNull();
+  });
+
+  it("from md up, chat is a floating button on the board instead of a top bar button", async () => {
+    setWide(true);
+    const socket = await inRoom();
+    expect(chatButton()).toBeNull();
+    const floating = () => document.querySelector<HTMLElement>('[data-chat-dock] [aria-label^="Chat"]');
+    await server(socket, { data: { type: "echo", from: sam.id, text: "Hi" } });
+    expect(floating()?.getAttribute("aria-label")).toBe("Chat, 1 unread");
+    await click(floating() ?? undefined);
+    expect(messages()?.textContent).toContain("Hi");
+    expect(floating()?.getAttribute("aria-label")).toBe("Chat");
   });
 });
 
@@ -386,6 +488,7 @@ describe("the board", () => {
   const N1 = "NNNNNNNNNNNNNNN1";
   const one: Note = { id: N1, x: 40, y: 60, text: "Idea one", color: "yellow", rev: 1, authorId: sam.id };
   const notes = () => [...document.querySelectorAll<HTMLElement>('[aria-roledescription="note"]')];
+  const position = (note: HTMLElement | undefined) => note?.closest<HTMLElement>(".react-flow__node")?.style.transform.replaceAll(" ", "");
   const sentOfType = (socket: FakeWebSocket, type: string) =>
     (socket.sent as Record<string, unknown>[]).filter((m) => m.type === type);
   const textarea = () => dialog()?.querySelector("textarea") ?? null;
@@ -419,11 +522,13 @@ describe("the board", () => {
     expect(notes()[1]?.textContent).toBe(evil);
     expect(document.querySelector("img")).toBeNull();
     expect(notes()[0]?.tabIndex).toBe(0);
-    expect(notes()[0]?.style.transform).toBe("translate(40px, 60px)");
+    // Positioned by the canvas (React Flow's node wrapper), in board units.
+    expect(position(notes()[0])).toBe("translate(40px,60px)");
   });
 
   it("Add note sends noteAdd with the chosen colour and opens the editor; Enter saves", async () => {
     const socket = await withNotes();
+    await click(document.querySelector<HTMLElement>('[aria-label^="Note colour"]') ?? undefined);
     await click(document.querySelector<HTMLElement>('[role="radio"][aria-label="Blue"]') ?? undefined);
     await click(document.querySelector<HTMLElement>('[aria-label="Add note"]') ?? undefined);
     const [add] = sentOfType(socket, "noteAdd");
@@ -465,7 +570,7 @@ describe("the board", () => {
     const socket = await withNotes(one);
     await key(notes()[0], "ArrowRight");
     await key(notes()[0], "ArrowDown", { shiftKey: true });
-    expect(notes()[0]?.style.transform).toBe("translate(50px, 110px)");
+    expect(position(notes()[0])).toBe("translate(50px,110px)");
     await act(async () => {
       vi.advanceTimersByTime(1000);
     });
@@ -503,6 +608,130 @@ describe("the board", () => {
     expect(notes()[0]?.getAttribute("aria-disabled")).toBe("true");
     await key(notes()[0], "Enter");
     expect(dialog()).toBeNull();
+  });
+});
+
+describe("board layout: rail and view bar from md up, ribbon on phones", () => {
+  const N1 = "NNNNNNNNNNNNNNN1";
+  const one: Note = { id: N1, x: 40, y: 60, text: "Idea one", color: "yellow", rev: 1, authorId: sam.id };
+  const rail = () => document.querySelector<HTMLElement>('[role="toolbar"][aria-label="Tools"]');
+  const viewBar = () => document.querySelector<HTMLElement>('[role="toolbar"][aria-label="View"]');
+  const ribbon = () => document.querySelector<HTMLElement>('[role="toolbar"][aria-label="Board tools"]');
+  const toolIds = (bar: HTMLElement | null) => [...(bar?.querySelectorAll<HTMLElement>("[data-tool]") ?? [])].map((b) => b.dataset.tool);
+  const addNote = () => document.querySelector<HTMLButtonElement>('[aria-label="Add note"]');
+  const note = () => document.querySelector<HTMLElement>('[aria-roledescription="note"]');
+  async function withNotes(...list: Note[]) {
+    const socket = await inRoom();
+    await server(socket, { data: { type: "snapshot", notes: list } });
+    return socket;
+  }
+  async function pointer(el: HTMLElement | null, pointerType: string) {
+    await act(async () => {
+      el?.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, pointerType, button: 0 }));
+    });
+  }
+
+  it("phone: no rail; one ribbon built from the registry, with the colour choice", async () => {
+    const { toolsFor } = await import("../src/canvas/tools");
+    await withNotes(one);
+    expect(rail()).toBeNull();
+    expect(viewBar()).toBeNull();
+    expect(toolIds(ribbon())).toEqual(toolsFor("ribbon").map((t) => t.id));
+    expect(ribbon()?.querySelector('[aria-label^="Note colour"]')).not.toBeNull();
+    expect(document.querySelector(".react-flow__minimap")).toBeNull();
+  });
+
+  it("md up: rail and view bar from the registry; no ribbon; minimap shown", async () => {
+    setWide(true);
+    const { toolsFor } = await import("../src/canvas/tools");
+    await withNotes(one);
+    expect(ribbon()).toBeNull();
+    expect(toolIds(rail())).toEqual(toolsFor("rail").map((t) => t.id));
+    expect(toolIds(viewBar())).toEqual(toolsFor("viewbar").map((t) => t.id));
+    expect(document.querySelector(".react-flow__minimap")).not.toBeNull();
+    await click(viewBar()?.querySelector<HTMLElement>('[data-tool="minimap"]') ?? undefined);
+    expect(document.querySelector(".react-flow__minimap")).toBeNull();
+  });
+
+  it.each([
+    ["phone", false],
+    ["md up", true],
+  ])("%s: Add note is disabled with a reason when full or disconnected", async (_label, isWide) => {
+    setWide(isWide);
+    const socket = await withNotes(...Array.from({ length: MAX_NOTES_PER_ROOM }, (_, i) => ({ ...one, id: `N${String(i).padStart(15, "0")}` })));
+    expect(addNote()?.disabled).toBe(true);
+    expect(document.body.textContent).toContain(`The board is full (${MAX_NOTES_PER_ROOM} notes)`);
+    await server(socket, { data: { type: "noteDeleted", id: `N${"0".repeat(15)}` } });
+    expect(addNote()?.disabled).toBe(false);
+    await server(socket, "close");
+    expect(addNote()?.disabled).toBe(true);
+    expect(document.body.textContent).toContain("Reconnect to add or change notes.");
+  });
+
+  it("the colour, tool and viewport survive a breakpoint change (rotate or resize)", async () => {
+    await withNotes(one);
+    await click(document.querySelector<HTMLElement>('[aria-label^="Note colour"]') ?? undefined);
+    await click(document.querySelector<HTMLElement>('[role="radio"][aria-label="Pink"]') ?? undefined);
+    await click(ribbon()?.querySelector<HTMLElement>('[data-tool="hand"]') ?? undefined);
+    const flow = document.querySelector(".react-flow");
+    await act(async () => setWide(true));
+    await settle();
+    expect(ribbon()).toBeNull();
+    expect(rail()?.querySelector('[data-tool="hand"]')?.getAttribute("aria-pressed")).toBe("true");
+    expect(rail()?.querySelector('[aria-label^="Note colour"]')?.getAttribute("aria-label")).toBe("Note colour: Pink");
+    // The same canvas stays mounted, so the viewport isn't reset.
+    expect(document.querySelector(".react-flow")).toBe(flow);
+    await act(async () => setWide(false));
+    await settle();
+    expect(ribbon()?.querySelector('[data-tool="hand"]')?.getAttribute("aria-pressed")).toBe("true");
+    expect(ribbon()?.querySelector('[aria-label^="Note colour"]')?.getAttribute("aria-label")).toBe("Note colour: Pink");
+  });
+
+  it("a tap on a note edits it; a mouse needs a double-click", async () => {
+    await withNotes(one);
+    await pointer(note(), "mouse");
+    await click(note() ?? undefined);
+    expect(dialog()).toBeNull();
+    await act(async () => {
+      note()?.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+    });
+    await settle();
+    expect(dialog()?.querySelector("h2")?.textContent).toBe("Edit note");
+    await click(byText("button", "Done"));
+    await pointer(note(), "touch");
+    await click(note() ?? undefined);
+    expect(dialog()?.querySelector("h2")?.textContent).toBe("Edit note");
+  });
+
+  it("the Hand tool stops taps from editing (every drag pans)", async () => {
+    await withNotes(one);
+    await click(ribbon()?.querySelector<HTMLElement>('[data-tool="hand"]') ?? undefined);
+    await pointer(note(), "touch");
+    await click(note() ?? undefined);
+    expect(dialog()).toBeNull();
+  });
+
+  it("the ribbon hides while the note editor is open, so it never sits over the keyboard", async () => {
+    await withNotes(one);
+    await act(async () => {
+      note()?.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+    });
+    expect(dialog()?.querySelector("h2")?.textContent).toBe("Edit note");
+    expect(ribbon()).toBeNull();
+  });
+
+  it("keyboard shortcuts: H toggles the hand, N adds a note, and the view bar shows the zoom", async () => {
+    setWide(true);
+    const socket = await withNotes(one);
+    await act(async () => {
+      document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "h", bubbles: true }));
+    });
+    expect(rail()?.querySelector('[data-tool="hand"]')?.getAttribute("aria-pressed")).toBe("true");
+    expect(viewBar()?.querySelector('[data-tool="zoom-reset"]')?.textContent).toMatch(/^\d+%$/);
+    await act(async () => {
+      document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "n", bubbles: true }));
+    });
+    expect((socket.sent as { type: string }[]).some((m) => m.type === "noteAdd")).toBe(true);
   });
 });
 

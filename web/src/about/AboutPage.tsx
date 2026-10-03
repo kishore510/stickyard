@@ -90,8 +90,9 @@ export function AboutPage() {
         <ul className="flex list-disc flex-col gap-xs pl-lg">
           <li>No analytics, no tracking and no ads. The font and icons are bundled with the app.</li>
           <li>
-            When you join a session, the name you type, the messages you send and the notes you add or change are visible
-            to everyone in the session. Names are never verified. Messages are passed on by the relay and not saved.
+            When you join a session, the name you type, the chat messages you send and the notes you add or change are
+            visible to everyone in the session. Names are never verified. Chat messages are passed on by the relay and not
+            saved.
           </li>
           <li>
             Notes are stored by the relay, in that session’s own storage on Cloudflare: each note’s text, colour, place on
@@ -110,7 +111,8 @@ export function AboutPage() {
           </li>
           <li>
             This browser stores only your theme choice, the last version whose notes you opened, and the last name you
-            joined with.
+            joined with. Where you are on the board, the zoom, and the tool and note colour you pick stay in the open page:
+            they aren’t stored or sent anywhere.
           </li>
           <li>There are no accounts.</li>
         </ul>

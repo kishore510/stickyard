@@ -46,6 +46,9 @@
   /* The board and its notes. Note colours are keyed by the protocol's palette keys. */
   --sy-board: #eae7df;
   --sy-board-dot: #cdc9bd;
+  /* Outside the board's bounded area, and the minimap's mask over what's off screen. */
+  --sy-canvas: #dedbd2;
+  --sy-minimap-mask: #1d23271a;
   --sy-note-fg: #1d2327;
   --sy-note-yellow: #fff0a3;
   --sy-note-pink: #ffd3e2;
@@ -89,6 +92,8 @@
   /* Notes stay paper-light in the dark theme, slightly muted, with dark text. */
   --sy-board: #182024;
   --sy-board-dot: #2e3a40;
+  --sy-canvas: #0c1113;
+  --sy-minimap-mask: #00000073;
   --sy-note-fg: #14191c;
   --sy-note-yellow: #e8d679;
   --sy-note-pink: #e6a9bf;
@@ -150,12 +155,22 @@
   --sy-note-size: 160px;
   --sy-board-grid: 32px;
   --sy-board-dot-size: 1.5px;
-  /* The board's window on the page. */
-  --sy-board-view-h: max(20rem, 62dvh);
   /* Colour swatch inside its 44px touch target. */
   --sy-swatch: 24px;
-  /* Room left under the page for the floating bottom bar. */
-  --sy-bar-space: calc(var(--sy-touch-min) + 2 * var(--sy-space-xs) + var(--sy-space-sm) + max(var(--sy-gutter), var(--sy-safe-bottom)));
+  /* Canvas chrome (slice 2.5). Fit-to-notes keeps notes this far from the edges (clear of the
+     rail and the bottom bar). Floating bars sit max(gutter, safe area) from the screen edges. */
+  --sy-fit-padding: 32px;
+  --sy-minimap-width: 200px;
+  --sy-minimap-height: 125px;
+  --sy-chat-width: 22rem;
+  --sy-chat-height: min(30rem, 60dvh);
+  /* A floating bar's height: a touch target plus the bar's padding and border. */
+  --sy-bar-h: calc(var(--sy-touch-min) + 2 * var(--sy-space-xs) + 2 * var(--sy-border-width));
+  --sy-edge-bottom: max(var(--sy-gutter), var(--sy-safe-bottom));
+  --sy-edge-left: max(var(--sy-gutter), var(--sy-safe-left));
+  --sy-edge-right: max(var(--sy-gutter), var(--sy-safe-right));
+  /* The chat button sits above the minimap when it's shown. */
+  --sy-chat-above-minimap: calc(var(--sy-edge-bottom) + var(--sy-minimap-height) + var(--sy-space-sm));
 
   /* Viewport and safe areas (notches, home indicator) */
   --sy-safe-top: env(safe-area-inset-top, 0px);
@@ -184,6 +199,13 @@
   /* Remote notes ease towards each new drag position (sent about every 50ms). */
   --sy-duration-move: 100ms;
   --sy-ease: cubic-bezier(0.2, 0, 0, 1);
+}
+
+/* From md up the tool rail sits on the left, so fit keeps notes further from the edges. */
+@media (min-width: 48rem) {
+  :root {
+    --sy-fit-padding: 72px;
+  }
 }
 
 /* Reduce motion: every animation length is 0. */
@@ -224,6 +246,7 @@
   --color-participant-7: var(--sy-participant-7);
   --color-participant-8: var(--sy-participant-8);
   --color-board: var(--sy-board);
+  --color-canvas: var(--sy-canvas);
   --color-note-fg: var(--sy-note-fg);
   --color-note-yellow: var(--sy-note-yellow);
   --color-note-pink: var(--sy-note-pink);
@@ -264,9 +287,14 @@
   --spacing-note: var(--sy-note-size);
   --spacing-board-w: var(--sy-board-width);
   --spacing-board-h: var(--sy-board-height);
-  --spacing-board-view: var(--sy-board-view-h);
   --spacing-swatch: var(--sy-swatch);
-  --spacing-bar: var(--sy-bar-space);
+  --spacing-bar: var(--sy-bar-h);
+  --spacing-edge-b: var(--sy-edge-bottom);
+  --spacing-edge-l: var(--sy-edge-left);
+  --spacing-edge-r: var(--sy-edge-right);
+  --spacing-chat-w: var(--sy-chat-width);
+  --spacing-chat-h: var(--sy-chat-height);
+  --spacing-chat-b: var(--sy-chat-above-minimap);
 
   --container-*: initial;
   --container-content: var(--sy-content-max);

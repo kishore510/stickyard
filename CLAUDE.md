@@ -49,6 +49,13 @@ Free-plan limits: `docs/LIMITS.md`.
 - Rate limit: `SOCKET_LIMITS` (30/s, burst 40); 20 violations within 10 s close the socket.
 - Web: `web/src/notes/board.ts` is the pure board state (confirmed vs shown, drafts, pending deletes); `RoomSession` drives it and throttles drags (`MOVE_INTERVAL_MS`). A note with a `draft` is the one being edited. Note colours map to `--sy-note-*` tokens in `web/src/notes/colours.ts`.
 
+## Board UX (slice 2.5)
+- Canvas is React Flow (`@xyflow/react` 12, Chalkline's major), controlled: notes stay in `RoomSession`/`board.ts`; `web/src/canvas/nodes.ts` maps them to memoised nodes (reused while the entry is unchanged) and turns drag events into session moves. React Flow owns only the viewport and gestures. `NoteNode` (in `notes/NoteCard.tsx`) is `memo`; note actions come from a stable context.
+- Flow units ARE board units. The one conversion, zoom limits, fit, pan extent, new-note placement and the tap/drag threshold are pure functions in `web/src/canvas/geometry.ts` (tested). `WHEEL_BEHAVIOUR` there flips wheel-pans to wheel-zooms. Server clamping is unchanged.
+- Tool registry: `web/src/canvas/tools.ts` (`TOOLS`, each with `slots` per surface: `rail`, `viewbar`, `ribbon`). `ToolBars.tsx` renders the rail + view bar from `md` up and the ribbon below `md` (switched with `MEDIA.tablet`, never a user agent). New tool = one registry entry + its action in `ToolContext` (`canvas/RoomBoard.tsx`). Tool, colour and minimap choice live in `canvas/uiStore.ts` so a breakpoint switch keeps them; React Flow stays mounted so the viewport survives too. No placeholder tools.
+- `canvas/RoomBoard.tsx` is lazy-loaded (React Flow isn't in the start page's bundle); `RoomScreen` preloads it when a room opens.
+- Rooms are full-bleed (`Shell bleed`): no page scroll, no footer. Chat: `web/src/chat/ChatDock.tsx` (floating from `md`, a bottom sheet on phones opened from the top bar or menu); unread logic in `chat/unread.ts`. Participants: `#/participants` sheet (`rooms/ParticipantsPage.tsx`) with Copy link and Leave. Room state for the top bar, menu and sheets is published to `rooms/roomStore.ts` by `RoomScreen`.
+
 ## Working rules
 - One slice at a time on its own `phase-...` branch. Never commit to `main`. Stop for review at the end of each slice.
 - Do not build beyond the slice scope.

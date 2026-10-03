@@ -41,7 +41,7 @@ export function App() {
   }
 
   return (
-    <Shell>
+    <Shell bleed={base.name === "room"}>
       {base.name === "room" ? <RoomScreen key={base.code} code={base.code} /> : <HomeScreen />}
       {route.name === "home" && route.sheet && <SheetHost sheet={route.sheet} />}
     </Shell>

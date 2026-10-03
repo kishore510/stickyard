@@ -8,7 +8,7 @@ Stickyard is a shared board of sticky notes for workshops and retros. Everyone i
 
 ## What works today
 
-People join a session by link and name and share one **board** of sticky notes: anyone can add, edit, move and delete notes, and everyone sees the changes straight away. See [Notes](help:notes). There's also a simple message box, and a list of who's there.
+People join a session by link and name and share one **board** of sticky notes: anyone can add, edit, move and delete notes, and everyone sees the changes straight away. See [Notes](help:notes). There's also a [Chat](help:chat) and a [Participants](help:participants) list of who's there.
 
 ## Join a session
 

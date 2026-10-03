@@ -1,21 +1,31 @@
-import { CircleHelp, Info, Menu as MenuIcon, Sparkles, type LucideIcon } from "lucide-react";
+import { CircleHelp, Info, Menu as MenuIcon, MessageCircle, Sparkles, Users, type LucideIcon } from "lucide-react";
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
 import { useWhatsNew } from "../changelog/whatsNew";
 import { Button } from "../components/ui/button";
 import { Panel } from "../components/ui/panel";
+import { chatLabel } from "../chat/ChatDock";
+import { useRoomUi, useUnread } from "../rooms/roomStore";
 import type { Sheet } from "../router";
 import { openSheet } from "./nav";
 
 interface MenuItem {
   label: string;
   icon: LucideIcon;
-  sheet: Sheet;
+  /** A sheet to open, or an action. */
+  sheet?: Sheet;
+  action?: () => void;
 }
 
 /*
  * Menu groups, separated by dividers. Later slices add their own groups here (for example
- * session actions and export) when those features exist. No placeholders until then.
+ * export) when those features exist. No placeholders until then. The Session group is shown
+ * only while you're in a session (see SESSION_GROUP).
  */
+const SESSION_GROUP: MenuItem[] = [
+  { label: "Participants", icon: Users, sheet: { kind: "participants" } },
+  { label: "Chat", icon: MessageCircle, action: () => useRoomUi.getState().openChat() },
+];
+
 const GROUPS: MenuItem[][] = [
   [
     { label: "Help", icon: CircleHelp, sheet: { kind: "help" } },
@@ -39,6 +49,9 @@ export function UnseenDot() {
 export function Menu() {
   const [open, setOpen] = useState(false);
   const unseen = useWhatsNew((s) => s.unseen);
+  const inRoom = useRoomUi((s) => s.room !== null);
+  const unread = useUnread();
+  const groups = inRoom ? [SESSION_GROUP, ...GROUPS] : GROUPS;
   const buttonRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const menuId = useId();
@@ -84,11 +97,12 @@ export function Menu() {
     }
   };
 
-  const choose = (sheet: Sheet) => {
+  const choose = (item: MenuItem) => {
     setOpen(false);
     // Focus goes back to the menu button, so closing the sheet returns it there.
     buttonRef.current?.focus();
-    openSheet(sheet);
+    if (item.sheet) openSheet(item.sheet);
+    item.action?.();
   };
 
   const label = unseen ? "Menu (new: what’s changed)" : "Menu";
@@ -119,7 +133,7 @@ export function Menu() {
           onKeyDown={onMenuKeyDown}
           className="sy-fade-in absolute top-full right-0 z-40 mt-xs flex max-h-(--sy-menu-max-h) w-menu max-w-[calc(100vw-2*var(--sy-gutter))] flex-col overflow-y-auto p-xs shadow-lg"
         >
-          {GROUPS.map((group, g) => (
+          {groups.map((group, g) => (
             <div key={g} role="group" className="flex flex-col">
               {g > 0 && <div role="separator" className="my-xs h-px bg-border" />}
               {group.map((item) => (
@@ -129,11 +143,11 @@ export function Menu() {
                   tabIndex={-1}
                   variant="ghost"
                   className="justify-start"
-                  onClick={() => choose(item.sheet)}
+                  onClick={() => choose(item)}
                 >
                   <item.icon />
-                  <span className="flex-1 text-left">{item.label}</span>
-                  {item.sheet.kind === "changelog" && unseen && (
+                  <span className="flex-1 text-left">{item.label === "Chat" ? chatLabel(unread) : item.label}</span>
+                  {item.sheet?.kind === "changelog" && unseen && (
                     <span className="rounded-full bg-accent px-sm text-xs font-semibold text-accent-fg">New</span>
                   )}
                 </Button>

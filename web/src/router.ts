@@ -8,11 +8,17 @@ import { useSyncExternalStore } from "react";
  *   #/help/<topic>    one help topic, e.g. #/help/names
  *   #/changelog       What's new
  *   #/about           About
+ *   #/participants    Participants (who's in the session you're in, the link, Leave)
  *
  * A session is `#/room/<code>`. Sheets opened from a room show over it (see App.tsx).
  */
 
-export type Sheet = { kind: "help" } | { kind: "help-topic"; id: string } | { kind: "changelog" } | { kind: "about" };
+export type Sheet =
+  | { kind: "help" }
+  | { kind: "help-topic"; id: string }
+  | { kind: "changelog" }
+  | { kind: "about" }
+  | { kind: "participants" };
 
 export type Route = { name: "home"; sheet: Sheet | null } | { name: "room"; code: string } | { name: "not-found" };
 
@@ -31,6 +37,8 @@ export function parseHash(hash: string): Route {
       return { name: "home", sheet: { kind: "changelog" } };
     case "/about":
       return { name: "home", sheet: { kind: "about" } };
+    case "/participants":
+      return { name: "home", sheet: { kind: "participants" } };
   }
   const code = ROOM.exec(path)?.[1];
   if (code) return { name: "room", code };
@@ -49,6 +57,8 @@ export function sheetHash(sheet: Sheet | null): string {
       return "#/changelog";
     case "about":
       return "#/about";
+    case "participants":
+      return "#/participants";
   }
 }
 

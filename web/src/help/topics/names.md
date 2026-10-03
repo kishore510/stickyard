@@ -1,6 +1,6 @@
 ---
 title: Names and identity
-order: 4
+order: 6
 summary: Names are typed in and never verified; anyone with the link can join.
 keywords: name, identity, account, verify, verified, link, join, who, trust, privacy, colour, color
 ---

@@ -70,6 +70,8 @@ export interface RoomView {
   board: Board;
   /** A short message about a refused note change, until the next note action. */
   noteNotice: string | null;
+  /** The board snapshot has arrived (the first view can be fitted to the notes). */
+  synced: boolean;
 }
 
 export const INITIAL_VIEW: RoomView = {
@@ -82,6 +84,7 @@ export const INITIAL_VIEW: RoomView = {
   announcement: "",
   board: EMPTY_BOARD,
   noteNotice: null,
+  synced: false,
 };
 
 export const JOIN_TIMEOUT_MS = 10_000;
@@ -353,7 +356,7 @@ export class RoomSession {
       }
 
       case "snapshot":
-        return this.update({ board: applySnapshot(this.view.board, message.notes) });
+        return this.update({ board: applySnapshot(this.view.board, message.notes), synced: true });
 
       case "noteAdded": {
         const { note, clientRef } = message;
