@@ -516,7 +516,7 @@ describe("chat", () => {
 
 describe("the board", () => {
   const N1 = "NNNNNNNNNNNNNNN1";
-  const one: Note = { id: N1, x: 40, y: 60, ...NOTE_DEFAULTS, text: "Idea one", color: "yellow", rev: 1, authorId: sam.id };
+  const one: Note = { id: N1, x: 40, y: 60, ...NOTE_DEFAULTS, text: "Idea one", color: "yellow", z: 0, rev: 1, authorId: sam.id };
   const notes = () => [...document.querySelectorAll<HTMLElement>('[aria-roledescription="note"]')];
   const position = (note: HTMLElement | undefined) => note?.closest<HTMLElement>(".react-flow__node")?.style.transform.replaceAll(" ", "");
   const sentOfType = (socket: FakeWebSocket, type: string) =>
@@ -659,7 +659,7 @@ describe("the board", () => {
 
 describe("board layout: palette and Properties panels from md up, ribbon on phones", () => {
   const N1 = "NNNNNNNNNNNNNNN1";
-  const one: Note = { id: N1, x: 40, y: 60, ...NOTE_DEFAULTS, text: "Idea one", color: "yellow", rev: 1, authorId: sam.id };
+  const one: Note = { id: N1, x: 40, y: 60, ...NOTE_DEFAULTS, text: "Idea one", color: "yellow", z: 0, rev: 1, authorId: sam.id };
   const viewBar = () => document.querySelector<HTMLElement>('[role="toolbar"][aria-label="View"]');
   const ribbon = () => document.querySelector<HTMLElement>('[role="toolbar"][aria-label="Board tools"]');
   const toolIds = (bar: HTMLElement | null) => [...(bar?.querySelectorAll<HTMLElement>("[data-tool]") ?? [])].map((b) => b.dataset.tool);
@@ -863,7 +863,7 @@ describe("board layout: palette and Properties panels from md up, ribbon on phon
 
 describe("the palette (md up)", () => {
   const N1 = "NNNNNNNNNNNNNNN1";
-  const one: Note = { id: N1, x: 40, y: 60, ...NOTE_DEFAULTS, text: "Idea one", color: "yellow", rev: 1, authorId: sam.id };
+  const one: Note = { id: N1, x: 40, y: 60, ...NOTE_DEFAULTS, text: "Idea one", color: "yellow", z: 0, rev: 1, authorId: sam.id };
   const palette = () => document.querySelector<HTMLElement>('aside[aria-label="Palette"]');
   const properties = () => document.querySelector<HTMLElement>('aside[aria-label="Properties"]');
   const tiles = () => [...(palette()?.querySelectorAll<HTMLButtonElement>("[data-palette-item]") ?? [])];
@@ -999,8 +999,8 @@ describe("the palette (md up)", () => {
 describe("the Properties panel (md up)", () => {
   const N1 = "NNNNNNNNNNNNNNN1";
   const N2 = "NNNNNNNNNNNNNNN2";
-  const one: Note = { id: N1, x: 40, y: 60, ...NOTE_DEFAULTS, text: "Idea one\nThe details", color: "pink", rev: 1, authorId: sam.id };
-  const two: Note = { id: N2, x: 400, y: 300, ...NOTE_DEFAULTS, text: "", color: "blue", rev: 1, authorId: "ZZZZZZZZZZZZZZZZ" };
+  const one: Note = { id: N1, x: 40, y: 60, ...NOTE_DEFAULTS, text: "Idea one\nThe details", color: "pink", z: 0, rev: 1, authorId: sam.id };
+  const two: Note = { id: N2, x: 400, y: 300, ...NOTE_DEFAULTS, text: "", color: "blue", z: 0, rev: 1, authorId: "ZZZZZZZZZZZZZZZZ" };
   const properties = () => document.querySelector<HTMLElement>('aside[aria-label="Properties"]');
   const notes = () => [...document.querySelectorAll<HTMLElement>('[aria-roledescription="note"]')];
   const propTitle = () => properties()?.querySelector<HTMLInputElement>('input[name="title"]') ?? null;
@@ -1301,7 +1301,7 @@ describe("the Properties panel (md up)", () => {
 
 describe("phone: add sheet and editor sheet", () => {
   const N1 = "NNNNNNNNNNNNNNN1";
-  const one: Note = { id: N1, x: 40, y: 60, ...NOTE_DEFAULTS, text: "Idea one\nThe details", color: "orange", rev: 1, authorId: sam.id };
+  const one: Note = { id: N1, x: 40, y: 60, ...NOTE_DEFAULTS, text: "Idea one\nThe details", color: "orange", z: 0, rev: 1, authorId: sam.id };
   const sentOfType = (socket: FakeWebSocket, t: string) => (socket.sent as Record<string, unknown>[]).filter((m) => m.type === t);
   async function withNotes(...list: Note[]) {
     const socket = await inRoom();
@@ -1420,9 +1420,9 @@ describe("multi-select and arrange (slice 2.8, md up)", () => {
   const N1 = "NNNNNNNNNNNNNNN1";
   const N2 = "NNNNNNNNNNNNNNN2";
   const N3 = "NNNNNNNNNNNNNNN3";
-  const one: Note = { id: N1, x: 40, y: 60, ...NOTE_DEFAULTS, text: "Idea one", color: "pink", rev: 1, authorId: sam.id };
-  const two: Note = { id: N2, x: 400, y: 300, ...NOTE_DEFAULTS, text: "", color: "blue", rev: 1, authorId: sam.id };
-  const three: Note = { id: N3, x: 800, y: 100, ...NOTE_DEFAULTS, text: "", color: "blue", bold: true, rev: 1, authorId: sam.id };
+  const one: Note = { id: N1, x: 40, y: 60, ...NOTE_DEFAULTS, text: "Idea one", color: "pink", z: 0, rev: 1, authorId: sam.id };
+  const two: Note = { id: N2, x: 400, y: 300, ...NOTE_DEFAULTS, text: "", color: "blue", z: 0, rev: 1, authorId: sam.id };
+  const three: Note = { id: N3, x: 800, y: 100, ...NOTE_DEFAULTS, text: "", color: "blue", bold: true, z: 0, rev: 1, authorId: sam.id };
   const properties = () => document.querySelector<HTMLElement>('aside[aria-label="Properties"]');
   const notes = () => [...document.querySelectorAll<HTMLElement>('[aria-roledescription="note"]')];
   const selected = () => notes().filter((n) => n.getAttribute("aria-current") === "true").map((n) => n.dataset.noteId);
@@ -1540,9 +1540,13 @@ describe("multi-select and arrange (slice 2.8, md up)", () => {
     expect(colour?.textContent).toContain("Mixed");
     expect(colour?.querySelector('[aria-pressed="true"]')).toBeNull();
     expect(properties()?.querySelector('[aria-label="Body text style"] [aria-label="Bold body"]')?.getAttribute("aria-pressed")).toBe("mixed");
-    const controls = [...(properties()?.querySelectorAll<HTMLButtonElement | HTMLSelectElement | HTMLInputElement>("section button, section select, section input") ?? [])];
+    const all = [...(properties()?.querySelectorAll<HTMLButtonElement | HTMLSelectElement | HTMLInputElement>("section button, section select, section input") ?? [])];
+    // Style and size are read-only for several; Order (slice z-order) works for all of them.
+    const inOrder = (c: Element) => c.closest("section")?.querySelector("h3")?.textContent === "Order";
+    const controls = all.filter((c) => !inOrder(c));
     expect(controls.length).toBeGreaterThan(20);
     expect(controls.every((c) => c.disabled)).toBe(true);
+    expect(all.filter(inOrder).map((c) => c.disabled)).toEqual([false, false]);
     expect(properties()?.querySelector('input[name="title"]')).toBeNull();
     const confirm = vi.fn(() => true);
     vi.stubGlobal("confirm", confirm);
@@ -1625,7 +1629,7 @@ describe("multi-select and arrange (slice 2.8, md up)", () => {
 
 describe("inline editing (slice 2.9, md up)", () => {
   const N1 = "NNNNNNNNNNNNNNN1";
-  const one: Note = { id: N1, x: 40, y: 60, ...NOTE_DEFAULTS, text: "Idea one\nThe details", color: "pink", rev: 1, authorId: sam.id };
+  const one: Note = { id: N1, x: 40, y: 60, ...NOTE_DEFAULTS, text: "Idea one\nThe details", color: "pink", z: 0, rev: 1, authorId: sam.id };
   const notes = () => [...document.querySelectorAll<HTMLElement>('[aria-roledescription="note"]')];
   const titleArea = () => document.querySelector<HTMLTextAreaElement>('textarea[data-inline="title"]');
   const bodyArea = () => document.querySelector<HTMLTextAreaElement>('textarea[data-inline="body"]');

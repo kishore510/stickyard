@@ -208,7 +208,7 @@ describe("canvas nodes", () => {
     let b = board();
     b = setDragging(b, id(1), true);
     b = setResizing(b, id(2), true);
-    const nodes = notes(map(b, true, true, selectOnly(id(1))));
+    const nodes = notes(map(b, true, true, selectOnly(EMPTY_SELECTION, id(1))));
     expect(nodes.map((n) => n.zIndex)).toEqual([3, -2, 0]);
   });
 

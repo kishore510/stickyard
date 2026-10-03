@@ -8,6 +8,7 @@ import {
   PROTOCOL_VERSION,
   clampNotePosition,
   checkBatch,
+  checkOrder,
   clampNoteRect,
   clientMessageSchema,
   cleanName,
@@ -16,12 +17,15 @@ import {
   encodeMessage,
   parseMessage,
   participantSchema,
+  restack,
+  zForNew,
   type ClientMessage,
   type ErrorCode,
   type Note,
   type NoteBatchResult,
   type Participant,
   type ServerMessage,
+  type Stacked,
 } from "@stickyard/shared";
 import { z } from "zod";
 import { randomBase64url } from "./crypto";
@@ -69,6 +73,11 @@ function refOf(message: ClientMessage): ErrorRef {
       const noteIds = [...new Set([...valid.map((v) => v.entry.id), ...invalidIds])];
       return noteIds.length > 0 ? { noteIds } : {};
     }
+    case "notesOrder": {
+      const { valid, invalidIds } = checkOrder(message.ids);
+      const noteIds = [...new Set([...valid.map((v) => v.id), ...invalidIds])];
+      return noteIds.length > 0 ? { noteIds } : {};
+    }
     default:
       return {};
   }
@@ -76,6 +85,7 @@ function refOf(message: ClientMessage): ErrorRef {
 
 type NoteMessage = Extract<ClientMessage, { type: "noteAdd" | "noteEdit" | "noteMove" | "noteResize" | "noteDelete" }>;
 type BatchMessage = Extract<ClientMessage, { type: "noteBatch" }>;
+type OrderMessage = Extract<ClientMessage, { type: "notesOrder" }>;
 
 /** Drags and resizes in progress (one note or a group): relayed (coalesced), never stored. */
 const isPreview = (message: ClientMessage) =>
@@ -161,9 +171,9 @@ export class Room extends DurableObject<Env> {
       );
       return;
     }
-    if (parsed.value.type === "noteBatch") {
-      // A batch is one message above; its entries also spend their own budget.
-      const entries = parsed.value.ops.length;
+    if (parsed.value.type === "noteBatch" || parsed.value.type === "notesOrder") {
+      // A batch (or a restack) is one message above; its entries also spend their own budget.
+      const entries = parsed.value.type === "noteBatch" ? parsed.value.ops.length : parsed.value.ids.length;
       state.entryTokens = Math.min(BATCH_LIMITS.entriesBurst, state.entryTokens + ((now - state.entryAt) / 1000) * BATCH_LIMITS.entriesPerSecond);
       state.entryAt = now;
       if (state.entryTokens < entries) {
@@ -274,7 +284,53 @@ export class Room extends DurableObject<Env> {
         this.handleBatch(ws, message);
         return;
       }
+
+      case "notesOrder": {
+        ws.serializeAttachment(state);
+        if (!state.participant) return send(ws, error("not_joined", "Join the room first.", refOf(message)));
+        this.handleOrder(ws, message);
+        return;
+      }
     }
+  }
+
+  /**
+   * Bring to front / send to back, computed from the room's current stacking (so the later of
+   * two arrives on top). Invalid ids are named back to the sender by index while the rest apply;
+   * a message naming a note twice is refused whole; unknown and deleted notes are ignored. Only
+   * notes whose z changes are written (one rev bump each, one transaction); everyone gets one
+   * notesOrdered with every named note, changed or not, and any note a renumbering moved.
+   */
+  private handleOrder(ws: WebSocket, message: OrderMessage): void {
+    const { valid, invalid, invalidIds } = checkOrder(message.ids);
+    if (invalid.length > 0) {
+      send(ws, {
+        type: "error",
+        code: "bad_message",
+        message: "Some notes could not be understood.",
+        entries: invalid,
+        ...(invalidIds.length > 0 ? { noteIds: invalidIds } : {}),
+      });
+    }
+    const ids = valid.map((v) => v.id).filter((id) => this.notes.get(id));
+    if (ids.length === 0) return;
+    const { changes } = restack(this.notes.all(), ids, message.action);
+    const updates = this.restacked(changes);
+    this.notes.applyBatch(updates, []);
+    const reported = new Set([...ids, ...updates.map((n) => n.id)]);
+    const results = [...reported].flatMap((id) => {
+      const note = this.notes.get(id);
+      return note ? [{ id, z: note.z, rev: note.rev }] : [];
+    });
+    this.broadcast({ type: "notesOrdered", results });
+  }
+
+  /** Notes with their new z (and a rev bump), from stacking changes. */
+  private restacked(changes: readonly Stacked[]): Note[] {
+    return changes.flatMap(({ id, z }) => {
+      const current = this.notes.get(id);
+      return current && current.z !== z ? [{ ...current, z, rev: current.rev + 1 }] : [];
+    });
   }
 
   /**
@@ -351,7 +407,14 @@ export class Room extends DurableObject<Env> {
         }
         const text = cleanNoteText(message.text);
         if (text === null) return send(ws, error("bad_message", "Note text is too long.", refOf(message)));
-        // The id, rev and author are the server's; the author comes from this socket.
+        // A new note goes on top. At the bound the others are renumbered first, and everyone hears.
+        const stack = zForNew(this.notes.all());
+        const renumbered = this.restacked(stack.changes);
+        if (renumbered.length > 0) {
+          this.notes.applyBatch(renumbered, []);
+          this.broadcast({ type: "notesOrdered", results: renumbered.map((n) => ({ id: n.id, z: n.z, rev: n.rev })) });
+        }
+        // The id, z, rev and author are the server's; the author comes from this socket.
         // A new note has the default size and style; noteAdd carries neither.
         const note: Note = {
           id: randomBase64url(12),
@@ -359,6 +422,7 @@ export class Room extends DurableObject<Env> {
           ...clampNotePosition(message.x, message.y),
           text,
           color: message.color,
+          z: stack.z,
           rev: 1,
           authorId: you.id,
         };

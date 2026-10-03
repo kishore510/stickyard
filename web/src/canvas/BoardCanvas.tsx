@@ -10,7 +10,7 @@ import { DEFAULT_NOTE_SIZE, noteSize } from "../notes/size";
 import { NoteActionsContext, NoteHelpContext, NoteNode, type EditorRequest, type NoteActions } from "../notes/NoteCard";
 import { groupOffset } from "./arrange";
 import { MAX_ZOOM, MIN_ZOOM, WHEEL_BEHAVIOUR, dragThreshold, panExtent } from "./geometry";
-import { createDragHandlers, createNoteNodeMapper, type CanvasNode } from "./nodes";
+import { FLOW_STACKING, createDragHandlers, createNoteNodeMapper, type CanvasNode } from "./nodes";
 import { dragSelection } from "./pointer";
 import { orderedIds } from "./selection";
 import { useBoardUi } from "./uiStore";
@@ -297,6 +297,7 @@ export function BoardCanvas({
             nodesFocusable={false}
             edgesFocusable={false}
             elementsSelectable={false}
+            {...FLOW_STACKING}
             // Notes are the keyboard stops (NoteCard); React Flow's own node keys are off.
             disableKeyboardA11y
             deleteKeyCode={null}

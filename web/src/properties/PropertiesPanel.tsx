@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { Trash2 } from "lucide-react";
-import { BOARD_HEIGHT, BOARD_WIDTH, MAX_NOTES_PER_ROOM, NOTE_STYLE_FIELDS, type Note, type Participant } from "@stickyard/shared";
+import { BOARD_HEIGHT, BOARD_WIDTH, MAX_NOTES_PER_ROOM, NOTE_STYLE_FIELDS, type Note, type OrderAction, type Participant } from "@stickyard/shared";
 import { Button } from "../components/ui/button";
 import { useBoardUi } from "../canvas/uiStore";
 import { onlySelected, orderedIds } from "../canvas/selection";
@@ -8,6 +8,7 @@ import { findNote, type Board, type StylePatch } from "../notes/board";
 import { NOTE_COLOR_NAMES } from "../notes/colours";
 import { authorName, confirmDelete } from "../notes/label";
 import { NoteFields } from "../notes/NoteFields";
+import { OrderSection } from "../notes/OrderFields";
 import { ColourSection, PartTextSection, SizeSection, type MixedFields } from "../notes/StyleFields";
 
 /*
@@ -15,8 +16,9 @@ import { ColourSection, PartTextSection, SizeSection, type MixedFields } from ".
  * Chalkline's: a sticky tab row with the collapse button, a header naming what's selected (with
  * Delete), then its fields. Nothing selected: a summary of the board. One note: its fields
  * (notes/NoteFields.tsx), which are the note editor from md up. Several: "N selected" with
- * Delete, and their colour, text style and size shown read-only ("Mixed" where they differ);
- * changing those for several notes at once isn't possible yet. Read-only while disconnected.
+ * Delete, Bring to front / Send to back, and their colour, text style and size shown read-only
+ * ("Mixed" where they differ); changing those for several notes at once isn't possible yet.
+ * Read-only while disconnected.
  */
 
 export interface PropertiesRoom {
@@ -31,6 +33,7 @@ export interface PropertiesRoom {
   setNoteSize(id: string, w: number, h: number): boolean;
   deleteNote(id: string): void;
   deleteNotes(ids: readonly string[]): void;
+  orderNotes(ids: readonly string[], action: OrderAction): boolean;
 }
 
 /** The style and size fields whose values differ between these notes. */
@@ -43,8 +46,8 @@ export function mixedFields(notes: readonly Note[]): MixedFields {
 
 const noop = () => {};
 
-/** Several notes selected: what they share, read-only (they move, arrange and delete together). */
-function SelectionFields({ notes }: { notes: Note[] }) {
+/** Several notes selected: what they share, read-only (they move, arrange, restack and delete together). */
+function SelectionFields({ notes, live, onOrder }: { notes: Note[]; live: boolean; onOrder: (action: OrderAction) => void }) {
   const first = notes[0];
   if (!first) return null;
   const mixed = mixedFields(notes);
@@ -58,6 +61,7 @@ function SelectionFields({ notes }: { notes: Note[] }) {
       <PartTextSection part="title" note={first} live={false} onStyle={noop} mixed={mixed} />
       <PartTextSection part="body" note={first} live={false} onStyle={noop} mixed={mixed} />
       <SizeSection note={first} live={false} onSize={noop} mixed={mixed} />
+      <OrderSection live={live} onOrder={onOrder} />
     </>
   );
 }
@@ -126,7 +130,7 @@ export function PropertiesContent({ room, collapse }: { room: PropertiesRoom; co
       </div>
       <div className="flex flex-col gap-md pb-md">
         {many.length > 1 ? (
-          <SelectionFields notes={many} />
+          <SelectionFields notes={many} live={room.live} onOrder={(action) => room.orderNotes(many.map((n) => n.id), action)} />
         ) : entry ? (
           <NoteFields
             entry={entry}
@@ -139,6 +143,7 @@ export function PropertiesContent({ room, collapse }: { room: PropertiesRoom; co
             onStyle={(change) => room.styleNote(entry.note.id, change)}
             onSize={(w, h) => room.setNoteSize(entry.note.id, w, h)}
             onDelete={() => room.deleteNote(entry.note.id)}
+            onOrder={(action) => room.orderNotes([entry.note.id], action)}
             showDelete={false}
             commitOnBlur
             focusRequest={editRequest?.id === entry.note.id ? editRequest.n : null}

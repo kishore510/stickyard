@@ -19,7 +19,7 @@ Draft roadmap. When a slice starts, rewrite its prompt against the real code (se
 | 2.7.2 Title styling | Separate size, bold, italic and text colour for a note's title and body. Protocol v6 + stored-schema migration (3 -> 4) | Done (v0.6.2) |
 | 2.8 Multi-select and arrange | Marquee and multi-select, floating selection bar (align, distribute, match size), group move/delete, batch update message. Protocol v7 | Done (v0.7.0) |
 | 2.9 Inline note editing | Type on the note itself from md up (two styled textareas), double-click/Enter/new note start it; web only, no protocol change | Done (v0.7.1) |
-| Z-order | Bring to front / send to back (a z field: protocol and stored-schema change, own branch). Expected next | Not started |
+| Z-order | Bring to front / send to back (a z field). Protocol v8 + stored-schema migration (4 -> 5) | Done (v0.8.0) |
 | Frames | Named, resizable, coloured areas behind notes. Own protocol and stored-schema change, after z-order | Not started |
 | Templates | Retro, start/stop/continue, 2x2, sprint planning, built from frames and labelled notes | Not started |
 | 6 (part) Timer and lock board | Cut-down slice 6: shared timer and lock board only | Not started |
@@ -44,7 +44,7 @@ Draft roadmap. When a slice starts, rewrite its prompt against the real code (se
 - Test on the live deployment; merge and deploy each slice, roll back if needed (single user).
 - Every new object type (frame, timer, text box, group box) needs its own protocol/schema change with a version bump, caps and tests. The palette gets its tile with one registry entry; no placeholder tiles for things that don't exist.
 - Each protocol or stored-schema change is its own slice and branch (2.7, 2.7.1, 2.7.2, 2.8, z-order, frames, 3b are separate for that reason).
-- Protocol numbers are assigned when each slice starts, not in advance (v7 is the current one, since 2.8). Z-order is expected to be next.
+- Protocol numbers are assigned when each slice starts, not in advance (v8 is the current one, since z-order). Frames are expected to be next.
 - Order after 2.9 (decided 3 October 2026): Z-order, Frames, Templates, Timer and lock board (cut-down 6), Reconnect (4), 3a, Persistence and expiry (5), remaining facilitation (6), 3b cursors, 7a, 7b, 7c (remaining), 8, 9, 10. Slice numbers are kept as names; the table above is in build order.
 
 ## Slice notes
@@ -115,7 +115,7 @@ Draft roadmap. When a slice starts, rewrite its prompt against the real code (se
 - Properties panel shows "N selected" with delete (confirm) and mixed-value display.
 - One batch message for multi-note changes (move, resize, delete), capped in entries and bytes: each entry validated, each note gets its own rev bump, one SQLite transaction, one broadcast. It counts as one message for the rate budget.
 - Phone: multi-select is out of scope.
-- Save as stencil waits for slice 7. Z-order is not in 2.8 (see the Z-order slice, expected next); a layers panel is backlog.
+- Save as stencil waits for slice 7. Z-order is not in 2.8 (see the Z-order slice, done in v0.8.0); a layers panel is backlog.
 
 ### 2.9 Inline note editing (web only) — done, v0.7.1
 - From md up (mouse, pen, keyboard) a note's text is edited on the note: two plain textareas styled like the note, placeholders "Type a title" / "Type body", the existing draft mechanism, noteEdit on commit. New notes, double-click (title or body) and Enter start it; Properties stays in sync and is used for off-screen notes and finger taps. Phones keep the sheet.
@@ -135,7 +135,7 @@ Draft roadmap. When a slice starts, rewrite its prompt against the real code (se
 ### 4 Reconnect
 - Detect drop, show state, reconnect with backoff, full resync on rejoin, queue changes made offline and reconcile.
 - Show a clear "relay is over its daily limit" state instead of reconnecting in a loop.
-- A full snapshot is up to about 392 KiB (401,829 bytes, worst case for 200 notes since protocol v6; see LIMITS.md) per reconnect; note the request budget impact.
+- A full snapshot is up to about 395 KiB (404,229 bytes, worst case for 200 notes since protocol v8; see LIMITS.md) per reconnect; note the request budget impact.
 
 ### 5 Persistence and expiry
 - Rooms expire after a set idle time; clear messaging about it. (Basic note persistence already exists.)
@@ -146,8 +146,9 @@ Draft roadmap. When a slice starts, rewrite its prompt against the real code (se
 - Facilitator-defined note palette: host-only, a small list of { id, colorKey, label } stored in the room, chosen from a larger fixed set of token colours (12 to 16), not arbitrary hex. Caps on entries and label length; labels are untrusted plain text. Stored-schema change in its own branch.
 - Timer tile appears in the palette under a Facilitation category.
 
-### Z-order (expected next)
-- Bring to front / send to back, because frames and shapes will overlap notes. Needs a z field: a stored-schema change in its own branch.
+### Z-order (protocol v8) — done, v0.8.0
+- Bring to front / send to back, because frames and shapes will overlap notes. Notes gain a server-assigned `z` (bounded ±100,000; renumbered at the bound); stored schema 4 -> 5 backfills z from creation order, so nothing looks different. One `notesOrder` message (front | back, up to 50 ids, chunked in stacking order beyond that), one transaction, one `notesOrdered` broadcast; only notes whose z changes are written. Selecting, dragging and resizing no longer raise a note (React Flow's elevate-on-select off). Order buttons in Properties, the phone editor and the selection bar; no shortcut. See CLAUDE.md "Z-order, protocol v8".
+- Not in it: forward/backward one step, a layers panel (backlog). Tab order and the minimap still follow creation order.
 
 ### Frames
 - A named, resizable, coloured area that always sits behind notes. Its own protocol and stored-schema change, after z-order. Reuses the 2.7 sizing and colour work and the 2.8 selection and batch work where it can; its palette tile is one registry entry.

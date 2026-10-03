@@ -9,10 +9,12 @@ import {
   encodeMessage,
   parseMessage,
   serverMessageSchema,
+  stackOrder,
   type ClientMessage,
   type NoteBatchEntry,
   type NoteColor,
   type NoteRect,
+  type OrderAction,
   type Participant,
   type ServerMessage,
 } from "@stickyard/shared";
@@ -23,6 +25,7 @@ import {
   applyAdded,
   applyDeleted,
   applyMoved,
+  applyOrdered,
   applyResized,
   applySnapshot,
   applyUpdated,
@@ -33,6 +36,7 @@ import {
   localId,
   moveLocal,
   rejectAdd,
+  reorderLocal,
   resizeLocal,
   rollback,
   setDraft,
@@ -411,6 +415,25 @@ export class RoomSession {
     this.sendBatch(ops, true);
   }
 
+  /**
+   * Bring to front or send to back: shown at once, rolled back if refused. Notes still waiting
+   * for their server id are left out. More than MAX_BATCH_ENTRIES go in chunks taken in stacking
+   * order, front bottom-up and back top-down, so each chunk lands past the last and the notes
+   * keep their order among themselves (each chunk is stored on its own). False if refused.
+   */
+  orderNotes(ids: readonly string[], action: OrderAction): boolean {
+    if (!this.live) return false;
+    const notes = ids.flatMap((id) => (isLocalId(id) ? [] : (findNote(this.view.board, id)?.note ?? [])));
+    if (notes.length === 0) return true;
+    const ordered = stackOrder(notes).map((n) => n.id);
+    const board = reorderLocal(this.view.board, ordered, action);
+    if (board !== this.view.board) this.update({ board, noteNotice: null });
+    const chunks: string[][] = [];
+    for (let i = 0; i < ordered.length; i += MAX_BATCH_ENTRIES) chunks.push(ordered.slice(i, i + MAX_BATCH_ENTRIES));
+    for (const chunk of action === "front" ? chunks : chunks.reverse()) this.send({ type: "notesOrder", ids: chunk, action });
+    return true;
+  }
+
   private moveEntries(ids: readonly string[]): NoteBatchEntry[] {
     return ids.flatMap((id) => {
       const note = findNote(this.view.board, id)?.note;
@@ -610,6 +633,10 @@ export class RoomSession {
         }
         return this.update({ board, ...(editingDeleted ? { noteNotice: NOTICES.deletedWhileEditing } : {}) });
       }
+
+      case "notesOrdered":
+        // One view update for every restacked note.
+        return this.update({ board: applyOrdered(this.view.board, message.results) });
 
       case "noteDeleted": {
         this.stopMove(message.id);

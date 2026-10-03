@@ -35,7 +35,7 @@ import {
 
 const ID_A = "AAAAAAAAAAAAAAAA";
 const NOTE_ID = "NNNNNNNNNNNNNNNN";
-const note: Note = { id: NOTE_ID, x: 100, y: 200, ...NOTE_DEFAULTS, text: "Idea one", color: "yellow", rev: 1, authorId: ID_A };
+const note: Note = { id: NOTE_ID, x: 100, y: 200, ...NOTE_DEFAULTS, text: "Idea one", color: "yellow", z: 0, rev: 1, authorId: ID_A };
 
 describe("protocol v4 constants", () => {
   it("is protocol 4 or later (v5 adds titleAlign)", () => {

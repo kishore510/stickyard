@@ -135,7 +135,7 @@ describe("notesOrder", () => {
     const writes = await rowsWritten(stub);
     a.send({ type: "notesOrder", ids: [id(1), id(4)], action: "front" });
     const { results } = await nextOfType(b, "notesOrdered");
-    expect(results).toEqual(expect.arrayContaining([{ id: id(1), z: 41, rev: 2 }, { id: id(4), z: 40, rev: 1 }]));
+    expect(results).toEqual(expect.arrayContaining([{ id: id(1), z: 31, rev: 2 }, { id: id(4), z: 40, rev: 1 }]));
     expect((await rowsWritten(stub)) - writes).toBe(1);
     close(a, b);
   });
@@ -143,6 +143,7 @@ describe("notesOrder", () => {
   it("unknown and deleted ids are ignored silently; only unknown ids sends nothing", async () => {
     const { stub, a, b } = await room();
     a.send({ type: "noteDelete", id: id(2) });
+    await nextOfType(a, "noteDeleted");
     await nextOfType(b, "noteDeleted");
     a.send({ type: "notesOrder", ids: ["unknown000000000", id(2)], action: "front" });
     expect(await b.quiet()).toBe(true);

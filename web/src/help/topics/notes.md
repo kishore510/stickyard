@@ -1,8 +1,8 @@
 ---
 title: Notes
 order: 3
-summary: Add notes from the palette, edit, colour, style and resize them in Properties, select several to move, arrange or delete together; pan, zoom and fit the board.
-keywords: inline, place, double-click, marquee, multi, several, many, group, arrange, align, distribute, match, right-click, middle, note, notes, sticky, board, add, edit, move, drag, delete, colour, color, text, title, body, size, width, height, bigger, smaller, handle, corner, font, bold, italic, align, alignment, left, centre, center, right, style, palette, tile, properties, panel, select, selection, collapse, resize, pan, hand, zoom, pinch, wheel, fit, overview, map, shortcut, full, saved
+summary: Add notes from the palette, edit, colour, style and resize them in Properties, bring them to the front or send them to the back, select several to move, arrange or delete together; pan, zoom and fit the board.
+keywords: front, back, order, stack, overlap, behind, top, bottom, inline, place, double-click, marquee, multi, several, many, group, arrange, align, distribute, match, right-click, middle, note, notes, sticky, board, add, edit, move, drag, delete, colour, color, text, title, body, size, width, height, bigger, smaller, handle, corner, font, bold, italic, align, alignment, left, centre, center, right, style, palette, tile, properties, panel, select, selection, collapse, resize, pan, hand, zoom, pinch, wheel, fit, overview, map, shortcut, full, saved
 ---
 Every session has one shared **board**. Everyone in the session sees the same notes, and changes show up for everyone as they happen. The board fills the screen; its edge is the outline around the dotted area, and notes always stay inside it.
 
@@ -68,6 +68,14 @@ With two or more notes selected (and **Select** on), a bar appears at the top of
 - In **Properties** (or the phone editor), type a **Width** or **Height** and press **Enter** or move to another field.
 - Notes are 96 to 480 wide and tall (160 by 160 to start), and always stay inside the board. Text wraps to the new size; anything that doesn't fit is cut off on the board.
 - Others see the note change size as you drag. Resize handles are hidden with **Hand** on, and while you're disconnected.
+
+## Which note is on top
+
+- Where notes overlap, the one in front covers the others. A new note goes in front of everything.
+- Under **Order** in **Properties** (on a phone, in the note's editor), choose **Bring to front** to put the selected note in front of all the others, or **Send to back** to put it behind them.
+- With several notes selected, the same two buttons are in Properties and in the bar at the top of the board. They move together and keep their order among themselves.
+- Moving, resizing, editing or selecting a note never changes which note is in front: everyone sees the same order. A selected note can sit partly behind another; bring it to the front to see all of it.
+- If two people change the order at the same time, the change that reaches the relay last wins.
 
 ## The side panels
 

@@ -1,6 +1,6 @@
 import type { CSSProperties } from "react";
 import type { Node, NodeChange } from "@xyflow/react";
-import { BOARD_HEIGHT, BOARD_WIDTH, type NoteRect } from "@stickyard/shared";
+import { BOARD_HEIGHT, BOARD_WIDTH, NOTE_Z_LIMIT, type NoteRect } from "@stickyard/shared";
 import { isHeld, isLocalId, type Board, type BoardNote } from "../notes/board";
 import { noteSize } from "../notes/size";
 import { groupOffset } from "./arrange";
@@ -34,7 +34,8 @@ export const BOARD_NODE: BoardFlowNode = {
   draggable: false,
   selectable: false,
   focusable: false,
-  zIndex: -1,
+  // Below every note, whatever its z.
+  zIndex: -NOTE_Z_LIMIT - 1,
   // A click on the board's area is a click on empty space (it clears the selection).
   style: { pointerEvents: "none" },
   domAttributes: { "aria-hidden": true },
@@ -46,6 +47,12 @@ export const BOARD_NODE: BoardFlowNode = {
  * get double-clicks, clicks and focus. Shared, so nodes stay cheap to compare.
  */
 const NOTE_STYLE: CSSProperties = { pointerEvents: "all" };
+/**
+ * Stacking is each note's z and nothing else: React Flow must not raise selected nodes (it would
+ * by 1000), so what you see is what everyone sees. Spread onto <ReactFlow>.
+ */
+export const FLOW_STACKING = { elevateNodesOnSelect: false, zIndexMode: "manual" } as const;
+
 /** Each note stays on the board: React Flow stops drags and resize handles at its edges. */
 const NOTE_EXTENT: [[number, number], [number, number]] = [
   [0, 0],
@@ -73,8 +80,8 @@ function toNode(entry: BoardNote, editable: boolean, movable: boolean, selected:
     draggable: editable && movable && confirmed,
     selectable: false,
     focusable: false,
-    // The note being dragged or resized, and the selected one (its handles), sit above the rest.
-    zIndex: isHeld(entry) ? 2 : selected ? 1 : 0,
+    // Stacking order (protocol v8). Dragging, resizing and selecting never raise a note.
+    zIndex: entry.note.z,
   };
 }
 

@@ -29,8 +29,8 @@ const batch = (ops: unknown[], final = true) => ({ type: "noteBatch", ops, final
 const parses = (message: unknown) => clientMessageSchema.safeParse(message).success;
 
 describe("protocol v7 batch constants", () => {
-  it("is protocol 7, with at most 50 entries a batch", () => {
-    expect(PROTOCOL_VERSION).toBe(7);
+  it("batches arrived in protocol 7, with at most 50 entries a batch", () => {
+    expect(PROTOCOL_VERSION).toBeGreaterThanOrEqual(7);
     expect(MAX_BATCH_ENTRIES).toBe(50);
   });
 

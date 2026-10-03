@@ -2,6 +2,19 @@
 
 All notable changes to Stickyard, newest first. The format follows Keep a Changelog. Versions are 0.x: a minor bump for each slice and a patch bump for each follow-up fix. This file is shown in the app under **What’s new**, so entries are written for the people using it.
 
+## [0.8.0] - 2026-10-03
+
+### Added
+- Bring to front and Send to back: where notes overlap, choose which one is in front. Select a note and use the new Order section in Properties (on a phone, in the note's editor). With several notes selected, the same two buttons are in Properties and in the bar at the top of the board; the notes move together and keep their order among themselves.
+- Everyone sees the same order, and it's saved with the board.
+
+### Changed
+- A new note always goes in front of the others.
+- Selecting, moving or resizing a note no longer lifts it above the notes around it, so what you see is the board's real order. A selected note can sit partly behind another; bring it to the front to see all of it.
+- Existing boards keep their look: notes are stacked in the order they were added, as before.
+- About's Privacy now says that each note's stacking order is stored with it.
+- Pages from before this update show Please reload when they join a session.
+
 ## [0.7.1] - 2026-10-03
 
 ### Added

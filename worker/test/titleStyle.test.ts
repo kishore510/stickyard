@@ -103,7 +103,7 @@ describe(`schema migration 3 -> ${SCHEMA_VERSION}`, () => {
       const sql = state.storage.sql;
       loadSchemaV3(sql);
       const notes = new NoteStore(sql).all();
-      expect(version(sql)).toBe(4);
+      expect(version(sql)).toBe(SCHEMA_VERSION);
       expect(columns(sql)).toEqual(expect.arrayContaining(["title_font_size", "title_bold", "title_italic", "title_text_color"]));
       expect(notes.map((n) => [n.id, n.titleFontSize, n.titleBold, n.titleItalic, n.titleTextColor])).toEqual(
         V3_NOTES.map((n) => [n.id, n.font_size, n.bold === 1, n.italic === 1, n.text_color]),

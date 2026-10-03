@@ -241,7 +241,7 @@ describe("in the room", () => {
 
 describe("notes", () => {
   const N1 = "NNNNNNNNNNNNNNN1";
-  const one: Note = { id: N1, x: 100, y: 100, ...NOTE_DEFAULTS, text: "Idea one", color: "yellow", rev: 1, authorId: sam.id };
+  const one: Note = { id: N1, x: 100, y: 100, ...NOTE_DEFAULTS, text: "Idea one", color: "yellow", z: 0, rev: 1, authorId: sam.id };
   type Sent = Record<string, unknown>;
   const lastSent = (t: ReturnType<typeof setup>) => t.sock().sent.at(-1) as Sent;
   const sentOfType = (t: ReturnType<typeof setup>, type: string) => (t.sock().sent as Sent[]).filter((m) => m.type === type);
@@ -264,7 +264,7 @@ describe("notes", () => {
     expect(sent).toMatchObject({ type: "noteAdd", x: 10, y: 20, color: "pink", text: "" });
     const ref = String(sent.clientRef);
     expect(findNote(t.view().board, localId(ref))).toBeDefined();
-    const server: Note = { id: N1, x: 10, y: 20, ...NOTE_DEFAULTS, text: "", color: "pink", rev: 1, authorId: alex.id };
+    const server: Note = { id: N1, x: 10, y: 20, ...NOTE_DEFAULTS, text: "", color: "pink", z: 0, rev: 1, authorId: alex.id };
     t.sock().receive({ type: "noteAdded", note: server, clientRef: ref });
     expect(t.view().board.notes.map((n) => n.note)).toEqual([server]);
   });

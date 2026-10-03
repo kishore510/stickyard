@@ -1,19 +1,20 @@
 import { useEffect, useId, useRef, type FocusEvent, type KeyboardEvent } from "react";
 import { Trash2 } from "lucide-react";
-import { MAX_NOTE_TEXT, codePointLength } from "@stickyard/shared";
+import { MAX_NOTE_TEXT, codePointLength, type OrderAction } from "@stickyard/shared";
 import { Button } from "../components/ui/button";
 import { FieldError, Label } from "../components/ui/field";
 import { Input } from "../components/ui/input";
 import { Textarea } from "../components/ui/textarea";
 import type { BoardNote, StylePatch } from "./board";
 import { confirmDelete } from "./label";
+import { OrderSection } from "./OrderFields";
 import { ColourSection, PartTextSection, READ_ONLY, Section, SizeSection } from "./StyleFields";
 import { joinTitleBody, splitTitleBody } from "./titleBody";
 
 /**
  * A note's fields: Title (its first line) and Body (the rest), a character count, its colour,
  * text style for the title and for the body (size, bold, italic, alignment, text colour each),
- * its size, who added it, and Delete. The Properties panel (md and up) and the phone editor
+ * its size, its stacking order (Bring to front, Send to back), who added it, and Delete. The Properties panel (md and up) and the phone editor
  * sheet both use these, so they behave the same.
  *
  * The text is one value (title and body joined with a line break). What's typed is a local
@@ -31,6 +32,7 @@ export function NoteFields({
   onStyle,
   onSize,
   onDelete,
+  onOrder,
   commitOnBlur,
   showDelete = true,
   autoFocus,
@@ -49,6 +51,8 @@ export function NoteFields({
   /** Width/Height fields: one final resize, already clamped. */
   onSize: (w: number, h: number) => void;
   onDelete: () => void;
+  /** Bring to front / send to back. */
+  onOrder: (action: OrderAction) => void;
   commitOnBlur: boolean;
   /** The Properties panel has Delete in its header instead. */
   showDelete?: boolean;
@@ -150,11 +154,12 @@ export function NoteFields({
         {tooLong && <FieldError>Notes can be up to {MAX_NOTE_TEXT} characters.</FieldError>}
       </div>
 
-      {!live && <p className="rounded-md bg-surface-muted p-ms text-sm text-fg-muted">{READ_ONLY} Colour, text and size can be changed once you rejoin.</p>}
+      {!live && <p className="rounded-md bg-surface-muted p-ms text-sm text-fg-muted">{READ_ONLY} Colour, text, size and order can be changed once you rejoin.</p>}
       <ColourSection note={entry.note} live={live} onStyle={onStyle} />
       <PartTextSection part="title" note={entry.note} live={live} onStyle={onStyle} />
       <PartTextSection part="body" note={entry.note} live={live} onStyle={onStyle} />
       <SizeSection note={entry.note} live={live && entry.confirmed !== null} onSize={onSize} />
+      <OrderSection live={live && entry.confirmed !== null} onOrder={onOrder} />
 
       <Section title="Details">
         <p className="text-sm">

@@ -352,6 +352,8 @@ describe(`schema migration 1 -> ${SCHEMA_VERSION}`, () => {
           rev: old.rev,
           authorId: old.author_id,
           ...NOTE_DEFAULTS,
+          // Schema 5: stacked in creation order, as before.
+          z: i,
         });
       }
     });

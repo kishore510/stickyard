@@ -1,4 +1,15 @@
-import { NOTE_DEFAULTS, NOTE_STYLE_FIELDS, clampNotePosition, clampNoteRect, type Note, type NoteColor, type NoteRect, type NoteStyle } from "@stickyard/shared";
+import {
+  NOTE_DEFAULTS,
+  NOTE_STYLE_FIELDS,
+  clampNotePosition,
+  clampNoteRect,
+  restack,
+  type Note,
+  type NoteColor,
+  type NoteRect,
+  type NoteStyle,
+  type OrderAction,
+} from "@stickyard/shared";
 
 /*
  * The board as this page sees it: the server's notes plus optimistic local changes.
@@ -11,6 +22,7 @@ import { NOTE_DEFAULTS, NOTE_STYLE_FIELDS, clampNotePosition, clampNoteRect, typ
  * - A local draft (text being typed) is kept apart from `note`, so remote updates never clobber it.
  * - While a note is being dragged or resized here, remote positions and sizes are confirmed but
  *   not shown (its rect stays where this page put it until release).
+ * - Stacking is each note's z (protocol v8), never the array order or what's held or selected.
  */
 
 export interface BoardNote {
@@ -35,7 +47,7 @@ export const isHeld = (entry: BoardNote) => entry.dragging || entry.resizing;
 const rectOf = (n: NoteRect): NoteRect => ({ x: n.x, y: n.y, w: n.w, h: n.h });
 
 export interface Board {
-  /** In creation order (later notes sit on top). */
+  /** In creation order. Stacking comes from each note's z, not from this order. */
   notes: BoardNote[];
   /** Deleted here, waiting for the server to confirm; restored (at `index`) if it refuses. */
   removed: (BoardNote & { index: number })[];
@@ -141,6 +153,30 @@ export function applyResized(board: Board, resize: NoteRect & { id: string; rev:
   });
 }
 
+/**
+ * Notes restacked (a notesOrder, or a renumbering at the bound): confirms z and rev, and changes
+ * only z on what's shown, so local edits waiting for the server are kept. Stale results and
+ * unknown notes are ignored; the same board comes back when nothing changes.
+ */
+export function applyOrdered(board: Board, results: readonly { id: string; z: number; rev: number }[]): Board {
+  let next = board;
+  for (const r of results) {
+    const reorder = (e: BoardNote): BoardNote => {
+      if (!e.confirmed || isStale(e, r.rev)) return e;
+      if (e.confirmed.z === r.z && e.confirmed.rev === r.rev && e.note.z === r.z) return e;
+      return { ...e, confirmed: { ...e.confirmed, z: r.z, rev: r.rev }, note: { ...e.note, z: r.z, rev: Math.max(e.note.rev, r.rev) } };
+    };
+    const removed = next.removed.find((n) => n.note.id === r.id);
+    if (removed) {
+      const changed = reorder(removed);
+      if (changed !== removed) next = { ...next, removed: next.removed.map((n) => (n === removed ? { ...changed, index: removed.index } : n)) };
+      continue;
+    }
+    next = patch(next, r.id, reorder);
+  }
+  return next;
+}
+
 export function applyDeleted(board: Board, id: string): Board {
   const inNotes = board.notes.some((n) => n.note.id === id);
   const inRemoved = board.removed.some((n) => n.note.id === id);
@@ -179,6 +215,8 @@ export function addLocal(
     ...clampNotePosition(add.x, add.y),
     text: add.text,
     color: add.color,
+    // On top, as the server will put it (its z replaces this once confirmed).
+    z: Math.max(-1, ...board.notes.map((n) => n.note.z)) + 1,
     rev: 1,
     authorId: add.authorId,
   };
@@ -243,6 +281,23 @@ export function setResizing(board: Board, id: string, resizing: boolean): Board 
 
 export function setDragging(board: Board, id: string, dragging: boolean): Board {
   return patch(board, id, (e) => (e.dragging === dragging ? e : { ...e, dragging }));
+}
+
+/**
+ * Bring to front or send to back, shown at once, computed as the server does (shared restack)
+ * from what's shown. At the bound the server renumbers the whole room; that isn't guessed here,
+ * so nothing changes until its notesOrdered arrives. The same board when nothing changes.
+ */
+export function reorderLocal(board: Board, ids: readonly string[], action: OrderAction): Board {
+  const { changes, renormalised } = restack(
+    board.notes.map((n) => n.note),
+    ids,
+    action,
+  );
+  if (renormalised) return board;
+  let next = board;
+  for (const { id, z } of changes) next = patch(next, id, (e) => (e.note.z === z ? e : { ...e, note: { ...e.note, z } }));
+  return next;
 }
 
 export function deleteLocal(board: Board, id: string): Board {

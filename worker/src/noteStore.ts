@@ -1,4 +1,4 @@
-import { NOTE_DEFAULTS, clampNoteRect, noteSchema, type Note } from "@stickyard/shared";
+import { NOTE_DEFAULTS, clampNoteRect, clampZ, noteSchema, type Note } from "@stickyard/shared";
 
 /**
  * A room's notes, in its Durable Object's SQLite. Written only on commits (add, edit, final
@@ -15,8 +15,11 @@ import { NOTE_DEFAULTS, clampNoteRect, noteSchema, type Note } from "@stickyard/
  *   4 (slice 2.7.2): notes gains title_font_size, title_bold, title_italic, title_text_color
  *     (NOT NULL, defaults from NOTE_DEFAULTS), set once to each note's body values so titles
  *     look the same as before. Version 3 code still inserts and updates without them.
+ *   5 (slice z-order): notes gains z (stacking order, NOT NULL DEFAULT 0), set once to each
+ *     note's place in creation (rowid) order, 0..n-1, which is how notes were stacked before.
+ *     Version 4 code still inserts (z 0) and updates (z kept) without it.
  */
-export const SCHEMA_VERSION = 4;
+export const SCHEMA_VERSION = 5;
 
 /** Columns added by version 2, with their SQL definitions. Defaults come from NOTE_DEFAULTS. */
 const V2_COLUMNS: [name: string, definition: string][] = [
@@ -55,12 +58,13 @@ interface NoteRow extends Record<string, SqlStorageValue> {
   title_bold: number;
   title_italic: number;
   title_text_color: string;
+  z: number;
   rev: number;
   author_id: string;
 }
 
 const COLUMNS =
-  "id, x, y, w, h, text, color, font_size, bold, italic, text_color, align, title_align, title_font_size, title_bold, title_italic, title_text_color, rev, author_id";
+  "id, x, y, w, h, text, color, font_size, bold, italic, text_color, align, title_align, title_font_size, title_bold, title_italic, title_text_color, z, rev, author_id";
 
 /** Runs `fn` as one SQLite transaction (the Durable Object's transactionSync). */
 export type Transact = (fn: () => void) => void;
@@ -123,13 +127,19 @@ export class NoteStore {
       // Titles keep the style the whole note had. Safe to repeat: it only runs below version 4.
       this.write(`UPDATE notes SET ${V4_COLUMNS.map(([name, , from]) => `${name} = ${from}`).join(", ")}`);
     }
+    if (version < 5) {
+      const existing = new Set(this.sql.exec<{ name: string }>("SELECT name FROM pragma_table_info('notes')").toArray().map((c) => c.name));
+      if (!existing.has("z")) this.sql.exec("ALTER TABLE notes ADD COLUMN z INTEGER NOT NULL DEFAULT 0");
+      // Stacked as before: each note's place in creation order. Safe to repeat: it only runs below version 5.
+      this.write("UPDATE notes SET z = (SELECT COUNT(*) FROM notes AS older WHERE older.rowid < notes.rowid)");
+    }
     this.write("INSERT OR REPLACE INTO meta (key, value) VALUES ('schema_version', ?)", SCHEMA_VERSION);
   }
 
   /**
    * Every note, in creation order. Rows that don't validate are skipped, never fatal. A note
-   * that older code left partly off the board at its size is clamped back on (in memory; it's
-   * saved with its next change).
+   * that older code left partly off the board at its size is clamped back on, and a z outside
+   * the bound is clamped into it (in memory; saved with its next change).
    */
   private notes(): Map<string, Note> {
     if (this.cache) return this.cache;
@@ -151,6 +161,7 @@ export class NoteStore {
         titleBold: row.title_bold === 1,
         titleItalic: row.title_italic === 1,
         titleTextColor: row.title_text_color,
+        z: clampZ(row.z),
         rev: row.rev,
         authorId: row.author_id,
       });
@@ -185,7 +196,7 @@ export class NoteStore {
   }
 
   /**
-   * A final batch: every update and delete in one transaction, so it lands whole or not at all.
+   * A final batch (or a restack): every update and delete in one transaction, so it lands whole or not at all.
    * The cache changes only once it has committed.
    */
   applyBatch(updates: readonly Note[], deletes: readonly string[]): void {
@@ -203,7 +214,7 @@ export class NoteStore {
   private writeUpdate(note: Note): void {
     this.write(
       `UPDATE notes SET x = ?, y = ?, w = ?, h = ?, text = ?, color = ?, font_size = ?, bold = ?, italic = ?, text_color = ?, align = ?, title_align = ?,
-       title_font_size = ?, title_bold = ?, title_italic = ?, title_text_color = ?, rev = ?
+       title_font_size = ?, title_bold = ?, title_italic = ?, title_text_color = ?, z = ?, rev = ?
        WHERE id = ?`,
       ...values(note).slice(1, -1),
       note.id,
@@ -228,6 +239,6 @@ function values(n: Note): SqlStorageValue[] {
     n.id, n.x, n.y, n.w, n.h, n.text, n.color,
     n.fontSize, Number(n.bold), Number(n.italic), n.textColor, n.align,
     n.titleAlign, n.titleFontSize, Number(n.titleBold), Number(n.titleItalic), n.titleTextColor,
-    n.rev, n.authorId,
+    n.z, n.rev, n.authorId,
   ];
 }

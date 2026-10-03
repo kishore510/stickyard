@@ -83,7 +83,7 @@ describe("note text style tokens", () => {
 
   it.each(THEMES)("title and body: every ink either part can take is readable on all six note colours in %s", (selector) => {
     const c = theme(selector);
-    const base: Note = { id: "NNNNNNNNNNNNNNNN", x: 0, y: 0, ...NOTE_DEFAULTS, text: "", color: "yellow", rev: 1, authorId: "AAAAAAAAAAAAAAAA" };
+    const base: Note = { id: "NNNNNNNNNNNNNNNN", x: 0, y: 0, ...NOTE_DEFAULTS, text: "", color: "yellow", z: 0, rev: 1, authorId: "AAAAAAAAAAAAAAAA" };
     for (const part of NOTE_PARTS) {
       for (const ink of NOTE_TEXT_COLORS) {
         const note: Note = part === "title" ? { ...base, titleTextColor: ink } : { ...base, textColor: ink };
@@ -107,6 +107,7 @@ describe("note text style tokens", () => {
       ...NOTE_DEFAULTS,
       text: "",
       color: "yellow",
+      z: 0,
       rev: 1,
       authorId: "AAAAAAAAAAAAAAAA",
       fontSize: "s",

@@ -12,14 +12,16 @@ import {
   MoveVertical,
   Scaling,
 } from "lucide-react";
-import type { NoteRect } from "@stickyard/shared";
+import type { NoteRect, OrderAction } from "@stickyard/shared";
 import { Button } from "../components/ui/button";
 import { Panel } from "../components/ui/panel";
+import { ORDER_COMMANDS } from "../notes/OrderFields";
 import { align, distribute, matchSize, type AlignMode, type Axis, type MatchMode, type Placed } from "./arrange";
 
 /*
  * The floating bar at the top of the canvas for a multi-selection (md and up, Select tool), as
- * Chalkline's ArrangeBar: Align, Distribute (3+ notes) and Match size, each one button per mode.
+ * Chalkline's ArrangeBar: Align, Distribute (3+ notes), Match size and Order (front, back), each
+ * one button per mode.
  * Built as a generic toolbar of groups, so a single-note toolbar can share it later.
  */
 
@@ -90,9 +92,20 @@ export const DISTRIBUTE_HINT = "Select 3 or more notes to distribute.";
 
 /**
  * Arrange commands for the selected notes (in selection order: the first is Match size's
- * reference). `apply` sends the changed rects. Everything is off while disconnected.
+ * reference). `apply` sends the changed rects; `order` restacks them. Everything is off while
+ * disconnected.
  */
-export function SelectionBar({ notes, live, apply }: { notes: Placed[]; live: boolean; apply: (rects: (NoteRect & { id: string })[]) => void }) {
+export function SelectionBar({
+  notes,
+  live,
+  apply,
+  order,
+}: {
+  notes: Placed[];
+  live: boolean;
+  apply: (rects: (NoteRect & { id: string })[]) => void;
+  order: (action: OrderAction) => void;
+}) {
   const send = (changes: Map<string, NoteRect>) => apply([...changes].map(([id, rect]) => ({ id, ...rect })));
   const canDistribute = notes.length >= 3;
   return (
@@ -105,6 +118,7 @@ export function SelectionBar({ notes, live, apply }: { notes: Placed[]; live: bo
           commands: DISTRIBUTE.map((d) => ({ ...d, disabled: !live || !canDistribute, ...(canDistribute ? {} : { hint: DISTRIBUTE_HINT }), run: () => send(distribute(notes, d.axis)) })),
         },
         { label: "Match size", commands: MATCH.map((m) => ({ ...m, disabled: !live, run: () => send(matchSize(notes, m.mode)) })) },
+        { label: "Order", commands: ORDER_COMMANDS.map((c) => ({ title: c.label, icon: c.icon, disabled: !live, run: () => order(c.action) })) },
       ]}
     />
   );

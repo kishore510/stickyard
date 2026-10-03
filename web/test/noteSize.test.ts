@@ -35,7 +35,7 @@ import { RESIZE_STEP, RESIZE_STEP_BIG, keyResize, noteSize, sizeFieldValue } fro
 
 const ME = "AAAAAAAAAAAAAAAA";
 const N1 = "NNNNNNNNNNNNNNN1";
-const one: Note = { id: N1, x: 100, y: 100, ...NOTE_DEFAULTS, text: "Idea one", color: "yellow", rev: 3, authorId: ME };
+const one: Note = { id: N1, x: 100, y: 100, ...NOTE_DEFAULTS, text: "Idea one", color: "yellow", z: 0, rev: 3, authorId: ME };
 const withNotes = (...notes: Note[]): Board => applySnapshot(EMPTY_BOARD, notes);
 const shown = (board: Board, id = N1) => findNote(board, id)?.note;
 
