@@ -1,4 +1,4 @@
-import type { Note } from "@stickyard/shared";
+import type { Note, Participant } from "@stickyard/shared";
 import { NOTE_COLOR_NAMES } from "./colours";
 
 /** Characters of note text in its accessible name. */
@@ -20,4 +20,19 @@ export function noteLabel(note: Pick<Note, "text" | "color">): string {
 /** Asks before deleting a note that has text. Empty notes go straight away. */
 export function confirmDelete(text: string, confirm: (message: string) => boolean = (m) => window.confirm(m)): boolean {
   return !text.trim() || confirm("Delete this note? It’s removed for everyone in the session.");
+}
+
+/**
+ * Who added a note, from the relay's participant records (never from the note itself).
+ * Ids are per visit, so someone who joined before you and has left, or your own earlier
+ * visit, isn't known by name.
+ */
+export function authorName(
+  authorId: string,
+  room: { you: Participant | null; people: ReadonlyMap<string, Participant>; participants: readonly Participant[] },
+): string {
+  if (room.you?.id === authorId) return `${room.you.name} (you)`;
+  const person = room.people.get(authorId);
+  if (!person) return "someone not in the session now";
+  return room.participants.some((p) => p.id === authorId) ? person.name : `${person.name} (left)`;
 }

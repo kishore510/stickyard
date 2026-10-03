@@ -35,12 +35,13 @@ describe("help topics", () => {
 
   it("the Notes topic covers the palette, selecting, the Properties panel and panel shortcuts", () => {
     const notes = HELP_TOPICS.find((t) => t.id === "notes")?.text ?? "";
-    for (const claim of ["palette", "drag a tile", "Properties", "Title", "Body", "collapse", "resize", "[", "]"]) {
+    // Topic text is lower-cased for search.
+    for (const claim of ["palette", "drag a tile", "properties", "title", "body", "collapse", "resize", "[", "]"]) {
       expect(notes, claim).toContain(claim);
     }
     // No Stencils tab or colour changes yet.
     expect(notes).not.toMatch(/stencil/i);
-    expect(notes).toContain("Changing colour arrives in a later update");
+    expect(notes).toContain("changing colour arrives in a later update");
   });
 
   it("help topics only claim what exists: no cursors, QR codes, timers or votes yet", () => {

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { NoteColor } from "@stickyard/shared";
 import { WORKER_URL, toWebSocketUrl } from "../config";
 import { browserSocketFactory } from "../connection/socket";
+import { useBoardUi } from "../canvas/uiStore";
 import { STORAGE_KEYS, writeKey } from "../storage";
 import { browserFetch, checkRoom } from "./api";
 import { INITIAL_VIEW, RoomSession, type RoomView } from "./session";
@@ -11,7 +12,13 @@ export function useRoom(code: string) {
   const [view, setView] = useState<RoomView>(INITIAL_VIEW);
   const session = useRef<RoomSession | null>(null);
 
-  useEffect(() => () => session.current?.close(), []);
+  useEffect(
+    () => () => {
+      session.current?.close();
+      useBoardUi.getState().resetRoom();
+    },
+    [],
+  );
 
   // Remember the name that worked, to prefill next time. Names aren't sensitive.
   const joinedName = view.status === "joined" ? view.you?.name : undefined;
@@ -26,6 +33,7 @@ export function useRoom(code: string) {
       createSocket: browserSocketFactory,
       checkCode: () => checkRoom(WORKER_URL, code, browserFetch),
       onChange: setView,
+      onNoteConfirmed: (from, to) => useBoardUi.getState().renameSelected(from, to),
     });
     session.current = next;
     next.join(name);

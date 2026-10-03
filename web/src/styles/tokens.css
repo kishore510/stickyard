@@ -171,6 +171,31 @@
   --sy-edge-right: max(var(--sy-gutter), var(--sy-safe-right));
   /* The chat button sits above the minimap when it's shown. */
   --sy-chat-above-minimap: calc(var(--sy-edge-bottom) + var(--sy-minimap-height) + var(--sy-space-sm));
+  /* Above the view bar, when the free area is too narrow to put them side by side. */
+  --sy-above-bar: calc(var(--sy-edge-bottom) + var(--sy-bar-h) + var(--sy-space-sm));
+  --sy-chat-above-bar-minimap: calc(var(--sy-above-bar) + var(--sy-minimap-height) + var(--sy-space-sm));
+
+  /* Side panels (slice 2.6, md and up): the palette on the left, Properties on the right.
+     Mirrored in src/panels/layout.ts (a test checks). The canvas keeps --sy-canvas-min. */
+  --sy-palette-min: 152px;
+  --sy-palette-width: 216px;
+  --sy-palette-max: 360px;
+  --sy-properties-min: 232px;
+  --sy-properties-width: 272px;
+  --sy-properties-max: 400px;
+  --sy-panel-strip: 52px;
+  --sy-canvas-min: 360px;
+  /* Resize handle: the grab area (a full touch target on touch screens) and its visible line. */
+  --sy-panel-handle: 12px;
+  --sy-panel-line: 2px;
+  /* Palette tiles: narrowest tile, and the note preview inside it. */
+  --sy-tile-min: 72px;
+  --sy-tile-preview: 32px;
+  /* Phones: the add drawer (after Chalkline's palette drawer), its row tiles, and how long a
+     press must be held to pick a tile up and drag it onto the board. Read by palette/Palette.tsx. */
+  --sy-drawer-max-h: 80dvh;
+  --sy-row-tile: 80px;
+  --sy-long-press: 500ms;
 
   /* Viewport and safe areas (notches, home indicator) */
   --sy-safe-top: env(safe-area-inset-top, 0px);
@@ -201,10 +226,17 @@
   --sy-ease: cubic-bezier(0.2, 0, 0, 1);
 }
 
-/* From md up the tool rail sits on the left, so fit keeps notes further from the edges. */
+/* From md up the view bar sits along the bottom, so fit keeps notes further from the edges. */
 @media (min-width: 48rem) {
   :root {
     --sy-fit-padding: 72px;
+  }
+}
+
+/* Touch screens: a panel's resize handle is a full touch target wide. */
+@media (pointer: coarse) {
+  :root {
+    --sy-panel-handle: var(--sy-touch-min);
   }
 }
 
@@ -295,6 +327,13 @@
   --spacing-chat-w: var(--sy-chat-width);
   --spacing-chat-h: var(--sy-chat-height);
   --spacing-chat-b: var(--sy-chat-above-minimap);
+  --spacing-above-bar: var(--sy-above-bar);
+  --spacing-chat-bar-b: var(--sy-chat-above-bar-minimap);
+  --spacing-strip: var(--sy-panel-strip);
+  --spacing-handle: var(--sy-panel-handle);
+  --spacing-line: var(--sy-panel-line);
+  --spacing-tile-preview: var(--sy-tile-preview);
+  --spacing-row-tile: var(--sy-row-tile);
 
   --container-*: initial;
   --container-content: var(--sy-content-max);

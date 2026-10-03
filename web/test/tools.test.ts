@@ -38,7 +38,9 @@ describe("tool registry", () => {
   });
 
   it("the phone ribbon has Add note, fit and the Select/Hand toggle (no zoom buttons)", () => {
-    expect(toolsFor("ribbon").map((t) => t.id)).toEqual(["note", "fit", "select", "hand"]);
+    // Ordered as Chalkline's phone toolbar: tool toggle, the main add button, fit.
+    expect(toolsFor("ribbon").map((t) => t.id)).toEqual(["select", "hand", "note", "fit"]);
+    expect(TOOLS.find((t) => t.id === "note")?.primary).toBe(true);
   });
 
   it("tools run the shared actions", () => {

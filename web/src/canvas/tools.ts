@@ -1,20 +1,23 @@
-import { Hand, Map as MapIcon, Maximize, MousePointer2, StickyNote, ZoomIn, ZoomOut, type LucideIcon } from "lucide-react";
+import { Hand, Map as MapIcon, Maximize, MousePointer2, Plus, ZoomIn, ZoomOut, type LucideIcon } from "lucide-react";
 import { MAX_NOTES_PER_ROOM } from "@stickyard/shared";
 import { MAX_ZOOM, MIN_ZOOM } from "./geometry";
 
 /*
- * The board's tools, in one registry. The desktop rail and view bar and the phone ribbon are
- * all built from it (see ToolBars.tsx), and every tool runs the same shared actions, so a new
- * tool (group, text, timer...) is one entry here plus its action. No placeholder entries.
+ * The board's tools, in one registry. The desktop view bar and the phone ribbon are both built
+ * from it (see ToolBars.tsx), and every tool runs the same shared actions, so a new tool is one
+ * entry here plus its action. No placeholder entries. Things you add to the board aren't tools:
+ * they're palette tiles (palette/registry.ts), shown in the palette panel from md up and in the
+ * add sheet on phones.
  */
 
-export type Surface = "rail" | "viewbar" | "ribbon";
+export type Surface = "viewbar" | "ribbon";
 export type Mode = "select" | "hand";
 
 /** What tools read and do. Built once per render by the board (useBoardTools). */
 export interface ToolContext {
   tool: Mode;
   setTool(tool: Mode): void;
+  /** Phones: opens the add sheet. md up (the N key): adds a note in the last colour used, ready to type. */
   addNote(): void;
   fit(): void;
   zoomIn(): void;
@@ -43,9 +46,13 @@ export interface Tool {
   disabled?(ctx: ToolContext): string | null;
   /** Shows this text instead of the icon (e.g. the zoom level). */
   text?(ctx: ToolContext): string;
-  /** Has the note colour choice next to it. */
-  colour?: boolean;
+  /** Drawn as the surface's main action (a round accent button). */
+  primary?: boolean;
+  /** Neighbouring tools with the same segment are drawn as one group (e.g. the Select/Hand toggle). */
+  segment?: { id: string; label: string };
 }
+
+const MODE_SEGMENT = { id: "mode", label: "Tool" };
 
 export const NOTE_TOOL_REASONS = {
   disconnected: "Reconnect to add or change notes.",
@@ -63,28 +70,31 @@ export const TOOLS: readonly Tool[] = [
     label: "Select and move",
     icon: MousePointer2,
     shortcut: "V",
-    slots: { rail: 1 },
+    slots: { viewbar: 5, ribbon: 1 },
     run: (c) => c.setTool("select"),
     pressed: (c) => c.tool === "select",
+    segment: MODE_SEGMENT,
   },
   {
     id: "hand",
     label: "Hand (pan)",
     icon: Hand,
     shortcut: "H",
-    slots: { rail: 2, viewbar: 5, ribbon: 3 },
+    slots: { viewbar: 6, ribbon: 2 },
     run: (c) => c.setTool(c.tool === "hand" ? "select" : "hand"),
     pressed: (c) => c.tool === "hand",
+    segment: MODE_SEGMENT,
   },
   {
     id: "note",
     label: "Add note",
-    icon: StickyNote,
+    icon: Plus,
     shortcut: "N",
-    slots: { rail: 3, ribbon: 1 },
+    // The phone's main action: a round accent button, as Chalkline's Add shape.
+    primary: true,
+    slots: { ribbon: 3 },
     run: (c) => c.addNote(),
     disabled: (c) => c.noteReason,
-    colour: true,
   },
   {
     id: "zoom-out",
@@ -118,7 +128,7 @@ export const TOOLS: readonly Tool[] = [
     label: "Fit to notes",
     icon: Maximize,
     shortcut: "F",
-    slots: { viewbar: 4, ribbon: 2 },
+    slots: { viewbar: 4, ribbon: 4 },
     run: (c) => c.fit(),
   },
   {
@@ -126,7 +136,7 @@ export const TOOLS: readonly Tool[] = [
     label: "Overview map",
     icon: MapIcon,
     shortcut: "M",
-    slots: { viewbar: 6 },
+    slots: { viewbar: 7 },
     run: (c) => c.toggleMinimap(),
     pressed: (c) => c.minimap,
   },

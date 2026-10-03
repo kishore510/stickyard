@@ -72,6 +72,8 @@ export interface RoomView {
   noteNotice: string | null;
   /** The board snapshot has arrived (the first view can be fitted to the notes). */
   synced: boolean;
+  /** Everyone seen in this visit (including people who have left), by id: note authors' names. */
+  people: ReadonlyMap<string, Participant>;
 }
 
 export const INITIAL_VIEW: RoomView = {
@@ -85,6 +87,7 @@ export const INITIAL_VIEW: RoomView = {
   board: EMPTY_BOARD,
   noteNotice: null,
   synced: false,
+  people: new Map(),
 };
 
 export const JOIN_TIMEOUT_MS = 10_000;
@@ -112,6 +115,8 @@ export interface SessionOptions {
   /** Asked when the socket fails before opening: was it the code, or the network? */
   checkCode(): Promise<CodeCheck>;
   onChange(view: RoomView): void;
+  /** A note added here got its server id (selection and edit requests follow it). */
+  onNoteConfirmed?(localId: string, id: string): void;
 }
 
 export class RoomSession {
@@ -320,13 +325,19 @@ export class RoomSession {
         clearTimeout(this.timer);
         for (const p of message.participants) this.known.set(p.id, p);
         this.known.set(message.you.id, message.you);
-        return this.update({ status: "joined", you: message.you, participants: message.participants, nameError: false });
+        return this.update({
+          status: "joined",
+          you: message.you,
+          participants: message.participants,
+          nameError: false,
+          people: new Map(this.known),
+        });
 
       case "participant_joined": {
         const p = message.participant;
         this.known.set(p.id, p);
         const others = this.view.participants.filter((q) => q.id !== p.id);
-        return this.update({ participants: [...others, p], announcement: `${p.name} joined` });
+        return this.update({ participants: [...others, p], announcement: `${p.name} joined`, people: new Map(this.known) });
       }
 
       case "participant_left": {
@@ -370,6 +381,7 @@ export class RoomSession {
           // Text committed while the add was in flight.
           this.send({ type: "noteEdit", id: note.id, text: temp.note.text });
         }
+        if (temp) this.options.onNoteConfirmed?.(temp.note.id, note.id);
         return this.update({ board, ...(clientRef !== undefined ? { rateLimited: false } : {}) });
       }
 

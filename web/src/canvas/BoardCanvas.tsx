@@ -1,5 +1,5 @@
 import { MiniMap, ReactFlow, useStore } from "@xyflow/react";
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { BOARD_HEIGHT, BOARD_WIDTH } from "@stickyard/shared";
 import { readPxToken } from "../lib/cssVar";
 import { useMediaQuery } from "../lib/useMediaQuery";
@@ -39,6 +39,8 @@ export interface BoardRoom {
   deleteNote(id: string): void;
 }
 
+
+
 /**
  * The board canvas: React Flow, controlled. Notes come from the room's board as memoised nodes;
  * React Flow owns only the viewport and gestures (pan, pinch, wheel, drag) and reports drags
@@ -49,6 +51,7 @@ export function BoardCanvas({
   editable,
   synced,
   minimap,
+  minimapLifted,
   view,
 }: {
   room: BoardRoom;
@@ -56,17 +59,20 @@ export function BoardCanvas({
   /** The snapshot has arrived: fit to the notes once. */
   synced: boolean;
   minimap: boolean;
+  /** The free area is narrow: the minimap sits above the view bar. */
+  minimapLifted: boolean;
   view: CanvasView;
 }) {
   const helpId = useId();
   const tool = useBoardUi((s) => s.tool);
+  const selection = useBoardUi((s) => s.selection);
   const [spaceHeld, setSpaceHeld] = useState(false);
   const panOnly = tool === "hand" || spaceHeld;
   const latest = useRef(room);
   latest.current = room;
 
   const map = useMemo(createNoteNodeMapper, []);
-  const nodes = useMemo(() => map(room.board, editable, !panOnly), [map, room.board, editable, panOnly]);
+  const nodes = useMemo(() => map(room.board, editable, !panOnly, selection), [map, room.board, editable, panOnly, selection]);
   const drag = useMemo(
     () =>
       createDragHandlers({
@@ -84,6 +90,8 @@ export function BoardCanvas({
         const entry = findNote(latest.current.board, id);
         if (entry) view.reveal(entry.note);
       },
+      selectNote: (id) => useBoardUi.getState().select(id),
+      clearSelection: () => useBoardUi.getState().clearSelection(),
       canTapEdit: () => useBoardUi.getState().tool === "select",
     }),
     [view],
@@ -101,6 +109,15 @@ export function BoardCanvas({
       false,
     );
   }, [synced, width, height, view]);
+
+  // A panel opened, closed or was resized (or the window changed): the canvas is a new size.
+  // Keep the same board point at its centre, so the board doesn't jump.
+  const lastSize = useRef({ width: 0, height: 0 });
+  useLayoutEffect(() => {
+    const before = lastSize.current;
+    lastSize.current = { width, height };
+    if (fitted.current) view.recentre(before);
+  }, [width, height, view]);
 
   // Space held (outside fields and buttons) pans with any drag, like the Hand tool.
   useEffect(() => {
@@ -150,6 +167,8 @@ export function BoardCanvas({
             onNodesChange={drag.onNodesChange}
             onNodeDragStart={(_, node) => drag.onNodeDragStart(node)}
             onNodeDragStop={(_, node) => drag.onNodeDragStop(node)}
+            // A click on empty space (the board or around it) clears the selection.
+            onPaneClick={() => useBoardUi.getState().clearSelection()}
             nodesDraggable={editable && !panOnly}
             nodesConnectable={false}
             nodesFocusable={false}
@@ -179,7 +198,7 @@ export function BoardCanvas({
           >
             {minimap && (
               <MiniMap<CanvasNode>
-                className="sy-minimap"
+                className={cn("sy-minimap", minimapLifted && "sy-minimap-lifted")}
                 position="bottom-right"
                 pannable
                 zoomable

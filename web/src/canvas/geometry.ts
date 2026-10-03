@@ -1,4 +1,5 @@
 import { BOARD_HEIGHT, BOARD_WIDTH, NOTE_SIZE, clampNotePosition } from "@stickyard/shared";
+import { DEFAULT_NOTE_SIZE, noteSize } from "../notes/size";
 
 /*
  * Canvas geometry: pure functions, no React Flow or DOM.
@@ -95,14 +96,14 @@ export function clampViewport(v: Viewport, size: Size): Viewport {
   return { x: axis(v.x, size.width, x0, x1), y: axis(v.y, size.height, y0, y1), zoom: v.zoom };
 }
 
-/** The box around every note (top-left corners plus NOTE_SIZE), or null for none. */
+/** The box around every note (each note's full size, from the size lookup), or null for none. */
 export function notesBounds(notes: XY[]): Rect | null {
   if (notes.length === 0) return null;
-  const xs = notes.map((n) => n.x);
-  const ys = notes.map((n) => n.y);
-  const x = Math.min(...xs);
-  const y = Math.min(...ys);
-  return { x, y, width: Math.max(...xs) + NOTE_SIZE - x, height: Math.max(...ys) + NOTE_SIZE - y };
+  const x = Math.min(...notes.map((n) => n.x));
+  const y = Math.min(...notes.map((n) => n.y));
+  const right = Math.max(...notes.map((n) => n.x + noteSize(n).width));
+  const bottom = Math.max(...notes.map((n) => n.y + noteSize(n).height));
+  return { x, y, width: right - x, height: bottom - y };
 }
 
 /**
@@ -124,13 +125,36 @@ export function fitViewport(notes: XY[], size: Size, padding: number): Viewport 
  */
 export function newNotePosition(centre: XY, notes: XY[]): XY {
   const taken = (p: XY) => notes.some((n) => Math.abs(n.x - p.x) < STACK_OFFSET / 2 && Math.abs(n.y - p.y) < STACK_OFFSET / 2);
-  let p = flowToBoard({ x: centre.x - NOTE_SIZE / 2, y: centre.y - NOTE_SIZE / 2 });
+  let p = flowToBoard({ x: centre.x - DEFAULT_NOTE_SIZE.width / 2, y: centre.y - DEFAULT_NOTE_SIZE.height / 2 });
   for (let i = 0; i < STACK_TRIES && taken(p); i++) {
     const next = flowToBoard({ x: p.x + STACK_OFFSET, y: p.y + STACK_OFFSET });
     if (next.x === p.x && next.y === p.y) break;
     p = next;
   }
   return p;
+}
+
+/**
+ * Where a palette tile dropped at `client` (a screen point) puts its note: centred on the
+ * pointer, in board units, on the board. Null when the drop is outside the canvas `rect`
+ * (back on a panel, say), so nothing is added.
+ */
+export function dropPosition(client: XY, rect: Rect, v: Viewport, size: Size): XY | null {
+  const inside = client.x >= rect.x && client.x <= rect.x + rect.width && client.y >= rect.y && client.y <= rect.y + rect.height;
+  if (!inside) return null;
+  const p = screenToFlow({ x: client.x - rect.x, y: client.y - rect.y }, v);
+  return flowToBoard({ x: p.x - size.width / 2, y: p.y - size.height / 2 });
+}
+
+/**
+ * The canvas changed size (a panel opened, closed or was resized, or the window changed):
+ * the viewport that keeps the same board point at the centre, at the same zoom. Unchanged
+ * when the size is the same, or when there was no size before (first layout).
+ */
+export function keepCentre(v: Viewport, before: Size, after: Size): Viewport {
+  if (before.width <= 0 || before.height <= 0) return v;
+  if (before.width === after.width && before.height === after.height) return v;
+  return centreOn(viewportCentre(v, before), v.zoom, after);
 }
 
 /** Pointer travel (screen px) before a press on a note is a drag rather than a tap. */

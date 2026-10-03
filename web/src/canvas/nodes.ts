@@ -1,7 +1,10 @@
+import type { CSSProperties } from "react";
 import type { Node, NodeChange } from "@xyflow/react";
-import { BOARD_HEIGHT, BOARD_WIDTH, NOTE_SIZE } from "@stickyard/shared";
+import { BOARD_HEIGHT, BOARD_WIDTH } from "@stickyard/shared";
 import { isLocalId, type Board, type BoardNote } from "../notes/board";
+import { noteSize } from "../notes/size";
 import { boardToFlow, flowToBoard } from "./geometry";
+import { EMPTY_SELECTION, isSelected, type Selection } from "./selection";
 
 /*
  * Between the room's board (notes/board.ts, driven by RoomSession) and React Flow. React Flow
@@ -13,7 +16,7 @@ import { boardToFlow, flowToBoard } from "./geometry";
 
 export const BOARD_NODE_ID = "sy-board";
 
-export type NoteFlowNode = Node<{ entry: BoardNote; editable: boolean }, "note">;
+export type NoteFlowNode = Node<{ entry: BoardNote; editable: boolean; selected: boolean }, "note">;
 export type BoardFlowNode = Node<Record<string, never>, "board">;
 export type CanvasNode = NoteFlowNode | BoardFlowNode;
 
@@ -30,19 +33,31 @@ export const BOARD_NODE: BoardFlowNode = {
   selectable: false,
   focusable: false,
   zIndex: -1,
+  // A click on the board's area is a click on empty space (it clears the selection).
+  style: { pointerEvents: "none" },
   domAttributes: { "aria-hidden": true },
 };
 
-function toNode(entry: BoardNote, editable: boolean, movable: boolean): NoteFlowNode {
+/*
+ * React Flow gives a node that is neither draggable nor selectable pointer-events: none. Under
+ * the Hand tool notes aren't draggable (so a drag that starts on one pans), but they must still
+ * get double-clicks, clicks and focus. Shared, so nodes stay cheap to compare.
+ */
+const NOTE_STYLE: CSSProperties = { pointerEvents: "all" };
+
+function toNode(entry: BoardNote, editable: boolean, movable: boolean, selected: boolean): NoteFlowNode {
+  const { width, height } = noteSize(entry.note);
   return {
     id: entry.note.id,
     type: "note",
     position: boardToFlow(entry.note),
-    data: { entry, editable },
-    // Known size: React Flow needn't measure before showing, fitting or drawing the minimap.
-    width: NOTE_SIZE,
-    height: NOTE_SIZE,
-    measured: { width: NOTE_SIZE, height: NOTE_SIZE },
+    data: { entry, editable, selected },
+    // Known size (from the size lookup): React Flow needn't measure before showing, fitting or
+    // drawing the minimap, and the note fills its node.
+    width,
+    height,
+    measured: { width, height },
+    style: NOTE_STYLE,
     // Notes waiting for their server id can't move yet (moves need the id).
     draggable: editable && movable && !isLocalId(entry.note.id),
     selectable: false,
@@ -53,13 +68,14 @@ function toNode(entry: BoardNote, editable: boolean, movable: boolean): NoteFlow
 }
 
 /**
- * Board -> nodes, reusing the node for every entry that hasn't changed. `movable` is false while
- * the Hand tool is on (every drag pans), so notes can't be dragged even when editable.
+ * Board -> nodes, reusing the node for every entry that hasn't changed (and whose selected state
+ * hasn't). `movable` is false while the Hand tool is on (every drag pans), so notes can't be
+ * dragged even when editable.
  */
-export function createNoteNodeMapper(): (board: Board, editable: boolean, movable?: boolean) => CanvasNode[] {
+export function createNoteNodeMapper(): (board: Board, editable: boolean, movable?: boolean, selection?: Selection) => CanvasNode[] {
   let cache = new WeakMap<BoardNote, NoteFlowNode>();
   let lastKey = "";
-  return (board, editable, movable = true) => {
+  return (board, editable, movable = true, selection = EMPTY_SELECTION) => {
     const key = `${editable}:${movable}`;
     if (key !== lastKey) {
       cache = new WeakMap();
@@ -67,9 +83,10 @@ export function createNoteNodeMapper(): (board: Board, editable: boolean, movabl
     }
     const nodes: CanvasNode[] = [BOARD_NODE];
     for (const entry of board.notes) {
+      const selected = isSelected(selection, entry.note.id);
       let node = cache.get(entry);
-      if (!node) {
-        node = toNode(entry, editable, movable);
+      if (!node || node.data.selected !== selected) {
+        node = toNode(entry, editable, movable, selected);
         cache.set(entry, node);
       }
       nodes.push(node);

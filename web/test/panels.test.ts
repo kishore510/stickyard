@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
   CANVAS_MIN,
+  COLLAPSE_SLACK,
   DEFAULT_PANEL_STATE,
   KEY_STEP,
   KEY_STEP_BIG,
@@ -16,6 +17,7 @@ import {
   panelWidths,
   parsePanelState,
   serialisePanelState,
+  shouldCollapse,
   tileColumns,
 } from "../src/panels/layout";
 import { STORAGE_KEYS, readKey, writeKey, type KeyValueStore } from "../src/storage";
@@ -88,7 +90,7 @@ describe("keyboard resizing", () => {
   it("arrow keys move the edge in steps (Shift for bigger ones)", () => {
     // The palette's handle is on its right edge: right widens it.
     expect(keyResize(200, { key: "ArrowRight", shiftKey: false }, limits, "right")).toBe(200 + KEY_STEP);
-    expect(keyResize(200, { key: "ArrowLeft", shiftKey: true }, limits, "right")).toBe(200 - KEY_STEP_BIG);
+    expect(keyResize(250, { key: "ArrowLeft", shiftKey: true }, limits, "right")).toBe(250 - KEY_STEP_BIG);
     // The Properties handle is on its left edge: left widens it.
     expect(keyResize(200, { key: "ArrowLeft", shiftKey: false }, limits, "left")).toBe(200 + KEY_STEP);
     expect(keyResize(200, { key: "ArrowRight", shiftKey: false }, limits, "left")).toBe(200 - KEY_STEP);
@@ -100,6 +102,13 @@ describe("keyboard resizing", () => {
     expect(keyResize(340, { key: "ArrowRight", shiftKey: true }, limits, "right")).toBe(350);
     expect(keyResize(155, { key: "ArrowLeft", shiftKey: true }, limits, "right")).toBe(150);
     expect(keyResize(200, { key: "Enter", shiftKey: false }, limits, "right")).toBeNull();
+  });
+});
+
+describe("drag to collapse", () => {
+  it("releasing the handle well below the minimum collapses the panel (as in Chalkline); just below only clamps", () => {
+    expect(shouldCollapse(palette.min - 10, palette.min)).toBe(false);
+    expect(shouldCollapse(palette.min - COLLAPSE_SLACK - 1, palette.min)).toBe(true);
   });
 });
 

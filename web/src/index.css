@@ -146,3 +146,17 @@
 .react-flow__panel.sy-minimap svg {
   display: block;
 }
+
+/* Panels scroll on their own, without a visible scrollbar (wheel, touch and keyboard still scroll). */
+@utility sy-scroll-hidden {
+  scrollbar-width: none;
+
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+/* When the free canvas area is too narrow, the minimap sits above the view bar. */
+.react-flow__panel.sy-minimap.sy-minimap-lifted {
+  margin-bottom: var(--sy-above-bar);
+}

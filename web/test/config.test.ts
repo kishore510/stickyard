@@ -34,6 +34,8 @@ describe("storage keys", () => {
       theme: "stickyard:theme",
       lastSeenVersion: "stickyard:last-seen-version",
       name: "stickyard:name",
+      palettePanel: "stickyard:palette-panel",
+      propertiesPanel: "stickyard:properties-panel",
     });
   });
 });

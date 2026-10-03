@@ -13,7 +13,7 @@ Draft roadmap. When a slice starts, rewrite its prompt against the real code (se
 | 1 Echo room | Join by code and name; gated room creation; signed room codes | Done (v0.3.0, protocol v2) |
 | 2 Shared stickies | Add/edit/move/delete, last-write-wins, optimistic updates, minimal SQLite persistence | Done (v0.4.0, protocol v3) |
 | 2.5 Board UX | React Flow canvas, full-bleed board, view bar, minimap, floating chat, Participants sheet, tool rail, phone ribbon. Web only | Done (v0.5.0) |
-| 2.6 Panels | Resizable, collapsible left palette (categories, six coloured note tiles, drag onto board) and right Properties panel; selection model as a set. Web only | Not started |
+| 2.6 Panels | Resizable, collapsible left palette (categories, six coloured note tiles, drag onto board) and right Properties panel; selection model as a set. Web only | Done (v0.5.1) |
 | 2.7 Note size and colour | Resize notes (per-note size, resize handles); change a note's colour after adding. Protocol v4 + stored-schema migration | Not started |
 | 2.8 Multi-select and arrange | Marquee and multi-select, floating selection bar (align, distribute, match size), group move/delete, batch update message. Protocol v5 | Not started |
 | 3 Presence | Live cursors (throttled, never stored), join/leave toasts, avatar stack. Protocol v6 | Not started |

@@ -694,7 +694,7 @@ describe("board layout: palette and Properties panels from md up, ribbon on phon
   it("Select and Hand are a two-way toggle in the view bar", async () => {
     setWide(true);
     await withNotes(one);
-    const pressed = () => toolIds(viewBar()).filter((id) => viewBar()?.querySelector(`[data-tool="${id}"]`)?.getAttribute("aria-pressed") === "true");
+    const pressed = () => ["select", "hand"].filter((id) => viewBar()?.querySelector(`[data-tool="${id}"]`)?.getAttribute("aria-pressed") === "true");
     expect(pressed()).toEqual(["select"]);
     await click(viewBar()?.querySelector<HTMLElement>('[data-tool="hand"]') ?? undefined);
     expect(pressed()).toEqual(["hand"]);
@@ -887,13 +887,20 @@ describe("the palette (md up)", () => {
     expect(tiles()).toHaveLength(6);
   });
 
-  it("collapses to a strip with an expand button, from the header or with [, and remembers it", async () => {
-    await withNotes();
+  it("collapses to a strip with an expand button and compact tiles (as in Chalkline), from the header or with [, and remembers it", async () => {
+    const socket = await withNotes();
     await click(palette()?.querySelector<HTMLElement>('[aria-label="Collapse palette"]') ?? undefined);
-    expect(tiles()).toEqual([]);
+    expect(search()).toBeNull();
+    expect(palette()?.querySelector("h3")).toBeNull();
+    // Collapsing never takes adding away: the strip keeps one compact tile per colour.
+    expect(tiles().map((t) => t.getAttribute("aria-label"))).toEqual(["Yellow note", "Pink note", "Blue note", "Green note", "Orange note", "Purple note"]);
+    await click(tiles()[2]);
+    expect(sentOfType(socket, "noteAdd")[0]).toMatchObject({ color: "blue" });
     expect(palette()?.querySelector('[aria-label="Expand palette"]')?.getAttribute("aria-expanded")).toBe("false");
     expect(saved("stickyard:palette-panel")).toEqual({ width: null, collapsed: true });
+    await act(async () => (document.activeElement as HTMLElement | null)?.blur());
     await press("[");
+    expect(search()).not.toBeNull();
     expect(tiles()).toHaveLength(6);
     expect(saved("stickyard:palette-panel")).toEqual({ width: null, collapsed: false });
   });
@@ -998,7 +1005,7 @@ describe("the Properties panel (md up)", () => {
     expect(byText("aside button", /Delete note/)).toBeDefined();
     // Someone this page never saw.
     await selectNote(1);
-    expect(properties()?.textContent).toContain("Not in the session now");
+    expect(properties()?.textContent).toContain("Added by someone not in the session now");
   });
 
   it("keyboard focus selects too, and Escape clears the selection", async () => {
@@ -1057,8 +1064,8 @@ describe("the Properties panel (md up)", () => {
     await server(socket, { data: { type: "noteUpdated", note: { ...one, text: "Theirs", rev: 2 } } });
     expect(propTitle()?.value).toBe("Mine");
     await press("Enter", propTitle() as HTMLElement);
-    expect(sentOfType(socket, "noteEdit").at(-1)).toEqual({ type: "noteEdit", id: N1, text: "Mine" });
-    await server(socket, { data: { type: "error", code: "rate_limited", noteId: N1 } });
+    expect(sentOfType(socket, "noteEdit").at(-1)).toEqual({ type: "noteEdit", id: N1, text: "Mine\nThe details" });
+    await server(socket, { data: { type: "error", code: "rate_limited", message: "x", noteId: N1 } });
     expect(propTitle()?.value).toBe("Theirs");
   });
 
@@ -1124,14 +1131,41 @@ describe("phone: add sheet and editor sheet", () => {
     return socket;
   }
 
-  it("Add note opens a sheet built from the same palette registry", async () => {
+  it("Add note opens a non-modal drawer built from the same palette registry (as in Chalkline)", async () => {
     const { paletteSections, PALETTE_CATEGORIES } = await import("../src/palette/registry");
     await withNotes();
-    await click(document.querySelector<HTMLElement>('[aria-label="Add note"]') ?? undefined);
-    const labels = [...(dialog()?.querySelectorAll<HTMLElement>("[data-palette-item]") ?? [])].map((t) => t.getAttribute("aria-label"));
+    const addButton = document.querySelector<HTMLElement>('[aria-label="Add note"]');
+    await click(addButton ?? undefined);
+    const drawer = dialog();
+    expect(drawer?.querySelector("h2")?.textContent).toBe("Add note");
+    expect(drawer?.getAttribute("aria-modal")).toBeNull();
+    expect(drawer?.querySelector('input[type="search"]')).not.toBeNull();
+    const labels = [...(drawer?.querySelectorAll<HTMLElement>("[data-palette-item]") ?? [])].map((t) => t.getAttribute("aria-label"));
     const expected = paletteSections(PALETTE_CATEGORIES, "add", { live: true, noteCount: 0 }, "").flatMap((s) => s.items.map((i) => i.label));
     expect(labels).toEqual(expected);
+    // One sideways-scrolling row per category.
+    expect(drawer?.querySelector("[data-palette-item]")?.parentElement?.className).toContain("overflow-x-auto");
     expect(document.querySelector('aside[aria-label="Palette"]')).toBeNull();
+    // Search filters; Esc closes and focus goes back to Add note.
+    await type(drawer?.querySelector<HTMLInputElement>('input[type="search"]') as HTMLInputElement, "green");
+    expect([...(drawer?.querySelectorAll("[data-palette-item]") ?? [])].map((t) => t.getAttribute("aria-label"))).toEqual(["Green note"]);
+    await act(async () => {
+      drawer?.querySelector("h2")?.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    });
+    await settle();
+    expect(dialog()).toBeNull();
+    expect(document.activeElement).toBe(addButton);
+  });
+
+  it("the drawer's Close button closes it, and a tapped tile adds and opens the editor", async () => {
+    const socket = await withNotes();
+    await click(document.querySelector<HTMLElement>('[aria-label="Add note"]') ?? undefined);
+    await click(dialog()?.querySelector<HTMLElement>('[aria-label="Close"]') ?? undefined);
+    expect(dialog()).toBeNull();
+    await click(document.querySelector<HTMLElement>('[aria-label="Add note"]') ?? undefined);
+    await click(dialog()?.querySelector<HTMLElement>('[aria-label="Purple note"]') ?? undefined);
+    expect(sentOfType(socket, "noteAdd")[0]).toMatchObject({ color: "purple" });
+    expect(dialog()?.querySelector("h2")?.textContent).toBe("Edit note");
   });
 
   it("tapping a note opens the editor sheet with Title, Body, read-only colour, author and Delete", async () => {
