@@ -19,7 +19,7 @@ import { cn } from "../lib/utils";
 import type { StylePatch } from "./board";
 import { NOTE_COLOR_CLASSES, NOTE_COLOR_NAMES } from "./colours";
 import { sizeFieldValue } from "./size";
-import { NOTE_ALIGN_NAMES, NOTE_FONT_SIZE_NAMES, NOTE_TEXT_COLOR_NAMES, NOTE_TEXT_COLOR_SWATCHES } from "./style";
+import { NOTE_FONT_SIZE_NAMES, NOTE_TEXT_COLOR_NAMES, NOTE_TEXT_COLOR_SWATCHES, alignLabel } from "./style";
 
 /*
  * A note's colour, text style and size fields, laid out like Chalkline's Properties sections
@@ -114,6 +114,34 @@ export function ColourSection({ note, live, onStyle }: { note: Note; live: boole
 
 const ALIGN_ICONS: Record<NoteAlign, ReactNode> = { left: <AlignLeft />, center: <AlignCenter />, right: <AlignRight /> };
 
+/** One part's alignment (the title, or the body), as Chalkline's alignment radio group. */
+function AlignGroup({ part, value, live, onChange }: { part: "title" | "body"; value: NoteAlign; live: boolean; onChange: (key: NoteAlign) => void }) {
+  const label = part === "title" ? "Title alignment" : "Body alignment";
+  return (
+    <div className="flex items-center justify-between gap-sm">
+      <span className="text-sm font-medium text-fg">{part === "title" ? "Title" : "Body"}</span>
+      <div role="radiogroup" aria-label={label} className="flex gap-xs">
+        {NOTE_ALIGNS.map((key) => (
+          <Button
+            key={key}
+            variant="ghost"
+            size="icon"
+            role="radio"
+            aria-checked={value === key}
+            aria-label={alignLabel(part, key)}
+            title={alignLabel(part, key)}
+            disabled={!live}
+            onClick={() => onChange(key)}
+            className={cn(value === key && "bg-accent-subtle text-accent")}
+          >
+            {ALIGN_ICONS[key]}
+          </Button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function ToggleButton({ label, icon, pressed, disabled, onPress }: { label: string; icon: ReactNode; pressed: boolean; disabled: boolean; onPress: () => void }) {
   return (
     <Button
@@ -165,26 +193,9 @@ export function TextSection({ note, live, onStyle }: { note: Note; live: boolean
           <ToggleButton label="Bold" icon={<Bold />} pressed={note.bold} disabled={!live} onPress={() => onStyle({ bold: !note.bold })} />
           <ToggleButton label="Italic" icon={<Italic />} pressed={note.italic} disabled={!live} onPress={() => onStyle({ italic: !note.italic })} />
         </div>
-        <div aria-hidden="true" className="mx-xs h-icon-lg w-px bg-border" />
-        <div role="radiogroup" aria-label="Alignment" className="flex gap-xs">
-          {NOTE_ALIGNS.map((key) => (
-            <Button
-              key={key}
-              variant="ghost"
-              size="icon"
-              role="radio"
-              aria-checked={note.align === key}
-              aria-label={NOTE_ALIGN_NAMES[key]}
-              title={NOTE_ALIGN_NAMES[key]}
-              disabled={!live}
-              onClick={() => onStyle({ align: key })}
-              className={cn(note.align === key && "bg-accent-subtle text-accent")}
-            >
-              {ALIGN_ICONS[key]}
-            </Button>
-          ))}
-        </div>
       </div>
+      <AlignGroup part="title" value={note.titleAlign} live={live} onChange={(titleAlign) => onStyle({ titleAlign })} />
+      <AlignGroup part="body" value={note.align} live={live} onChange={(align) => onStyle({ align })} />
       <SwatchGroup label="Text colour" current={NOTE_TEXT_COLOR_NAMES[note.textColor]}>
         {NOTE_TEXT_COLORS.map((key) => (
           <Swatch

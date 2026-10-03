@@ -33,8 +33,8 @@ Every session has one shared **board**. Everyone in the session sees the same no
 ## Colour and text style
 
 - In **Properties** (on a phone, in the note's editor), choose a swatch under **Colour** to change the note's colour.
-- Under **Text**: **Size** (Small, Medium, Large, Extra large), **Bold** and **Italic**, alignment (**Align left**, **Align centre**, **Align right**), and **Text colour**. **Auto** is the usual dark text; the other colours stay readable on every note colour, in light and dark themes.
-- Styles apply to the whole note, title and body together. There's no formatting inside the text.
+- Under **Text**: **Size** (Small, Medium, Large, Extra large), **Bold** and **Italic**, alignment for the **Title** and the **Body** separately (left, centre or right), and **Text colour**. **Auto** is the usual dark text; the other colours stay readable on every note colour, in light and dark themes.
+- Size, bold, italic and text colour apply to the whole note, title and body together; only alignment can differ between them. There's no formatting inside the text.
 - Changes show at once and everyone sees them. If one can't be saved, the note goes back to how it was.
 
 ## Resizing a note

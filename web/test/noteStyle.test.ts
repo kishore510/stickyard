@@ -9,6 +9,7 @@ import {
   NOTE_FONT_SIZE_NAMES,
   NOTE_TEXT_COLOR_CLASSES,
   NOTE_TEXT_COLOR_NAMES,
+  alignLabel,
   fontSizeToken,
   textColorToken,
 } from "../src/notes/style";
@@ -79,6 +80,8 @@ describe("note text style tokens", () => {
   it("alignment keys map to text-align utilities", () => {
     expect(NOTE_ALIGNS.map((a) => NOTE_ALIGN_CLASSES[a])).toEqual(["text-left", "text-center", "text-right"]);
     for (const a of NOTE_ALIGNS) expect(NOTE_ALIGN_NAMES[a]).toBeTruthy();
+    expect(NOTE_ALIGNS.map((a) => alignLabel("title", a))).toEqual(["Align title left", "Align title centre", "Align title right"]);
+    expect(alignLabel("body", "right")).toBe("Align body right");
   });
 
   it("note size tokens match the shared constants", () => {

@@ -7,6 +7,7 @@ import type { BoardNote } from "./board";
 import { NOTE_COLOR_CLASSES } from "./colours";
 import { confirmDelete, noteLabel } from "./label";
 import { keyResize } from "./size";
+import { splitTitleBody } from "./titleBody";
 import { NOTE_ALIGN_CLASSES, NOTE_FONT_SIZE_CLASSES, NOTE_TEXT_COLOR_CLASSES } from "./style";
 
 /** Arrow keys move by this many board units; with Shift, by KEY_STEP_BIG. */
@@ -50,6 +51,8 @@ export function NoteCard({ entry, editable, selected }: { entry: BoardNote; edit
   const actions = useContext(NoteActionsContext);
   const describedBy = useContext(NoteHelpContext);
   const { note, dragging } = entry;
+  const { title, body } = splitTitleBody(note.text);
+  const hasBody = note.text.includes("\n");
   const pending = entry.confirmed === null;
   const pointerType = useRef("mouse");
   const keyCommit = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -151,20 +154,29 @@ export function NoteCard({ entry, editable, selected }: { entry: BoardNote; edit
         selected && "ring-2 ring-accent ring-offset-2 ring-offset-board",
       )}
     >
-      {/* Plain text only; wraps, keeps line breaks, and clips at the note's edge. */}
-      <span
+      {/* Plain text only; wraps, keeps line breaks, and clips at the note's edge. Style applies to
+          the whole text; the title (first line) and the body (the rest) are aligned separately. */}
+      <div
         aria-hidden="true"
+        data-note-text
         className={cn(
           "min-h-0 flex-1 overflow-hidden break-words whitespace-pre-wrap",
           NOTE_FONT_SIZE_CLASSES[note.fontSize],
           NOTE_TEXT_COLOR_CLASSES[note.textColor],
-          NOTE_ALIGN_CLASSES[note.align],
           note.bold && "font-bold",
           note.italic && "italic",
         )}
       >
-        {note.text}
-      </span>
+        <p data-note-title className={NOTE_ALIGN_CLASSES[note.titleAlign]}>
+          {/* An empty title above a body still takes its line. */}
+          {title === "" && hasBody ? "\u00a0" : title}
+        </p>
+        {hasBody && (
+          <p data-note-body className={NOTE_ALIGN_CLASSES[note.align]}>
+            {body}
+          </p>
+        )}
+      </div>
     </div>
   );
 }

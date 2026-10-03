@@ -339,7 +339,7 @@ describe(`schema migration 1 -> ${SCHEMA_VERSION}`, () => {
       loadSchemaV1(sql);
       expect(version(sql)).toBe(1);
       const store = new NoteStore(sql);
-      expect(version(sql)).toBe(2);
+      expect(version(sql)).toBe(SCHEMA_VERSION);
       const notes = store.all();
       expect(notes).toHaveLength(V1_NOTES.length);
       for (const [i, old] of V1_NOTES.entries()) {
@@ -368,7 +368,7 @@ describe(`schema migration 1 -> ${SCHEMA_VERSION}`, () => {
       const second = new NoteStore(sql);
       expect(second.rowsWritten).toBe(0);
       expect(second.all()).toEqual(notes);
-      expect(version(sql)).toBe(2);
+      expect(version(sql)).toBe(SCHEMA_VERSION);
     });
   });
 
@@ -379,7 +379,7 @@ describe(`schema migration 1 -> ${SCHEMA_VERSION}`, () => {
       loadSchemaV1(sql);
       sql.exec("ALTER TABLE notes ADD COLUMN w INTEGER NOT NULL DEFAULT 160");
       const store = new NoteStore(sql);
-      expect(version(sql)).toBe(2);
+      expect(version(sql)).toBe(SCHEMA_VERSION);
       expect(store.all()).toHaveLength(V1_NOTES.length);
     });
   });

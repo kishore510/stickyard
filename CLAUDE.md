@@ -79,6 +79,12 @@ Free-plan limits: `docs/LIMITS.md`.
 - Properties fields: `notes/StyleFields.tsx` (Colour, Text, Size sections, Chalkline's field patterns), used by `NoteFields` in the panel and the phone editor sheet. All disabled (and dimmed) while disconnected.
 - Also in 2.7 (user requests): the top bar is `z-40` so its menu sits above the side panels (`z-30`); chat entries carry `at` (arrival time on this device, `chat/time.ts`); the floating chat resizes from a top-left grip (`chat/chatSize.ts`, `chat/chatStore.ts`, saved under `STORAGE_KEYS.chatPanel`, layout only; limits mirrored in tokens).
 
+## Title alignment, protocol v5 (slice 2.7.1)
+- `PROTOCOL_VERSION = 5`. Notes add `titleAlign` (the first line's alignment; `align` is now the body's), also an optional `noteEdit` field. v4 pages get `version_mismatch`.
+- Stored schema `SCHEMA_VERSION = 3`: adds `title_align TEXT NOT NULL DEFAULT 'left'`, then `UPDATE notes SET title_align = align` once, so existing titles look unchanged (tested against `worker/test/fixtures/schemaV2.ts`; v4 code inserting without it still works).
+- `NoteCard` renders the title and body as separate blocks (`data-note-title`, `data-note-body`) inside one styled text block (`data-note-text`); size, weight, italic and ink apply to both. `StyleFields` has a Title and a Body alignment group (`alignLabel` in `notes/style.ts`).
+- Later protocol numbers shift: 2.8 is v6, 3 is v7.
+
 ## Working rules
 - One slice at a time on its own `phase-...` branch. Never commit to `main`. Stop for review at the end of each slice.
 - Do not build beyond the slice scope.

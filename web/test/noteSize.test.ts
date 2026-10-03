@@ -124,8 +124,8 @@ describe("remote resize", () => {
 describe("local colour and style", () => {
   it("shows at once, keeps the draft, and rolls back when refused", () => {
     let board = setDraft(withNotes(one), N1, "Typing");
-    board = styleLocal(board, N1, { color: "green", fontSize: "xl", bold: true, italic: true, textColor: "red", align: "right" });
-    expect(shown(board)).toMatchObject({ color: "green", fontSize: "xl", bold: true, italic: true, textColor: "red", align: "right" });
+    board = styleLocal(board, N1, { color: "green", fontSize: "xl", bold: true, italic: true, textColor: "red", align: "right", titleAlign: "center" });
+    expect(shown(board)).toMatchObject({ color: "green", fontSize: "xl", bold: true, italic: true, textColor: "red", align: "right", titleAlign: "center" });
     expect(findNote(board, N1)?.draft).toBe("Typing");
     board = rollback(board, N1);
     expect(shown(board)).toEqual(one);
