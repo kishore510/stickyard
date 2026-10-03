@@ -7,13 +7,14 @@ import { Input } from "../components/ui/input";
 import { Textarea } from "../components/ui/textarea";
 import type { BoardNote, StylePatch } from "./board";
 import { confirmDelete } from "./label";
-import { ColourSection, READ_ONLY, Section, SizeSection, TextSection } from "./StyleFields";
+import { ColourSection, PartTextSection, READ_ONLY, Section, SizeSection } from "./StyleFields";
 import { joinTitleBody, splitTitleBody } from "./titleBody";
 
 /**
  * A note's fields: Title (its first line) and Body (the rest), a character count, its colour,
- * text style (size, bold, italic, alignment, text colour) and size, who added it, and Delete. The Properties panel (md and up) and the phone
- * editor sheet both use these, so they behave the same.
+ * text style for the title and for the body (size, bold, italic, alignment, text colour each),
+ * its size, who added it, and Delete. The Properties panel (md and up) and the phone editor
+ * sheet both use these, so they behave the same.
  *
  * The text is one value (title and body joined with a line break). What's typed is a local
  * draft (notes/board.ts keeps it apart from the note, so remote edits never replace it) until
@@ -151,7 +152,8 @@ export function NoteFields({
 
       {!live && <p className="rounded-md bg-surface-muted p-ms text-sm text-fg-muted">{READ_ONLY} Colour, text and size can be changed once you rejoin.</p>}
       <ColourSection note={entry.note} live={live} onStyle={onStyle} />
-      <TextSection note={entry.note} live={live} onStyle={onStyle} />
+      <PartTextSection part="title" note={entry.note} live={live} onStyle={onStyle} />
+      <PartTextSection part="body" note={entry.note} live={live} onStyle={onStyle} />
       <SizeSection note={entry.note} live={live && entry.confirmed !== null} onSize={onSize} />
 
       <Section title="Details">

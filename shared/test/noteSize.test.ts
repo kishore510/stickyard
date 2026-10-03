@@ -68,6 +68,10 @@ describe("protocol v4 constants", () => {
       textColor: "auto",
       align: "left",
       titleAlign: "left",
+      titleFontSize: "m",
+      titleBold: false,
+      titleItalic: false,
+      titleTextColor: "auto",
     });
   });
 });
@@ -223,7 +227,7 @@ describe("notes on the wire (v4)", () => {
    * keys, rev at MAX_SAFE_INTEGER, and text that encodes as large as possible. JSON.stringify
    * writes a lone surrogate as a 6-byte \\uXXXX escape, which beats 4-byte emoji.
    */
-  it("the largest possible v4 snapshot fits under the server message cap (recorded in docs/LIMITS.md)", () => {
+  it("the largest possible snapshot fits under the server message cap (recorded in docs/LIMITS.md)", () => {
     const worstText = "\ud800".repeat(MAX_NOTE_TEXT);
     const longest = <T extends string>(keys: readonly T[]) => [...keys].sort((a, b) => b.length - a.length)[0]!;
     const big: Note = {
@@ -237,8 +241,13 @@ describe("notes on the wire (v4)", () => {
       fontSize: longest(NOTE_FONT_SIZES),
       textColor: longest(NOTE_TEXT_COLORS),
       align: longest(NOTE_ALIGNS),
+      titleAlign: longest(NOTE_ALIGNS),
+      titleFontSize: longest(NOTE_FONT_SIZES),
+      titleTextColor: longest(NOTE_TEXT_COLORS),
       bold: false,
       italic: false,
+      titleBold: false,
+      titleItalic: false,
       rev: Number.MAX_SAFE_INTEGER,
     };
     const raw = encodeMessage({ type: "snapshot", notes: Array.from({ length: MAX_NOTES_PER_ROOM }, () => big) });
@@ -247,6 +256,8 @@ describe("notes on the wire (v4)", () => {
     const bytes = raw.length;
     // docs/LIMITS.md records this figure; update both together.
     expect(bytes).toBeLessThanOrEqual(400 * 1024);
+    // docs/LIMITS.md flags it if the headroom under the cap ever drops below 100 KiB.
+    expect(MAX_SERVER_MESSAGE_BYTES - bytes).toBeGreaterThanOrEqual(100 * 1024);
     expect(bytes).toBeLessThan(MAX_SERVER_MESSAGE_BYTES);
     expect(parseMessage(raw, serverMessageSchema, MAX_SERVER_MESSAGE_BYTES).ok).toBe(true);
   });
@@ -262,6 +273,11 @@ describe("notes on the wire (v4)", () => {
       italic: false,
       textColor: "purple",
       align: "center",
+      titleAlign: "center",
+      titleFontSize: "xl",
+      titleBold: false,
+      titleItalic: false,
+      titleTextColor: "purple",
     });
     expect(raw.length).toBeLessThan(MAX_MESSAGE_BYTES);
     expect(parseMessage(raw, clientMessageSchema).ok).toBe(true);

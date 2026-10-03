@@ -18,8 +18,8 @@ const NOTE_ID = "NNNNNNNNNNNNNNNN";
 const note: Note = { id: NOTE_ID, x: 1, y: 2, ...NOTE_DEFAULTS, text: "Idea one\nThe details", color: "yellow", rev: 1, authorId: "AAAAAAAAAAAAAAAA" };
 
 describe("title alignment (protocol v5)", () => {
-  it("is protocol 5, and titleAlign defaults to left like the body", () => {
-    expect(PROTOCOL_VERSION).toBe(5);
+  it("is protocol 5 or later, and titleAlign defaults to left like the body", () => {
+    expect(PROTOCOL_VERSION).toBeGreaterThanOrEqual(5);
     expect(NOTE_DEFAULTS.titleAlign).toBe("left");
     expect(NOTE_DEFAULTS.align).toBe("left");
     expect(NOTE_EDIT_FIELDS).toContain("titleAlign");

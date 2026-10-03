@@ -2,6 +2,16 @@
 
 All notable changes to Stickyard, newest first. The format follows Keep a Changelog. Versions are 0.x: a minor bump for each slice and a patch bump for each follow-up fix. This file is shown in the app under **What’s new**, so entries are written for the people using it.
 
+## [0.6.2] - 2026-10-03
+
+### Added
+- **Title and body styled separately.** A note's title (its first line) and its body each have their own size, **Bold**, *Italic*, alignment and text colour, under **Title text** and **Body text** in Properties or a phone's note editor. For example, a large bold title over smaller body text.
+
+### Changed
+- Existing notes keep their look: each title starts with the size, weight, slant and text colour the whole note had.
+- About's **Privacy** now says that text style is stored for the title and the body separately.
+- Pages from before this update show **Please reload** when they join a session.
+
 ## [0.6.1] - 2026-10-03
 
 ### Added

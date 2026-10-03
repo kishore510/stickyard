@@ -16,8 +16,9 @@ Draft roadmap. When a slice starts, rewrite its prompt against the real code (se
 | 2.6 Panels | Resizable, collapsible left palette (categories, six coloured note tiles, drag onto board) and right Properties panel; selection model as a set. Web only | Done (v0.5.1) |
 | 2.7 Note size, colour and text style | Resize notes (per-note size, resize handles, Width/Height); change a note's colour; text style (size, bold, italic, text colour, left/centre/right). Protocol v4 + stored-schema migration (1 -> 2) | Done (v0.6.0) |
 | 2.7.1 Title alignment | Separate alignment for a note's title and body. Protocol v5 + stored-schema migration (2 -> 3) | Done (v0.6.1) |
-| 2.8 Multi-select and arrange | Marquee and multi-select, floating selection bar (align, distribute, match size), group move/delete, batch update message. Protocol v6 | Not started |
-| 3 Presence | Live cursors (throttled, never stored), join/leave toasts, avatar stack. Protocol v7 | Not started |
+| 2.7.2 Title styling | Separate size, bold, italic and text colour for a note's title and body. Protocol v6 + stored-schema migration (3 -> 4) | Done (v0.6.2) |
+| 2.8 Multi-select and arrange | Marquee and multi-select, floating selection bar (align, distribute, match size), group move/delete, batch update message. Protocol v7 | Not started |
+| 3 Presence | Live cursors (throttled, never stored), join/leave toasts, avatar stack. Protocol v8 | Not started |
 | 4 Reconnect | Resync after drops, offline queue | Not started |
 | 5 Persistence | Room expiry and clear messaging (basic note persistence exists since slice 2) | Not started |
 | 6 Facilitation | Shared timer, lock board, silent brainstorm + reveal, dot voting, host token, facilitator-defined note palette | Not started |
@@ -37,8 +38,8 @@ Draft roadmap. When a slice starts, rewrite its prompt against the real code (se
 - Build slice 2 by hand (last-write-wins) before considering Yjs, so the problem Yjs solves is understood.
 - Test on the live deployment; merge and deploy each slice, roll back if needed (single user).
 - Every new object type (timer, text box, group box) needs its own protocol/schema change with a version bump, caps and tests. The palette gets its tile with one registry entry; no placeholder tiles for things that don't exist.
-- Each protocol or stored-schema change is its own slice and branch (2.7, 2.8, 3 are separate for that reason).
-- Protocol numbers: 2.8 is v6 and 3 is v7. Numbers after v7 are assigned when each slice starts, not in advance.
+- Each protocol or stored-schema change is its own slice and branch (2.7, 2.7.1, 2.7.2, 2.8, 3 are separate for that reason).
+- Protocol numbers: 2.8 is v7 and 3 is v8. Numbers after v8 are assigned when each slice starts, not in advance.
 
 ## Slice notes
 
@@ -96,7 +97,11 @@ Draft roadmap. When a slice starts, rewrite its prompt against the real code (se
 ### 2.7.1 Title alignment (protocol v5) — done, v0.6.1
 - Notes gain `titleAlign`: the title (first line) and the body are aligned separately (left, centre, right). Stored schema 2 -> 3; existing titles take the note's existing alignment, so nothing looks different.
 
-### 2.8 Multi-select and arrange (protocol v6)
+### 2.7.2 Title styling (protocol v6) — done, v0.6.2
+- Notes gain `titleFontSize`, `titleBold`, `titleItalic`, `titleTextColor`; `fontSize`, `bold`, `italic`, `textColor` are now the body's. Stored schema 3 -> 4; existing titles copy the note's existing style, so nothing looks different. Properties and the phone editor get a Title text and a Body text section with the same fields.
+- Worst-case snapshot is now 401,829 bytes (about 120 KiB under the 512 KiB cap; see LIMITS.md).
+
+### 2.8 Multi-select and arrange (protocol v7)
 - Selection set from 2.6 becomes real: marquee on the Select tool, Shift/Ctrl-click to toggle, Ctrl+A. Dragging one selected note moves the whole selection.
 - Floating selection bar at the top of the canvas, like Chalkline: Align (left, centre, right, top, middle, bottom), Distribute (horizontal, vertical), Match size (width, height, both). Pure, tested layout functions.
 - Properties panel shows "N selected" with delete (confirm) and mixed-value display.
@@ -104,7 +109,7 @@ Draft roadmap. When a slice starts, rewrite its prompt against the real code (se
 - Phone: multi-select is out of scope.
 - Save as stencil waits for slice 7. Z-order is not in 2.8 (see the Z-order slice, before or with 7a); a layers panel is backlog.
 
-### 3 Presence (protocol v7)
+### 3 Presence (protocol v8)
 - `cursor { x, y }` in board units, max ~15/s, only when position changed, only while another participant is present, paused when the tab is hidden or the pointer leaves the board. Phones receive only.
 - Server: separate cursor rate budget, forward to others only, zero SQLite writes (tested), sender identity, name and colour always from the socket's participant record, clamped to the board.
 - Client: remote cursors hide after ~5 s idle and on leave/disconnect, cleared on reconnect; labels plain text, truncated; motion in its own memoised layer so notes don't re-render.
@@ -115,7 +120,7 @@ Draft roadmap. When a slice starts, rewrite its prompt against the real code (se
 ### 4 Reconnect
 - Detect drop, show state, reconnect with backoff, full resync on rejoin, queue changes made offline and reconcile.
 - Show a clear "relay is over its daily limit" state instead of reconnecting in a loop.
-- A full snapshot is up to ~260 KB per reconnect; note the request budget impact.
+- A full snapshot is up to about 392 KiB (401,829 bytes, worst case for 200 notes since protocol v6; see LIMITS.md) per reconnect; note the request budget impact.
 
 ### 5 Persistence and expiry
 - Rooms expire after a set idle time; clear messaging about it. (Basic note persistence already exists.)

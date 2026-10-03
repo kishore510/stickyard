@@ -7,8 +7,10 @@ import { cleanName, cleanNoteText, cleanText, codePointLength } from "./clean";
  * v3 (slice 2): shared notes (snapshot, noteAdd/Edit/Move/Delete), refs on errors.
  * v4 (slice 2.7): note size (noteResize/noteResized), colour change and text style (noteEdit fields).
  * v5 (slice 2.7.1): titleAlign, the title's (first line's) own alignment; `align` is the body's.
+ * v6 (slice 2.7.2): titleFontSize, titleBold, titleItalic, titleTextColor; fontSize, bold,
+ *   italic and textColor are now the body's.
  */
-export const PROTOCOL_VERSION = 5;
+export const PROTOCOL_VERSION = 6;
 
 /** Hard cap on a single client-to-server WebSocket message, in UTF-8 bytes. Checked before JSON.parse. */
 export const MAX_MESSAGE_BYTES = 4096;
@@ -62,8 +64,9 @@ export const noteColorSchema = z.enum(NOTE_COLORS);
 export type NoteColor = z.infer<typeof noteColorSchema>;
 
 /*
- * Text style: keys, never CSS values. Each applies to the whole note (plain text, no inline
- * markup). The web maps each key to a design token.
+ * Text style: keys, never CSS values. The title (first line) and the body (the rest) each have
+ * their own; a style applies to the whole of its part (plain text, no inline markup). The web
+ * maps each key to a design token.
  */
 export const NOTE_FONT_SIZES = ["s", "m", "l", "xl"] as const;
 export const noteFontSizeSchema = z.enum(NOTE_FONT_SIZES);
@@ -76,7 +79,10 @@ export const NOTE_ALIGNS = ["left", "center", "right"] as const;
 export const noteAlignSchema = z.enum(NOTE_ALIGNS);
 export type NoteAlign = z.infer<typeof noteAlignSchema>;
 
-/** What a new note gets (noteAdd carries none of these), and what the v1 -> v2 storage migration fills in. */
+/**
+ * What a new note gets (noteAdd carries none of these), and what the storage migrations fill in
+ * for older rows (the title fields then copy the body's). The title starts like the body.
+ */
 export const NOTE_DEFAULTS = {
   w: NOTE_DEFAULT_W,
   h: NOTE_DEFAULT_H,
@@ -86,6 +92,10 @@ export const NOTE_DEFAULTS = {
   textColor: "auto",
   align: "left",
   titleAlign: "left",
+  titleFontSize: "m",
+  titleBold: false,
+  titleItalic: false,
+  titleTextColor: "auto",
 } as const satisfies {
   w: number;
   h: number;
@@ -95,6 +105,10 @@ export const NOTE_DEFAULTS = {
   textColor: NoteTextColor;
   align: NoteAlign;
   titleAlign: NoteAlign;
+  titleFontSize: NoteFontSize;
+  titleBold: boolean;
+  titleItalic: boolean;
+  titleTextColor: NoteTextColor;
 };
 
 export interface NoteRect {
@@ -174,7 +188,23 @@ export const noteAddSchema = z.strictObject({
 });
 
 /** The fields a noteEdit may change. Everything but id is optional; at least one must be there. */
-export const NOTE_EDIT_FIELDS = ["text", "color", "fontSize", "bold", "italic", "textColor", "align", "titleAlign"] as const;
+export const NOTE_EDIT_FIELDS = [
+  "text",
+  "color",
+  "fontSize",
+  "bold",
+  "italic",
+  "textColor",
+  "align",
+  "titleAlign",
+  "titleFontSize",
+  "titleBold",
+  "titleItalic",
+  "titleTextColor",
+] as const;
+type NoteStyleField = Exclude<(typeof NOTE_EDIT_FIELDS)[number], "text">;
+/** The style fields (colour, and each part's text style): every noteEdit field but text. */
+export const NOTE_STYLE_FIELDS: readonly NoteStyleField[] = NOTE_EDIT_FIELDS.filter((f): f is NoteStyleField => f !== "text");
 
 export const noteEditSchema = z
   .strictObject({
@@ -188,6 +218,10 @@ export const noteEditSchema = z
     textColor: noteTextColorSchema.optional(),
     align: noteAlignSchema.optional(),
     titleAlign: noteAlignSchema.optional(),
+    titleFontSize: noteFontSizeSchema.optional(),
+    titleBold: z.boolean().optional(),
+    titleItalic: z.boolean().optional(),
+    titleTextColor: noteTextColorSchema.optional(),
   })
   .refine((edit) => NOTE_EDIT_FIELDS.some((field) => edit[field] !== undefined), { message: "Nothing to change." });
 
@@ -282,13 +316,17 @@ export const noteSchema = z.object({
   h: noteH,
   text: z.string().refine((text) => cleanNoteText(text) === text),
   color: noteColorSchema,
+  /** The body's (every line after the first) size, weight, slant, ink and alignment. */
   fontSize: noteFontSizeSchema,
   bold: z.boolean(),
   italic: z.boolean(),
   textColor: noteTextColorSchema,
-  /** The body's alignment (every line after the first). */
   align: noteAlignSchema,
-  /** The title's (first line's) alignment. */
+  /** The title's (first line's) own size, weight, slant, ink and alignment. */
+  titleFontSize: noteFontSizeSchema,
+  titleBold: z.boolean(),
+  titleItalic: z.boolean(),
+  titleTextColor: noteTextColorSchema,
   titleAlign: noteAlignSchema,
   /** Server-assigned; starts at 1 and goes up by one on every stored change. */
   rev: z.number().int().min(1),
@@ -297,7 +335,7 @@ export const noteSchema = z.object({
 }).refine(onBoard);
 export type Note = z.infer<typeof noteSchema>;
 /** The style fields of a note (what noteEdit can change besides text). */
-export type NoteStyle = Pick<Note, "color" | "fontSize" | "bold" | "italic" | "textColor" | "align" | "titleAlign">;
+export type NoteStyle = Pick<Note, NoteStyleField>;
 
 export const joinedSchema = z.object({
   type: z.literal("joined"),

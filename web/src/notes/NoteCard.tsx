@@ -8,7 +8,7 @@ import { NOTE_COLOR_CLASSES } from "./colours";
 import { confirmDelete, noteLabel } from "./label";
 import { keyResize } from "./size";
 import { splitTitleBody } from "./titleBody";
-import { NOTE_ALIGN_CLASSES, NOTE_FONT_SIZE_CLASSES, NOTE_TEXT_COLOR_CLASSES } from "./style";
+import { partTextClasses } from "./style";
 
 /** Arrow keys move by this many board units; with Shift, by KEY_STEP_BIG. */
 const KEY_STEP = 10;
@@ -44,8 +44,8 @@ export const NoteHelpContext = createContext("");
  * A click or keyboard focus selects it. A tap edits it (not under Hand); a double-click edits
  * it under any tool. Keys: Enter edits, arrow keys move (Shift for bigger steps), Alt+arrow keys
  * resize (Shift for bigger steps), Delete deletes, Escape clears the selection. Its size comes
- * from the node (notes/size.ts); its text style from the note's keys (notes/style.ts), applied
- * to the whole text.
+ * from the node (notes/size.ts); its text style from the note's keys (notes/style.ts): the
+ * title and the body each have their own.
  */
 export function NoteCard({ entry, editable, selected }: { entry: BoardNote; editable: boolean; selected: boolean }) {
   const actions = useContext(NoteActionsContext);
@@ -154,25 +154,16 @@ export function NoteCard({ entry, editable, selected }: { entry: BoardNote; edit
         selected && "ring-2 ring-accent ring-offset-2 ring-offset-board",
       )}
     >
-      {/* Plain text only; wraps, keeps line breaks, and clips at the note's edge. Style applies to
-          the whole text; the title (first line) and the body (the rest) are aligned separately. */}
-      <div
-        aria-hidden="true"
-        data-note-text
-        className={cn(
-          "min-h-0 flex-1 overflow-hidden break-words whitespace-pre-wrap",
-          NOTE_FONT_SIZE_CLASSES[note.fontSize],
-          NOTE_TEXT_COLOR_CLASSES[note.textColor],
-          note.bold && "font-bold",
-          note.italic && "italic",
-        )}
-      >
-        <p data-note-title className={NOTE_ALIGN_CLASSES[note.titleAlign]}>
+      {/* Plain text only; wraps, keeps line breaks, and clips at the note's edge. The title
+          (first line) and the body (the rest) each have their own size, weight, slant, ink and
+          alignment. */}
+      <div aria-hidden="true" data-note-text className="min-h-0 flex-1 overflow-hidden break-words whitespace-pre-wrap">
+        <p data-note-title className={cn(partTextClasses(note, "title"))}>
           {/* An empty title above a body still takes its line. */}
           {title === "" && hasBody ? "\u00a0" : title}
         </p>
         {hasBody && (
-          <p data-note-body className={NOTE_ALIGN_CLASSES[note.align]}>
+          <p data-note-body className={cn(partTextClasses(note, "body"))}>
             {body}
           </p>
         )}

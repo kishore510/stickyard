@@ -472,6 +472,12 @@ describe("notes", () => {
     expect(lastSent(t)).toEqual({ type: "noteEdit", id: N1, align: "right" });
     t.session.styleNote(N1, { titleAlign: "center" });
     expect(lastSent(t)).toEqual({ type: "noteEdit", id: N1, titleAlign: "center" });
+    t.session.styleNote(N1, { titleFontSize: "xl", titleBold: true });
+    expect(lastSent(t)).toEqual({ type: "noteEdit", id: N1, titleFontSize: "xl", titleBold: true });
+    t.session.styleNote(N1, { titleItalic: true });
+    expect(lastSent(t)).toEqual({ type: "noteEdit", id: N1, titleItalic: true });
+    t.session.styleNote(N1, { titleTextColor: "purple" });
+    expect(lastSent(t)).toEqual({ type: "noteEdit", id: N1, titleTextColor: "purple" });
     t.sock().receive({ type: "error", code: "bad_message", message: "x", noteId: N1 });
     expect(t.view().board.notes[0]?.note).toEqual(one);
     expect(t.view().noteNotice).toBeTruthy();
@@ -490,9 +496,11 @@ describe("notes", () => {
     const ref = String(lastSent(t).clientRef);
     const temp = localId(ref);
     t.session.styleNote(temp, { bold: true, textColor: "red" });
+    t.session.styleNote(temp, { titleFontSize: "xl", titleTextColor: "blue" });
     expect(sentOfType(t, "noteEdit")).toEqual([]);
     t.sock().receive({ type: "noteAdded", note: { ...one, id: N1, text: "", color: "pink", authorId: alex.id }, clientRef: ref });
-    expect(lastSent(t)).toEqual({ type: "noteEdit", id: N1, bold: true, textColor: "red" });
+    expect(lastSent(t)).toEqual({ type: "noteEdit", id: N1, bold: true, textColor: "red", titleFontSize: "xl", titleTextColor: "blue" });
+    expect(sentOfType(t, "noteEdit")).toHaveLength(1);
   });
 
   it("disconnected: resize and style are blocked", () => {
