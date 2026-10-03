@@ -1,4 +1,6 @@
 import { useEffect, useState } from "react";
+import { RefreshCw, RotateCcw } from "lucide-react";
+import { Button } from "../components/ui/button";
 import { PROTOCOL_VERSION } from "@stickyard/shared";
 import { WORKER_URL } from "../config";
 import type { CheckStatus } from "../connection/connectionCheck";
@@ -27,8 +29,6 @@ const COPY: Record<CheckStatus, { label: string; detail: string; dot: string }> 
   },
 };
 
-const buttonClass =
-  "min-h-touch min-w-touch rounded-card bg-accent px-lg text-base font-semibold text-accent-fg cursor-pointer";
 
 export function ConnectionCheckScreen() {
   const status = useConnectionCheck((s) => s.status);
@@ -41,15 +41,15 @@ export function ConnectionCheckScreen() {
   const relayHost = new URL(WORKER_URL).host;
 
   return (
-    <main className="mx-auto flex min-h-(--sy-viewport-h) max-w-content flex-col justify-center gap-lg p-md">
-      <header className="flex flex-col gap-xs">
-        <h1 className="text-xl font-bold">Stickyard</h1>
+    <div className="mx-auto flex w-full max-w-content flex-1 flex-col justify-center gap-lg py-lg">
+      <div className="flex flex-col gap-xs">
+        <h1 className="text-2xl font-semibold tracking-tight">Stickyard</h1>
         <p className="text-fg-muted">Real-time sticky notes. Nothing to see here yet.</p>
-      </header>
+      </div>
 
       <section
         aria-labelledby="check-heading"
-        className="flex flex-col gap-md rounded-card border border-border bg-surface p-lg"
+        className="flex flex-col gap-md rounded-lg border border-border bg-surface p-lg shadow-sm"
       >
         <h2 id="check-heading" className="text-lg font-semibold">
           Connection check
@@ -64,18 +64,20 @@ export function ConnectionCheckScreen() {
         </div>
 
         {status === "reload" && (
-          <button type="button" className={buttonClass} onClick={() => window.location.reload()}>
+          <Button variant="primary" className="self-start" onClick={() => window.location.reload()}>
+            <RefreshCw />
             Reload page
-          </button>
+          </Button>
         )}
         {status === "unreachable" && (
-          <button type="button" className={buttonClass} onClick={() => setAttempt((n) => n + 1)}>
+          <Button variant="primary" className="self-start" onClick={() => setAttempt((n) => n + 1)}>
+            <RotateCcw />
             Try again
-          </button>
+          </Button>
         )}
 
         <p className="text-sm text-fg-muted">Relay: {relayHost}</p>
       </section>
-    </main>
+    </div>
   );
 }

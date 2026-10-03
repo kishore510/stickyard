@@ -1,6 +1,6 @@
 # Phase plan: Stickyard
 
-Last updated: 2 October 2026
+Last updated: 3 October 2026
 
 Draft roadmap. When a slice starts, rewrite its prompt against the real code (see the skeleton in PROJECT_BRIEF.md). Do not treat these notes as final prompts.
 
@@ -8,7 +8,8 @@ Draft roadmap. When a slice starts, rewrite its prompt against the real code (se
 
 | Slice | Scope | Status |
 |---|---|---|
-| 0 Setup | Repo, CI, Pages deploy, Worker deploy, secrets hygiene, protocol version, Origin check | Prompt written, not started |
+| 0 Setup | Repo, CI, Pages deploy, Worker deploy, secrets hygiene, protocol version, Origin check | Done (v0.1.0) |
+| 0.5 App shell | App shell and design system: top bar, menu, Help / What's new / About sheets, theme, tokens | Done (v0.2.0) |
 | 1 Echo room | Two tabs, join by code and name; gated room creation; signed room codes | Not started |
 | 2 Shared stickies | Add/edit/move/delete, last-write-wins, optimistic updates | Not started |
 | 3 Presence | Names, colours, live cursors (throttled, not stored) | Not started |
@@ -38,6 +39,12 @@ Draft roadmap. When a slice starts, rewrite its prompt against the real code (se
 - Origin check on the Worker (Pages origin plus localhost).
 - Secrets hygiene: gitignore, fake values in tests, GitHub secret scanning and push protection.
 - Check current Cloudflare free-plan limits and record them in `docs/LIMITS.md`.
+
+### 0.5 App shell and design system
+- Chalkline's design language and structure (patterns only): tokens, light/dark, Inter bundled, warm neutral + blue accent, shadcn-style components, Lucide icons, Chalkline breakpoints.
+- Top bar (mark, menu with What's new dot, theme toggle); menu popover; Help, What's new and About as sheets (bottom sheet on phone, right side panel from md), hash-routed.
+- Help topics as Markdown files; What's new renders CHANGELOG.md; About shows build info, Copy details, privacy and credits.
+- Floating bottom bar region left for slice 2 (add note).
 
 ### 1 Echo room
 - Room code in the hash route; name entry; server assigns id and colour.
@@ -83,7 +90,7 @@ Draft roadmap. When a slice starts, rewrite its prompt against the real code (se
 - Retros/brainstorms first vs general canvas
 - Yjs timing
 - Real limits on the Cloudflare free plan at build time
-- Visual identity
+- Visual identity: settled in slice 0.5 (Chalkline-derived)
 - Per-friend invite codes
 
 ## Backlog (no slot yet)

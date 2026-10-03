@@ -5,7 +5,19 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="color-scheme" content="light dark" />
     <meta name="referrer" content="no-referrer" />
+    <meta name="description" content="Stickyard: real-time sticky notes for workshops and retros." />
     <title>Stickyard</title>
+    <script>
+      // Apply the theme before first paint to avoid a flash. Mirrors readPreference in src/shell/theme.ts.
+      (function () {
+        var pref = "system";
+        try {
+          pref = localStorage.getItem("stickyard:theme") || "system";
+        } catch (e) {}
+        var dark = pref === "dark" || (pref !== "light" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+        document.documentElement.dataset.theme = dark ? "dark" : "light";
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>
