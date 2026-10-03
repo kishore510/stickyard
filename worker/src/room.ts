@@ -273,6 +273,10 @@ export class Room extends DurableObject<Env> {
           textColor: message.textColor ?? next.textColor,
           align: message.align ?? next.align,
           titleAlign: message.titleAlign ?? next.titleAlign,
+          titleFontSize: message.titleFontSize ?? next.titleFontSize,
+          titleBold: message.titleBold ?? next.titleBold,
+          titleItalic: message.titleItalic ?? next.titleItalic,
+          titleTextColor: message.titleTextColor ?? next.titleTextColor,
         };
         if (NOTE_EDIT_FIELDS.every((field) => next[field] === current[field])) return;
         const note: Note = { ...next, rev: current.rev + 1 };

@@ -26,7 +26,7 @@ async function pair() {
   return { ...room, a, b, note };
 }
 
-interface StyleRow {
+type StyleRow = {
   font_size: string;
   bold: number;
   italic: number;
@@ -36,7 +36,7 @@ interface StyleRow {
   title_italic: number;
   title_text_color: string;
   rev: number;
-}
+};
 
 const rowsWritten = (stub: DurableObjectStub<Room>) => runInDurableObject(stub, (room: Room) => room.rowsWritten);
 const stored = (stub: DurableObjectStub<Room>) =>

@@ -1,4 +1,4 @@
-import { NOTE_DEFAULTS, clampNotePosition, clampNoteRect, type Note, type NoteColor, type NoteRect, type NoteStyle } from "@stickyard/shared";
+import { NOTE_DEFAULTS, NOTE_STYLE_FIELDS, clampNotePosition, clampNoteRect, type Note, type NoteColor, type NoteRect, type NoteStyle } from "@stickyard/shared";
 
 /*
  * The board as this page sees it: the server's notes plus optimistic local changes.
@@ -28,7 +28,7 @@ export interface BoardNote {
 
 /** The style fields (and colour) one change may set. */
 export type StylePatch = Partial<NoteStyle>;
-const STYLE_KEYS = ["color", "fontSize", "bold", "italic", "textColor", "align", "titleAlign"] as const satisfies readonly (keyof NoteStyle)[];
+const STYLE_KEYS = NOTE_STYLE_FIELDS;
 
 /** Being moved or resized here: its rect is this page's until release. */
 export const isHeld = (entry: BoardNote) => entry.dragging || entry.resizing;
@@ -213,7 +213,7 @@ export function styleChanges(from: Note, to: Note): StylePatch {
 }
 
 function pickStyle(n: Note): NoteStyle {
-  return { color: n.color, fontSize: n.fontSize, bold: n.bold, italic: n.italic, textColor: n.textColor, align: n.align, titleAlign: n.titleAlign };
+  return Object.fromEntries(STYLE_KEYS.map((k) => [k, n[k]])) as NoteStyle;
 }
 
 function definedStyle(change: StylePatch): StylePatch {

@@ -19,13 +19,14 @@ import { cn } from "../lib/utils";
 import type { StylePatch } from "./board";
 import { NOTE_COLOR_CLASSES, NOTE_COLOR_NAMES } from "./colours";
 import { sizeFieldValue } from "./size";
-import { NOTE_FONT_SIZE_NAMES, NOTE_TEXT_COLOR_NAMES, NOTE_TEXT_COLOR_SWATCHES, alignLabel } from "./style";
+import { NOTE_FONT_SIZE_NAMES, NOTE_TEXT_COLOR_NAMES, NOTE_TEXT_COLOR_SWATCHES, PART_FIELDS, alignLabel, partStyle, type NotePart } from "./style";
 
 /*
  * A note's colour, text style and size fields, laid out like Chalkline's Properties sections
  * (src/editor/fields.tsx and TextControls.tsx there): an uppercase section heading, swatches
- * (the chosen one ringed and pressed), a native select for the size (best on touch), icon toggle
- * buttons for Bold and Italic, an alignment radio group, and Width/Height number fields that
+ * (the chosen one ringed and pressed), and for the title and the body each a native select for
+ * the size (best on touch), icon toggle buttons for Bold and Italic, an alignment radio group
+ * and text colour swatches, then Width/Height number fields that
  * commit on Enter or blur. Every control is a 44px target and is disabled (and looks it) while
  * disconnected. Each change is one optimistic edit (see RoomSession.styleNote / setNoteSize).
  */
@@ -78,10 +79,10 @@ function Swatch({
 }
 
 /** A labelled group of swatches, with the current choice named beside the label (as in Chalkline). */
-function SwatchGroup({ label, current, children }: { label: string; current: string; children: ReactNode }) {
+function SwatchGroup({ label, groupLabel = label, current, children }: { label: string; groupLabel?: string; current: string; children: ReactNode }) {
   const id = useId();
   return (
-    <div role="group" aria-label={label} className="flex flex-col gap-xs">
+    <div role="group" aria-label={groupLabel} className="flex flex-col gap-xs">
       <div className="flex items-baseline justify-between gap-sm text-sm">
         <span id={id} className="font-medium text-fg">
           {label}
@@ -114,13 +115,23 @@ export function ColourSection({ note, live, onStyle }: { note: Note; live: boole
 
 const ALIGN_ICONS: Record<NoteAlign, ReactNode> = { left: <AlignLeft />, center: <AlignCenter />, right: <AlignRight /> };
 
-/** One part's alignment (the title, or the body), as Chalkline's alignment radio group. */
-function AlignGroup({ part, value, live, onChange }: { part: "title" | "body"; value: NoteAlign; live: boolean; onChange: (key: NoteAlign) => void }) {
-  const label = part === "title" ? "Title alignment" : "Body alignment";
+const PART_NAMES: Record<NotePart, string> = { title: "Title", body: "Body" };
+
+/** A label on the left, controls on the right: fits the narrowest Properties panel on one line. */
+function FieldRow({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div className="flex items-center justify-between gap-sm">
-      <span className="text-sm font-medium text-fg">{part === "title" ? "Title" : "Body"}</span>
-      <div role="radiogroup" aria-label={label} className="flex gap-xs">
+      <span className="text-sm font-medium text-fg">{label}</span>
+      {children}
+    </div>
+  );
+}
+
+/** One part's alignment, as Chalkline's alignment radio group. */
+function AlignGroup({ part, value, live, onChange }: { part: NotePart; value: NoteAlign; live: boolean; onChange: (key: NoteAlign) => void }) {
+  return (
+    <FieldRow label="Align">
+      <div role="radiogroup" aria-label={`${PART_NAMES[part]} alignment`} className="flex gap-xs">
         {NOTE_ALIGNS.map((key) => (
           <Button
             key={key}
@@ -138,7 +149,7 @@ function AlignGroup({ part, value, live, onChange }: { part: "title" | "body"; v
           </Button>
         ))}
       </div>
-    </div>
+    </FieldRow>
   );
 }
 
@@ -159,22 +170,30 @@ function ToggleButton({ label, icon, pressed, disabled, onPress }: { label: stri
   );
 }
 
-export function TextSection({ note, live, onStyle }: { note: Note; live: boolean; onStyle: (change: StylePatch) => void }) {
+/**
+ * One part's text style (the title's or the body's): Size, Bold and Italic, Alignment and text
+ * colour, as Chalkline's Text section. Both parts use the same fields, so they look alike.
+ */
+export function PartTextSection({ part, note, live, onStyle }: { part: NotePart; note: Note; live: boolean; onStyle: (change: StylePatch) => void }) {
   const sizeId = useId();
+  const style = partStyle(note, part);
+  const fields = PART_FIELDS[part];
+  const name = PART_NAMES[part];
+  const lower = name.toLowerCase();
   return (
-    <Section title="Text">
+    <Section title={`${name} text`}>
       <div className="flex flex-col gap-xs">
         <label htmlFor={sizeId} className="text-sm font-medium text-fg">
           Size
         </label>
         <select
           id={sizeId}
-          name="fontSize"
-          value={note.fontSize}
+          name={fields.fontSize}
+          value={style.fontSize}
           disabled={!live}
           onChange={(e) => {
             const key = NOTE_FONT_SIZES.find((k) => k === e.target.value);
-            if (key) onStyle({ fontSize: key satisfies NoteFontSize });
+            if (key) onStyle({ [fields.fontSize]: key satisfies NoteFontSize });
           }}
           className={cn(
             "h-touch w-full min-w-0 cursor-pointer rounded-md border border-border-strong bg-surface px-ms text-base text-fg transition-colors focus-visible:border-focus",
@@ -188,23 +207,22 @@ export function TextSection({ note, live, onStyle }: { note: Note; live: boolean
           ))}
         </select>
       </div>
-      <div className="flex flex-wrap items-center gap-xs">
-        <div role="group" aria-label="Text style" className="flex gap-xs">
-          <ToggleButton label="Bold" icon={<Bold />} pressed={note.bold} disabled={!live} onPress={() => onStyle({ bold: !note.bold })} />
-          <ToggleButton label="Italic" icon={<Italic />} pressed={note.italic} disabled={!live} onPress={() => onStyle({ italic: !note.italic })} />
+      <FieldRow label="Style">
+        <div role="group" aria-label={`${name} text style`} className="flex gap-xs">
+          <ToggleButton label={`Bold ${lower}`} icon={<Bold />} pressed={style.bold} disabled={!live} onPress={() => onStyle({ [fields.bold]: !style.bold })} />
+          <ToggleButton label={`Italic ${lower}`} icon={<Italic />} pressed={style.italic} disabled={!live} onPress={() => onStyle({ [fields.italic]: !style.italic })} />
         </div>
-      </div>
-      <AlignGroup part="title" value={note.titleAlign} live={live} onChange={(titleAlign) => onStyle({ titleAlign })} />
-      <AlignGroup part="body" value={note.align} live={live} onChange={(align) => onStyle({ align })} />
-      <SwatchGroup label="Text colour" current={NOTE_TEXT_COLOR_NAMES[note.textColor]}>
+      </FieldRow>
+      <AlignGroup part={part} value={style.align} live={live} onChange={(key) => onStyle({ [fields.align]: key })} />
+      <SwatchGroup label="Text colour" groupLabel={`${name} text colour`} current={NOTE_TEXT_COLOR_NAMES[style.textColor]}>
         {NOTE_TEXT_COLORS.map((key) => (
           <Swatch
             key={key}
             label={NOTE_TEXT_COLOR_NAMES[key]}
             fill={NOTE_TEXT_COLOR_SWATCHES[key]}
-            pressed={key === note.textColor}
+            pressed={key === style.textColor}
             disabled={!live}
-            onClick={() => onStyle({ textColor: key })}
+            onClick={() => onStyle({ [fields.textColor]: key })}
           />
         ))}
       </SwatchGroup>

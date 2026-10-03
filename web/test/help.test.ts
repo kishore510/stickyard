@@ -42,7 +42,7 @@ describe("help topics", () => {
     // No Stencils tab yet; colour change, text style and resizing exist (slice 2.7).
     expect(notes).not.toMatch(/stencil/i);
     expect(notes).not.toContain("arrives in a later update");
-    for (const claim of ["resizing a note", "alt", "width", "height", "colour and text style", "bold", "italic", "alignment for the title and the body separately", "title and the body each have their own size", "text colour", "auto"]) {
+    for (const claim of ["resizing a note", "alt", "width", "height", "colour and text style", "bold", "italic", "title and the body each have their own size, bold, italic, alignment and text colour", "text colour", "auto"]) {
       expect(notes, claim).toContain(claim);
     }
   });

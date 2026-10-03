@@ -33,8 +33,8 @@ Every session has one shared **board**. Everyone in the session sees the same no
 ## Colour and text style
 
 - In **Properties** (on a phone, in the note's editor), choose a swatch under **Colour** to change the note's colour.
-- Under **Text**: **Size** (Small, Medium, Large, Extra large), **Bold** and **Italic**, alignment for the **Title** and the **Body** separately (left, centre or right), and **Text colour**. **Auto** is the usual dark text; the other colours stay readable on every note colour, in light and dark themes.
-- Size, bold, italic and text colour apply to the whole note, title and body together; only alignment can differ between them. There's no formatting inside the text.
+- The title and the body each have their own size, bold, italic, alignment and text colour, under **Title text** and **Body text**: **Size** (Small, Medium, Large, Extra large), **Style** (**Bold** and **Italic**), **Align** (left, centre or right) and **Text colour**. **Auto** is the usual dark text; the other colours stay readable on every note colour, in light and dark themes.
+- A big bold title over smaller body text is one way to use it. Each style applies to the whole title or the whole body; there's no formatting inside the text.
 - Changes show at once and everyone sees them. If one can't be saved, the note goes back to how it was.
 
 ## Resizing a note
@@ -87,4 +87,4 @@ Select the note and choose the bin (**Delete note**) at the top of Properties (o
 
 ## What's kept
 
-Notes are kept by the Stickyard relay, so they're still there when people leave and come back. Each note records its text, colour, text style, size, place on the board, and a random id for the visit that added it (not your name). Where you've moved or zoomed to, the tool you picked and what's selected aren't kept or sent anywhere. The side panels' widths and whether they're collapsed are remembered in this browser only. See **About > Privacy**.
+Notes are kept by the Stickyard relay, so they're still there when people leave and come back. Each note records its text, colour, text style (the title's and the body's), size, place on the board, and a random id for the visit that added it (not your name). Where you've moved or zoomed to, the tool you picked and what's selected aren't kept or sent anywhere. The side panels' widths and whether they're collapsed are remembered in this browser only. See **About > Privacy**.
