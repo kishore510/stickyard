@@ -124,8 +124,21 @@ describe("remote resize", () => {
 describe("local colour and style", () => {
   it("shows at once, keeps the draft, and rolls back when refused", () => {
     let board = setDraft(withNotes(one), N1, "Typing");
-    board = styleLocal(board, N1, { color: "green", fontSize: "xl", bold: true, italic: true, textColor: "red", align: "right", titleAlign: "center" });
-    expect(shown(board)).toMatchObject({ color: "green", fontSize: "xl", bold: true, italic: true, textColor: "red", align: "right", titleAlign: "center" });
+    const all = {
+      color: "green",
+      fontSize: "xl",
+      bold: true,
+      italic: true,
+      textColor: "red",
+      align: "right",
+      titleAlign: "center",
+      titleFontSize: "s",
+      titleBold: true,
+      titleItalic: true,
+      titleTextColor: "blue",
+    } as const;
+    board = styleLocal(board, N1, all);
+    expect(shown(board)).toMatchObject(all);
     expect(findNote(board, N1)?.draft).toBe("Typing");
     board = rollback(board, N1);
     expect(shown(board)).toEqual(one);
@@ -150,10 +163,10 @@ describe("local colour and style", () => {
     let board = addLocal(EMPTY_BOARD, { clientRef: "r1", x: 10, y: 10, color: "yellow", text: "", authorId: ME });
     const temp = localId("r1");
     expect(shown(board, temp)).toMatchObject(NOTE_DEFAULTS);
-    board = styleLocal(board, temp, { color: "pink", bold: true });
+    board = styleLocal(board, temp, { color: "pink", bold: true, titleFontSize: "l", titleTextColor: "red" });
     board = applyAdded(board, { ...one, id: N1, x: 10, y: 10, rev: 1 }, "r1");
-    expect(shown(board)).toMatchObject({ color: "pink", bold: true });
-    expect(findNote(board, N1)?.confirmed).toMatchObject({ color: "yellow", bold: false });
+    expect(shown(board)).toMatchObject({ color: "pink", bold: true, titleFontSize: "l", titleTextColor: "red" });
+    expect(findNote(board, N1)?.confirmed).toMatchObject({ color: "yellow", bold: false, titleFontSize: "m", titleTextColor: "auto" });
   });
 });
 

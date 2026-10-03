@@ -72,7 +72,7 @@ describe(`schema migration 2 -> ${SCHEMA_VERSION}`, () => {
       const sql = state.storage.sql;
       loadSchemaV2(sql);
       const notes = new NoteStore(sql).all();
-      expect(version(sql)).toBe(3);
+      expect(version(sql)).toBe(SCHEMA_VERSION);
       expect(notes.map((n) => [n.id, n.align, n.titleAlign])).toEqual(V2_NOTES.map((n) => [n.id, n.align, n.align]));
       expect(notes[1]).toMatchObject({ w: 300, h: 200, fontSize: "xl", bold: true, textColor: "blue", rev: 4 });
     });

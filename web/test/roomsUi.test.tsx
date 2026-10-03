@@ -1138,9 +1138,9 @@ describe("the Properties panel (md up)", () => {
     expect(propBody()?.disabled).toBe(true);
     expect(byText("aside button", /Delete note/)?.hasAttribute("disabled")).toBe(true);
     const controls = [...(properties()?.querySelectorAll<HTMLButtonElement | HTMLInputElement | HTMLSelectElement>(
-      '[aria-label="Note colour"] button, [aria-label="Text colour"] button, [aria-label="Text style"] button, [aria-label="Title alignment"] button, [aria-label="Body alignment"] button, input[name="width"], input[name="height"], select[name="fontSize"]',
+      '[aria-label="Note colour"] button, [aria-label="Title text colour"] button, [aria-label="Body text colour"] button, [aria-label="Title text style"] button, [aria-label="Body text style"] button, [aria-label="Title alignment"] button, [aria-label="Body alignment"] button, input[name="width"], input[name="height"], select[name="fontSize"], select[name="titleFontSize"]',
     ) ?? [])];
-    expect(controls.length).toBeGreaterThan(15);
+    expect(controls.length).toBeGreaterThan(30);
     expect(controls.every((c) => c.disabled)).toBe(true);
     expect(document.querySelectorAll(".react-flow__resize-control.handle")).toHaveLength(0);
     expect(properties()?.textContent).toContain("Read only while disconnected");
@@ -1157,48 +1157,67 @@ describe("the Properties panel (md up)", () => {
     expect(notes()[0]?.className).toContain("bg-note-pink");
   });
 
-  it("Text section: size, Bold/Italic toggles (aria-pressed), text colour, and title and body alignment each send their field", async () => {
+  it("Title and Body sections: each has its own size, Bold/Italic toggles (aria-pressed), alignment and text colour, each sending its field", async () => {
     const socket = await withNotes(one);
     await selectNote(0);
-    const size = properties()?.querySelector<HTMLSelectElement>('select[name="fontSize"]');
-    expect(size?.value).toBe("m");
-    await act(async () => {
-      if (!size) return;
-      size.value = "xl";
-      size.dispatchEvent(new Event("change", { bubbles: true }));
-    });
-    await settle();
-    const bold = properties()?.querySelector<HTMLButtonElement>('[aria-label="Text style"] [aria-label="Bold"]');
-    expect(bold?.getAttribute("aria-pressed")).toBe("false");
-    await click(bold ?? undefined);
-    expect(properties()?.querySelector('[aria-label="Text style"] [aria-label="Bold"]')?.getAttribute("aria-pressed")).toBe("true");
-    await click(properties()?.querySelector<HTMLElement>('[aria-label="Text style"] [aria-label="Italic"]') ?? undefined);
-    await click(properties()?.querySelector<HTMLElement>('[aria-label="Text colour"] [aria-label="Blue"]') ?? undefined);
-    await click(properties()?.querySelector<HTMLElement>('[aria-label="Title alignment"] [aria-label="Align title centre"]') ?? undefined);
-    await click(properties()?.querySelector<HTMLElement>('[aria-label="Body alignment"] [aria-label="Align body right"]') ?? undefined);
-    expect(properties()?.querySelector('[aria-label="Title alignment"] [aria-label="Align title centre"]')?.getAttribute("aria-checked")).toBe("true");
-    expect(properties()?.querySelector('[aria-label="Title alignment"] [aria-label="Align title left"]')?.getAttribute("aria-checked")).toBe("false");
-    expect(properties()?.querySelector('[aria-label="Body alignment"] [aria-label="Align body right"]')?.getAttribute("aria-checked")).toBe("true");
+    const pick = async (name: string, value: string) => {
+      const select = properties()?.querySelector<HTMLSelectElement>(`select[name="${name}"]`);
+      expect(select?.value).toBe("m");
+      await act(async () => {
+        if (!select) return;
+        select.value = value;
+        select.dispatchEvent(new Event("change", { bubbles: true }));
+      });
+      await settle();
+    };
+    const control = (selector: string) => properties()?.querySelector<HTMLElement>(selector) ?? undefined;
+    // Two sections, in this order, each with the same four kinds of field.
+    const headings = [...(properties()?.querySelectorAll("section h3") ?? [])].map((h) => h.textContent);
+    expect(headings.indexOf("Title text")).toBeGreaterThan(-1);
+    expect(headings.indexOf("Body text")).toBeGreaterThan(headings.indexOf("Title text"));
+
+    await pick("titleFontSize", "xl");
+    await pick("fontSize", "s");
+    expect(control('[aria-label="Title text style"] [aria-label="Bold title"]')?.getAttribute("aria-pressed")).toBe("false");
+    await click(control('[aria-label="Title text style"] [aria-label="Bold title"]'));
+    expect(control('[aria-label="Title text style"] [aria-label="Bold title"]')?.getAttribute("aria-pressed")).toBe("true");
+    expect(control('[aria-label="Body text style"] [aria-label="Bold body"]')?.getAttribute("aria-pressed")).toBe("false");
+    await click(control('[aria-label="Body text style"] [aria-label="Italic body"]'));
+    await click(control('[aria-label="Title text style"] [aria-label="Italic title"]'));
+    await click(control('[aria-label="Title text colour"] [aria-label="Purple"]'));
+    await click(control('[aria-label="Body text colour"] [aria-label="Blue"]'));
+    await click(control('[aria-label="Title alignment"] [aria-label="Align title centre"]'));
+    await click(control('[aria-label="Body alignment"] [aria-label="Align body right"]'));
+    expect(control('[aria-label="Title alignment"] [aria-label="Align title centre"]')?.getAttribute("aria-checked")).toBe("true");
+    expect(control('[aria-label="Title alignment"] [aria-label="Align title left"]')?.getAttribute("aria-checked")).toBe("false");
+    expect(control('[aria-label="Body alignment"] [aria-label="Align body right"]')?.getAttribute("aria-checked")).toBe("true");
+    expect(control('[aria-label="Title text colour"] [aria-label="Purple"]')?.getAttribute("aria-pressed")).toBe("true");
+    expect(control('[aria-label="Body text colour"] [aria-label="Purple"]')?.getAttribute("aria-pressed")).toBe("false");
     expect(sentOfType(socket, "noteEdit")).toEqual([
-      { type: "noteEdit", id: N1, fontSize: "xl" },
-      { type: "noteEdit", id: N1, bold: true },
+      { type: "noteEdit", id: N1, titleFontSize: "xl" },
+      { type: "noteEdit", id: N1, fontSize: "s" },
+      { type: "noteEdit", id: N1, titleBold: true },
       { type: "noteEdit", id: N1, italic: true },
+      { type: "noteEdit", id: N1, titleItalic: true },
+      { type: "noteEdit", id: N1, titleTextColor: "purple" },
       { type: "noteEdit", id: N1, textColor: "blue" },
       { type: "noteEdit", id: N1, titleAlign: "center" },
       { type: "noteEdit", id: N1, align: "right" },
     ]);
-    // The note shows it, from token classes only: style on the whole text, alignment per part.
-    const text = notes()[0]?.querySelector("[data-note-text]");
-    expect(text?.className).toContain("text-note-xl");
-    expect(text?.className).toContain("font-bold");
-    expect(text?.className).toContain("italic");
-    expect(text?.className).toContain("text-note-text-blue");
+    // The note shows it, from token classes only, each part with its own style.
     const title = notes()[0]?.querySelector("[data-note-title]");
     const body = notes()[0]?.querySelector("[data-note-body]");
     expect(title?.textContent).toBe("Idea one");
-    expect(title?.className).toContain("text-center");
     expect(body?.textContent).toBe("The details");
-    expect(body?.className).toContain("text-right");
+    for (const cls of ["text-note-xl", "font-bold", "italic", "text-note-text-purple", "text-center"]) expect(title?.className, cls).toContain(cls);
+    for (const cls of ["text-note-s", "italic", "text-note-text-blue", "text-right"]) expect(body?.className, cls).toContain(cls);
+    expect(body?.className).not.toContain("font-bold");
+    expect(body?.className).not.toContain("text-note-xl");
+    expect(title?.className).not.toContain("text-note-text-blue");
+    // Refused: both parts go back.
+    await server(socket, { data: { type: "error", code: "rate_limited", message: "x", noteId: N1 } });
+    expect(notes()[0]?.querySelector("[data-note-title]")?.className).toContain("text-note-m");
+    expect(notes()[0]?.querySelector("[data-note-body]")?.className).toContain("text-note-m");
   });
 
   it("a note with only a title has no body block; text stays plain", async () => {
@@ -1329,11 +1348,16 @@ describe("phone: add sheet and editor sheet", () => {
     expect(swatches.every((b) => !b.disabled)).toBe(true);
     await click(dialog()?.querySelector<HTMLElement>('[aria-label="Note colour"] [aria-label="Blue"]') ?? undefined);
     expect(sentOfType(socket, "noteEdit").at(-1)).toEqual({ type: "noteEdit", id: N1, color: "blue" });
-    await click(dialog()?.querySelector<HTMLElement>('[aria-label="Text style"] [aria-label="Bold"]') ?? undefined);
+    await click(dialog()?.querySelector<HTMLElement>('[aria-label="Body text style"] [aria-label="Bold body"]') ?? undefined);
     expect(sentOfType(socket, "noteEdit").at(-1)).toEqual({ type: "noteEdit", id: N1, bold: true });
+    await click(dialog()?.querySelector<HTMLElement>('[aria-label="Title text style"] [aria-label="Bold title"]') ?? undefined);
+    expect(sentOfType(socket, "noteEdit").at(-1)).toEqual({ type: "noteEdit", id: N1, titleBold: true });
     expect(dialog()?.querySelector('input[name="width"]')).not.toBeNull();
     expect(dialog()?.querySelector('input[name="height"]')).not.toBeNull();
-    expect(dialog()?.querySelector('[aria-label="Text colour"]')).not.toBeNull();
+    expect(dialog()?.querySelector('select[name="titleFontSize"]')).not.toBeNull();
+    expect(dialog()?.querySelector('select[name="fontSize"]')).not.toBeNull();
+    expect(dialog()?.querySelector('[aria-label="Title text colour"]')).not.toBeNull();
+    expect(dialog()?.querySelector('[aria-label="Body text colour"]')).not.toBeNull();
     expect(dialog()?.querySelector('[aria-label="Title alignment"]')).not.toBeNull();
     expect(dialog()?.querySelector('[aria-label="Body alignment"]')).not.toBeNull();
     expect(dialog()?.textContent).toContain("Sam");

@@ -1,7 +1,17 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { NOTE_ALIGNS, NOTE_COLORS, NOTE_DEFAULT_W, NOTE_FONT_SIZES, NOTE_MAX_W, NOTE_MIN_W, NOTE_TEXT_COLORS } from "@stickyard/shared";
+import {
+  NOTE_ALIGNS,
+  NOTE_COLORS,
+  NOTE_DEFAULTS,
+  NOTE_DEFAULT_W,
+  NOTE_FONT_SIZES,
+  NOTE_MAX_W,
+  NOTE_MIN_W,
+  NOTE_TEXT_COLORS,
+  type Note,
+} from "@stickyard/shared";
 import {
   NOTE_ALIGN_CLASSES,
   NOTE_ALIGN_NAMES,
@@ -9,8 +19,11 @@ import {
   NOTE_FONT_SIZE_NAMES,
   NOTE_TEXT_COLOR_CLASSES,
   NOTE_TEXT_COLOR_NAMES,
+  NOTE_PARTS,
   alignLabel,
   fontSizeToken,
+  partStyle,
+  partTextClasses,
   textColorToken,
 } from "../src/notes/style";
 
@@ -65,6 +78,52 @@ describe("note text style tokens", () => {
         expect(contrast(fg!, c[`note-${note}`]!), `${key} on ${note}`).toBeGreaterThanOrEqual(4.5);
       }
     }
+  });
+
+  it.each(THEMES)("title and body: every ink either part can take is readable on all six note colours in %s", (selector) => {
+    const c = theme(selector);
+    const base: Note = { id: "NNNNNNNNNNNNNNNN", x: 0, y: 0, ...NOTE_DEFAULTS, text: "", color: "yellow", rev: 1, authorId: "AAAAAAAAAAAAAAAA" };
+    for (const part of NOTE_PARTS) {
+      for (const ink of NOTE_TEXT_COLORS) {
+        const note: Note = part === "title" ? { ...base, titleTextColor: ink } : { ...base, textColor: ink };
+        expect(partStyle(note, part).textColor).toBe(ink);
+        // The class the note renders with for that part resolves to the ink's token.
+        const cls = partTextClasses(note, part).find((k) => k.startsWith("text-note-") && !/^text-note-(s|m|l|xl)$/.test(k));
+        expect(cls, `${part} ${ink}`).toBe(NOTE_TEXT_COLOR_CLASSES[ink]);
+        const fg = c[textColorToken(ink).replace(/^--sy-/, "")]!;
+        for (const colour of NOTE_COLORS) {
+          expect(contrast(fg, c[`note-${colour}`]!), `${part} ${ink} on ${colour}`).toBeGreaterThanOrEqual(4.5);
+        }
+      }
+    }
+  });
+
+  it("each part takes its own size, weight, slant, ink and alignment", () => {
+    const note: Note = {
+      id: "NNNNNNNNNNNNNNNN",
+      x: 0,
+      y: 0,
+      ...NOTE_DEFAULTS,
+      text: "",
+      color: "yellow",
+      rev: 1,
+      authorId: "AAAAAAAAAAAAAAAA",
+      fontSize: "s",
+      bold: false,
+      italic: true,
+      textColor: "green",
+      align: "right",
+      titleFontSize: "xl",
+      titleBold: true,
+      titleItalic: false,
+      titleTextColor: "purple",
+      titleAlign: "center",
+    };
+    expect(NOTE_PARTS).toEqual(["title", "body"]);
+    expect(partStyle(note, "title")).toEqual({ fontSize: "xl", bold: true, italic: false, textColor: "purple", align: "center" });
+    expect(partStyle(note, "body")).toEqual({ fontSize: "s", bold: false, italic: true, textColor: "green", align: "right" });
+    expect(partTextClasses(note, "title").sort()).toEqual(["font-bold", "text-center", "text-note-text-purple", "text-note-xl"].sort());
+    expect(partTextClasses(note, "body").sort()).toEqual(["italic", "text-note-s", "text-note-text-green", "text-right"].sort());
   });
 
   it("auto is the note foreground (today's look); every key has a utility and a name", () => {
