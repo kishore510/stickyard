@@ -109,13 +109,14 @@ describe("final batches", () => {
       ops: [
         { op: "move", id: id(0), x: 0, y: 0 },
         { op: "move", id: id(1), x: 50, y: 50 },
-        { op: "delete", id: id(1) },
+        { op: "delete", id: "unknownunknown01" },
         { op: "move", id: "unknownunknown00", x: 50, y: 50 },
       ],
     });
     const applied = await nextOfType(b, "notesBatchApplied");
     expect(applied.results).toEqual([{ type: "noteMoved", id: id(0), x: 0, y: 0, rev: 1, final: true }]);
     expect(await rowsWritten(stub)).toBe(writes);
+    await nextOfType(a, "notesBatchApplied");
     // Nothing known at all: nothing is sent.
     a.send({ type: "noteBatch", final: true, ops: [{ op: "move", id: id(1), x: 9, y: 9 }] });
     expect(await b.quiet()).toBe(true);

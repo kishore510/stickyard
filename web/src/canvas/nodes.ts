@@ -1,8 +1,9 @@
 import type { CSSProperties } from "react";
 import type { Node, NodeChange } from "@xyflow/react";
-import { BOARD_HEIGHT, BOARD_WIDTH } from "@stickyard/shared";
+import { BOARD_HEIGHT, BOARD_WIDTH, type NoteRect } from "@stickyard/shared";
 import { isHeld, isLocalId, type Board, type BoardNote } from "../notes/board";
 import { noteSize } from "../notes/size";
+import { groupOffset } from "./arrange";
 import { boardToFlow, flowToBoard, type Size } from "./geometry";
 import { EMPTY_SELECTION, isSelected, type Selection } from "./selection";
 
@@ -16,7 +17,7 @@ import { EMPTY_SELECTION, isSelected, type Selection } from "./selection";
 
 export const BOARD_NODE_ID = "sy-board";
 
-/** `resizable`: show the resize handles (selected, editable, not under Hand, and confirmed). */
+/** `resizable`: show the resize handles (the only selected note, editable, not under Hand, and confirmed). */
 export type NoteFlowNode = Node<{ entry: BoardNote; editable: boolean; selected: boolean; resizable: boolean }, "note">;
 export type BoardFlowNode = Node<Record<string, never>, "board">;
 export type CanvasNode = NoteFlowNode | BoardFlowNode;
@@ -51,14 +52,14 @@ const NOTE_EXTENT: [[number, number], [number, number]] = [
   [BOARD_WIDTH, BOARD_HEIGHT],
 ];
 
-function toNode(entry: BoardNote, editable: boolean, movable: boolean, selected: boolean): NoteFlowNode {
+function toNode(entry: BoardNote, editable: boolean, movable: boolean, selected: boolean, resizable: boolean): NoteFlowNode {
   const { width, height } = noteSize(entry.note);
   const confirmed = !isLocalId(entry.note.id);
   return {
     id: entry.note.id,
     type: "note",
     position: boardToFlow(entry.note),
-    data: { entry, editable, selected, resizable: selected && editable && movable && confirmed },
+    data: { entry, editable, selected, resizable },
     // Known size (from the size lookup): React Flow needn't measure before showing, fitting or
     // drawing the minimap, and the note fills its node.
     width,
@@ -92,11 +93,14 @@ export function createNoteNodeMapper(): (board: Board, editable: boolean, movabl
       lastKey = key;
     }
     const nodes: CanvasNode[] = [BOARD_NODE];
+    // Resize handles only for a single selected note (several resize through Match size).
+    const single = selection.size === 1;
     for (const entry of board.notes) {
       const selected = isSelected(selection, entry.note.id);
+      const resizable = selected && single && editable && movable && !isLocalId(entry.note.id);
       let node = cache.get(entry);
-      if (!node || node.data.selected !== selected) {
-        node = toNode(entry, editable, movable, selected);
+      if (!node || node.data.selected !== selected || node.data.resizable !== resizable) {
+        node = toNode(entry, editable, movable, selected, resizable);
         cache.set(entry, node);
       }
       nodes.push(node);
@@ -110,30 +114,84 @@ export interface DragActions {
   moveNote(id: string, x: number, y: number, final: boolean): void;
   /** The note's size, so positions are clamped at it (the session clamps again either way). */
   sizeOf?(id: string): Size;
+  /**
+   * The notes a drag of `id` moves (selecting just it first if it wasn't selected). Two or more
+   * make it a group drag. Without this, every drag moves one note.
+   */
+  groupFor?(id: string): string[];
+  /** A note's rect when the group drag starts. */
+  rectOf?(id: string): NoteRect | null;
+  startGroupDrag?(ids: string[]): boolean;
+  moveGroup?(positions: { id: string; x: number; y: number }[], final: boolean): void;
+}
+
+/** A group drag: React Flow drags the grabbed note; the others follow at the same offset. */
+interface Group {
+  anchor: string;
+  start: Map<string, NoteRect>;
 }
 
 /**
  * React Flow drag events -> session moves. Positions in between are sent throttled by the
  * session; the drop is sent once as the final move. A drag the session refuses (not connected,
- * or the note was deleted) is ignored to the end.
+ * or the note was deleted) is ignored to the end. Dragging a note of a multi-selection moves the
+ * whole selection: the grabbed note's offset is clamped once for the group (canvas/arrange.ts),
+ * so the arrangement is kept at the board's edges.
  */
 export function createDragHandlers(actions: DragActions) {
   const active = new Set<string>();
+  let group: Group | null = null;
+
+  const groupMoves = (offset: XYLike) => {
+    if (!group) return [];
+    const rects = [...group.start.values()];
+    const { dx, dy } = groupOffset(rects, offset.x, offset.y);
+    return [...group.start].map(([id, r]) => ({ id, x: r.x + dx, y: r.y + dy }));
+  };
+  const offsetOf = (id: string, position: XYLike) => {
+    const start = group?.start.get(id);
+    const p = flowToBoard(position, actions.sizeOf?.(id));
+    return start ? { x: p.x - start.x, y: p.y - start.y } : { x: 0, y: 0 };
+  };
+
   return {
     onNodeDragStart(node: Pick<CanvasNode, "id">) {
-      if (node.id !== BOARD_NODE_ID && actions.startDrag(node.id)) active.add(node.id);
+      if (node.id === BOARD_NODE_ID) return;
+      const ids = actions.groupFor?.(node.id) ?? [node.id];
+      if (ids.length > 1 && actions.rectOf && actions.startGroupDrag && actions.moveGroup) {
+        const start = new Map<string, NoteRect>();
+        for (const id of ids) {
+          const rect = actions.rectOf(id);
+          if (rect && !isLocalId(id)) start.set(id, rect);
+        }
+        if (start.has(node.id) && actions.startGroupDrag([...start.keys()])) group = { anchor: node.id, start };
+        return;
+      }
+      if (actions.startDrag(node.id)) active.add(node.id);
     },
     onNodesChange(changes: NodeChange<CanvasNode>[]) {
       for (const change of changes) {
-        if (change.type !== "position" || !change.dragging || !change.position || !active.has(change.id)) continue;
+        if (change.type !== "position" || !change.dragging || !change.position) continue;
+        if (group?.anchor === change.id) {
+          actions.moveGroup?.(groupMoves(offsetOf(change.id, change.position)), false);
+          continue;
+        }
+        if (!active.has(change.id)) continue;
         const p = flowToBoard(change.position, actions.sizeOf?.(change.id));
         actions.moveNote(change.id, p.x, p.y, false);
       }
     },
     onNodeDragStop(node: Pick<CanvasNode, "id" | "position">) {
+      if (group?.anchor === node.id) {
+        actions.moveGroup?.(groupMoves(offsetOf(node.id, node.position)), true);
+        group = null;
+        return;
+      }
       if (!active.delete(node.id)) return;
       const p = flowToBoard(node.position, actions.sizeOf?.(node.id));
       actions.moveNote(node.id, p.x, p.y, true);
     },
   };
 }
+
+type XYLike = { x: number; y: number };

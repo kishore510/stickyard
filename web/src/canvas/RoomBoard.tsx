@@ -1,5 +1,5 @@
 import { ReactFlowProvider, useStore } from "@xyflow/react";
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { RotateCcw, SlidersHorizontal } from "lucide-react";
 import type { NoteColor } from "@stickyard/shared";
 import { ChatDock } from "../chat/ChatDock";
@@ -16,7 +16,10 @@ import { PropertiesContent } from "../properties/PropertiesPanel";
 import type { RoomView } from "../rooms/session";
 import type { useRoom } from "../rooms/useRoom";
 import { MEDIA } from "../styles/breakpoints";
+import type { Placed } from "./arrange";
 import { BoardCanvas, type BoardRoom } from "./BoardCanvas";
+import { SelectionBar } from "./SelectionBar";
+import { orderedIds } from "./selection";
 import { newNotePosition, type XY } from "./geometry";
 import { Ribbon, ViewBar } from "./ToolBars";
 import { noteToolReason, toolForKey, type ToolContext } from "./tools";
@@ -45,15 +48,19 @@ const Notices = memo(function Notices({
   noteNotice,
   noteReason,
   onRejoin,
+  bar,
 }: {
   status: RoomView["status"];
   noteNotice: string | null;
   noteReason: string | null;
   onRejoin: () => void;
+  /** The selection bar, first in the stack (md and up). */
+  bar?: ReactNode;
 }) {
   const live = status === "joined";
   return (
     <div className="pointer-events-none absolute inset-x-0 top-sm z-20 flex flex-col items-center gap-xs px-gutter">
+      {bar}
       {!live && (
         <div role="alert" className="pointer-events-auto flex flex-wrap items-center gap-sm rounded-md border border-status-error bg-surface p-sm pl-md shadow-md">
           <p className="font-medium">
@@ -123,6 +130,7 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
   const minimapPref = useBoardUi((s) => s.minimap);
   const setMinimap = useBoardUi((s) => s.setMinimap);
   const addSheetOpen = useBoardUi((s) => s.addSheetOpen);
+  const selection = useBoardUi((s) => s.selection);
   const panels = usePanels();
   const zoom = useStore((s) => s.transform[2]);
   const free = useStore((s) => s.width);
@@ -135,7 +143,8 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
   const latest = useRef({ view, room, wide });
   latest.current = { view, room, wide };
 
-  // Notes deleted (here or by someone else) leave the selection.
+  // Notes deleted (here or by someone else) leave the selection; after a rejoin, only notes that
+  // are still on the board stay selected.
   useLayoutEffect(() => {
     useBoardUi.getState().pruneSelected((id) => findNote(view.board, id) !== undefined);
   }, [view.board]);
@@ -238,7 +247,15 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
     resizeNote: room.resizeNote,
     deleteNote: room.deleteNote,
     openEditor,
+    startGroupDrag: room.startGroupDrag,
+    moveGroup: room.moveGroup,
+    deleteNotes: room.deleteNotes,
   };
+
+  // The selection bar: md and up, Select tool, two or more notes (in selection order).
+  const selectedNotes: Placed[] =
+    wide && tool === "select" && selection.size >= 2 ? orderedIds(selection).flatMap((id) => findNote(view.board, id)?.note ?? []) : [];
+  const bar = selectedNotes.length >= 2 ? <SelectionBar notes={selectedNotes} live={live} apply={(rects) => room.applyRects(rects)} /> : null;
 
   // The minimap and chat button share the free area's bottom-right corner with the centred view
   // bar: when there isn't room for both side by side, they move up above it.
@@ -277,12 +294,13 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
         <BoardCanvas
           room={boardRoom}
           editable={live}
+          multiSelect={wide}
           synced={view.synced}
           minimap={minimap}
           minimapLifted={lifted}
           view={canvas}
         />
-        <Notices status={view.status} noteNotice={view.noteNotice} noteReason={noteReason} onRejoin={rejoin} />
+        <Notices status={view.status} noteNotice={view.noteNotice} noteReason={noteReason} onRejoin={rejoin} bar={bar} />
         {wide ? (
           <>
             <ViewBar ctx={ctx} barRef={barRef} />
@@ -322,6 +340,7 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
                 styleNote: room.styleNote,
                 setNoteSize: room.setNoteSize,
                 deleteNote: room.deleteNote,
+                deleteNotes: room.deleteNotes,
               }}
             />
           )}

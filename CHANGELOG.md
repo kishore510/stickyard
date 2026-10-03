@@ -2,6 +2,19 @@
 
 All notable changes to Stickyard, newest first. The format follows Keep a Changelog. Versions are 0.x: a minor bump for each slice and a patch bump for each follow-up fix. This file is shown in the app under **What’s new**, so entries are written for the people using it.
 
+## [0.7.0] - 2026-10-03
+
+### Added
+- **Select several notes** on a wider screen: drag across an empty part of the board to draw a marquee, **Shift**- or **Ctrl**-click notes to add or remove them, or press **Ctrl+A** for all of them. **Esc** clears the selection.
+- **Move them together**: drag any selected note and the rest follow, keeping their arrangement and stopping together at the board's edge. The arrow keys move the whole selection too.
+- **Arrange** from a bar at the top of the board: align edges or centres, distribute three or more with equal gaps, or match the first selected note's width, height or both.
+- **Delete several at once** from Properties (which shows how many are selected, with **Mixed** where their colour, style or size differ) or with the **Delete** key.
+
+### Changed
+- With a mouse, dragging an empty part of the board now draws a marquee. Drag with the **right** or **middle** button to move around instead (or use **Hand**, or hold **Space**). Phones, fingers and pens still move around as before. The board no longer shows the browser's right-click menu.
+- Resize handles show only when a single note is selected.
+- Pages from before this update show **Please reload** when they join a session.
+
 ## [0.6.2] - 2026-10-03
 
 ### Added

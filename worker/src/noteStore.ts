@@ -62,12 +62,20 @@ interface NoteRow extends Record<string, SqlStorageValue> {
 const COLUMNS =
   "id, x, y, w, h, text, color, font_size, bold, italic, text_color, align, title_align, title_font_size, title_bold, title_italic, title_text_color, rev, author_id";
 
+/** Runs `fn` as one SQLite transaction (the Durable Object's transactionSync). */
+export type Transact = (fn: () => void) => void;
+
 export class NoteStore {
   /** Rows written by this instance. Tests use it to prove drags and resizes don't write. */
   rowsWritten = 0;
+  /** Batch transactions committed by this instance (tests check a final batch is one). */
+  transactions = 0;
   private cache: Map<string, Note> | null = null;
 
-  constructor(private readonly sql: SqlStorage) {
+  constructor(
+    private readonly sql: SqlStorage,
+    private readonly transact: Transact = (fn) => fn(),
+  ) {
     this.migrate();
   }
 
@@ -172,6 +180,27 @@ export class NoteStore {
 
   /** Saves a changed note (everything but its id and author). Keeps its place in creation order. */
   update(note: Note): void {
+    this.writeUpdate(note);
+    this.notes().set(note.id, note);
+  }
+
+  /**
+   * A final batch: every update and delete in one transaction, so it lands whole or not at all.
+   * The cache changes only once it has committed.
+   */
+  applyBatch(updates: readonly Note[], deletes: readonly string[]): void {
+    if (updates.length === 0 && deletes.length === 0) return;
+    this.transact(() => {
+      for (const note of updates) this.writeUpdate(note);
+      for (const id of deletes) this.write("DELETE FROM notes WHERE id = ?", id);
+    });
+    this.transactions += 1;
+    const cache = this.notes();
+    for (const note of updates) cache.set(note.id, note);
+    for (const id of deletes) cache.delete(id);
+  }
+
+  private writeUpdate(note: Note): void {
     this.write(
       `UPDATE notes SET x = ?, y = ?, w = ?, h = ?, text = ?, color = ?, font_size = ?, bold = ?, italic = ?, text_color = ?, align = ?, title_align = ?,
        title_font_size = ?, title_bold = ?, title_italic = ?, title_text_color = ?, rev = ?
@@ -179,7 +208,6 @@ export class NoteStore {
       ...values(note).slice(1, -1),
       note.id,
     );
-    this.notes().set(note.id, note);
   }
 
   delete(id: string): void {

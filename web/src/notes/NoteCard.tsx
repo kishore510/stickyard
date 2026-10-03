@@ -2,6 +2,7 @@ import { createContext, memo, useContext, useEffect, useRef, type KeyboardEvent,
 import { NodeResizer, type NodeProps } from "@xyflow/react";
 import { NOTE_MAX_H, NOTE_MAX_W, NOTE_MIN_H, NOTE_MIN_W, type NoteRect } from "@stickyard/shared";
 import type { NoteFlowNode } from "../canvas/nodes";
+import { noteClick } from "../canvas/pointer";
 import { cn } from "../lib/utils";
 import type { BoardNote } from "./board";
 import { NOTE_COLOR_CLASSES } from "./colours";
@@ -28,9 +29,17 @@ export interface NoteActions {
   revealNote(id: string): void;
   /** Selects just this note (clicks and keyboard focus). */
   selectNote(id: string): void;
+  /** Shift/Ctrl-click: adds the note to the selection or takes it out (md and up). */
+  toggleNote(id: string): void;
   clearSelection(): void;
   /** False while the Hand tool is on: touch taps don't edit (a double-click still does). */
   canTapEdit(): boolean;
+  /** The whole selection when this note is one of several selected, else null. */
+  groupOf(id: string): string[] | null;
+  /** Arrow keys on a multi-selection: moves it all (clamped as a group), committed shortly after. */
+  moveSelection(dx: number, dy: number): void;
+  /** Delete on a multi-selection: asks first if any has text. */
+  deleteSelection(): void;
 }
 
 /** Stable for the life of the board (the provider's value never changes), so notes don't re-render for it. */
@@ -55,6 +64,8 @@ export function NoteCard({ entry, editable, selected }: { entry: BoardNote; edit
   const hasBody = note.text.includes("\n");
   const pending = entry.confirmed === null;
   const pointerType = useRef("mouse");
+  /** A press is focusing this note: the click (or drag) decides the selection, not the focus. */
+  const pressing = useRef(false);
   const keyCommit = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const latest = useRef(note);
   latest.current = note;
@@ -73,6 +84,7 @@ export function NoteCard({ entry, editable, selected }: { entry: BoardNote; edit
       return;
     }
     if (!editable) return;
+    const group = actions.groupOf(note.id);
     const step = e.shiftKey ? KEY_STEP_BIG : KEY_STEP;
     const delta: Record<string, [number, number]> = {
       ArrowLeft: [-step, 0],
@@ -81,8 +93,9 @@ export function NoteCard({ entry, editable, selected }: { entry: BoardNote; edit
       ArrowDown: [0, step],
     };
     if (e.altKey && delta[e.key]) {
-      // Alt+arrows resize (top-left fixed). Not Ctrl or Meta: those belong to the browser.
+      // Alt+arrows resize (top-left fixed), one note at a time. Not Ctrl or Meta: those belong to the browser.
       e.preventDefault();
+      if (group) return;
       const rect = keyResize(note, e.key, e.shiftKey);
       if (pending || !rect || !actions.startResize(note.id)) return;
       actions.resizeNote(note.id, rect, false);
@@ -92,6 +105,12 @@ export function NoteCard({ entry, editable, selected }: { entry: BoardNote; edit
       return;
     }
     const move = delta[e.key];
+    if (move && group) {
+      e.preventDefault();
+      actions.moveSelection(move[0], move[1]);
+      actions.revealNote(note.id);
+      return;
+    }
     if (move) {
       e.preventDefault();
       if (pending) return;
@@ -108,7 +127,8 @@ export function NoteCard({ entry, editable, selected }: { entry: BoardNote; edit
     }
     if (e.key === "Delete" || e.key === "Backspace") {
       e.preventDefault();
-      if (confirmDelete(note.text)) actions.deleteNote(note.id);
+      if (group) actions.deleteSelection();
+      else if (confirmDelete(note.text)) actions.deleteNote(note.id);
     }
   };
 
@@ -125,14 +145,26 @@ export function NoteCard({ entry, editable, selected }: { entry: BoardNote; edit
       data-note-id={note.id}
       onPointerDown={(e: PointerEvent<HTMLDivElement>) => {
         pointerType.current = e.pointerType || "mouse";
+        pressing.current = true;
       }}
       // React Flow swallows the click that ends a drag, so these only see taps and clicks.
-      onClick={() => {
+      onClick={(e) => {
+        pressing.current = false;
+        if (noteClick(e) === "toggle") return actions.toggleNote(note.id);
         actions.selectNote(note.id);
         if (pointerType.current !== "mouse" && actions.canTapEdit()) edit();
       }}
       onDoubleClick={edit}
+      onBlur={() => {
+        pressing.current = false;
+      }}
       onFocus={(e) => {
+        // Focus from a press: the click (or the drag) picks the selection, so a Shift-click or a
+        // drag of a multi-selection doesn't collapse it first. Keyboard focus selects.
+        if (pressing.current) {
+          pressing.current = false;
+          return;
+        }
         actions.selectNote(note.id);
         // Keyboard focus only: a press that starts a drag mustn't pan the view.
         let keyboard = false;

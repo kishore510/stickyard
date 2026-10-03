@@ -17,7 +17,7 @@ Draft roadmap. When a slice starts, rewrite its prompt against the real code (se
 | 2.7 Note size, colour and text style | Resize notes (per-note size, resize handles, Width/Height); change a note's colour; text style (size, bold, italic, text colour, left/centre/right). Protocol v4 + stored-schema migration (1 -> 2) | Done (v0.6.0) |
 | 2.7.1 Title alignment | Separate alignment for a note's title and body. Protocol v5 + stored-schema migration (2 -> 3) | Done (v0.6.1) |
 | 2.7.2 Title styling | Separate size, bold, italic and text colour for a note's title and body. Protocol v6 + stored-schema migration (3 -> 4) | Done (v0.6.2) |
-| 2.8 Multi-select and arrange | Marquee and multi-select, floating selection bar (align, distribute, match size), group move/delete, batch update message. Protocol v7 | Not started |
+| 2.8 Multi-select and arrange | Marquee and multi-select, floating selection bar (align, distribute, match size), group move/delete, batch update message. Protocol v7 | Done (v0.7.0) |
 | 3 Presence | Live cursors (throttled, never stored), join/leave toasts, avatar stack. Protocol v8 | Not started |
 | 4 Reconnect | Resync after drops, offline queue | Not started |
 | 5 Persistence | Room expiry and clear messaging (basic note persistence exists since slice 2) | Not started |
@@ -101,7 +101,9 @@ Draft roadmap. When a slice starts, rewrite its prompt against the real code (se
 - Notes gain `titleFontSize`, `titleBold`, `titleItalic`, `titleTextColor`; `fontSize`, `bold`, `italic`, `textColor` are now the body's. Stored schema 3 -> 4; existing titles copy the note's existing style, so nothing looks different. Properties and the phone editor get a Title text and a Body text section with the same fields.
 - Worst-case snapshot is now 401,829 bytes (about 120 KiB under the 512 KiB cap; see LIMITS.md).
 
-### 2.8 Multi-select and arrange (protocol v7)
+### 2.8 Multi-select and arrange (protocol v7) — done, v0.7.0
+- Built as planned below, mouse-first: left-drag on empty canvas is a marquee, right/middle drag pans, touch and pen still pan (decided by pointer type). One `noteBatch` message (move/resize/delete entries, 50 a batch) with per-entry errors; final batches in one transaction; a separate per-socket entries budget. Editing colour or style for several notes at once is not in it (fields show Mixed, disabled). See CLAUDE.md "Multi-select and protocol v7".
+
 - Selection set from 2.6 becomes real: marquee on the Select tool, Shift/Ctrl-click to toggle, Ctrl+A. Dragging one selected note moves the whole selection.
 - Floating selection bar at the top of the canvas, like Chalkline: Align (left, centre, right, top, middle, bottom), Distribute (horizontal, vertical), Match size (width, height, both). Pure, tested layout functions.
 - Properties panel shows "N selected" with delete (confirm) and mixed-value display.

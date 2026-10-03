@@ -1,4 +1,5 @@
 import {
+  MAX_BATCH_ENTRIES,
   MAX_NOTES_PER_ROOM,
   MAX_SERVER_MESSAGE_BYTES,
   PROTOCOL_VERSION,
@@ -9,6 +10,7 @@ import {
   parseMessage,
   serverMessageSchema,
   type ClientMessage,
+  type NoteBatchEntry,
   type NoteColor,
   type NoteRect,
   type Participant,
@@ -106,6 +108,11 @@ export const MAX_MESSAGES = 100;
 export const MOVE_INTERVAL_MS = 50;
 /** Resize updates likewise: at most about 20 a second per note, then once on release. */
 export const RESIZE_INTERVAL_MS = 50;
+/**
+ * A group drag is sent at most this often (up to MAX_BATCH_ENTRIES notes each time, about 500
+ * entries a second at most, inside the relay's BATCH_LIMITS), then once on drop.
+ */
+export const GROUP_MOVE_INTERVAL_MS = 100;
 
 export const NOTICES = {
   full: `The board is full (${MAX_NOTES_PER_ROOM} notes). Delete a note to add another.`,
@@ -152,6 +159,9 @@ export class RoomSession {
   private readonly resizes = new Map<string, Throttle>();
   /** Adds deleted here before the server confirmed them: delete them once it does. */
   private readonly abandoned = new Set<string>();
+  /** The group being dragged (confirmed ids), and its send throttle. */
+  private group: string[] = [];
+  private readonly groupMoves = new Map<string, Throttle>();
 
   constructor(private readonly options: SessionOptions) {}
 
@@ -322,6 +332,104 @@ export class RoomSession {
     else this.send({ type: "noteDelete", id });
   }
 
+  /** Starts dragging several notes together. False if none of them can move now. */
+  startGroupDrag(ids: readonly string[]): boolean {
+    if (!this.live) return false;
+    const movable = ids.filter((id) => !isLocalId(id) && findNote(this.view.board, id));
+    if (movable.length === 0) return false;
+    let board = this.view.board;
+    for (const id of movable) board = setDragging(board, id, true);
+    this.group = movable;
+    this.update({ board, noteNotice: null });
+    return true;
+  }
+
+  /**
+   * Moves a group here at once (positions already clamped as a group; see canvas/arrange.ts).
+   * While dragging, the first MAX_BATCH_ENTRIES notes are sent at most every
+   * GROUP_MOVE_INTERVAL_MS (the rest catch up on drop); the drop goes out as final batches of
+   * MAX_BATCH_ENTRIES (each stored on its own, not atomically across batches).
+   */
+  moveGroup(positions: readonly { id: string; x: number; y: number }[], final: boolean): void {
+    if (!this.live) return;
+    const known = positions.filter((p) => !isLocalId(p.id) && findNote(this.view.board, p.id));
+    let board = this.view.board;
+    for (const p of known) {
+      board = moveLocal(board, p.id, p.x, p.y);
+      if (final) board = setDragging(board, p.id, false);
+    }
+    this.update({ board });
+    if (final) {
+      this.stopGroup();
+      this.sendBatch(this.moveEntries(known.map((p) => p.id)), true);
+      return;
+    }
+    this.group = known.map((p) => p.id);
+    this.throttle(this.groupMoves, "group", GROUP_MOVE_INTERVAL_MS, () =>
+      this.sendBatch(this.moveEntries(this.group.slice(0, MAX_BATCH_ENTRIES)), false),
+    );
+  }
+
+  /**
+   * Arrange (align, distribute, match size): new rects for several notes, shown at once and sent
+   * as final batches. Position-only changes go as moves, size changes as resizes. False if refused.
+   */
+  applyRects(rects: readonly (NoteRect & { id: string })[]): boolean {
+    if (!this.live) return false;
+    let board = this.view.board;
+    const ops: NoteBatchEntry[] = [];
+    for (const rect of rects) {
+      const before = findNote(board, rect.id)?.note;
+      if (!before || isLocalId(rect.id)) continue;
+      board = resizeLocal(board, rect.id, rect);
+      const after = findNote(board, rect.id)?.note;
+      if (!after || after === before) continue;
+      const { id, x, y, w, h } = after;
+      ops.push(w === before.w && h === before.h ? { op: "move", id, x, y } : { op: "resize", id, x, y, w, h });
+    }
+    if (ops.length === 0) return true;
+    this.update({ board, noteNotice: null });
+    this.sendBatch(ops, true);
+    return true;
+  }
+
+  /** Deletes several notes here at once, sent as batches of deletes. */
+  deleteNotes(ids: readonly string[]): void {
+    if (!this.live) return;
+    let board = this.view.board;
+    const ops: NoteBatchEntry[] = [];
+    for (const id of ids) {
+      const entry = findNote(board, id);
+      if (!entry) continue;
+      this.stopMove(id);
+      this.stopResize(id);
+      board = deleteLocal(board, id);
+      if (entry.clientRef !== null) this.abandoned.add(entry.clientRef);
+      else ops.push({ op: "delete", id });
+    }
+    this.update({ board, noteNotice: null });
+    this.sendBatch(ops, true);
+  }
+
+  private moveEntries(ids: readonly string[]): NoteBatchEntry[] {
+    return ids.flatMap((id) => {
+      const note = findNote(this.view.board, id)?.note;
+      return note ? [{ op: "move" as const, id, x: note.x, y: note.y }] : [];
+    });
+  }
+
+  /** In chunks of MAX_BATCH_ENTRIES. */
+  private sendBatch(ops: readonly NoteBatchEntry[], final: boolean): void {
+    if (!this.live) return;
+    for (let i = 0; i < ops.length; i += MAX_BATCH_ENTRIES) this.send({ type: "noteBatch", ops: ops.slice(i, i + MAX_BATCH_ENTRIES), final });
+  }
+
+  private stopGroup(): void {
+    clearTimeout(this.groupMoves.get("group")?.timer);
+    this.groupMoves.delete("group");
+    this.group = [];
+  }
+
   /** Sends now if `interval` has passed since the last send, else once it has (the latest wins). */
   private throttle(map: Map<string, Throttle>, id: string, interval: number, sendNow: () => void): void {
     const now = Date.now();
@@ -364,6 +472,7 @@ export class RoomSession {
   private stopAllMoves(): void {
     for (const id of [...this.moves.keys()]) this.stopMove(id);
     for (const id of [...this.resizes.keys()]) this.stopResize(id);
+    this.stopGroup();
   }
 
   /** Leaves: closes the socket and reports nothing further. */
@@ -485,6 +594,23 @@ export class RoomSession {
       case "noteResized":
         return this.update({ board: applyResized(this.view.board, message) });
 
+      case "notesBatchApplied": {
+        // One view update for the whole batch.
+        let board = this.view.board;
+        let editingDeleted = false;
+        for (const result of message.results) {
+          if (result.type === "noteMoved") board = applyMoved(board, result);
+          else if (result.type === "noteResized") board = applyResized(board, result);
+          else {
+            this.stopMove(result.id);
+            this.stopResize(result.id);
+            editingDeleted ||= findNote(board, result.id)?.draft != null;
+            board = applyDeleted(board, result.id);
+          }
+        }
+        return this.update({ board, ...(editingDeleted ? { noteNotice: NOTICES.deletedWhileEditing } : {}) });
+      }
+
       case "noteDeleted": {
         this.stopMove(message.id);
         this.stopResize(message.id);
@@ -496,7 +622,7 @@ export class RoomSession {
       }
 
       case "error":
-        if (message.clientRef !== undefined || message.noteId !== undefined) return this.noteRefused(message);
+        if (message.clientRef !== undefined || message.noteId !== undefined || message.noteIds !== undefined) return this.noteRefused(message);
         switch (message.code) {
           case "version_mismatch":
             return this.finish("reload");
@@ -525,10 +651,12 @@ export class RoomSession {
       this.abandoned.delete(message.clientRef);
       board = rejectAdd(board, message.clientRef);
     }
-    if (message.noteId !== undefined) {
-      this.stopMove(message.noteId);
-      this.stopResize(message.noteId);
-      board = rollback(board, message.noteId);
+    // One note, or the notes a refused batch named (the rest of the batch stands). Last first, so
+    // notes deleted together go back in their old places.
+    for (const id of [...(message.noteId !== undefined ? [message.noteId] : []), ...(message.noteIds ?? [])].reverse()) {
+      this.stopMove(id);
+      this.stopResize(id);
+      board = rollback(board, id);
     }
     const noteNotice =
       message.code === "notes_full" ? NOTICES.full : message.code === "rate_limited" ? NOTICES.tooQuick : NOTICES.refused;

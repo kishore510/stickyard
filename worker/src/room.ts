@@ -1,11 +1,13 @@
 import { DurableObject } from "cloudflare:workers";
 import {
+  MAX_BATCH_ENTRIES,
   MAX_NOTES_PER_ROOM,
   MAX_PARTICIPANTS,
   NOTE_DEFAULTS,
   NOTE_EDIT_FIELDS,
   PROTOCOL_VERSION,
   clampNotePosition,
+  checkBatch,
   clampNoteRect,
   clientMessageSchema,
   cleanName,
@@ -17,12 +19,13 @@ import {
   type ClientMessage,
   type ErrorCode,
   type Note,
+  type NoteBatchResult,
   type Participant,
   type ServerMessage,
 } from "@stickyard/shared";
 import { z } from "zod";
 import { randomBase64url } from "./crypto";
-import { SOCKET_LIMITS } from "./limits";
+import { BATCH_LIMITS, SOCKET_LIMITS } from "./limits";
 import { NoteStore } from "./noteStore";
 
 /**
@@ -40,11 +43,14 @@ const socketStateSchema = z.object({
   /** Over-limit messages since `strikeAt` (the start of the current violation window). */
   strikes: z.number().int(),
   strikeAt: z.number(),
+  /** Batch entries token bucket (BATCH_LIMITS). Defaults keep sockets from before v7 readable. */
+  entryTokens: z.number().default(BATCH_LIMITS.entriesBurst),
+  entryAt: z.number().default(0),
 });
 type SocketState = z.infer<typeof socketStateSchema>;
 
 /** Which note (or pending add) an error is about, so the sender can roll back. */
-type ErrorRef = { clientRef: string } | { noteId: string } | Record<string, never>;
+type ErrorRef = { clientRef: string } | { noteId: string } | { noteIds: string[] } | Record<string, never>;
 
 const error = (code: ErrorCode, message: string, ref: ErrorRef = {}): ServerMessage => ({ type: "error", code, message, ...ref });
 
@@ -57,15 +63,30 @@ function refOf(message: ClientMessage): ErrorRef {
     case "noteResize":
     case "noteDelete":
       return { noteId: message.id };
+    case "noteBatch": {
+      // Every note the batch names (readable ids only), so the sender rolls them all back.
+      const { valid, invalidIds } = checkBatch(message.ops);
+      const noteIds = [...new Set([...valid.map((v) => v.entry.id), ...invalidIds])];
+      return noteIds.length > 0 ? { noteIds } : {};
+    }
     default:
       return {};
   }
 }
 
 type NoteMessage = Extract<ClientMessage, { type: "noteAdd" | "noteEdit" | "noteMove" | "noteResize" | "noteDelete" }>;
+type BatchMessage = Extract<ClientMessage, { type: "noteBatch" }>;
 
-/** Drags and resizes in progress: relayed (coalesced), never stored. */
-const isPreview = (message: ClientMessage) => (message.type === "noteMove" || message.type === "noteResize") && !message.final;
+/** Drags and resizes in progress (one note or a group): relayed (coalesced), never stored. */
+const isPreview = (message: ClientMessage) =>
+  (message.type === "noteMove" || message.type === "noteResize" || message.type === "noteBatch") && !message.final;
+
+/** A relayed change waiting to go out. `batch`: it came in a noteBatch, so it goes out in a notesBatchApplied. */
+interface Pending {
+  from: WebSocket;
+  message: Extract<ServerMessage, { type: "noteMoved" | "noteResized" }>;
+  batch: boolean;
+}
 
 /**
  * One instance per room, addressed by the room id from a verified code.
@@ -75,17 +96,22 @@ const isPreview = (message: ClientMessage) => (message.type === "noteMove" || me
 export class Room extends DurableObject<Env> {
   private readonly notes: NoteStore;
   /** Non-final moves and resizes waiting to be relayed, latest per note and kind. Never stored. */
-  private readonly pendingMoves = new Map<string, { from: WebSocket; message: ServerMessage }>();
+  private readonly pendingMoves = new Map<string, Pending>();
   private flushScheduled = false;
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
-    this.notes = new NoteStore(ctx.storage.sql);
+    this.notes = new NoteStore(ctx.storage.sql, (fn) => ctx.storage.transactionSync(fn));
   }
 
   /** SQLite rows written by this instance (tests check drags write nothing). */
   get rowsWritten(): number {
     return this.notes.rowsWritten;
+  }
+
+  /** Batch transactions committed by this instance (tests check a final batch is one). */
+  get transactions(): number {
+    return this.notes.transactions;
   }
 
   override async fetch(_request: Request): Promise<Response> {
@@ -98,6 +124,8 @@ export class Room extends DurableObject<Env> {
       at: Date.now(),
       strikes: 0,
       strikeAt: 0,
+      entryTokens: BATCH_LIMITS.entriesBurst,
+      entryAt: Date.now(),
     };
     pair[1].serializeAttachment(state);
     return new Response(null, { status: 101, webSocket: pair[0] });
@@ -115,21 +143,9 @@ export class Room extends DurableObject<Env> {
     state.tokens = Math.min(SOCKET_LIMITS.burst, state.tokens + ((now - state.at) / 1000) * SOCKET_LIMITS.refillPerSecond);
     state.at = now;
     if (state.tokens < 1) {
-      // Counted per window, not consecutively: a sender at twice the rate still gets closed.
-      if (now - state.strikeAt > SOCKET_LIMITS.violationWindowMs) {
-        state.strikes = 0;
-        state.strikeAt = now;
-      }
-      state.strikes += 1;
-      if (state.strikes >= SOCKET_LIMITS.maxViolations) {
-        this.leave(ws, state);
-        safeClose(ws, 1008, "Too many messages");
-        return;
-      }
-      ws.serializeAttachment(state);
       // The message is dropped. Name the note it was about (if any) so the sender can roll back.
       const dropped = parseMessage(message, clientMessageSchema);
-      send(ws, error("rate_limited", "Slow down a little.", dropped.ok ? refOf(dropped.value) : {}));
+      this.overLimit(ws, state, now, dropped.ok ? refOf(dropped.value) : {});
       return;
     }
     state.tokens -= 1;
@@ -145,7 +161,37 @@ export class Room extends DurableObject<Env> {
       );
       return;
     }
+    if (parsed.value.type === "noteBatch") {
+      // A batch is one message above; its entries also spend their own budget.
+      const entries = parsed.value.ops.length;
+      state.entryTokens = Math.min(BATCH_LIMITS.entriesBurst, state.entryTokens + ((now - state.entryAt) / 1000) * BATCH_LIMITS.entriesPerSecond);
+      state.entryAt = now;
+      if (state.entryTokens < entries) {
+        this.overLimit(ws, state, now, refOf(parsed.value));
+        return;
+      }
+      state.entryTokens -= entries;
+    }
     this.handle(ws, state, parsed.value);
+  }
+
+  /**
+   * A message over a rate budget is dropped with rate_limited (naming its notes). Violations are
+   * counted per window, not consecutively, so a sender at twice the rate still gets closed.
+   */
+  private overLimit(ws: WebSocket, state: SocketState, now: number, ref: ErrorRef): void {
+    if (now - state.strikeAt > SOCKET_LIMITS.violationWindowMs) {
+      state.strikes = 0;
+      state.strikeAt = now;
+    }
+    state.strikes += 1;
+    if (state.strikes >= SOCKET_LIMITS.maxViolations) {
+      this.leave(ws, state);
+      safeClose(ws, 1008, "Too many messages");
+      return;
+    }
+    ws.serializeAttachment(state);
+    send(ws, error("rate_limited", "Slow down a little.", ref));
   }
 
   override async webSocketClose(ws: WebSocket, code: number, _reason: string, _wasClean: boolean): Promise<void> {
@@ -221,7 +267,75 @@ export class Room extends DurableObject<Env> {
         this.handleNote(ws, state.participant, message);
         return;
       }
+
+      case "noteBatch": {
+        ws.serializeAttachment(state);
+        if (!state.participant) return send(ws, error("not_joined", "Join the room first.", refOf(message)));
+        this.handleBatch(ws, message);
+        return;
+      }
     }
+  }
+
+  /**
+   * Many moves, resizes and deletes. Each entry is checked on its own: invalid ones are named
+   * back to the sender by index (and note id) while the rest apply; a batch naming a note twice
+   * is refused whole. Unknown and deleted notes are ignored silently. Final batches are stored
+   * in one transaction (one rev bump per changed note) and sent to everyone as one
+   * notesBatchApplied; live ones (a group drag) are relayed to the others, coalesced, never stored.
+   */
+  private handleBatch(ws: WebSocket, message: BatchMessage): void {
+    const { valid, invalid, invalidIds } = checkBatch(message.ops);
+    if (invalid.length > 0) {
+      send(ws, {
+        type: "error",
+        code: "bad_message",
+        message: "Some changes could not be understood.",
+        entries: invalid,
+        ...(invalidIds.length > 0 ? { noteIds: invalidIds } : {}),
+      });
+    }
+    if (!message.final) {
+      for (const { entry } of valid) {
+        // Deletes are never previews; a live batch only moves and resizes.
+        if (entry.op === "delete") continue;
+        const current = this.notes.get(entry.id);
+        if (!current) continue;
+        const relayed: Pending["message"] =
+          entry.op === "move"
+            ? { type: "noteMoved", id: current.id, ...clampNotePosition(entry.x, entry.y, current), rev: current.rev, final: false }
+            : { type: "noteResized", id: current.id, ...clampNoteRect(entry), rev: current.rev, final: false };
+        this.pendingMoves.set(`${entry.op}:${current.id}`, { from: ws, message: relayed, batch: true });
+      }
+      this.scheduleFlush();
+      return;
+    }
+    const updates: Note[] = [];
+    const deletes: string[] = [];
+    const results: NoteBatchResult[] = [];
+    for (const { entry } of valid) {
+      const current = this.notes.get(entry.id);
+      if (!current) continue;
+      if (entry.op === "delete") {
+        deletes.push(current.id);
+        results.push({ type: "noteDeleted", id: current.id });
+        continue;
+      }
+      const rect = entry.op === "move" ? { ...clampNotePosition(entry.x, entry.y, current), w: current.w, h: current.h } : clampNoteRect(entry);
+      let note = current;
+      if (rect.x !== current.x || rect.y !== current.y || rect.w !== current.w || rect.h !== current.h) {
+        note = { ...current, ...rect, rev: current.rev + 1 };
+        updates.push(note);
+      }
+      // Reported even when unchanged, so everyone who saw the drag sees where it ended.
+      results.push(
+        entry.op === "move"
+          ? { type: "noteMoved", id: note.id, x: note.x, y: note.y, rev: note.rev, final: true }
+          : { type: "noteResized", id: note.id, x: note.x, y: note.y, w: note.w, h: note.h, rev: note.rev, final: true },
+      );
+    }
+    this.notes.applyBatch(updates, deletes);
+    if (results.length > 0) this.broadcast({ type: "notesBatchApplied", results, final: true });
   }
 
   /**
@@ -294,6 +408,7 @@ export class Room extends DurableObject<Env> {
           this.pendingMoves.set(`move:${current.id}`, {
             from: ws,
             message: { type: "noteMoved", id: current.id, x, y, rev: current.rev, final: false },
+            batch: false,
           });
           this.scheduleFlush();
           return;
@@ -317,6 +432,7 @@ export class Room extends DurableObject<Env> {
           this.pendingMoves.set(`resize:${current.id}`, {
             from: ws,
             message: { type: "noteResized", id: current.id, ...rect, rev: current.rev, final: false },
+            batch: false,
           });
           this.scheduleFlush();
           return;
@@ -351,10 +467,16 @@ export class Room extends DurableObject<Env> {
     if (this.pendingMoves.size === 0) return;
     const pending = [...this.pendingMoves.values()];
     this.pendingMoves.clear();
-    for (const { from, message } of pending) {
-      // A note deleted since then is not moved or resized.
-      if ((message.type === "noteMoved" || message.type === "noteResized") && !this.notes.get(message.id)) continue;
-      this.broadcast(message, from);
+    // A note deleted since then is not moved or resized.
+    const live = pending.filter(({ message }) => this.notes.get(message.id));
+    for (const { from, message } of live.filter((p) => !p.batch)) this.broadcast(message, from);
+    // Group drags go out as one notesBatchApplied per sender (in chunks of MAX_BATCH_ENTRIES).
+    const bySender = new Map<WebSocket, Pending["message"][]>();
+    for (const { from, message } of live.filter((p) => p.batch)) bySender.set(from, [...(bySender.get(from) ?? []), message]);
+    for (const [from, results] of bySender) {
+      for (let i = 0; i < results.length; i += MAX_BATCH_ENTRIES) {
+        this.broadcast({ type: "notesBatchApplied", results: results.slice(i, i + MAX_BATCH_ENTRIES), final: false }, from);
+      }
     }
   }
 

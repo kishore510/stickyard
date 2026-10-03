@@ -32,6 +32,12 @@ import { NOTE_FONT_SIZE_NAMES, NOTE_TEXT_COLOR_NAMES, NOTE_TEXT_COLOR_SWATCHES, 
  */
 
 export const READ_ONLY = "Read only while disconnected.";
+/** Shown for a value that differs between the selected notes. */
+export const MIXED = "Mixed";
+
+/** Fields whose values differ between the selected notes (several selected: read-only). */
+export type MixedFields = ReadonlySet<string>;
+const NONE: MixedFields = new Set();
 
 export function Section({ title, children, id }: { title: string; children: ReactNode; id?: string }) {
   return (
@@ -94,16 +100,27 @@ function SwatchGroup({ label, groupLabel = label, current, children }: { label: 
   );
 }
 
-export function ColourSection({ note, live, onStyle }: { note: Note; live: boolean; onStyle: (change: StylePatch) => void }) {
+export function ColourSection({
+  note,
+  live,
+  onStyle,
+  mixed = NONE,
+}: {
+  note: Note;
+  live: boolean;
+  onStyle: (change: StylePatch) => void;
+  mixed?: MixedFields;
+}) {
+  const isMixed = mixed.has("color");
   return (
     <Section title="Colour">
-      <SwatchGroup label="Note colour" current={NOTE_COLOR_NAMES[note.color]}>
+      <SwatchGroup label="Note colour" current={isMixed ? MIXED : NOTE_COLOR_NAMES[note.color]}>
         {NOTE_COLORS.map((key) => (
           <Swatch
             key={key}
             label={NOTE_COLOR_NAMES[key]}
             fill={NOTE_COLOR_CLASSES[key]}
-            pressed={key === note.color}
+            pressed={!isMixed && key === note.color}
             disabled={!live}
             onClick={() => onStyle({ color: key })}
           />
@@ -128,7 +145,7 @@ function FieldRow({ label, children }: { label: string; children: ReactNode }) {
 }
 
 /** One part's alignment, as Chalkline's alignment radio group. */
-function AlignGroup({ part, value, live, onChange }: { part: NotePart; value: NoteAlign; live: boolean; onChange: (key: NoteAlign) => void }) {
+function AlignGroup({ part, value, live, onChange }: { part: NotePart; value: NoteAlign | null; live: boolean; onChange: (key: NoteAlign) => void }) {
   return (
     <FieldRow label="Align">
       <div role="radiogroup" aria-label={`${PART_NAMES[part]} alignment`} className="flex gap-xs">
@@ -153,7 +170,19 @@ function AlignGroup({ part, value, live, onChange }: { part: NotePart; value: No
   );
 }
 
-function ToggleButton({ label, icon, pressed, disabled, onPress }: { label: string; icon: ReactNode; pressed: boolean; disabled: boolean; onPress: () => void }) {
+function ToggleButton({
+  label,
+  icon,
+  pressed,
+  disabled,
+  onPress,
+}: {
+  label: string;
+  icon: ReactNode;
+  pressed: boolean | "mixed";
+  disabled: boolean;
+  onPress: () => void;
+}) {
   return (
     <Button
       variant="ghost"
@@ -163,7 +192,7 @@ function ToggleButton({ label, icon, pressed, disabled, onPress }: { label: stri
       aria-pressed={pressed}
       disabled={disabled}
       onClick={onPress}
-      className="aria-pressed:bg-accent-subtle aria-pressed:text-accent"
+      className={cn("aria-pressed:bg-accent-subtle aria-pressed:text-accent", pressed === "mixed" && "border border-dashed border-accent")}
     >
       {icon}
     </Button>
@@ -174,10 +203,23 @@ function ToggleButton({ label, icon, pressed, disabled, onPress }: { label: stri
  * One part's text style (the title's or the body's): Size, Bold and Italic, Alignment and text
  * colour, as Chalkline's Text section. Both parts use the same fields, so they look alike.
  */
-export function PartTextSection({ part, note, live, onStyle }: { part: NotePart; note: Note; live: boolean; onStyle: (change: StylePatch) => void }) {
+export function PartTextSection({
+  part,
+  note,
+  live,
+  onStyle,
+  mixed = NONE,
+}: {
+  part: NotePart;
+  note: Note;
+  live: boolean;
+  onStyle: (change: StylePatch) => void;
+  mixed?: MixedFields;
+}) {
   const sizeId = useId();
   const style = partStyle(note, part);
   const fields = PART_FIELDS[part];
+  const differs = (key: keyof typeof fields) => mixed.has(fields[key]);
   const name = PART_NAMES[part];
   const lower = name.toLowerCase();
   return (
@@ -189,7 +231,7 @@ export function PartTextSection({ part, note, live, onStyle }: { part: NotePart;
         <select
           id={sizeId}
           name={fields.fontSize}
-          value={style.fontSize}
+          value={differs("fontSize") ? "mixed" : style.fontSize}
           disabled={!live}
           onChange={(e) => {
             const key = NOTE_FONT_SIZES.find((k) => k === e.target.value);
@@ -200,6 +242,11 @@ export function PartTextSection({ part, note, live, onStyle }: { part: NotePart;
             "disabled:cursor-not-allowed disabled:bg-surface-muted disabled:opacity-50",
           )}
         >
+          {differs("fontSize") && (
+            <option value="mixed" disabled>
+              {MIXED}
+            </option>
+          )}
           {NOTE_FONT_SIZES.map((key) => (
             <option key={key} value={key}>
               {NOTE_FONT_SIZE_NAMES[key]}
@@ -209,18 +256,30 @@ export function PartTextSection({ part, note, live, onStyle }: { part: NotePart;
       </div>
       <FieldRow label="Style">
         <div role="group" aria-label={`${name} text style`} className="flex gap-xs">
-          <ToggleButton label={`Bold ${lower}`} icon={<Bold />} pressed={style.bold} disabled={!live} onPress={() => onStyle({ [fields.bold]: !style.bold })} />
-          <ToggleButton label={`Italic ${lower}`} icon={<Italic />} pressed={style.italic} disabled={!live} onPress={() => onStyle({ [fields.italic]: !style.italic })} />
+          <ToggleButton
+            label={`Bold ${lower}`}
+            icon={<Bold />}
+            pressed={differs("bold") ? "mixed" : style.bold}
+            disabled={!live}
+            onPress={() => onStyle({ [fields.bold]: !style.bold })}
+          />
+          <ToggleButton
+            label={`Italic ${lower}`}
+            icon={<Italic />}
+            pressed={differs("italic") ? "mixed" : style.italic}
+            disabled={!live}
+            onPress={() => onStyle({ [fields.italic]: !style.italic })}
+          />
         </div>
       </FieldRow>
-      <AlignGroup part={part} value={style.align} live={live} onChange={(key) => onStyle({ [fields.align]: key })} />
-      <SwatchGroup label="Text colour" groupLabel={`${name} text colour`} current={NOTE_TEXT_COLOR_NAMES[style.textColor]}>
+      <AlignGroup part={part} value={differs("align") ? null : style.align} live={live} onChange={(key) => onStyle({ [fields.align]: key })} />
+      <SwatchGroup label="Text colour" groupLabel={`${name} text colour`} current={differs("textColor") ? MIXED : NOTE_TEXT_COLOR_NAMES[style.textColor]}>
         {NOTE_TEXT_COLORS.map((key) => (
           <Swatch
             key={key}
             label={NOTE_TEXT_COLOR_NAMES[key]}
             fill={NOTE_TEXT_COLOR_SWATCHES[key]}
-            pressed={key === style.textColor}
+            pressed={!differs("textColor") && key === style.textColor}
             disabled={!live}
             onClick={() => onStyle({ [fields.textColor]: key })}
           />
@@ -239,6 +298,7 @@ function SizeField({
   max,
   disabled,
   onCommit,
+  mixed = false,
 }: {
   label: string;
   name: string;
@@ -246,6 +306,8 @@ function SizeField({
   min: number;
   max: number;
   disabled: boolean;
+  /** Differs between the selected notes: empty, with "Mixed" as its placeholder. */
+  mixed?: boolean;
   /** The clamped value, or null to put the field back. */
   onCommit: (raw: string) => number | null;
 }) {
@@ -269,7 +331,8 @@ function SizeField({
         min={min}
         max={max}
         step={1}
-        value={draft}
+        value={mixed ? "" : draft}
+        placeholder={mixed ? MIXED : undefined}
         disabled={disabled}
         onChange={(e) => setDraft(e.target.value)}
         onBlur={commit}
@@ -284,7 +347,17 @@ function SizeField({
   );
 }
 
-export function SizeSection({ note, live, onSize }: { note: Note; live: boolean; onSize: (w: number, h: number) => void }) {
+export function SizeSection({
+  note,
+  live,
+  onSize,
+  mixed = NONE,
+}: {
+  note: Note;
+  live: boolean;
+  onSize: (w: number, h: number) => void;
+  mixed?: MixedFields;
+}) {
   const commit = (axis: "w" | "h") => (raw: string) => {
     const value = sizeFieldValue(raw, axis, note);
     if (value === null) return null;
@@ -294,11 +367,13 @@ export function SizeSection({ note, live, onSize }: { note: Note; live: boolean;
   return (
     <Section title="Size">
       <div className="flex gap-ms">
-        <SizeField label="Width" name="width" value={note.w} min={NOTE_MIN_W} max={NOTE_MAX_W} disabled={!live} onCommit={commit("w")} />
-        <SizeField label="Height" name="height" value={note.h} min={NOTE_MIN_H} max={NOTE_MAX_H} disabled={!live} onCommit={commit("h")} />
+        <SizeField label="Width" name="width" value={note.w} min={NOTE_MIN_W} max={NOTE_MAX_W} disabled={!live} mixed={mixed.has("w")} onCommit={commit("w")} />
+        <SizeField label="Height" name="height" value={note.h} min={NOTE_MIN_H} max={NOTE_MAX_H} disabled={!live} mixed={mixed.has("h")} onCommit={commit("h")} />
       </div>
       <p className="text-xs text-fg-muted">
-        {NOTE_MIN_W} to {NOTE_MAX_W}. Or drag a corner of the selected note; Alt and arrow keys resize it from the keyboard.
+        {mixed === NONE
+          ? `${NOTE_MIN_W} to ${NOTE_MAX_W}. Or drag a corner of the selected note; Alt and arrow keys resize it from the keyboard.`
+          : "To give several notes the same size, use Match size in the bar at the top of the board."}
       </p>
     </Section>
   );

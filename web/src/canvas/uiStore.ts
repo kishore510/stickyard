@@ -5,7 +5,9 @@ import {
   clearSelection,
   pruneSelection,
   renameInSelection,
+  selectAll,
   selectOnly,
+  toggleSelected,
   type Selection,
 } from "./selection";
 import type { Mode } from "./tools";
@@ -23,7 +25,7 @@ interface BoardUi {
   color: NoteColor;
   /** null: the default for the layout (shown from md up, hidden on phones). */
   minimap: boolean | null;
-  /** Selected note ids (zero or one for now; see selection.ts). */
+  /** Selected note ids, in the order they were selected (see selection.ts). */
   selection: Selection;
   /** Asks the note editor to take focus (Properties' Title from md up). `n` makes each request new. */
   editRequest: { id: string; n: number } | null;
@@ -33,6 +35,10 @@ interface BoardUi {
   setColor(color: NoteColor): void;
   setMinimap(shown: boolean): void;
   select(id: string): void;
+  /** Shift/Ctrl-click: adds the note or takes it out. */
+  toggle(id: string): void;
+  setSelection(selection: Selection): void;
+  selectAll(ids: Iterable<string>): void;
   clearSelection(): void;
   /** A note got its server id. */
   renameSelected(from: string, to: string): void;
@@ -55,6 +61,11 @@ export const useBoardUi = create<BoardUi>()((set, get) => ({
   setColor: (color) => set({ color }),
   setMinimap: (minimap) => set({ minimap }),
   select: (id) => set({ selection: selectOnly(get().selection, id) }),
+  toggle: (id) => set({ selection: toggleSelected(get().selection, id) }),
+  setSelection: (selection) => {
+    if (selection !== get().selection) set({ selection });
+  },
+  selectAll: (ids) => set({ selection: selectAll(ids) }),
   clearSelection: () => set({ selection: clearSelection(get().selection) }),
   renameSelected: (from, to) => {
     const { selection, editRequest } = get();

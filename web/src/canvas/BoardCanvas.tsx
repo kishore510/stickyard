@@ -5,11 +5,16 @@ import { readPxToken } from "../lib/cssVar";
 import { useMediaQuery } from "../lib/useMediaQuery";
 import { cn } from "../lib/utils";
 import { findNote, type Board } from "../notes/board";
+import { confirmDelete } from "../notes/label";
 import { DEFAULT_NOTE_SIZE, noteSize } from "../notes/size";
 import { NoteActionsContext, NoteHelpContext, NoteNode, type NoteActions } from "../notes/NoteCard";
+import { groupOffset } from "./arrange";
 import { MAX_ZOOM, MIN_ZOOM, WHEEL_BEHAVIOUR, dragThreshold, panExtent } from "./geometry";
 import { createDragHandlers, createNoteNodeMapper, type CanvasNode } from "./nodes";
+import { dragSelection } from "./pointer";
+import { orderedIds } from "./selection";
 import { useBoardUi } from "./uiStore";
+import { useMarquee } from "./useMarquee";
 import type { CanvasView } from "./useCanvasView";
 
 /** The board's bounded area under the notes: the dot grid, with a visible edge. */
@@ -28,6 +33,13 @@ const BOARD_EXTENT: [[number, number], [number, number]] = [
 const minimapColour = (node: CanvasNode) =>
   node.type === "board" ? "var(--sy-board)" : `var(--sy-note-${node.data.entry.note.color})`;
 
+/** After the last arrow key press on a selection, its position is committed (stored) this much later. */
+const KEY_COMMIT_MS = 400;
+
+/** Whether a key press belongs to a field (so Ctrl+A and Escape there are the field's). */
+const inField = (target: EventTarget | null) =>
+  target instanceof Element && target.closest('input, textarea, select, [contenteditable="true"]') !== null;
+
 /** Whether a key press belongs to a field or control (so Space there isn't a pan). */
 const ownsSpace = (target: EventTarget | null) =>
   target instanceof Element && target.closest('input, textarea, select, button, a, [role="button"], [contenteditable="true"]') !== null;
@@ -40,6 +52,9 @@ export interface BoardRoom {
   resizeNote(id: string, rect: NoteRect, final: boolean): void;
   openEditor(id: string): void;
   deleteNote(id: string): void;
+  startGroupDrag(ids: readonly string[]): boolean;
+  moveGroup(positions: readonly { id: string; x: number; y: number }[], final: boolean): void;
+  deleteNotes(ids: readonly string[]): void;
 }
 
 /**
@@ -50,6 +65,7 @@ export interface BoardRoom {
 export function BoardCanvas({
   room,
   editable,
+  multiSelect,
   synced,
   minimap,
   minimapLifted,
@@ -57,6 +73,8 @@ export function BoardCanvas({
 }: {
   room: BoardRoom;
   editable: boolean;
+  /** Several notes can be selected (md and up): marquee, Shift/Ctrl-click, Ctrl+A, group moves. */
+  multiSelect: boolean;
   /** The snapshot has arrived: fit to the notes once. */
   synced: boolean;
   minimap: boolean;
@@ -71,6 +89,11 @@ export function BoardCanvas({
   const panOnly = tool === "hand" || spaceHeld;
   const latest = useRef(room);
   latest.current = room;
+  const multi = useRef(multiSelect);
+  multi.current = multiSelect;
+  const sectionRef = useRef<HTMLElement>(null);
+  const keyCommit = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  useEffect(() => () => clearTimeout(keyCommit.current), []);
 
   const map = useMemo(createNoteNodeMapper, []);
   const nodes = useMemo(() => map(room.board, editable, !panOnly, selection), [map, room.board, editable, panOnly, selection]);
@@ -83,6 +106,19 @@ export function BoardCanvas({
           const entry = findNote(latest.current.board, id);
           return entry ? noteSize(entry.note) : DEFAULT_NOTE_SIZE;
         },
+        groupFor: (id) => {
+          if (!multi.current) return [id];
+          const ui = useBoardUi.getState();
+          const selection = dragSelection(ui.selection, id);
+          ui.setSelection(selection);
+          return orderedIds(selection);
+        },
+        rectOf: (id) => {
+          const note = findNote(latest.current.board, id)?.note;
+          return note ? { x: note.x, y: note.y, w: note.w, h: note.h } : null;
+        },
+        startGroupDrag: (ids) => latest.current.startGroupDrag(ids),
+        moveGroup: (positions, final) => latest.current.moveGroup(positions, final),
       }),
     [],
   );
@@ -98,8 +134,38 @@ export function BoardCanvas({
         if (entry) view.reveal(entry.note);
       },
       selectNote: (id) => useBoardUi.getState().select(id),
+      toggleNote: (id) => {
+        if (multi.current) useBoardUi.getState().toggle(id);
+        else useBoardUi.getState().select(id);
+      },
       clearSelection: () => useBoardUi.getState().clearSelection(),
       canTapEdit: () => useBoardUi.getState().tool === "select",
+      groupOf: (id) => {
+        const { selection } = useBoardUi.getState();
+        return selection.size > 1 && selection.has(id) ? orderedIds(selection) : null;
+      },
+      moveSelection: (dx, dy) => {
+        const room = latest.current;
+        const notes = orderedIds(useBoardUi.getState().selection).flatMap((id) => findNote(room.board, id)?.note ?? []);
+        if (notes.length === 0 || !room.startGroupDrag(notes.map((n) => n.id))) return;
+        const offset = groupOffset(notes, dx, dy);
+        const positions = notes.map((n) => ({ id: n.id, x: n.x + offset.dx, y: n.y + offset.dy }));
+        room.moveGroup(positions, false);
+        clearTimeout(keyCommit.current);
+        keyCommit.current = setTimeout(() => {
+          const now = latest.current;
+          const ids = positions.map((p) => p.id);
+          now.moveGroup(ids.flatMap((id) => findNote(now.board, id)?.note ?? []).map((n) => ({ id: n.id, x: n.x, y: n.y })), true);
+        }, KEY_COMMIT_MS);
+      },
+      deleteSelection: () => {
+        const room = latest.current;
+        const ids = orderedIds(useBoardUi.getState().selection);
+        const text = ids.map((id) => findNote(room.board, id)?.note.text ?? "").join("");
+        if (!confirmDelete(text)) return;
+        room.deleteNotes(ids);
+        useBoardUi.getState().clearSelection();
+      },
     }),
     [view],
   );
@@ -145,6 +211,21 @@ export function BoardCanvas({
     };
   }, []);
 
+  // Ctrl+A (Cmd+A) selects every note and Escape clears the selection, outside fields and sheets.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.defaultPrevented || inField(e.target) || document.querySelector('[aria-modal="true"]')) return;
+      if (multi.current && (e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === "a") {
+        e.preventDefault();
+        useBoardUi.getState().selectAll(latest.current.board.notes.map((n) => n.note.id));
+        return;
+      }
+      if (e.key === "Escape" && useBoardUi.getState().selection.size > 0) useBoardUi.getState().clearSelection();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
   // iOS Safari ignores touch-action for page zoom; block its pinch while the board is open.
   useEffect(() => {
     const block = (e: Event) => e.preventDefault();
@@ -154,13 +235,27 @@ export function BoardCanvas({
 
   const coarse = useMediaQuery("(pointer: coarse)");
   const threshold = dragThreshold(coarse);
+  const marquee = useMarquee({
+    section: sectionRef,
+    enabled: multiSelect,
+    tool,
+    spaceHeld,
+    threshold,
+    notes: () => latest.current.board.notes.map((n) => n.note),
+  });
   const minimapSize = useMemo(
     () => ({ width: readPxToken("--sy-minimap-width", 200), height: readPxToken("--sy-minimap-height", 125) }),
     [],
   );
 
   return (
-    <section aria-label="Board" className={cn("absolute inset-0", panOnly && "[&_.react-flow__pane]:cursor-grab")}>
+    <section
+      ref={sectionRef}
+      aria-label="Board"
+      className={cn("absolute inset-0", panOnly && "[&_.react-flow__pane]:cursor-grab")}
+      // Right-drag pans, so the browser's menu stays away from the canvas.
+      onContextMenu={(e) => e.preventDefault()}
+    >
       <p id={helpId} className="sr-only">
         {editable
           ? "Press Enter to edit, arrow keys to move, Alt and arrow keys to resize (Shift for bigger steps), Delete to delete."
@@ -174,8 +269,15 @@ export function BoardCanvas({
             onNodesChange={drag.onNodesChange}
             onNodeDragStart={(_, node) => drag.onNodeDragStart(node)}
             onNodeDragStop={(_, node) => drag.onNodeDragStop(node)}
-            // A click on empty space (the board or around it) clears the selection.
-            onPaneClick={() => useBoardUi.getState().clearSelection()}
+            // A click on empty space (the board or around it) clears the selection. A mouse press
+            // there was already handled by the marquee (useMarquee); taps come through here.
+            onPaneClick={() => {
+              if (marquee.handledClick.current) {
+                marquee.handledClick.current = false;
+                return;
+              }
+              useBoardUi.getState().clearSelection();
+            }}
             nodesDraggable={editable && !panOnly}
             nodesConnectable={false}
             nodesFocusable={false}
@@ -218,6 +320,14 @@ export function BoardCanvas({
           </ReactFlow>
         </NoteActionsContext.Provider>
       </NoteHelpContext.Provider>
+      {marquee.box && (
+        <div
+          data-marquee
+          aria-hidden="true"
+          className="pointer-events-none absolute z-10 rounded-sm border border-accent bg-accent-subtle/40"
+          style={marquee.box}
+        />
+      )}
     </section>
   );
 }

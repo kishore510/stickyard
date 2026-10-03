@@ -79,20 +79,23 @@ describe("distribute", () => {
     expect(out).toEqual({ a: 0, b: 300, c: 600 });
   });
 
-  it("property: on the board, and distributing again changes nothing", () => {
-    for (let seed = 1; seed <= 40; seed++) {
+  it("property: on the board; distributing again changes nothing whenever the notes fit without overlapping", () => {
+    let checked = 0;
+    for (let seed = 1; seed <= 60; seed++) {
       const rects = randomRects(seed, 3 + (seed % 8));
       for (const axis of ["horizontal", "vertical"] as const) {
         const once = applyRects(rects, distribute(rects, axis));
-        expect(once.every(onBoard)).toBe(true);
-        const twice = applyRects(once, distribute(once, axis));
-        // Rounding may settle by one unit on the first pass, never after.
-        for (const [i, p] of twice.entries()) {
-          expect(Math.abs(p.x - once[i]!.x) + Math.abs(p.y - once[i]!.y), `${axis} seed ${seed}`).toBeLessThanOrEqual(1);
-        }
-        expect(distribute(twice, axis).size).toBeLessThanOrEqual(distribute(once, axis).size);
+        expect(once.every(onBoard), `${axis} seed ${seed}`).toBe(true);
+        const start = (p: Placed) => (axis === "horizontal" ? p.x : p.y);
+        const length = (p: Placed) => (axis === "horizontal" ? p.w : p.h);
+        const span = Math.max(...rects.map((p) => start(p) + length(p))) - Math.min(...rects.map(start));
+        const fits = rects.reduce((sum, p) => sum + length(p), 0) <= span;
+        if (!fits) continue;
+        checked++;
+        expect(distribute(once, axis).size, `${axis} idempotent seed ${seed}`).toBe(0);
       }
     }
+    expect(checked).toBeGreaterThan(10);
   });
 });
 

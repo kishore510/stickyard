@@ -1419,6 +1419,8 @@ describe("multi-select and arrange (slice 2.8, md up)", () => {
     setWide(true);
     const socket = await inRoom();
     await server(socket, { data: { type: "snapshot", notes: list } });
+    // The board is loaded on demand: wait for it.
+    for (let i = 0; i < 100 && notes().length < list.length; i++) await settle();
     return socket;
   }
   async function pointer(target: EventTarget, type: string, init: PointerEventInit) {
@@ -1471,22 +1473,26 @@ describe("multi-select and arrange (slice 2.8, md up)", () => {
     await withNotes(one, two, three);
     const pane = document.querySelector<HTMLElement>(".react-flow__pane");
     if (!pane) throw new Error("no pane");
-    await pointer(pane, "pointerdown", { clientX: 0, clientY: 0 });
-    await pointer(window, "pointermove", { clientX: 600, clientY: 600 });
+    // Board units to client pixels, through the canvas's current transform.
+    const [tx, ty, zoom] = (document.querySelector(".react-flow__viewport")?.getAttribute("style") ?? "").match(/-?[\d.]+/g)?.map(Number) ?? [0, 0, 1];
+    const at = (x: number, y: number) => ({ clientX: (tx ?? 0) + x * (zoom ?? 1), clientY: (ty ?? 0) + y * (zoom ?? 1) });
+    // From the board's top-left to just past the second note: the first two, not the third.
+    await pointer(pane, "pointerdown", at(0, 0));
+    await pointer(window, "pointermove", at(600, 500));
     expect(document.querySelector("[data-marquee]")).not.toBeNull();
-    await pointer(window, "pointerup", { clientX: 600, clientY: 600 });
+    await pointer(window, "pointerup", at(600, 500));
     await settle();
     expect(document.querySelector("[data-marquee]")).toBeNull();
     expect(selected()).toEqual([N1, N2]);
     // Shift adds to the selection.
-    await pointer(pane, "pointerdown", { clientX: 790, clientY: 90, shiftKey: true });
-    await pointer(window, "pointermove", { clientX: 850, clientY: 150, shiftKey: true });
-    await pointer(window, "pointerup", { clientX: 850, clientY: 150, shiftKey: true });
+    await pointer(pane, "pointerdown", { ...at(790, 90), shiftKey: true });
+    await pointer(window, "pointermove", { ...at(850, 150), shiftKey: true });
+    await pointer(window, "pointerup", { ...at(850, 150), shiftKey: true });
     await settle();
     expect(selected()).toEqual([N1, N2, N3]);
     // A click (no movement) on empty canvas clears it.
-    await pointer(pane, "pointerdown", { clientX: 2000, clientY: 1500 });
-    await pointer(window, "pointerup", { clientX: 2000, clientY: 1500 });
+    await pointer(pane, "pointerdown", at(2000, 1500));
+    await pointer(window, "pointerup", at(2000, 1500));
     await act(async () => pane.click());
     await settle();
     expect(selected()).toEqual([]);

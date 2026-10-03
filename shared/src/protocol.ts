@@ -9,10 +9,15 @@ import { cleanName, cleanNoteText, cleanText, codePointLength } from "./clean";
  * v5 (slice 2.7.1): titleAlign, the title's (first line's) own alignment; `align` is the body's.
  * v6 (slice 2.7.2): titleFontSize, titleBold, titleItalic, titleTextColor; fontSize, bold,
  *   italic and textColor are now the body's.
+ * v7 (slice 2.8): noteBatch (many moves, resizes and deletes in one message), notesBatchApplied,
+ *   and errors that name refused batch entries (entries, noteIds).
  */
-export const PROTOCOL_VERSION = 6;
+export const PROTOCOL_VERSION = 7;
 
-/** Hard cap on a single client-to-server WebSocket message, in UTF-8 bytes. Checked before JSON.parse. */
+/**
+ * Hard cap on a single client-to-server WebSocket message, in UTF-8 bytes. Checked before JSON.parse.
+ * A full noteBatch (50 resize entries at their longest) fits too, so it isn't raised (test checks).
+ */
 export const MAX_MESSAGE_BYTES = 4096;
 /**
  * Cap the client applies to server messages. Bigger than MAX_MESSAGE_BYTES because a
@@ -253,6 +258,67 @@ export const noteDeleteSchema = z.strictObject({
   id: noteIdSchema,
 });
 
+/* ── Batches (v7) ───────────────────────────────────────────────────── */
+
+/** Entries in one noteBatch. A selection with more is sent in chunks of this many (not atomic across chunks). */
+export const MAX_BATCH_ENTRIES = 50;
+
+/** One change in a batch, strict like the single-note messages. Values are clamped by the server. */
+export const noteBatchEntrySchema = z.discriminatedUnion("op", [
+  z.strictObject({ op: z.literal("move"), id: noteIdSchema, x: boardX, y: boardY }),
+  z.strictObject({ op: z.literal("resize"), id: noteIdSchema, x: boardX, y: boardY, w: noteW, h: noteH }),
+  z.strictObject({ op: z.literal("delete"), id: noteIdSchema }),
+]);
+export type NoteBatchEntry = z.infer<typeof noteBatchEntrySchema>;
+
+/**
+ * Many moves, resizes or deletes at once. The envelope is strict; entries are checked one by one
+ * (checkBatch), so the server can apply the good ones and name the bad ones by index.
+ * final=false is a group drag in progress (relayed, never stored); final=true is stored, in one
+ * transaction. Send entries typed as NoteBatchEntry.
+ */
+export const noteBatchSchema = z.strictObject({
+  type: z.literal("noteBatch"),
+  ops: z.array(z.unknown()).min(1).max(MAX_BATCH_ENTRIES),
+  final: z.boolean(),
+});
+
+export interface BatchCheck {
+  valid: { index: number; entry: NoteBatchEntry }[];
+  /** Indexes of refused entries, in order. */
+  invalid: number[];
+  /** The note ids of refused entries that had a readable id, so the sender can roll them back. */
+  invalidIds: string[];
+  /** Some note appears twice: the whole batch is refused. */
+  duplicate: boolean;
+}
+
+const readableId = (op: unknown): string | null => {
+  if (typeof op !== "object" || op === null || !("id" in op)) return null;
+  const parsed = noteIdSchema.safeParse(op.id);
+  return parsed.success ? parsed.data : null;
+};
+
+/** Checks each entry of a batch. A batch that names any note twice is refused whole. */
+export function checkBatch(ops: readonly unknown[]): BatchCheck {
+  const ids = ops.map(readableId);
+  const named = ids.filter((id): id is string => id !== null);
+  const duplicate = new Set(named).size !== named.length;
+  const uniqueIds = (indexes: number[]) => [...new Set(indexes.map((i) => ids[i]).filter((id): id is string => id != null))];
+  if (duplicate) {
+    const all = ops.map((_, i) => i);
+    return { valid: [], invalid: all, invalidIds: uniqueIds(all), duplicate };
+  }
+  const valid: BatchCheck["valid"] = [];
+  const invalid: number[] = [];
+  ops.forEach((op, index) => {
+    const parsed = noteBatchEntrySchema.safeParse(op);
+    if (parsed.success) valid.push({ index, entry: parsed.data });
+    else invalid.push(index);
+  });
+  return { valid, invalid, invalidIds: uniqueIds(invalid), duplicate };
+}
+
 export const clientMessageSchema = z.discriminatedUnion("type", [
   helloSchema,
   joinSchema,
@@ -262,6 +328,7 @@ export const clientMessageSchema = z.discriminatedUnion("type", [
   noteMoveSchema,
   noteResizeSchema,
   noteDeleteSchema,
+  noteBatchSchema,
 ]);
 export type ClientMessage = z.infer<typeof clientMessageSchema>;
 
@@ -302,6 +369,10 @@ export const errorMessageSchema = z.object({
   clientRef: clientRefSchema.optional(),
   /** The note a refused edit, move or delete was about, so the sender can roll it back. */
   noteId: noteIdSchema.optional(),
+  /** A refused batch's entries, by index. */
+  entries: z.array(z.number().int().min(0).max(MAX_BATCH_ENTRIES - 1)).max(MAX_BATCH_ENTRIES).optional(),
+  /** The notes those entries were about (a refused batch's notes), so the sender rolls back only those. */
+  noteIds: z.array(noteIdSchema).max(MAX_BATCH_ENTRIES).optional(),
 });
 
 /** The whole note on the board at its size. */
@@ -408,6 +479,17 @@ export const noteDeletedSchema = z.object({
   id: noteIdSchema,
 });
 
+/** One note's result in a batch: exactly what noteMoved, noteResized or noteDeleted would say. */
+export const noteBatchResultSchema = z.discriminatedUnion("type", [noteMovedSchema, noteResizedSchema, noteDeletedSchema]);
+export type NoteBatchResult = z.infer<typeof noteBatchResultSchema>;
+
+/** A batch applied: final ones go to everyone (stored, one rev bump per changed note); live ones to the others. */
+export const notesBatchAppliedSchema = z.object({
+  type: z.literal("notesBatchApplied"),
+  results: z.array(noteBatchResultSchema).min(1).max(MAX_BATCH_ENTRIES),
+  final: z.boolean(),
+});
+
 export const serverMessageSchema = z.discriminatedUnion("type", [
   welcomeSchema,
   errorMessageSchema,
@@ -421,5 +503,6 @@ export const serverMessageSchema = z.discriminatedUnion("type", [
   noteMovedSchema,
   noteResizedSchema,
   noteDeletedSchema,
+  notesBatchAppliedSchema,
 ]);
 export type ServerMessage = z.infer<typeof serverMessageSchema>;
