@@ -26,6 +26,7 @@ import {
   partTextClasses,
   textColorToken,
 } from "../src/notes/style";
+import { PLACEHOLDER_ALPHA, PLACEHOLDER_CLASS } from "../src/notes/inlineEdit";
 
 /* Style keys are never CSS: each maps to a token that exists in tokens.css (both themes for colours). */
 
@@ -124,6 +125,18 @@ describe("note text style tokens", () => {
     expect(partStyle(note, "body")).toEqual({ fontSize: "s", bold: false, italic: true, textColor: "green", align: "right" });
     expect(partTextClasses(note, "title").sort()).toEqual(["font-bold", "text-center", "text-note-text-purple", "text-note-xl"].sort());
     expect(partTextClasses(note, "body").sort()).toEqual(["italic", "text-note-s", "text-note-text-green", "text-right"].sort());
+  });
+
+  it.each(THEMES)("inline-edit placeholders are faint but readable (3:1) on every note colour in %s", (selector) => {
+    const c = theme(selector);
+    expect(PLACEHOLDER_CLASS).toBe(`placeholder:text-note-fg/${Math.round(PLACEHOLDER_ALPHA * 100)}`);
+    const fg = c["note-fg"]!;
+    const channel = (hex: string, i: number) => Number.parseInt(hex.slice(i, i + 2), 16);
+    for (const note of NOTE_COLORS) {
+      const bg = c[`note-${note}`]!;
+      const mixed = `#${[1, 3, 5].map((i) => Math.round(channel(fg, i) * PLACEHOLDER_ALPHA + channel(bg, i) * (1 - PLACEHOLDER_ALPHA)).toString(16).padStart(2, "0")).join("")}`;
+      expect(contrast(mixed, bg), `placeholder on ${note}`).toBeGreaterThanOrEqual(3);
+    }
   });
 
   it("auto is the note foreground (today's look); every key has a utility and a name", () => {
