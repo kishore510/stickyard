@@ -1,10 +1,13 @@
 import { createContext, memo, useContext, useEffect, useRef, type KeyboardEvent, type PointerEvent } from "react";
+import { useBoardUi } from "../canvas/uiStore";
 import { NodeResizer, type NodeProps } from "@xyflow/react";
 import { NOTE_MAX_H, NOTE_MAX_W, NOTE_MIN_H, NOTE_MIN_W, type NoteRect } from "@stickyard/shared";
 import type { NoteFlowNode } from "../canvas/nodes";
 import { noteClick } from "../canvas/pointer";
 import { cn } from "../lib/utils";
-import type { BoardNote } from "./board";
+import { isHeld, type BoardNote } from "./board";
+import { InlineText } from "./InlineText";
+import type { InlinePart } from "./inlineEdit";
 import { NOTE_COLOR_CLASSES } from "./colours";
 import { confirmDelete, noteLabel } from "./label";
 import { keyResize } from "./size";
@@ -17,13 +20,25 @@ const KEY_STEP_BIG = 50;
 /** After the last arrow key press, the position (or size) is committed (stored) this much later. */
 const KEY_COMMIT_MS = 400;
 
+/** How an editor was asked for: the part to start in, and whether it was a finger tap. */
+export interface EditorRequest {
+  part?: InlinePart;
+  touch?: boolean;
+}
+
 export interface NoteActions {
   moveNote(id: string, x: number, y: number, final: boolean): void;
   /** A resize handle was grabbed. False if the note can't be resized now. */
   startResize(id: string): boolean;
   resizeNote(id: string, rect: NoteRect, final: boolean): void;
-  /** Opens the note's editor: the Properties panel from md up, the editor sheet on phones. */
-  openEditor(id: string): void;
+  /** Opens the note's editor: in place (or Properties) from md up, the editor sheet on phones. */
+  openEditor(id: string, how?: EditorRequest): void;
+  /** Text typed in place. */
+  setDraft(id: string, text: string): void;
+  /** Ends editing in place, saving the draft if it changed. */
+  commitEdit(id: string): void;
+  /** Ends editing in place without saving (disconnected, or the note is held). */
+  endEdit(id: string): void;
   deleteNote(id: string): void;
   /** Pans the view to show the note, if it's off screen. */
   revealNote(id: string): void;
@@ -69,15 +84,24 @@ export function NoteCard({ entry, editable, selected }: { entry: BoardNote; edit
   const keyCommit = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const latest = useRef(note);
   latest.current = note;
+  const cardRef = useRef<HTMLDivElement>(null);
+  const inline = useBoardUi((s) => (s.inlineEdit?.id === note.id ? s.inlineEdit : null));
+  const editing = inline !== null && editable && !isHeld(entry);
 
   useEffect(() => () => clearTimeout(keyCommit.current), []);
+  // Disconnected or grabbed while editing in place: stop (the draft stays, as in Properties).
+  useEffect(() => {
+    if (inline && !editing) actions?.endEdit(note.id);
+  }, [inline, editing, actions, note.id]);
 
   if (!actions) return null;
-  const edit = () => {
-    if (editable) actions.openEditor(note.id);
+  const edit = (part?: InlinePart) => {
+    if (editable && !editing) actions.openEditor(note.id, { ...(part ? { part } : {}), touch: pointerType.current === "touch" });
   };
 
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+    // Keys typed while editing in place are the text's, never the note's.
+    if (e.target !== e.currentTarget) return;
     if (e.key === "Escape" && selected) {
       e.preventDefault();
       actions.clearSelection();
@@ -134,9 +158,11 @@ export function NoteCard({ entry, editable, selected }: { entry: BoardNote; edit
 
   return (
     <div
-      role="button"
+      ref={cardRef}
+      role={editing ? "group" : "button"}
       tabIndex={0}
       aria-roledescription="note"
+      data-editing={editing || undefined}
       aria-label={noteLabel(note)}
       aria-describedby={describedBy}
       aria-disabled={!editable || undefined}
@@ -150,15 +176,19 @@ export function NoteCard({ entry, editable, selected }: { entry: BoardNote; edit
       // React Flow swallows the click that ends a drag, so these only see taps and clicks.
       onClick={(e) => {
         pressing.current = false;
+        if (editing) return;
         if (noteClick(e) === "toggle") return actions.toggleNote(note.id);
         actions.selectNote(note.id);
         if (pointerType.current !== "mouse" && actions.canTapEdit()) edit();
       }}
-      onDoubleClick={edit}
+      // The part double-clicked gets the caret.
+      onDoubleClick={(e) => edit(e.target instanceof Element && e.target.closest("[data-note-body]") ? "body" : "title")}
       onBlur={() => {
         pressing.current = false;
       }}
       onFocus={(e) => {
+        // Focus moving into the text being edited isn't the note's.
+        if (e.target !== e.currentTarget) return;
         // Focus from a press: the click (or the drag) picks the selection, so a Shift-click or a
         // drag of a multi-selection doesn't collapse it first. Keyboard focus selects.
         if (pressing.current) {
@@ -184,8 +214,23 @@ export function NoteCard({ entry, editable, selected }: { entry: BoardNote; edit
         dragging && "cursor-grabbing shadow-lg",
         pending && "border-dashed opacity-75",
         selected && "ring-2 ring-accent ring-offset-2 ring-offset-board",
+        // Editing in place: a focus ring, a text cursor, and React Flow leaves it alone (no drag).
+        editing && "nodrag cursor-text ring-4 ring-focus ring-offset-2 ring-offset-board",
       )}
     >
+      {editing ? (
+        <InlineText
+          note={note}
+          text={entry.draft ?? note.text}
+          request={inline}
+          onDraft={(text) => actions.setDraft(note.id, text)}
+          onCommit={(refocus) => {
+            actions.commitEdit(note.id);
+            if (refocus) cardRef.current?.focus();
+          }}
+        />
+      ) : (
+        <>
       {/* Plain text only; wraps, keeps line breaks, and clips at the note's edge. The title
           (first line) and the body (the rest) each have their own size, weight, slant, ink and
           alignment. */}
@@ -200,6 +245,8 @@ export function NoteCard({ entry, editable, selected }: { entry: BoardNote; edit
           </p>
         )}
       </div>
+        </>
+      )}
     </div>
   );
 }

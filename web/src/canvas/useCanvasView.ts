@@ -34,6 +34,14 @@ export function useCanvasView() {
       const [x, y, zoom] = store.getState().transform;
       return { x, y, zoom };
     };
+    const inView = (note: Placed) => {
+      const v = viewport();
+      const { width, height } = size();
+      const n = noteSize(note);
+      const topLeft = screenToFlow({ x: 0, y: 0 }, v);
+      const bottomRight = screenToFlow({ x: width, y: height }, v);
+      return note.x >= topLeft.x && note.y >= topLeft.y && note.x + n.width <= bottomRight.x && note.y + n.height <= bottomRight.y;
+    };
     const go = (v: Viewport, animate: boolean) =>
       void flow.setViewport(clampViewport(v, size()), { duration: animate ? duration() : 0 });
     return {
@@ -54,13 +62,11 @@ export function useCanvasView() {
       /** Pans (same zoom) to show a note that is off screen. */
       reveal: (note: Placed) => {
         const v = viewport();
-        const { width, height } = size();
         const n = noteSize(note);
-        const topLeft = screenToFlow({ x: 0, y: 0 }, v);
-        const bottomRight = screenToFlow({ x: width, y: height }, v);
-        const inside = note.x >= topLeft.x && note.y >= topLeft.y && note.x + n.width <= bottomRight.x && note.y + n.height <= bottomRight.y;
-        if (!inside && width > 0) go(centreOn({ x: note.x + n.width / 2, y: note.y + n.height / 2 }, v.zoom, size()), true);
+        if (!inView(note) && size().width > 0) go(centreOn({ x: note.x + n.width / 2, y: note.y + n.height / 2 }, v.zoom, size()), true);
       },
+      /** The whole note is on screen (or the canvas has no size yet). */
+      visible: (note: Placed) => size().width === 0 || inView(note),
       /** Where a palette tile dropped at this screen point puts a new note, or null if it's off the canvas. */
       dropAt: (client: XY): XY | null => {
         const rect = store.getState().domNode?.getBoundingClientRect();

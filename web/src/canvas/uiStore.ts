@@ -10,6 +10,7 @@ import {
   toggleSelected,
   type Selection,
 } from "./selection";
+import type { InlinePart } from "../notes/inlineEdit";
 import type { Mode } from "./tools";
 
 /*
@@ -29,6 +30,8 @@ interface BoardUi {
   selection: Selection;
   /** Asks the note editor to take focus (Properties' Title from md up). `n` makes each request new. */
   editRequest: { id: string; n: number } | null;
+  /** The note being edited in place (md and up), and the part to put the caret in. `n` makes each request new. */
+  inlineEdit: { id: string; part: InlinePart; n: number } | null;
   /** Phones: the add drawer (palette tiles) is open. */
   addSheetOpen: boolean;
   setTool(tool: Mode): void;
@@ -45,6 +48,9 @@ interface BoardUi {
   /** Drops notes that no longer exist. */
   pruneSelected(exists: (id: string) => boolean): void;
   requestEdit(id: string): void;
+  /** Edits the note in place, caret in `part` (selects just it). */
+  startInlineEdit(id: string, part: InlinePart): void;
+  endInlineEdit(): void;
   setAddSheetOpen(open: boolean): void;
   /** Leaving a room: nothing selected or pending. */
   resetRoom(): void;
@@ -56,6 +62,7 @@ export const useBoardUi = create<BoardUi>()((set, get) => ({
   minimap: null,
   selection: EMPTY_SELECTION,
   editRequest: null,
+  inlineEdit: null,
   addSheetOpen: false,
   setTool: (tool) => set({ tool }),
   setColor: (color) => set({ color }),
@@ -68,10 +75,11 @@ export const useBoardUi = create<BoardUi>()((set, get) => ({
   selectAll: (ids) => set({ selection: selectAll(ids) }),
   clearSelection: () => set({ selection: clearSelection(get().selection) }),
   renameSelected: (from, to) => {
-    const { selection, editRequest } = get();
+    const { selection, editRequest, inlineEdit } = get();
     set({
       selection: renameInSelection(selection, from, to),
       editRequest: editRequest?.id === from ? { ...editRequest, id: to } : editRequest,
+      inlineEdit: inlineEdit?.id === from ? { ...inlineEdit, id: to } : inlineEdit,
     });
   },
   pruneSelected: (exists) => {
@@ -80,6 +88,11 @@ export const useBoardUi = create<BoardUi>()((set, get) => ({
     if (next !== selection) set({ selection: next });
   },
   requestEdit: (id) => set({ selection: selectOnly(get().selection, id), editRequest: { id, n: (get().editRequest?.n ?? 0) + 1 } }),
+  startInlineEdit: (id, part) =>
+    set({ selection: selectOnly(get().selection, id), inlineEdit: { id, part, n: (get().inlineEdit?.n ?? 0) + 1 } }),
+  endInlineEdit: () => {
+    if (get().inlineEdit) set({ inlineEdit: null });
+  },
   setAddSheetOpen: (addSheetOpen) => set({ addSheetOpen }),
-  resetRoom: () => set({ selection: EMPTY_SELECTION, editRequest: null, addSheetOpen: false }),
+  resetRoom: () => set({ selection: EMPTY_SELECTION, editRequest: null, inlineEdit: null, addSheetOpen: false }),
 }));

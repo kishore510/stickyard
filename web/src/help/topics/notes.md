@@ -2,7 +2,7 @@
 title: Notes
 order: 3
 summary: Add notes from the palette, edit, colour, style and resize them in Properties, select several to move, arrange or delete together; pan, zoom and fit the board.
-keywords: marquee, multi, several, many, group, arrange, align, distribute, match, right-click, middle, note, notes, sticky, board, add, edit, move, drag, delete, colour, color, text, title, body, size, width, height, bigger, smaller, handle, corner, font, bold, italic, align, alignment, left, centre, center, right, style, palette, tile, properties, panel, select, selection, collapse, resize, pan, hand, zoom, pinch, wheel, fit, overview, map, shortcut, full, saved
+keywords: inline, place, double-click, marquee, multi, several, many, group, arrange, align, distribute, match, right-click, middle, note, notes, sticky, board, add, edit, move, drag, delete, colour, color, text, title, body, size, width, height, bigger, smaller, handle, corner, font, bold, italic, align, alignment, left, centre, center, right, style, palette, tile, properties, panel, select, selection, collapse, resize, pan, hand, zoom, pinch, wheel, fit, overview, map, shortcut, full, saved
 ---
 Every session has one shared **board**. Everyone in the session sees the same notes, and changes show up for everyone as they happen. The board fills the screen; its edge is the outline around the dotted area, and notes always stay inside it.
 
@@ -43,7 +43,9 @@ With two or more notes selected (and **Select** on), a bar appears at the top of
 
 ## Editing a note
 
-- On a wider screen, edit the selected note in **Properties**. Double-click a note, or press **Enter** on it, to jump straight to its **Title**. This works with **Select** or **Hand**.
+- **Editing in place**: on a wider screen, with a mouse, pen or keyboard, you type straight onto the note. A note you add from the palette starts like this. **Double-click** a note's title or body to edit that part, or press **Enter** on a selected note to start in its title. This works with **Select** or **Hand**. The note gets a ring while you edit it.
+- While editing in place, an empty part shows **Type a title** or **Type body** as a hint (it's never saved). **Enter** or **Tab** in the title moves to the body (the title is one line); **Shift+Tab** goes back. **Enter** in the body saves; **Shift+Enter** starts a new line. **Esc**, or clicking anywhere else, saves too. Pasted text arrives as plain text. Board shortcuts don't fire while you type.
+- **Properties** shows the same text as you type, and you can edit there too. A note that's off screen (or one you tap with a finger on a tablet) opens in Properties instead.
 - On a phone, tap a note to open its editor. (With **Hand** on, a tap doesn't open it; switch back to **Select**.)
 - **Title** is the note's first line and **Body** is the rest. They're saved as one text, with a line break between them.
 - **Enter** saves. **Shift+Enter** starts a new line. On a wider screen, clicking away from the fields also saves. On a phone, leaving the editor (**Done**, **Esc**, **X**, tapping outside it) saves.

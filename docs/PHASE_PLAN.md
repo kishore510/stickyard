@@ -18,6 +18,7 @@ Draft roadmap. When a slice starts, rewrite its prompt against the real code (se
 | 2.7.1 Title alignment | Separate alignment for a note's title and body. Protocol v5 + stored-schema migration (2 -> 3) | Done (v0.6.1) |
 | 2.7.2 Title styling | Separate size, bold, italic and text colour for a note's title and body. Protocol v6 + stored-schema migration (3 -> 4) | Done (v0.6.2) |
 | 2.8 Multi-select and arrange | Marquee and multi-select, floating selection bar (align, distribute, match size), group move/delete, batch update message. Protocol v7 | Done (v0.7.0) |
+| 2.9 Inline note editing | Type on the note itself from md up (two styled textareas), double-click/Enter/new note start it; web only, no protocol change | Done (v0.7.1) |
 | 3 Presence | Live cursors (throttled, never stored), join/leave toasts, avatar stack. Protocol v8 | Not started |
 | 4 Reconnect | Resync after drops, offline queue | Not started |
 | 5 Persistence | Room expiry and clear messaging (basic note persistence exists since slice 2) | Not started |
@@ -110,6 +111,9 @@ Draft roadmap. When a slice starts, rewrite its prompt against the real code (se
 - One batch message for multi-note changes (move, resize, delete), capped in entries and bytes: each entry validated, each note gets its own rev bump, one SQLite transaction, one broadcast. It counts as one message for the rate budget.
 - Phone: multi-select is out of scope.
 - Save as stencil waits for slice 7. Z-order is not in 2.8 (see the Z-order slice, before or with 7a); a layers panel is backlog.
+
+### 2.9 Inline note editing (web only) — done, v0.7.1
+- From md up (mouse, pen, keyboard) a note's text is edited on the note: two plain textareas styled like the note, placeholders "Type a title" / "Type body", the existing draft mechanism, noteEdit on commit. New notes, double-click (title or body) and Enter start it; Properties stays in sync and is used for off-screen notes and finger taps. Phones keep the sheet.
 
 ### 3 Presence (protocol v8)
 - `cursor { x, y }` in board units, max ~15/s, only when position changed, only while another participant is present, paused when the tab is hidden or the pointer leaves the board. Phones receive only.

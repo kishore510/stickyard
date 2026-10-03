@@ -33,6 +33,13 @@ describe("help topics", () => {
     expect(notes?.text).toContain("last wins");
   });
 
+  it("the Notes topic covers editing in place (slice 2.9)", () => {
+    const notes = HELP_TOPICS.find((t) => t.id === "notes")?.text ?? "";
+    for (const claim of ["editing in place", "double-click", "type a title", "type body", "tab", "shift+enter", "esc"]) {
+      expect(notes, claim).toContain(claim);
+    }
+  });
+
   it("the Notes topic covers selecting several notes, the marquee, right-drag panning and arranging (slice 2.8)", () => {
     const notes = HELP_TOPICS.find((t) => t.id === "notes")?.text ?? "";
     for (const claim of ["selecting several notes", "marquee", "shift", "ctrl+a", "right", "middle", "arranging notes", "align", "distribute", "match size", "first selected", "selected"]) {

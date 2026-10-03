@@ -7,7 +7,7 @@ import { cn } from "../lib/utils";
 import { findNote, type Board } from "../notes/board";
 import { confirmDelete } from "../notes/label";
 import { DEFAULT_NOTE_SIZE, noteSize } from "../notes/size";
-import { NoteActionsContext, NoteHelpContext, NoteNode, type NoteActions } from "../notes/NoteCard";
+import { NoteActionsContext, NoteHelpContext, NoteNode, type EditorRequest, type NoteActions } from "../notes/NoteCard";
 import { groupOffset } from "./arrange";
 import { MAX_ZOOM, MIN_ZOOM, WHEEL_BEHAVIOUR, dragThreshold, panExtent } from "./geometry";
 import { createDragHandlers, createNoteNodeMapper, type CanvasNode } from "./nodes";
@@ -50,7 +50,10 @@ export interface BoardRoom {
   moveNote(id: string, x: number, y: number, final: boolean): void;
   startResize(id: string): boolean;
   resizeNote(id: string, rect: NoteRect, final: boolean): void;
-  openEditor(id: string): void;
+  openEditor(id: string, how?: EditorRequest): void;
+  /** Text typed in place: a draft (remote edits never replace it) until it's committed. */
+  setDraft(id: string, draft: string | null): void;
+  editNote(id: string, text: string): boolean;
   deleteNote(id: string): void;
   startGroupDrag(ids: readonly string[]): boolean;
   moveGroup(positions: readonly { id: string; x: number; y: number }[], final: boolean): void;
@@ -127,7 +130,18 @@ export function BoardCanvas({
       moveNote: (id, x, y, final) => latest.current.moveNote(id, x, y, final),
       startResize: (id) => latest.current.startResize(id),
       resizeNote: (id, rect, final) => latest.current.resizeNote(id, rect, final),
-      openEditor: (id) => latest.current.openEditor(id),
+      openEditor: (id, how) => latest.current.openEditor(id, how),
+      setDraft: (id, text) => latest.current.setDraft(id, text),
+      commitEdit: (id) => {
+        // Only once per edit (Enter, Escape and the blur that follows all end it).
+        if (useBoardUi.getState().inlineEdit?.id !== id) return;
+        useBoardUi.getState().endInlineEdit();
+        const draft = findNote(latest.current.board, id)?.draft;
+        if (draft != null) latest.current.editNote(id, draft);
+      },
+      endEdit: (id) => {
+        if (useBoardUi.getState().inlineEdit?.id === id) useBoardUi.getState().endInlineEdit();
+      },
       deleteNote: (id) => latest.current.deleteNote(id),
       revealNote: (id) => {
         const entry = findNote(latest.current.board, id);
