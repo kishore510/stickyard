@@ -4,13 +4,16 @@ import { MAX_NAME_LENGTH, MAX_PARTICIPANTS, cleanName, isRoomCodeShape } from "@
 import { Button } from "../components/ui/button";
 import { FieldError, Label } from "../components/ui/field";
 import { Input } from "../components/ui/input";
+import { useMediaQuery } from "../lib/useMediaQuery";
 import { cn } from "../lib/utils";
+import { authorName } from "../notes/label";
 import { NoteEditor } from "../notes/NoteEditor";
 import { useRoomUi } from "../rooms/roomStore";
 import type { RoomView } from "../rooms/session";
 import { useRoom } from "../rooms/useRoom";
 import { Sheet } from "../shell/Sheet";
 import { STORAGE_KEYS, readKey } from "../storage";
+import { MEDIA } from "../styles/breakpoints";
 
 /** The board and its tools (React Flow), in its own chunk; loading starts when a room opens. */
 const loadBoard = () => import("../canvas/RoomBoard");
@@ -137,6 +140,8 @@ export function RoomScreen({ code }: { code: string }) {
   const { view } = room;
   const [everJoined, setEverJoined] = useState(false);
   const lastName = useRef("");
+  // From md up the Properties panel is the note editor; the sheet is for phones.
+  const wide = useMediaQuery(MEDIA.tablet);
 
   useEffect(() => {
     void loadBoard();
@@ -190,8 +195,8 @@ export function RoomScreen({ code }: { code: string }) {
   }
 
   const live = view.status === "joined";
-  // At most one note is edited at a time: the one with a draft.
-  const editing = live ? view.board.notes.find((n) => n.draft !== null) : undefined;
+  // At most one note is edited at a time: the one with a draft. Phones edit it in a sheet.
+  const editing = live && !wide ? view.board.notes.find((n) => n.draft !== null) : undefined;
 
   return (
     <>
@@ -211,6 +216,7 @@ export function RoomScreen({ code }: { code: string }) {
         <NoteEditor
           key="note-editor"
           entry={editing}
+          author={authorName(editing.note.authorId, view)}
           onDraft={(text) => room.setDraft(editing.note.id, text)}
           onCommit={() => room.editNote(editing.note.id, editing.draft ?? editing.note.text)}
           onDelete={() => room.deleteNote(editing.note.id)}

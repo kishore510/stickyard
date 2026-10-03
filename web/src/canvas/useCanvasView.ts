@@ -1,11 +1,13 @@
 import { useReactFlow, useStoreApi } from "@xyflow/react";
 import { useMemo } from "react";
-import { NOTE_SIZE } from "@stickyard/shared";
 import { readPxToken } from "../lib/cssVar";
+import { DEFAULT_NOTE_SIZE, noteSize } from "../notes/size";
 import {
   centreOn,
   clampViewport,
+  dropPosition,
   fitViewport,
+  keepCentre,
   screenToFlow,
   viewportCentre,
   zoomAround,
@@ -40,17 +42,29 @@ export function useCanvasView() {
       zoomIn: () => go(zoomAround(viewport(), size(), zoomStep(viewport().zoom, 1)), true),
       zoomOut: () => go(zoomAround(viewport(), size(), zoomStep(viewport().zoom, -1)), true),
       resetZoom: () => go(zoomAround(viewport(), size(), 1), true),
+      /** The canvas was `before` and is now another size: keep the same board point at its centre. */
+      recentre: (before: Size) => {
+        const v = viewport();
+        const next = keepCentre(v, before, size());
+        if (next !== v) go(next, false);
+      },
       /** The flow point at the centre of the view. */
       centre: () => viewportCentre(viewport(), size()),
       /** Pans (same zoom) to show a note that is off screen. */
       reveal: (note: XY) => {
         const v = viewport();
         const { width, height } = size();
+        const n = noteSize(note);
         const topLeft = screenToFlow({ x: 0, y: 0 }, v);
         const bottomRight = screenToFlow({ x: width, y: height }, v);
-        const inside =
-          note.x >= topLeft.x && note.y >= topLeft.y && note.x + NOTE_SIZE <= bottomRight.x && note.y + NOTE_SIZE <= bottomRight.y;
-        if (!inside && width > 0) go(centreOn({ x: note.x + NOTE_SIZE / 2, y: note.y + NOTE_SIZE / 2 }, v.zoom, size()), true);
+        const inside = note.x >= topLeft.x && note.y >= topLeft.y && note.x + n.width <= bottomRight.x && note.y + n.height <= bottomRight.y;
+        if (!inside && width > 0) go(centreOn({ x: note.x + n.width / 2, y: note.y + n.height / 2 }, v.zoom, size()), true);
+      },
+      /** Where a palette tile dropped at this screen point puts a new note, or null if it's off the canvas. */
+      dropAt: (client: XY): XY | null => {
+        const rect = store.getState().domNode?.getBoundingClientRect();
+        if (!rect || rect.width === 0) return null;
+        return dropPosition(client, { x: rect.left, y: rect.top, width: rect.width, height: rect.height }, viewport(), DEFAULT_NOTE_SIZE);
       },
     };
   }, [flow, store]);

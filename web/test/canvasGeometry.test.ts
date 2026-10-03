@@ -11,9 +11,11 @@ import {
   clampViewport,
   clampZoom,
   dragThreshold,
+  dropPosition,
   fitViewport,
   flowToBoard,
   isDrag,
+  keepCentre,
   newNotePosition,
   notesBounds,
   panExtent,
@@ -193,5 +195,55 @@ describe("tap or drag", () => {
   it("touch gets a bigger threshold than a mouse", () => {
     expect(dragThreshold(true)).toBeGreaterThan(dragThreshold(false));
     expect(dragThreshold(false)).toBeGreaterThan(0);
+  });
+});
+
+describe("dropping a palette tile on the board", () => {
+  const rect = { x: 240, y: 56, width: 760, height: 600 };
+  const size = { width: NOTE_SIZE, height: NOTE_SIZE };
+
+  it("converts the pointer to board units and centres the note on it", () => {
+    // Pointer 300px right and 200px down inside the canvas, view at zoom 1 offset by (-100, -50).
+    const v = { x: -100, y: -50, zoom: 1 };
+    expect(dropPosition(at(540, 256), rect, v, size)).toEqual({ x: 400 - NOTE_SIZE / 2, y: 250 - NOTE_SIZE / 2 });
+  });
+
+  it("follows the zoom", () => {
+    const v = { x: 0, y: 0, zoom: 0.5 };
+    expect(dropPosition(at(240 + 300, 56 + 200), rect, v, size)).toEqual({ x: 600 - NOTE_SIZE / 2, y: 400 - NOTE_SIZE / 2 });
+  });
+
+  it("is clamped so the note stays on the board", () => {
+    const v = { x: 0, y: 0, zoom: 1 };
+    expect(dropPosition(at(241, 57), rect, v, size)).toEqual({ x: 0, y: 0 });
+    const far = { x: -(BOARD_WIDTH - 100), y: -(BOARD_HEIGHT - 100), zoom: 1 };
+    expect(dropPosition(at(240 + 700, 56 + 500), rect, far, size)).toEqual({ x: BOARD_WIDTH - NOTE_SIZE, y: BOARD_HEIGHT - NOTE_SIZE });
+  });
+
+  it("a drop outside the canvas (back on a panel) adds nothing", () => {
+    const v = { x: 0, y: 0, zoom: 1 };
+    expect(dropPosition(at(100, 300), rect, v, size)).toBeNull();
+    expect(dropPosition(at(1100, 300), rect, v, size)).toBeNull();
+    expect(dropPosition(at(500, 20), rect, v, size)).toBeNull();
+  });
+});
+
+describe("panels opening, closing or resizing", () => {
+  it("keep the same board point at the centre of the canvas", () => {
+    const v = { x: -300, y: -120, zoom: 0.8 };
+    const before = { width: 760, height: 600 };
+    const centre = viewportCentre(v, before);
+    for (const after of [{ width: 1040, height: 600 }, { width: 500, height: 600 }, { width: 760, height: 480 }]) {
+      const next = keepCentre(v, before, after);
+      expect(next.zoom).toBe(v.zoom);
+      expect(viewportCentre(next, after).x).toBeCloseTo(centre.x, 6);
+      expect(viewportCentre(next, after).y).toBeCloseTo(centre.y, 6);
+    }
+  });
+
+  it("an unchanged size, or a container not laid out yet, leaves the viewport alone", () => {
+    const v = { x: -300, y: -120, zoom: 0.8 };
+    expect(keepCentre(v, { width: 760, height: 600 }, { width: 760, height: 600 })).toBe(v);
+    expect(keepCentre(v, { width: 0, height: 0 }, { width: 760, height: 600 })).toBe(v);
   });
 });

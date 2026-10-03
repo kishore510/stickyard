@@ -110,11 +110,20 @@ export function ChatSheet() {
   );
 }
 
+/** Where the chat button sits in the free canvas area's bottom-right corner. */
+const DOCK_BOTTOM = {
+  edge: "bottom-edge-b",
+  minimap: "bottom-chat-b",
+  bar: "bottom-above-bar",
+  "bar-minimap": "bottom-chat-bar-b",
+} as const;
+
 /**
- * md and up: a floating chat button at the bottom right (above the minimap when it's shown),
+ * md and up: a floating chat button at the bottom right of the free canvas area (above the
+ * minimap when it's shown, and above the view bar when the area is too narrow for both),
  * opening a panel above it. Not modal: the board stays usable. Esc or X closes it.
  */
-export const ChatDock = memo(function ChatDock({ aboveMinimap }: { aboveMinimap: boolean }) {
+export const ChatDock = memo(function ChatDock({ bottom }: { bottom: keyof typeof DOCK_BOTTOM }) {
   const room = useRoomUi((s) => s.room);
   const open = useRoomUi((s) => s.chatOpen);
   const openChat = useRoomUi((s) => s.openChat);
@@ -138,8 +147,8 @@ export const ChatDock = memo(function ChatDock({ aboveMinimap }: { aboveMinimap:
     <div
       data-chat-dock
       className={cn(
-        "pointer-events-none absolute right-edge-r z-20 flex flex-col items-end gap-sm",
-        aboveMinimap ? "bottom-chat-b" : "bottom-edge-b",
+        "pointer-events-none absolute top-sm right-edge-r left-edge-l z-20 flex flex-col items-end justify-end gap-sm",
+        DOCK_BOTTOM[bottom],
       )}
     >
       {open && (
@@ -154,7 +163,7 @@ export const ChatDock = memo(function ChatDock({ aboveMinimap }: { aboveMinimap:
               shut();
             }
           }}
-          className="sy-fade-in pointer-events-auto flex h-chat-h w-chat-w max-w-[calc(100vw-2*var(--sy-gutter))] flex-col shadow-lg"
+          className="sy-fade-in pointer-events-auto flex h-chat-h min-h-0 w-chat-w max-w-full flex-col shadow-lg"
         >
           <div className="flex min-h-touch shrink-0 items-center gap-xs border-b border-border pl-md">
             <h2 className="min-w-0 flex-1 truncate text-sm font-semibold">Chat</h2>

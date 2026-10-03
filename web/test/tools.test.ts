@@ -29,16 +29,18 @@ describe("tool registry", () => {
     }
   });
 
-  it("the desktop rail has Select, Hand and Note", () => {
-    expect(toolsFor("rail").map((t) => t.id)).toEqual(["select", "hand", "note"]);
+  it("there is no tool rail: from md up the palette panel adds things, and tools live in the view bar", () => {
+    for (const t of TOOLS) expect(Object.keys(t.slots).every((s) => s === "viewbar" || s === "ribbon"), t.id).toBe(true);
   });
 
-  it("the desktop view bar has zoom out, zoom level, zoom in, fit, hand and minimap", () => {
-    expect(toolsFor("viewbar").map((t) => t.id)).toEqual(["zoom-out", "zoom-reset", "zoom-in", "fit", "hand", "minimap"]);
+  it("the desktop view bar has zoom out, zoom level, zoom in, fit, the Select/Hand toggle and minimap", () => {
+    expect(toolsFor("viewbar").map((t) => t.id)).toEqual(["zoom-out", "zoom-reset", "zoom-in", "fit", "select", "hand", "minimap"]);
   });
 
-  it("the phone ribbon has Add note, fit and the hand toggle (no zoom buttons)", () => {
-    expect(toolsFor("ribbon").map((t) => t.id)).toEqual(["note", "fit", "hand"]);
+  it("the phone ribbon has Add note, fit and the Select/Hand toggle (no zoom buttons)", () => {
+    // Ordered as Chalkline's phone toolbar: tool toggle, the main add button, fit.
+    expect(toolsFor("ribbon").map((t) => t.id)).toEqual(["select", "hand", "note", "fit"]);
+    expect(TOOLS.find((t) => t.id === "note")?.primary).toBe(true);
   });
 
   it("tools run the shared actions", () => {

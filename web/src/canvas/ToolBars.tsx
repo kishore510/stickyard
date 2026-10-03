@@ -1,16 +1,15 @@
-import { memo, useEffect, useId, useRef, useState, type ReactNode } from "react";
-import { NOTE_COLORS, type NoteColor } from "@stickyard/shared";
+import { memo, type ReactNode, type Ref } from "react";
 import { Button } from "../components/ui/button";
 import { Panel } from "../components/ui/panel";
 import { cn } from "../lib/utils";
-import { NOTE_COLOR_CLASSES, NOTE_COLOR_NAMES } from "../notes/colours";
 import { toolsFor, type Surface, type Tool, type ToolContext } from "./tools";
-import { useBoardUi } from "./uiStore";
 
 /*
- * The board's tool surfaces, all built from the registry in tools.ts:
- *   md and up: a left tool rail (Select, Hand, Note + colour) and a bottom-centre view bar;
- *   phones:    one bottom ribbon (colour, Add note, Fit, Hand), since pinch zooms.
+ * The board's tool surfaces, both built from the registry in tools.ts:
+ *   md and up: the view bar, bottom centre of the free canvas area (zoom, fit, Select/Hand, map);
+ *   phones:    one bottom ribbon (Select/Hand, Add note as the main round button, Fit), as
+ *              Chalkline's phone toolbar; pinch zooms.
+ * Adding things is the palette's job (palette panel from md up, add sheet on phones).
  * Labels are always the accessible name; the tooltip (title) only repeats them with the shortcut.
  */
 
@@ -25,7 +24,7 @@ export function ToolButton({ tool, ctx, className }: { tool: Tool; ctx: ToolCont
   const Icon = tool.icon;
   return (
     <Button
-      variant="ghost"
+      variant={tool.primary ? "primary" : "ghost"}
       size={text ? "default" : "icon"}
       data-tool={tool.id}
       aria-label={tool.label}
@@ -33,138 +32,63 @@ export function ToolButton({ tool, ctx, className }: { tool: Tool; ctx: ToolCont
       aria-pressed={tool.pressed ? tool.pressed(ctx) : undefined}
       disabled={reason !== null}
       onClick={() => tool.run(ctx)}
-      className={cn("aria-pressed:bg-accent-subtle aria-pressed:text-accent", text && "min-w-touch px-xs tabular-nums", className)}
+      className={cn(
+        "aria-pressed:bg-accent-subtle aria-pressed:text-accent",
+        text && "min-w-touch px-xs tabular-nums",
+        tool.primary && "rounded-full shadow-md",
+        className,
+      )}
     >
       {text ?? <Icon />}
     </Button>
   );
 }
 
-/** The note colour: a swatch button that opens a small popover of the six palette colours. */
-export function ColourPicker({ side, disabled }: { side: "right" | "top"; disabled: boolean }) {
-  const color = useBoardUi((s) => s.color);
-  const setColor = useBoardUi((s) => s.setColor);
-  const [open, setOpen] = useState(false);
-  const id = useId();
-  const buttonRef = useRef<HTMLButtonElement>(null);
-  const popRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    popRef.current?.querySelector<HTMLElement>('[aria-checked="true"]')?.focus();
-    const outside = (e: PointerEvent) => {
-      const target = e.target as Node;
-      if (!popRef.current?.contains(target) && !buttonRef.current?.contains(target)) setOpen(false);
-    };
-    document.addEventListener("pointerdown", outside, true);
-    return () => document.removeEventListener("pointerdown", outside, true);
-  }, [open]);
-
-  const choose = (key: NoteColor) => {
-    setColor(key);
-    setOpen(false);
-    buttonRef.current?.focus();
-  };
-
-  return (
-    <div className="relative">
-      <Button
-        ref={buttonRef}
-        variant="ghost"
-        size="icon"
-        aria-label={`Note colour: ${NOTE_COLOR_NAMES[color]}`}
-        title={`Note colour: ${NOTE_COLOR_NAMES[color]}`}
-        aria-haspopup="true"
-        aria-expanded={open}
-        aria-controls={open ? id : undefined}
-        disabled={disabled}
-        onClick={() => setOpen((v) => !v)}
-      >
-        <span aria-hidden="true" className={cn("size-swatch rounded-full border border-border-strong", NOTE_COLOR_CLASSES[color])} />
-      </Button>
-      {open && (
-        <Panel
-          ref={popRef}
-          id={id}
-          role="radiogroup"
-          aria-label="Note colour"
-          onKeyDown={(e) => {
-            if (e.key !== "Escape") return;
-            e.stopPropagation();
-            setOpen(false);
-            buttonRef.current?.focus();
-          }}
-          className={cn(
-            "sy-fade-in absolute z-40 grid grid-cols-3 gap-2xs p-xs shadow-lg",
-            side === "right" ? "top-0 left-full ml-sm" : "bottom-full left-0 mb-sm",
-          )}
-        >
-          {NOTE_COLORS.map((key) => (
-            <button
-              key={key}
-              type="button"
-              role="radio"
-              aria-checked={key === color}
-              aria-label={NOTE_COLOR_NAMES[key]}
-              title={NOTE_COLOR_NAMES[key]}
-              onClick={() => choose(key)}
-              className="flex size-touch cursor-pointer items-center justify-center rounded-md hover:bg-surface-muted"
-            >
-              <span
-                aria-hidden="true"
-                className={cn(
-                  "size-swatch rounded-full border border-border-strong",
-                  NOTE_COLOR_CLASSES[key],
-                  key === color && "ring-2 ring-accent ring-offset-2 ring-offset-surface",
-                )}
-              />
-            </button>
-          ))}
-        </Panel>
-      )}
-    </div>
-  );
-}
-
-function Bar({ surface, ctx, label, className }: { surface: Surface; ctx: ToolContext; label: string; className: string }) {
-  const vertical = surface === "rail";
-  const items: ReactNode[] = [];
-  for (const tool of toolsFor(surface)) {
-    const button = <ToolButton key={tool.id} tool={tool} ctx={ctx} />;
-    if (!tool.colour) {
-      items.push(button);
+/** The tools on a surface, with neighbouring tools of one segment (Select/Hand) grouped. */
+function items(surface: Surface, ctx: ToolContext): ReactNode[] {
+  const out: ReactNode[] = [];
+  const tools = toolsFor(surface);
+  for (let i = 0; i < tools.length; ) {
+    const tool = tools[i];
+    if (!tool) break;
+    const segment = tool.segment;
+    if (!segment) {
+      out.push(<ToolButton key={tool.id} tool={tool} ctx={ctx} />);
+      i++;
       continue;
     }
-    const picker = <ColourPicker key={`${tool.id}-colour`} side={vertical ? "right" : "top"} disabled={ctx.noteReason !== null} />;
-    // On the rail the colour sits under Note; on the ribbon it comes first, then Add note.
-    items.push(...(vertical ? [button, picker] : [picker, button]));
+    const group: Tool[] = [];
+    while (tools[i]?.segment?.id === segment.id) group.push(tools[i++] as Tool);
+    out.push(
+      <div key={`segment-${segment.id}`} role="group" aria-label={segment.label} className="flex gap-2xs rounded-md bg-surface-muted">
+        {group.map((t) => (
+          <ToolButton key={t.id} tool={t} ctx={ctx} />
+        ))}
+      </div>,
+    );
   }
+  return out;
+}
+
+function Bar({ surface, ctx, label, barRef }: { surface: Surface; ctx: ToolContext; label: string; barRef?: Ref<HTMLDivElement> | undefined }) {
   return (
     <Panel
+      ref={barRef}
       role="toolbar"
       aria-label={label}
-      aria-orientation={vertical ? "vertical" : "horizontal"}
-      className={cn("pointer-events-auto flex gap-toolbar p-xs shadow-lg", vertical ? "flex-col" : "items-center", className)}
+      aria-orientation="horizontal"
+      className="pointer-events-auto flex items-center gap-toolbar rounded-full p-xs shadow-lg"
     >
-      {items}
+      {items(surface, ctx)}
     </Panel>
   );
 }
 
-/** md and up: the slim tool rail on the left, vertically centred. */
-export const ToolRail = memo(function ToolRail({ ctx }: { ctx: ToolContext }) {
-  return (
-    <div className="pointer-events-none absolute top-0 bottom-0 left-edge-l z-20 flex items-center">
-      <Bar surface="rail" ctx={ctx} label="Tools" className="" />
-    </div>
-  );
-});
-
-/** md and up: the view bar, bottom centre. */
-export const ViewBar = memo(function ViewBar({ ctx }: { ctx: ToolContext }) {
+/** md and up: the view bar, bottom centre of the free canvas area. */
+export const ViewBar = memo(function ViewBar({ ctx, barRef }: { ctx: ToolContext; barRef?: Ref<HTMLDivElement> | undefined }) {
   return (
     <div className="pointer-events-none absolute inset-x-0 bottom-edge-b z-20 flex justify-center">
-      <Bar surface="viewbar" ctx={ctx} label="View" className="rounded-full" />
+      <Bar surface="viewbar" ctx={ctx} label="View" barRef={barRef} />
     </div>
   );
 });
@@ -173,7 +97,7 @@ export const ViewBar = memo(function ViewBar({ ctx }: { ctx: ToolContext }) {
 export const Ribbon = memo(function Ribbon({ ctx }: { ctx: ToolContext }) {
   return (
     <div className="pointer-events-none absolute inset-x-0 bottom-edge-b z-20 flex justify-center">
-      <Bar surface="ribbon" ctx={ctx} label="Board tools" className="rounded-full" />
+      <Bar surface="ribbon" ctx={ctx} label="Board tools" />
     </div>
   );
 });

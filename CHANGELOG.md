@@ -2,6 +2,24 @@
 
 All notable changes to Stickyard, newest first. The format follows Keep a Changelog. Versions are 0.x: a minor bump for each slice and a patch bump for each follow-up fix. This file is shown in the app under **What’s new**, so entries are written for the people using it.
 
+## [0.5.1] - 2026-10-03
+
+### Added
+- **Palette** on the left of a wider screen: one tile per note colour under **Notes**. Click a tile to add a note in the middle of the view, or drag it onto the board to drop it where you want. A search box filters the tiles.
+- **Properties** on the right of a wider screen: select a note to see and edit its **Title** (the first line) and **Body** (the rest), with a character count, its colour and who added it, and **Delete note**. With nothing selected, it shows how many notes the board has.
+- **Selecting notes**: click a note (or move to it with **Tab**) to select it; click an empty part of the board or press **Esc** to clear it.
+- Both panels can be **collapsed** (the **<<** / **>>** button, or **[** and **]**) and **resized** by dragging their inner edge or with the arrow keys. This browser remembers their widths and whether they're collapsed. The board keeps the same spot in the middle when they change.
+- On a phone, the round **+** button (**Add note**) opens a drawer from the bottom with search and a row of colour tiles: tap one to add a note, or press and hold it and drag it onto the board. A note's editor has the same Title, Body, colour and author fields as Properties, and **Delete note**.
+- A collapsed palette keeps a small tile per colour, so you can still add notes. Dragging a panel's edge well past its narrowest collapses it.
+
+### Changed
+- **Select** and **Hand** are now a two-way switch in the bar at the bottom (on a phone too, next to **+** and **Fit to notes**). The tool rail and the separate colour button are gone: the palette's tiles choose the colour.
+- The panels, drawer and bars now look and behave like Chalkline's, so the two apps feel the same.
+- About's **Privacy** now mentions the side panels' layout, which stays in this browser.
+
+### Fixed
+- With **Hand** on, double-clicking a note (or pressing **Enter** on it) now opens it for editing. Before, clicks went straight past the note to the board.
+
 ## [0.5.0] - 2026-10-03
 
 ### Added

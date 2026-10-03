@@ -14,11 +14,15 @@ const KEY_COMMIT_MS = 400;
 
 export interface NoteActions {
   moveNote(id: string, x: number, y: number, final: boolean): void;
+  /** Opens the note's editor: the Properties panel from md up, the editor sheet on phones. */
   openEditor(id: string): void;
   deleteNote(id: string): void;
   /** Pans the view to show the note, if it's off screen. */
   revealNote(id: string): void;
-  /** False while the Hand tool is on: taps pan rather than edit. */
+  /** Selects just this note (clicks and keyboard focus). */
+  selectNote(id: string): void;
+  clearSelection(): void;
+  /** False while the Hand tool is on: touch taps don't edit (a double-click still does). */
   canTapEdit(): boolean;
 }
 
@@ -30,10 +34,11 @@ export const NoteHelpContext = createContext("");
 /**
  * One note on the board. Note text is untrusted and only ever rendered as React text.
  * React Flow drags the whole note (mouse, pen or touch; it handles the movement threshold).
- * A tap edits it; a mouse needs a double-click (a single click just focuses it). Keys: Enter
- * edits, arrow keys move (Shift for bigger steps), Delete deletes.
+ * A click or keyboard focus selects it. A tap edits it (not under Hand); a double-click edits
+ * it under any tool. Keys: Enter edits, arrow keys move (Shift for bigger steps), Delete
+ * deletes, Escape clears the selection. Its size comes from the node (notes/size.ts).
  */
-export function NoteCard({ entry, editable }: { entry: BoardNote; editable: boolean }) {
+export function NoteCard({ entry, editable, selected }: { entry: BoardNote; editable: boolean; selected: boolean }) {
   const actions = useContext(NoteActionsContext);
   const describedBy = useContext(NoteHelpContext);
   const { note, dragging } = entry;
@@ -47,10 +52,15 @@ export function NoteCard({ entry, editable }: { entry: BoardNote; editable: bool
 
   if (!actions) return null;
   const edit = () => {
-    if (editable && actions.canTapEdit()) actions.openEditor(note.id);
+    if (editable) actions.openEditor(note.id);
   };
 
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+    if (e.key === "Escape" && selected) {
+      e.preventDefault();
+      actions.clearSelection();
+      return;
+    }
     if (!editable) return;
     const step = e.shiftKey ? KEY_STEP_BIG : KEY_STEP;
     const delta: Record<string, [number, number]> = {
@@ -89,16 +99,19 @@ export function NoteCard({ entry, editable }: { entry: BoardNote; editable: bool
       aria-describedby={describedBy}
       aria-disabled={!editable || undefined}
       aria-busy={pending || undefined}
+      aria-current={selected || undefined}
       data-note-id={note.id}
       onPointerDown={(e: PointerEvent<HTMLDivElement>) => {
         pointerType.current = e.pointerType || "mouse";
       }}
       // React Flow swallows the click that ends a drag, so these only see taps and clicks.
       onClick={() => {
-        if (pointerType.current !== "mouse") edit();
+        actions.selectNote(note.id);
+        if (pointerType.current !== "mouse" && actions.canTapEdit()) edit();
       }}
       onDoubleClick={edit}
       onFocus={(e) => {
+        actions.selectNote(note.id);
         // Keyboard focus only: a press that starts a drag mustn't pan the view.
         let keyboard = false;
         try {
@@ -110,12 +123,13 @@ export function NoteCard({ entry, editable }: { entry: BoardNote; editable: bool
       }}
       onKeyDown={onKeyDown}
       className={cn(
-        "flex size-note flex-col overflow-hidden rounded-sm border border-border p-sm text-sm text-note-fg shadow-md",
+        "flex size-full flex-col overflow-hidden rounded-sm border border-border p-sm text-sm text-note-fg shadow-md",
         "touch-none select-none",
         NOTE_COLOR_CLASSES[note.color],
         editable ? "cursor-grab" : "cursor-default",
         dragging && "cursor-grabbing shadow-lg",
         pending && "border-dashed opacity-75",
+        selected && "ring-2 ring-accent ring-offset-2 ring-offset-board",
       )}
     >
       {/* Plain text only; wraps, keeps line breaks, and clips at the note's edge. */}
@@ -128,5 +142,5 @@ export function NoteCard({ entry, editable }: { entry: BoardNote; editable: bool
 
 /** The React Flow node for a note. Memoised: a note re-renders only when its own entry changes. */
 export const NoteNode = memo(function NoteNode({ data }: NodeProps<NoteFlowNode>) {
-  return <NoteCard entry={data.entry} editable={data.editable} />;
+  return <NoteCard entry={data.entry} editable={data.editable} selected={data.selected} />;
 });

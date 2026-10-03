@@ -110,9 +110,10 @@ export function AboutPage() {
             location and possibly your IP address. GitHub receives similar request details.
           </li>
           <li>
-            This browser stores only your theme choice, the last version whose notes you opened, and the last name you
-            joined with. Where you are on the board, the zoom, and the tool and note colour you pick stay in the open page:
-            they aren’t stored or sent anywhere.
+            This browser stores only your theme choice, the last version whose notes you opened, the last name you
+            joined with, and how wide the board’s side panels are and whether they’re collapsed: layout preferences only,
+            with no session content and nothing about you, and it stays on this device. Where you are on the board, the
+            zoom, the tool you pick and which note is selected stay in the open page: they aren’t stored or sent anywhere.
           </li>
           <li>There are no accounts.</li>
         </ul>
