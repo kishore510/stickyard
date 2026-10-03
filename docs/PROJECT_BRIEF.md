@@ -1,6 +1,6 @@
 # Project Brief: Stickyard
 
-Last updated: 3 October 2026 (thread 5). Update the status table and session log at the end of every thread, then re-upload.
+Last updated: 3 October 2026 (thread 6). Update the status table and session log at the end of every thread, then re-upload.
 
 ## 1. Purpose
 
@@ -22,7 +22,7 @@ Positioning hypothesis: the retro and workshop board you can start in 10 seconds
 | Area | Decision |
 |---|---|
 | Repo | New repo, separate from Chalkline. Public (needed for free GitHub Pages). One repo: `web/`, `worker/`, `shared/` |
-| Front end | Vite, React, TypeScript strict, Zustand, Tailwind, Vitest. Canvas approach TBD (own light canvas vs library) |
+| Front end | Vite, React, TypeScript strict, Zustand, Tailwind, Vitest. Canvas is React Flow (`@xyflow/react`, slice 2.5), controlled: notes stay in our own store |
 | Relay | Cloudflare Worker + one Durable Object per room, SQLite-backed, WebSocket Hibernation API, free plan |
 | Hosting | GitHub Pages via Actions for web; `wrangler deploy` for worker; hash routes (`#/room/CODE`) |
 | Worker URL | Free `workers.dev` address, held in one config constant so it can move |
@@ -35,7 +35,7 @@ Positioning hypothesis: the retro and workshop board you can start in 10 seconds
 | Secrets | `CREATE_PASSCODE` and `ROOM_SIGNING_KEY` only as GitHub secrets pushed to Worker secrets by the deploy job, and `.dev.vars` (gitignored). Tests use fake values. GitHub secret scanning and push protection on |
 | Security | Worker checks `Origin` (Pages origin + localhost dev; stops other websites, not scripts); Zod-validates every message; long unguessable room codes; no secrets in the repo |
 | Storage keys | Prefixed with the app name (shared `github.io` origin); nothing sensitive in browser storage |
-| Cursors | Throttled (~20/s), never stored |
+| Cursors | Throttled (~15/s), never stored |
 | Timer | Sent as start time + duration; each client counts down locally |
 | Cost control | Free plan acts as a cap; check current Cloudflare limits before designing around any number |
 | Dev environment | Raspberry Pi 5 (arm64) is a build machine only. Verify wrangler works on arm64 in slice 0; fallback is a deployed dev Worker |
@@ -81,19 +81,21 @@ Keep tsc, tests and build green. Stop for review with a summary of what was buil
 | 2 | Shared stickies, last-write-wins | Done (v0.4.0, protocol v3) |
 | 2.5 to 2.7 | Board UX, panels, note size, colour and text style | Done (v0.5.0 to v0.6.0, protocol v4); see PHASE_PLAN.md |
 | 2.7.1 | Separate title and body alignment | Done (v0.6.1, protocol v5, stored schema 3) |
-| 2.8 onwards | See PHASE_PLAN.md | Not started |
+| 2.7.2 | Separate title and body styling | Done (v0.6.2, protocol v6, stored schema 4) |
+| 2.8 | Multi-select and arrange, batch message | Done (v0.7.0, protocol v7) |
+| 2.9 | Inline note editing | Done (v0.7.1, web only) |
+| 3 onwards | See PHASE_PLAN.md | See PHASE_PLAN.md |
 
 ## 7. Open decisions
 
 - Name availability for Stickyard (GitHub, npm, domain, existing products). Name chosen: Stickyard
-- Canvas: own light canvas vs a library
+- Canvas: decided in slice 2.5, React Flow (controlled). Revisit only if performance with many movers is poor
 - v1 target: retros/brainstorms (suggested) vs general canvas
-- Whether to adopt Yjs after slice 2
 - AI key handling
 - Visual identity: decided in slice 0.5 (Chalkline's warm neutral + blue accent, Inter, sticky-note mark); revisit only if it needs its own identity
 - Per-friend invite codes (revocable) vs one shared create passcode
 - ~~Real-world comparison~~: done 3 October 2026, against Miro (not Microsoft Whiteboard). See the positioning note in section 1
-- Shapes and arrows (slices 7a and 7b) before or after facilitation (slice 6): not decided
+- ~~Shapes and arrows (slices 7a and 7b) before or after facilitation (slice 6)~~: decided 3 October 2026 (thread 6). Order: Z-order, Frames, Templates, Timer and lock board (cut-down 6), Reconnect (4), 3a avatars and toasts, Persistence and expiry (5), remaining facilitation, 3b live cursors, 7a, 7b, 7c, 8, 9, 10. See PHASE_PLAN.md
 
 ## 8. Thread habits
 
@@ -106,6 +108,7 @@ Start a thread with the slice and what I want (for example "Slice 1, write the C
 - Thread 3: Slice 0 merged to main (PR #1) and deployed. Slice 0.5 (app shell and design system) built from Chalkline's patterns: top bar with menu and theme toggle, Help / What's new / About as hash-routed sheets, tokens and Inter bundled locally, v0.2.0. Next: slice 1 prompt.
 - Thread 4: Slice 1 built tests-first (red commit, then green): protocol v2 (join/say/echo, participants), passcode-gated `POST /rooms` with a limiter Durable Object (hashed client keys, lockout, daily caps), HMAC-signed room codes verified before any Durable Object, `CREATION_ENABLED` kill switch via a workflow, secrets pushed from GitHub secrets by the deploy job, name sheet and echo room UI, v0.3.0. Next: slice 2 prompt.
 - Thread 5 (3 October 2026): Slices 2.7 (v0.6.0, protocol v4) and 2.7.1 title alignment (v0.6.1, protocol v5, stored schema 3) merged; Miro comparison done; scope now allows a small set of shapes and connectors (slice 7 split into 7a/7b/7c, z-order required before or with 7a). Next: slice 2.8 prompt.
+- Thread 6 (3 October 2026): Slices 2.7.2 title styling (v0.6.2, protocol v6, stored schema 4), 2.8 multi-select and arrange (v0.7.0, protocol v7) and 2.9 inline editing (v0.7.1, web only) merged. Re-ordered the plan: slice 3 split into 3a (avatars, toasts) and 3b (live cursors, deferred); new Frames and Templates slices after z-order; slice 6 split, with timer and lock board early; shapes-versus-facilitation question closed. Docs-only tidy of CLAUDE.md and the changelog. Next: z-order slice prompt.
 
 ## 10. One-time manual setup
 

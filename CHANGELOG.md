@@ -27,7 +27,7 @@ All notable changes to Stickyard, newest first. The format follows Keep a Change
 ## [0.6.2] - 2026-10-03
 
 ### Added
-- **Title and body styled separately.** A note's title (its first line) and its body each have their own size, **Bold**, *Italic*, alignment and text colour, under **Title text** and **Body text** in Properties or a phone's note editor. For example, a large bold title over smaller body text.
+- **Title and body styled separately.** A note's title (its first line) and its body each have their own size, **Bold** and **Italic**, alignment and text colour, under **Title text** and **Body text** in Properties or a phone's note editor. For example, a large bold title over smaller body text.
 
 ### Changed
 - Existing notes keep their look: each title starts with the size, weight, slant and text colour the whole note had.
@@ -50,7 +50,7 @@ All notable changes to Stickyard, newest first. The format follows Keep a Change
 - **Width and Height** fields in Properties (and in a phone's note editor) for exact sizes.
 - **Alt+arrow keys** resize the focused note (**Shift** for bigger steps); the arrow keys on their own still move it.
 - **Change a note's colour** at any time from the swatches in Properties or the phone editor.
-- **Text style** for each note: size (Small to Extra large), **Bold**, *Italic*, alignment (left, centre, right) and text colour. **Auto** keeps the usual dark text; every text colour stays readable on every note colour in light and dark themes. Styles apply to the whole note.
+- **Text style** for each note: size (Small to Extra large), **Bold** and **Italic**, alignment (left, centre, right) and text colour. **Auto** keeps the usual dark text; every text colour stays readable on every note colour in light and dark themes. Styles apply to the whole note.
 - Chat messages now show **when they arrived** (with the full date when you point at the time).
 - On a wider screen, **chat can be resized** with the grip at its top left (or the arrow keys); double-click the grip to reset. This browser remembers the size.
 
