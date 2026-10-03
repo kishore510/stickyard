@@ -6,7 +6,7 @@ import { extendTailwindMerge } from "tailwind-merge";
 const twMerge = extendTailwindMerge({
   extend: {
     theme: {
-      text: ["xs", "sm", "base", "lg", "xl", "2xl"],
+      text: ["xs", "sm", "base", "lg", "xl", "2xl", "note-s", "note-m", "note-l", "note-xl"],
       spacing: ["2xs", "xs", "sm", "ms", "md", "lg", "xl", "touch", "header", "toolbar", "gutter", "icon", "icon-sm", "icon-lg", "logo", "dot", "badge", "menu", "term", "sheet", "content", "note", "board-w", "board-h", "swatch", "bar", "edge-b", "edge-l", "edge-r", "chat-w", "chat-h", "chat-b", "above-bar", "chat-bar-b", "strip", "handle", "line", "tile-preview", "row-tile"],
     },
   },

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { BOARD_HEIGHT, BOARD_WIDTH, NOTE_SIZE } from "@stickyard/shared";
+import { BOARD_HEIGHT, BOARD_WIDTH, NOTE_DEFAULTS, NOTE_DEFAULT_W as NOTE_SIZE } from "@stickyard/shared";
 import {
   FIT_MAX_ZOOM,
   MAX_ZOOM,
@@ -245,5 +245,37 @@ describe("panels opening, closing or resizing", () => {
     const v = { x: -300, y: -120, zoom: 0.8 };
     expect(keepCentre(v, { width: 760, height: 600 }, { width: 760, height: 600 })).toBe(v);
     expect(keepCentre(v, { width: 0, height: 0 }, { width: 760, height: 600 })).toBe(v);
+  });
+});
+
+describe("per-note sizes (protocol v4)", () => {
+  const sized = (x: number, y: number, w: number, h: number) => ({ ...NOTE_DEFAULTS, x, y, w, h });
+
+  it("flowToBoard clamps with the note's own size", () => {
+    expect(flowToBoard(at(BOARD_WIDTH, BOARD_HEIGHT), { width: 480, height: 96 })).toEqual({ x: BOARD_WIDTH - 480, y: BOARD_HEIGHT - 96 });
+    expect(flowToBoard(at(BOARD_WIDTH, BOARD_HEIGHT), { width: 96, height: 96 })).toEqual({ x: BOARD_WIDTH - 96, y: BOARD_HEIGHT - 96 });
+  });
+
+  it("fit-to-notes bounds use each note's size", () => {
+    expect(notesBounds([sized(100, 200, 400, 300), sized(600, 50, 96, 96)])).toEqual({ x: 100, y: 50, width: 596, height: 450 });
+  });
+
+  it("fit centres on the sized bounds", () => {
+    const v = fitViewport([sized(1000, 800, 400, 200)], desk, 32);
+    const c = viewportCentre(v, desk);
+    expect(c.x).toBeCloseTo(1200);
+    expect(c.y).toBeCloseTo(900);
+  });
+
+  it("add-at-centre places a default-size note and steps past a taken spot whatever that note's size", () => {
+    const spot = newNotePosition(at(1000, 700), []);
+    expect(spot).toEqual({ x: 1000 - NOTE_SIZE / 2, y: 700 - NOTE_SIZE / 2 });
+    expect(newNotePosition(at(1000, 700), [sized(spot.x, spot.y, 480, 480)])).toEqual({ x: spot.x + STACK_OFFSET, y: spot.y + STACK_OFFSET });
+  });
+
+  it("drop placement centres and clamps with the size it's given", () => {
+    const rect = { x: 0, y: 0, width: 800, height: 600 };
+    const far = { x: -(BOARD_WIDTH - 100), y: -(BOARD_HEIGHT - 100), zoom: 1 };
+    expect(dropPosition(at(700, 500), rect, far, { width: 300, height: 200 })).toEqual({ x: BOARD_WIDTH - 300, y: BOARD_HEIGHT - 200 });
   });
 });

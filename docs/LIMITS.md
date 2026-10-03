@@ -70,12 +70,14 @@ Estimates against the free allowances above (checked 2 October 2026).
 
 Estimates against the free allowances above (checked 2 October 2026; not re-checked for slice 2).
 
-**Writes (100,000 rows/day).** Only commits write: an add, an edit that changes the text, a drop that changes the position, a delete. Each is **1 row**. Dragging writes nothing. A busy workshop (20 people, 50 notes each edited and moved a few times) is a few thousand row writes. Plus 1 row when a room's tables are first created.
+**Writes (100,000 rows/day).** Only commits write: an add, an edit that changes the text, colour or style, a drop that changes the position, a resize release that changes the size, a delete. Each is **1 row**. Dragging and resizing in progress write nothing (tested). A busy workshop (20 people, 50 notes each edited and moved a few times) is a few thousand row writes. Plus 1 row when a room's tables are first created.
 
 **Reads (5,000,000 rows/day).** Notes are read once when the Durable Object wakes (up to 200 rows, plus 1 for the schema version) and then served from memory. A room that hibernates and wakes often re-reads them each time.
 
-**Requests.** A drag sends about 20 messages a second (20:1 billing → about 1 DO request/s per person dragging). The per-socket bucket is now 30/s with a burst of 40 (it was 5/s), so a script on one socket can spend up to about 1.5 DO requests/s. Twenty violations within 10 seconds close the socket.
+**Requests.** A drag or a resize sends about 20 messages a second (20:1 billing → about 1 DO request/s per person dragging). The per-socket bucket is now 30/s with a burst of 40 (it was 5/s), so a script on one socket can spend up to about 1.5 DO requests/s. Twenty violations within 10 seconds close the socket.
 
-**Storage.** At most 200 notes × about 1.2 KB = well under 1 MB per room. Rooms don't expire yet (slice 5), so storage grows with the number of rooms that have notes.
+**Storage.** At most 200 notes × about 1.3 KB (slice 2.7 adds seven small columns: size and style keys) = well under 1 MB per room. Rooms don't expire yet (slice 5), so storage grows with the number of rooms that have notes.
 
-**Messages out.** A snapshot of a full board is up to about 260 KB; the web accepts server messages up to `MAX_SERVER_MESSAGE_BYTES` (512 KiB). Outgoing messages aren't billed as requests.
+**Messages out.** The web accepts server messages up to `MAX_SERVER_MESSAGE_BYTES` (512 KiB). Outgoing messages aren't billed as requests.
+
+**Snapshot size (protocol v4, slice 2.7).** Worst case for a full board of 200 notes: **380,429 bytes (371.5 KiB)**, about 1.9 KB per note, leaving about 140 KiB under the 512 KiB cap. The worst note has 280 lone surrogate characters in its text (JSON escapes each as 6 bytes, `\uXXXX`; 4-byte emoji give 268 KB), the longest keys, 4-digit positions, maximum size and `rev` at `Number.MAX_SAFE_INTEGER`. The same board under protocol v3 was 360,829 bytes: size and style add about 98 bytes per note (about 19.6 KB per full snapshot). The earlier "about 260 KB" figure assumed emoji, not this worst case. `shared/test/noteSize.test.ts` fails if the worst case grows past 400 KiB. Matters for slice 4: a reconnect storm of 20 people on a full board is about 7.4 MB of outgoing snapshots.

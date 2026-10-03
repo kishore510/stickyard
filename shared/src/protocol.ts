@@ -5,8 +5,9 @@ import { cleanName, cleanNoteText, cleanText, codePointLength } from "./clean";
  * Bump on any wire-format change, with compatibility handling and tests.
  * v1 (slice 0): hello/welcome only. v2 (slice 1): rooms, join, say/echo.
  * v3 (slice 2): shared notes (snapshot, noteAdd/Edit/Move/Delete), refs on errors.
+ * v4 (slice 2.7): note size (noteResize/noteResized), colour change and text style (noteEdit fields).
  */
-export const PROTOCOL_VERSION = 3;
+export const PROTOCOL_VERSION = 4;
 
 /** Hard cap on a single client-to-server WebSocket message, in UTF-8 bytes. Checked before JSON.parse. */
 export const MAX_MESSAGE_BYTES = 4096;
@@ -40,22 +41,78 @@ export const MAX_NOTES_PER_ROOM = 200;
 export const MAX_NOTE_TEXT = 280;
 /**
  * The board is a fixed area measured in board units (1 unit = 1 CSS pixel at the default scale).
- * A note's x, y is its top-left corner; the server clamps it so the whole note stays on the board.
- * The web mirrors these in tokens.css (a test checks).
+ * A note's x, y is its top-left corner and w, h its size; the server clamps so the whole note
+ * stays on the board. The web mirrors these in tokens.css (a test checks).
  */
 export const BOARD_WIDTH = 3200;
 export const BOARD_HEIGHT = 2000;
-export const NOTE_SIZE = 160;
+/** A new note's size. */
+export const NOTE_DEFAULT_W = 160;
+export const NOTE_DEFAULT_H = 160;
+/** Resize limits (both enforced by the server; the web stops the handles there too). */
+export const NOTE_MIN_W = 96;
+export const NOTE_MIN_H = 96;
+export const NOTE_MAX_W = 480;
+export const NOTE_MAX_H = 480;
 
 /** Note colours are palette keys, never colour values. The web maps each to a design token. */
 export const NOTE_COLORS = ["yellow", "pink", "blue", "green", "orange", "purple"] as const;
 export const noteColorSchema = z.enum(NOTE_COLORS);
 export type NoteColor = z.infer<typeof noteColorSchema>;
 
-/** Rounds and clamps a position so the whole note is on the board. */
-export function clampNotePosition(x: number, y: number): { x: number; y: number } {
-  const clamp = (value: number, max: number) => Math.min(max, Math.max(0, Math.round(Number.isFinite(value) ? value : 0)));
-  return { x: clamp(x, BOARD_WIDTH - NOTE_SIZE), y: clamp(y, BOARD_HEIGHT - NOTE_SIZE) };
+/*
+ * Text style: keys, never CSS values. Each applies to the whole note (plain text, no inline
+ * markup). The web maps each key to a design token.
+ */
+export const NOTE_FONT_SIZES = ["s", "m", "l", "xl"] as const;
+export const noteFontSizeSchema = z.enum(NOTE_FONT_SIZES);
+export type NoteFontSize = z.infer<typeof noteFontSizeSchema>;
+/** "auto" is the note's usual readable foreground. */
+export const NOTE_TEXT_COLORS = ["auto", "red", "orange", "green", "blue", "purple", "grey"] as const;
+export const noteTextColorSchema = z.enum(NOTE_TEXT_COLORS);
+export type NoteTextColor = z.infer<typeof noteTextColorSchema>;
+export const NOTE_ALIGNS = ["left", "center", "right"] as const;
+export const noteAlignSchema = z.enum(NOTE_ALIGNS);
+export type NoteAlign = z.infer<typeof noteAlignSchema>;
+
+/** What a new note gets (noteAdd carries none of these), and what the v1 -> v2 storage migration fills in. */
+export const NOTE_DEFAULTS = {
+  w: NOTE_DEFAULT_W,
+  h: NOTE_DEFAULT_H,
+  fontSize: "m",
+  bold: false,
+  italic: false,
+  textColor: "auto",
+  align: "left",
+} as const satisfies { w: number; h: number; fontSize: NoteFontSize; bold: boolean; italic: boolean; textColor: NoteTextColor; align: NoteAlign };
+
+export interface NoteRect {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+const whole = (value: number, fallback: number) => (Number.isFinite(value) ? Math.round(value) : fallback);
+const between = (value: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, value));
+
+/** Rounds and clamps a position so the whole note (default size unless given) is on the board. */
+export function clampNotePosition(
+  x: number,
+  y: number,
+  size: { w: number; h: number } = NOTE_DEFAULTS,
+): { x: number; y: number } {
+  return {
+    x: between(whole(x, 0), 0, BOARD_WIDTH - size.w),
+    y: between(whole(y, 0), 0, BOARD_HEIGHT - size.h),
+  };
+}
+
+/** Size first (whole units, within min/max), then position (the whole note on the board). */
+export function clampNoteRect(rect: NoteRect): NoteRect {
+  const w = between(whole(rect.w, NOTE_DEFAULT_W), NOTE_MIN_W, NOTE_MAX_W);
+  const h = between(whole(rect.h, NOTE_DEFAULT_H), NOTE_MIN_H, NOTE_MAX_H);
+  return { ...clampNotePosition(rect.x, rect.y, { w, h }), w, h };
 }
 
 /** Server-assigned id (participants and notes): 12 random bytes, base64url. */
@@ -67,6 +124,8 @@ export const clientRefSchema = z.string().regex(/^[A-Za-z0-9_-]{1,32}$/);
 /** Integer board coordinates. Out-of-range values are refused; the server then clamps to the note size. */
 const boardX = z.number().int().min(0).max(BOARD_WIDTH);
 const boardY = z.number().int().min(0).max(BOARD_HEIGHT);
+const noteW = z.number().int().min(NOTE_MIN_W).max(NOTE_MAX_W);
+const noteH = z.number().int().min(NOTE_MIN_H).max(NOTE_MAX_H);
 /** Inbound note text: at most MAX_NOTE_TEXT characters (the server still cleans it). */
 const noteTextIn = z
   .string()
@@ -103,11 +162,22 @@ export const noteAddSchema = z.strictObject({
   text: noteTextIn,
 });
 
-export const noteEditSchema = z.strictObject({
-  type: z.literal("noteEdit"),
-  id: noteIdSchema,
-  text: noteTextIn,
-});
+/** The fields a noteEdit may change. Everything but id is optional; at least one must be there. */
+export const NOTE_EDIT_FIELDS = ["text", "color", "fontSize", "bold", "italic", "textColor", "align"] as const;
+
+export const noteEditSchema = z
+  .strictObject({
+    type: z.literal("noteEdit"),
+    id: noteIdSchema,
+    text: noteTextIn.optional(),
+    color: noteColorSchema.optional(),
+    fontSize: noteFontSizeSchema.optional(),
+    bold: z.boolean().optional(),
+    italic: z.boolean().optional(),
+    textColor: noteTextColorSchema.optional(),
+    align: noteAlignSchema.optional(),
+  })
+  .refine((edit) => NOTE_EDIT_FIELDS.some((field) => edit[field] !== undefined), { message: "Nothing to change." });
 
 /** final=false while dragging (relayed, never stored); final=true on drop (stored, bumps rev). */
 export const noteMoveSchema = z.strictObject({
@@ -115,6 +185,20 @@ export const noteMoveSchema = z.strictObject({
   id: noteIdSchema,
   x: boardX,
   y: boardY,
+  final: z.boolean(),
+});
+
+/**
+ * Position and size together (a top or left handle moves the note too), applied atomically.
+ * final=false while resizing (relayed, never stored); final=true on release (stored, bumps rev).
+ */
+export const noteResizeSchema = z.strictObject({
+  type: z.literal("noteResize"),
+  id: noteIdSchema,
+  x: boardX,
+  y: boardY,
+  w: noteW,
+  h: noteH,
   final: z.boolean(),
 });
 
@@ -130,6 +214,7 @@ export const clientMessageSchema = z.discriminatedUnion("type", [
   noteAddSchema,
   noteEditSchema,
   noteMoveSchema,
+  noteResizeSchema,
   noteDeleteSchema,
 ]);
 export type ClientMessage = z.infer<typeof clientMessageSchema>;
@@ -173,19 +258,31 @@ export const errorMessageSchema = z.object({
   noteId: noteIdSchema.optional(),
 });
 
+/** The whole note on the board at its size. */
+const onBoard = (n: NoteRect) => n.x + n.w <= BOARD_WIDTH && n.y + n.h <= BOARD_HEIGHT;
+
 /** A note as the server stores and sends it. Text is already clean; anything else is rejected. */
 export const noteSchema = z.object({
   id: noteIdSchema,
-  x: z.number().int().min(0).max(BOARD_WIDTH - NOTE_SIZE),
-  y: z.number().int().min(0).max(BOARD_HEIGHT - NOTE_SIZE),
+  x: z.number().int().min(0).max(BOARD_WIDTH - NOTE_MIN_W),
+  y: z.number().int().min(0).max(BOARD_HEIGHT - NOTE_MIN_H),
+  w: noteW,
+  h: noteH,
   text: z.string().refine((text) => cleanNoteText(text) === text),
   color: noteColorSchema,
+  fontSize: noteFontSizeSchema,
+  bold: z.boolean(),
+  italic: z.boolean(),
+  textColor: noteTextColorSchema,
+  align: noteAlignSchema,
   /** Server-assigned; starts at 1 and goes up by one on every stored change. */
   rev: z.number().int().min(1),
   /** The participant who added it, from their socket. Participant ids are per visit. */
   authorId: participantIdSchema,
-});
+}).refine(onBoard);
 export type Note = z.infer<typeof noteSchema>;
+/** The style fields of a note (what noteEdit can change besides text). */
+export type NoteStyle = Pick<Note, "color" | "fontSize" | "bold" | "italic" | "textColor" | "align">;
 
 export const joinedSchema = z.object({
   type: z.literal("joined"),
@@ -223,7 +320,7 @@ export const noteAddedSchema = z.object({
   clientRef: clientRefSchema.optional(),
 });
 
-/** Text changed. */
+/** Text, colour or style changed. Carries the whole note. */
 export const noteUpdatedSchema = z.object({
   type: z.literal("noteUpdated"),
   note: noteSchema,
@@ -238,6 +335,20 @@ export const noteMovedSchema = z.object({
   rev: noteSchema.shape.rev,
   final: z.boolean(),
 });
+
+/** Like noteMoved, with the size: non-final ones go to everyone but the resizer at the current rev. */
+export const noteResizedSchema = z
+  .object({
+    type: z.literal("noteResized"),
+    id: noteIdSchema,
+    x: noteSchema.shape.x,
+    y: noteSchema.shape.y,
+    w: noteW,
+    h: noteH,
+    rev: noteSchema.shape.rev,
+    final: z.boolean(),
+  })
+  .refine(onBoard);
 
 export const noteDeletedSchema = z.object({
   type: z.literal("noteDeleted"),
@@ -255,6 +366,7 @@ export const serverMessageSchema = z.discriminatedUnion("type", [
   noteAddedSchema,
   noteUpdatedSchema,
   noteMovedSchema,
+  noteResizedSchema,
   noteDeletedSchema,
 ]);
 export type ServerMessage = z.infer<typeof serverMessageSchema>;

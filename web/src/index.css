@@ -125,13 +125,47 @@
   color: inherit;
 }
 
-/* Notes moved by someone else ease to each new position; ones you drag follow the pointer. */
+/* Notes moved or resized by someone else ease to each new position and size; ones you drag or
+   resize follow the pointer. Reduced motion makes the duration 0 (tokens.css). */
 .react-flow__node-note {
-  transition: transform var(--sy-duration-move) linear;
+  transition:
+    transform var(--sy-duration-move) linear,
+    width var(--sy-duration-move) linear,
+    height var(--sy-duration-move) linear;
 }
 
-.react-flow__node-note.dragging {
+.react-flow__node-note.dragging,
+.react-flow__node-note.sy-held {
   transition: none;
+}
+
+/* Resize handles (after Chalkline's): a small visible square in token colours, with a hit area
+   around it that is a full touch target on touch screens. Corner handles only; the edge lines
+   resize one side. */
+.react-flow__resize-control.handle.sy-resize-handle {
+  width: var(--sy-resize-handle);
+  height: var(--sy-resize-handle);
+  border-radius: var(--sy-radius-xs);
+  background: var(--sy-surface);
+  border: var(--sy-focus-width) solid var(--sy-accent);
+  z-index: 2;
+}
+
+.react-flow__resize-control.handle.sy-resize-handle::before {
+  content: "";
+  position: absolute;
+  inset: calc((var(--sy-resize-handle) - var(--sy-touch-min)) / 2);
+}
+
+@media (pointer: fine) {
+  .react-flow__resize-control.handle.sy-resize-handle::before {
+    inset: calc((var(--sy-resize-handle) - var(--sy-resize-hit-fine)) / 2);
+  }
+}
+
+.react-flow__resize-control.line.sy-resize-line {
+  border-color: var(--sy-accent);
+  opacity: 0.4;
 }
 
 /* The minimap: bottom right, clear of the safe area. */

@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { MAX_NOTES_PER_ROOM, MAX_NOTE_TEXT, PROTOCOL_VERSION, type Note, type Participant } from "@stickyard/shared";
+import { MAX_NOTES_PER_ROOM, MAX_NOTE_TEXT, PROTOCOL_VERSION, type Note, NOTE_DEFAULTS, NOTE_MAX_H, type Participant } from "@stickyard/shared";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -459,6 +459,36 @@ describe("chat", () => {
     expect(messages()?.textContent).toContain("Hello all");
   });
 
+  it("each message shows when it arrived, as a <time> with the full date in its tooltip", async () => {
+    const socket = await inRoom();
+    await server(socket, { data: { type: "echo", from: sam.id, text: "Hi" } });
+    await openFromTopBar("Chat");
+    const time = messages()?.querySelector("time");
+    expect(time?.getAttribute("datetime")).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+    expect(time?.getAttribute("title")).toBeTruthy();
+    expect(time?.textContent).toMatch(/\d/);
+  });
+
+  it("from md up, the chat panel has a resize grip (arrow keys too; double-click resets), and keeps the size", async () => {
+    setWide(true);
+    await inRoom();
+    await click(document.querySelector<HTMLElement>('[data-chat-dock] [aria-label^="Chat"]') ?? undefined);
+    const panel = () => document.querySelector<HTMLElement>('[data-chat-dock] [role="region"]');
+    const grip = () => panel()?.querySelector<HTMLElement>('[aria-label="Resize chat"]');
+    expect(grip()).toBeTruthy();
+    expect(panel()?.className).toContain("w-chat-w");
+    await act(async () => {
+      grip()?.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowLeft", bubbles: true, cancelable: true }));
+    });
+    expect(panel()?.style.width).toMatch(/px$/);
+    expect(JSON.parse(localStorage.getItem("stickyard:chat-panel") ?? "null")).toMatchObject({ width: expect.any(Number) });
+    await act(async () => {
+      grip()?.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+    });
+    expect(panel()?.style.width).toBe("");
+    expect(panel()?.className).toContain("w-chat-w");
+  });
+
   it("renders chat text and names as plain text, never HTML", async () => {
     const socket = await inRoom();
     const evil = '<img src=x onerror="alert(1)"><b>bold</b>';
@@ -486,7 +516,7 @@ describe("chat", () => {
 
 describe("the board", () => {
   const N1 = "NNNNNNNNNNNNNNN1";
-  const one: Note = { id: N1, x: 40, y: 60, text: "Idea one", color: "yellow", rev: 1, authorId: sam.id };
+  const one: Note = { id: N1, x: 40, y: 60, ...NOTE_DEFAULTS, text: "Idea one", color: "yellow", rev: 1, authorId: sam.id };
   const notes = () => [...document.querySelectorAll<HTMLElement>('[aria-roledescription="note"]')];
   const position = (note: HTMLElement | undefined) => note?.closest<HTMLElement>(".react-flow__node")?.style.transform.replaceAll(" ", "");
   const sentOfType = (socket: FakeWebSocket, type: string) =>
@@ -629,7 +659,7 @@ describe("the board", () => {
 
 describe("board layout: palette and Properties panels from md up, ribbon on phones", () => {
   const N1 = "NNNNNNNNNNNNNNN1";
-  const one: Note = { id: N1, x: 40, y: 60, text: "Idea one", color: "yellow", rev: 1, authorId: sam.id };
+  const one: Note = { id: N1, x: 40, y: 60, ...NOTE_DEFAULTS, text: "Idea one", color: "yellow", rev: 1, authorId: sam.id };
   const viewBar = () => document.querySelector<HTMLElement>('[role="toolbar"][aria-label="View"]');
   const ribbon = () => document.querySelector<HTMLElement>('[role="toolbar"][aria-label="Board tools"]');
   const toolIds = (bar: HTMLElement | null) => [...(bar?.querySelectorAll<HTMLElement>("[data-tool]") ?? [])].map((b) => b.dataset.tool);
@@ -670,6 +700,16 @@ describe("board layout: palette and Properties panels from md up, ribbon on phon
     expect(toolIds(ribbon())).toEqual(toolsFor("ribbon").map((t) => t.id));
     expect(document.querySelector('[aria-label^="Note colour"]')).toBeNull();
     expect(document.querySelector(".react-flow__minimap")).toBeNull();
+  });
+
+  it("md up: the top bar (and its menu) stacks above the side panels, below sheets", async () => {
+    setWide(true);
+    await inRoom();
+    const z = (el: Element | null) => Number(/\bz-(\d+)\b/.exec(el?.className ?? "")?.[1] ?? 0);
+    const header = document.querySelector("header");
+    const panel = document.querySelector('aside[aria-label="Properties"]');
+    expect(z(header)).toBeGreaterThan(z(panel));
+    expect(z(header)).toBeLessThan(50);
   });
 
   it("md up: palette on the left, Properties on the right, view bar from the registry; no rail, ribbon or colour picker", async () => {
@@ -819,7 +859,7 @@ describe("board layout: palette and Properties panels from md up, ribbon on phon
 
 describe("the palette (md up)", () => {
   const N1 = "NNNNNNNNNNNNNNN1";
-  const one: Note = { id: N1, x: 40, y: 60, text: "Idea one", color: "yellow", rev: 1, authorId: sam.id };
+  const one: Note = { id: N1, x: 40, y: 60, ...NOTE_DEFAULTS, text: "Idea one", color: "yellow", rev: 1, authorId: sam.id };
   const palette = () => document.querySelector<HTMLElement>('aside[aria-label="Palette"]');
   const properties = () => document.querySelector<HTMLElement>('aside[aria-label="Properties"]');
   const tiles = () => [...(palette()?.querySelectorAll<HTMLButtonElement>("[data-palette-item]") ?? [])];
@@ -947,8 +987,8 @@ describe("the palette (md up)", () => {
 describe("the Properties panel (md up)", () => {
   const N1 = "NNNNNNNNNNNNNNN1";
   const N2 = "NNNNNNNNNNNNNNN2";
-  const one: Note = { id: N1, x: 40, y: 60, text: "Idea one\nThe details", color: "pink", rev: 1, authorId: sam.id };
-  const two: Note = { id: N2, x: 400, y: 300, text: "", color: "blue", rev: 1, authorId: "ZZZZZZZZZZZZZZZZ" };
+  const one: Note = { id: N1, x: 40, y: 60, ...NOTE_DEFAULTS, text: "Idea one\nThe details", color: "pink", rev: 1, authorId: sam.id };
+  const two: Note = { id: N2, x: 400, y: 300, ...NOTE_DEFAULTS, text: "", color: "blue", rev: 1, authorId: "ZZZZZZZZZZZZZZZZ" };
   const properties = () => document.querySelector<HTMLElement>('aside[aria-label="Properties"]');
   const notes = () => [...document.querySelectorAll<HTMLElement>('[aria-roledescription="note"]')];
   const propTitle = () => properties()?.querySelector<HTMLInputElement>('input[name="title"]') ?? null;
@@ -996,11 +1036,11 @@ describe("the Properties panel (md up)", () => {
     expect(notes()[0]?.className).toContain("ring-accent");
     expect(propTitle()?.value).toBe("Idea one");
     expect(propBody()?.value).toBe("The details");
-    const swatches = [...(properties()?.querySelectorAll<HTMLButtonElement>('[role="radio"]') ?? [])];
+    const swatches = [...(properties()?.querySelectorAll<HTMLButtonElement>('[aria-label="Note colour"] button') ?? [])];
     expect(swatches).toHaveLength(6);
-    expect(swatches.every((b) => b.disabled)).toBe(true);
-    expect(swatches.find((b) => b.getAttribute("aria-checked") === "true")?.getAttribute("aria-label")).toBe("Pink");
-    expect(properties()?.textContent).toContain("Changing colour arrives in a later update");
+    expect(swatches.every((b) => !b.disabled)).toBe(true);
+    expect(swatches.find((b) => b.getAttribute("aria-pressed") === "true")?.getAttribute("aria-label")).toBe("Pink");
+    expect(properties()?.textContent).not.toContain("arrives in a later update");
     expect(properties()?.textContent).toContain("Sam");
     expect(byText("aside button", /Delete note/)).toBeDefined();
     // Someone this page never saw.
@@ -1089,13 +1129,103 @@ describe("the Properties panel (md up)", () => {
     expect(properties()?.textContent).toContain(`0 of ${MAX_NOTES_PER_ROOM}`);
   });
 
-  it("disconnected: everything is read-only", async () => {
+  it("disconnected: everything is read-only, resize handles are hidden, and it says why", async () => {
     const socket = await withNotes(one);
     await selectNote(0);
+    expect(document.querySelectorAll(".react-flow__resize-control.handle").length).toBeGreaterThanOrEqual(4);
     await server(socket, "close");
     expect(propTitle()?.disabled).toBe(true);
     expect(propBody()?.disabled).toBe(true);
     expect(byText("aside button", /Delete note/)?.hasAttribute("disabled")).toBe(true);
+    const controls = [...(properties()?.querySelectorAll<HTMLButtonElement | HTMLInputElement | HTMLSelectElement>(
+      '[aria-label="Note colour"] button, [aria-label="Text colour"] button, [aria-label="Text style"] button, [aria-label="Alignment"] button, input[name="width"], input[name="height"], select[name="fontSize"]',
+    ) ?? [])];
+    expect(controls.length).toBeGreaterThan(15);
+    expect(controls.every((c) => c.disabled)).toBe(true);
+    expect(document.querySelectorAll(".react-flow__resize-control.handle")).toHaveLength(0);
+    expect(properties()?.textContent).toContain("Read only while disconnected");
+  });
+
+  it("colour swatches are live: optimistic, sent as noteEdit, rolled back when refused", async () => {
+    const socket = await withNotes(one);
+    await selectNote(0);
+    await click(properties()?.querySelector<HTMLElement>('[aria-label="Note colour"] [aria-label="Green"]') ?? undefined);
+    expect(sentOfType(socket, "noteEdit")).toEqual([{ type: "noteEdit", id: N1, color: "green" }]);
+    expect(notes()[0]?.className).toContain("bg-note-green");
+    expect(properties()?.querySelector("h3")?.textContent).toBe("Green note");
+    await server(socket, { data: { type: "error", code: "rate_limited", message: "x", noteId: N1 } });
+    expect(notes()[0]?.className).toContain("bg-note-pink");
+  });
+
+  it("Text section: size, Bold/Italic toggles (aria-pressed), text colour and alignment each send their field", async () => {
+    const socket = await withNotes(one);
+    await selectNote(0);
+    const size = properties()?.querySelector<HTMLSelectElement>('select[name="fontSize"]');
+    expect(size?.value).toBe("m");
+    await act(async () => {
+      if (!size) return;
+      size.value = "xl";
+      size.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    await settle();
+    const bold = properties()?.querySelector<HTMLButtonElement>('[aria-label="Text style"] [aria-label="Bold"]');
+    expect(bold?.getAttribute("aria-pressed")).toBe("false");
+    await click(bold ?? undefined);
+    expect(properties()?.querySelector('[aria-label="Text style"] [aria-label="Bold"]')?.getAttribute("aria-pressed")).toBe("true");
+    await click(properties()?.querySelector<HTMLElement>('[aria-label="Text style"] [aria-label="Italic"]') ?? undefined);
+    await click(properties()?.querySelector<HTMLElement>('[aria-label="Text colour"] [aria-label="Blue"]') ?? undefined);
+    const right = properties()?.querySelector<HTMLElement>('[aria-label="Alignment"] [aria-label="Align right"]');
+    await click(right ?? undefined);
+    expect(properties()?.querySelector('[aria-label="Alignment"] [aria-label="Align right"]')?.getAttribute("aria-checked")).toBe("true");
+    expect(sentOfType(socket, "noteEdit")).toEqual([
+      { type: "noteEdit", id: N1, fontSize: "xl" },
+      { type: "noteEdit", id: N1, bold: true },
+      { type: "noteEdit", id: N1, italic: true },
+      { type: "noteEdit", id: N1, textColor: "blue" },
+      { type: "noteEdit", id: N1, align: "right" },
+    ]);
+    // The note shows it, from token classes only.
+    const text = notes()[0]?.querySelector("span");
+    expect(text?.className).toContain("text-note-xl");
+    expect(text?.className).toContain("font-bold");
+    expect(text?.className).toContain("italic");
+    expect(text?.className).toContain("text-note-text-blue");
+    expect(text?.className).toContain("text-right");
+  });
+
+  it("Width and Height commit on Enter or blur, clamped, as one final noteResize", async () => {
+    const socket = await withNotes(one);
+    await selectNote(0);
+    const width = properties()?.querySelector<HTMLInputElement>('input[name="width"]') as HTMLInputElement;
+    const height = properties()?.querySelector<HTMLInputElement>('input[name="height"]') as HTMLInputElement;
+    expect(width.value).toBe(String(NOTE_DEFAULTS.w));
+    await type(width, "260");
+    await press("Enter", width);
+    expect(sentOfType(socket, "noteResize")).toEqual([{ type: "noteResize", id: N1, x: 40, y: 60, w: 260, h: NOTE_DEFAULTS.h, final: true }]);
+    await type(height, "9999");
+    await act(async () => {
+      height.dispatchEvent(new FocusEvent("focusout", { bubbles: true }));
+    });
+    await settle();
+    expect(sentOfType(socket, "noteResize").at(-1)).toMatchObject({ w: 260, h: NOTE_MAX_H, final: true });
+    expect(height.value).toBe(String(NOTE_MAX_H));
+    // Not a number: put back, nothing sent.
+    await type(width, "abc");
+    await press("Enter", width);
+    expect(sentOfType(socket, "noteResize")).toHaveLength(2);
+    expect(width.value).toBe("260");
+  });
+
+  it("Alt+Arrow resizes the focused note by a step; plain arrows still move it", async () => {
+    const socket = await withNotes(one);
+    await act(async () => notes()[0]?.focus());
+    await press("ArrowRight", notes()[0] as HTMLElement, { altKey: true });
+    await press("ArrowDown", notes()[0] as HTMLElement, { altKey: true, shiftKey: true });
+    expect(sentOfType(socket, "noteResize").at(-1)).toMatchObject({ id: N1, x: 40, y: 60, final: false });
+    await act(async () => new Promise((r) => setTimeout(r, 500)));
+    expect(sentOfType(socket, "noteResize").at(-1)).toEqual({ type: "noteResize", id: N1, x: 40, y: 60, w: NOTE_DEFAULTS.w + 10, h: NOTE_DEFAULTS.h + 50, final: true });
+    await press("ArrowRight", notes()[0] as HTMLElement);
+    expect(sentOfType(socket, "noteMove").at(-1)).toMatchObject({ id: N1, x: 50, y: 60 });
   });
 
   it("collapses with ] and from its header, and remembers it", async () => {
@@ -1123,7 +1253,7 @@ describe("the Properties panel (md up)", () => {
 
 describe("phone: add sheet and editor sheet", () => {
   const N1 = "NNNNNNNNNNNNNNN1";
-  const one: Note = { id: N1, x: 40, y: 60, text: "Idea one\nThe details", color: "orange", rev: 1, authorId: sam.id };
+  const one: Note = { id: N1, x: 40, y: 60, ...NOTE_DEFAULTS, text: "Idea one\nThe details", color: "orange", rev: 1, authorId: sam.id };
   const sentOfType = (socket: FakeWebSocket, t: string) => (socket.sent as Record<string, unknown>[]).filter((m) => m.type === t);
   async function withNotes(...list: Note[]) {
     const socket = await inRoom();
@@ -1168,7 +1298,7 @@ describe("phone: add sheet and editor sheet", () => {
     expect(dialog()?.querySelector("h2")?.textContent).toBe("Edit note");
   });
 
-  it("tapping a note opens the editor sheet with Title, Body, read-only colour, author and Delete", async () => {
+  it("tapping a note opens the editor sheet with Title, Body, colour, text style, size, author and Delete", async () => {
     const socket = await withNotes(one);
     const note = document.querySelector<HTMLElement>('[aria-roledescription="note"]');
     await act(async () => {
@@ -1178,7 +1308,17 @@ describe("phone: add sheet and editor sheet", () => {
     expect(dialog()?.querySelector("h2")?.textContent).toBe("Edit note");
     expect(dialog()?.querySelector<HTMLInputElement>('input[name="title"]')?.value).toBe("Idea one");
     expect(dialog()?.querySelector<HTMLTextAreaElement>('textarea[name="body"]')?.value).toBe("The details");
-    expect([...(dialog()?.querySelectorAll<HTMLButtonElement>('[role="radio"]') ?? [])].every((b) => b.disabled)).toBe(true);
+    const swatches = [...(dialog()?.querySelectorAll<HTMLButtonElement>('[aria-label="Note colour"] button') ?? [])];
+    expect(swatches).toHaveLength(6);
+    expect(swatches.every((b) => !b.disabled)).toBe(true);
+    await click(dialog()?.querySelector<HTMLElement>('[aria-label="Note colour"] [aria-label="Blue"]') ?? undefined);
+    expect(sentOfType(socket, "noteEdit").at(-1)).toEqual({ type: "noteEdit", id: N1, color: "blue" });
+    await click(dialog()?.querySelector<HTMLElement>('[aria-label="Text style"] [aria-label="Bold"]') ?? undefined);
+    expect(sentOfType(socket, "noteEdit").at(-1)).toEqual({ type: "noteEdit", id: N1, bold: true });
+    expect(dialog()?.querySelector('input[name="width"]')).not.toBeNull();
+    expect(dialog()?.querySelector('input[name="height"]')).not.toBeNull();
+    expect(dialog()?.querySelector('[aria-label="Text colour"]')).not.toBeNull();
+    expect(dialog()?.querySelector('[aria-label="Alignment"]')).not.toBeNull();
     expect(dialog()?.textContent).toContain("Sam");
     vi.stubGlobal("confirm", () => true);
     await click(byText('[role="dialog"] button', /Delete note/));

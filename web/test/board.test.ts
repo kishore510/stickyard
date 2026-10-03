@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { Note } from "@stickyard/shared";
+import { NOTE_DEFAULTS, type Note } from "@stickyard/shared";
 import {
   EMPTY_BOARD,
   addLocal,
@@ -26,8 +26,8 @@ const ME = "AAAAAAAAAAAAAAAA";
 const OTHER = "BBBBBBBBBBBBBBBB";
 const N1 = "NNNNNNNNNNNNNNN1";
 const N2 = "NNNNNNNNNNNNNNN2";
-const one: Note = { id: N1, x: 100, y: 100, text: "Idea one", color: "yellow", rev: 1, authorId: ME };
-const two: Note = { id: N2, x: 400, y: 300, text: "Needs follow-up", color: "pink", rev: 4, authorId: OTHER };
+const one: Note = { id: N1, x: 100, y: 100, ...NOTE_DEFAULTS, text: "Idea one", color: "yellow", rev: 1, authorId: ME };
+const two: Note = { id: N2, x: 400, y: 300, ...NOTE_DEFAULTS, text: "Needs follow-up", color: "pink", rev: 4, authorId: OTHER };
 
 const withNotes = (...notes: Note[]): Board => applySnapshot(EMPTY_BOARD, notes);
 const shown = (board: Board, id: string) => findNote(board, id)?.note;
@@ -52,7 +52,7 @@ describe("optimistic add", () => {
   });
 
   it("swaps in the server note on noteAdded with the same clientRef, keeping its place", () => {
-    const server: Note = { id: N2, x: 10, y: 20, text: "Idea two", color: "green", rev: 1, authorId: ME };
+    const server: Note = { id: N2, x: 10, y: 20, ...NOTE_DEFAULTS, text: "Idea two", color: "green", rev: 1, authorId: ME };
     const board = applyAdded(local(), server, "ref-1");
     expect(findNote(board, localId("ref-1"))).toBeUndefined();
     expect(board.notes.map((n) => n.note.id)).toEqual([N1, N2]);

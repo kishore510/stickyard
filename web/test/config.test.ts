@@ -36,6 +36,7 @@ describe("storage keys", () => {
       name: "stickyard:name",
       palettePanel: "stickyard:palette-panel",
       propertiesPanel: "stickyard:properties-panel",
+      chatPanel: "stickyard:chat-panel",
     });
   });
 });

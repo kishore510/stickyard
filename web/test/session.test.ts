@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { MAX_NOTES_PER_ROOM, PROTOCOL_VERSION, type Note, type Participant } from "@stickyard/shared";
+import { MAX_NOTES_PER_ROOM, PROTOCOL_VERSION, type Note, NOTE_DEFAULTS, NOTE_MAX_H, NOTE_MIN_W, type Participant } from "@stickyard/shared";
 import type { SocketFactory, SocketHandlers } from "../src/connection/socket";
 import type { CodeCheck } from "../src/rooms/api";
 import { findNote, localId } from "../src/notes/board";
-import { JOIN_TIMEOUT_MS, MAX_MESSAGES, MOVE_INTERVAL_MS, RoomSession, type RoomView } from "../src/rooms/session";
+import { JOIN_TIMEOUT_MS, MAX_MESSAGES, MOVE_INTERVAL_MS, RESIZE_INTERVAL_MS, RoomSession, type RoomView } from "../src/rooms/session";
 
 class FakeSocket {
   sent: unknown[] = [];
@@ -183,7 +183,7 @@ describe("in the room", () => {
     const t = joined();
     t.sock().receive({ type: "echo", from: sam.id, text: "hi" });
     t.sock().receive({ type: "participant_left", id: sam.id });
-    expect(t.view().messages).toEqual([{ key: expect.any(Number), from: sam.id, name: "Sam", colourIndex: 1, text: "hi" }]);
+    expect(t.view().messages).toEqual([{ key: expect.any(Number), from: sam.id, name: "Sam", colourIndex: 1, text: "hi", at: expect.any(Number) }]);
   });
 
   it("ignores echoes from unknown senders", () => {
@@ -241,7 +241,7 @@ describe("in the room", () => {
 
 describe("notes", () => {
   const N1 = "NNNNNNNNNNNNNNN1";
-  const one: Note = { id: N1, x: 100, y: 100, text: "Idea one", color: "yellow", rev: 1, authorId: sam.id };
+  const one: Note = { id: N1, x: 100, y: 100, ...NOTE_DEFAULTS, text: "Idea one", color: "yellow", rev: 1, authorId: sam.id };
   type Sent = Record<string, unknown>;
   const lastSent = (t: ReturnType<typeof setup>) => t.sock().sent.at(-1) as Sent;
   const sentOfType = (t: ReturnType<typeof setup>, type: string) => (t.sock().sent as Sent[]).filter((m) => m.type === type);
@@ -264,7 +264,7 @@ describe("notes", () => {
     expect(sent).toMatchObject({ type: "noteAdd", x: 10, y: 20, color: "pink", text: "" });
     const ref = String(sent.clientRef);
     expect(findNote(t.view().board, localId(ref))).toBeDefined();
-    const server: Note = { id: N1, x: 10, y: 20, text: "", color: "pink", rev: 1, authorId: alex.id };
+    const server: Note = { id: N1, x: 10, y: 20, ...NOTE_DEFAULTS, text: "", color: "pink", rev: 1, authorId: alex.id };
     t.sock().receive({ type: "noteAdded", note: server, clientRef: ref });
     expect(t.view().board.notes.map((n) => n.note)).toEqual([server]);
   });
@@ -395,6 +395,111 @@ describe("notes", () => {
     t.session.editNote(N1, "Needs follow-up");
     t.session.deleteNote(N1);
     t.session.moveNote(N1, 1, 1, true);
+    expect(t.view().board.notes[0]?.note).toEqual(one);
+  });
+
+  it(`resize: optimistic, throttled to one per ${RESIZE_INTERVAL_MS}ms (about 20/s), then one final resize`, () => {
+    const t = withBoard(one);
+    expect(RESIZE_INTERVAL_MS).toBe(50);
+    expect(t.session.startResize(N1)).toBe(true);
+    for (let i = 1; i <= 10; i++) {
+      t.session.resizeNote(N1, { x: 100, y: 100, w: 160 + i * 5, h: 160 }, false);
+      vi.advanceTimersByTime(10);
+    }
+    const sent = sentOfType(t, "noteResize");
+    expect(sent.length).toBeGreaterThanOrEqual(2);
+    expect(sent.length).toBeLessThanOrEqual(3);
+    expect(sent.every((m) => m.final === false)).toBe(true);
+    expect(t.view().board.notes[0]).toMatchObject({ resizing: true, note: { w: 210 } });
+    t.session.resizeNote(N1, { x: 90, y: 80, w: 220, h: 180 }, true);
+    expect(lastSent(t)).toEqual({ type: "noteResize", id: N1, x: 90, y: 80, w: 220, h: 180, final: true });
+    const total = t.sock().sent.length;
+    vi.advanceTimersByTime(RESIZE_INTERVAL_MS * 4);
+    expect(t.sock().sent).toHaveLength(total);
+    expect(t.view().board.notes[0]).toMatchObject({ resizing: false, note: { x: 90, y: 80, w: 220, h: 180 } });
+  });
+
+  it("resize is clamped locally before it's sent", () => {
+    const t = withBoard(one);
+    t.session.startResize(N1);
+    t.session.resizeNote(N1, { x: 100, y: 100, w: 5, h: 99999 }, true);
+    expect(lastSent(t)).toMatchObject({ type: "noteResize", w: NOTE_MIN_W, h: NOTE_MAX_H, final: true });
+  });
+
+  it("a refused resize rolls back", () => {
+    const t = withBoard(one);
+    t.session.startResize(N1);
+    t.session.resizeNote(N1, { x: 100, y: 100, w: 300, h: 300 }, true);
+    t.sock().receive({ type: "error", code: "rate_limited", message: "x", noteId: N1 });
+    expect(t.view().board.notes[0]?.note).toEqual(one);
+  });
+
+  it("remote resizes show, but not while this page is resizing that note; a remote delete mid-resize stops it", () => {
+    const t = withBoard(one);
+    t.sock().receive({ type: "noteResized", id: N1, x: 100, y: 100, w: 300, h: 200, rev: 2, final: true });
+    expect(t.view().board.notes[0]?.note).toMatchObject({ w: 300, h: 200, rev: 2 });
+    t.session.startResize(N1);
+    t.session.resizeNote(N1, { x: 100, y: 100, w: 250, h: 250 }, false);
+    t.sock().receive({ type: "noteResized", id: N1, x: 0, y: 0, w: 400, h: 400, rev: 3, final: true });
+    t.sock().receive({ type: "noteMoved", id: N1, x: 900, y: 900, rev: 4, final: true });
+    expect(t.view().board.notes[0]?.note).toMatchObject({ x: 100, y: 100, w: 250, h: 250 });
+    t.sock().receive({ type: "noteDeleted", id: N1 });
+    const count = t.sock().sent.length;
+    t.session.resizeNote(N1, { x: 100, y: 100, w: 260, h: 260 }, true);
+    vi.advanceTimersByTime(RESIZE_INTERVAL_MS * 2);
+    expect(t.sock().sent).toHaveLength(count);
+    expect(t.view().board.notes).toEqual([]);
+  });
+
+  it("setNoteSize (Width/Height fields) sends one final resize at the same position, clamped", () => {
+    const t = withBoard(one);
+    expect(t.session.setNoteSize(N1, 300, 9999)).toBe(true);
+    expect(lastSent(t)).toEqual({ type: "noteResize", id: N1, x: 100, y: 100, w: 300, h: NOTE_MAX_H, final: true });
+    expect(t.view().board.notes[0]?.note).toMatchObject({ w: 300, h: NOTE_MAX_H });
+    const count = t.sock().sent.length;
+    expect(t.session.setNoteSize(N1, 300, NOTE_MAX_H)).toBe(true);
+    expect(t.sock().sent).toHaveLength(count);
+  });
+
+  it("colour and style edits are optimistic, send only that field, and roll back when refused", () => {
+    const t = withBoard(one);
+    expect(t.session.styleNote(N1, { color: "blue" })).toBe(true);
+    expect(lastSent(t)).toEqual({ type: "noteEdit", id: N1, color: "blue" });
+    expect(t.view().board.notes[0]?.note.color).toBe("blue");
+    t.session.styleNote(N1, { bold: true });
+    expect(lastSent(t)).toEqual({ type: "noteEdit", id: N1, bold: true });
+    t.session.styleNote(N1, { align: "right" });
+    expect(lastSent(t)).toEqual({ type: "noteEdit", id: N1, align: "right" });
+    t.sock().receive({ type: "error", code: "bad_message", message: "x", noteId: N1 });
+    expect(t.view().board.notes[0]?.note).toEqual(one);
+    expect(t.view().noteNotice).toBeTruthy();
+  });
+
+  it("an unchanged style sends nothing", () => {
+    const t = withBoard(one);
+    const count = t.sock().sent.length;
+    t.session.styleNote(N1, { color: "yellow", fontSize: "m" });
+    expect(t.sock().sent).toHaveLength(count);
+  });
+
+  it("styles set before the add is confirmed are sent as one edit after the swap", () => {
+    const t = withBoard();
+    t.session.addNote({ x: 10, y: 20, color: "pink" });
+    const ref = String(lastSent(t).clientRef);
+    const temp = localId(ref);
+    t.session.styleNote(temp, { bold: true, textColor: "red" });
+    expect(sentOfType(t, "noteEdit")).toEqual([]);
+    t.sock().receive({ type: "noteAdded", note: { ...one, id: N1, text: "", color: "pink", authorId: alex.id }, clientRef: ref });
+    expect(lastSent(t)).toEqual({ type: "noteEdit", id: N1, bold: true, textColor: "red" });
+  });
+
+  it("disconnected: resize and style are blocked", () => {
+    const t = withBoard(one);
+    t.sock().serverClose();
+    expect(t.session.startResize(N1)).toBe(false);
+    t.session.resizeNote(N1, { x: 1, y: 1, w: 300, h: 300 }, true);
+    expect(t.session.styleNote(N1, { color: "blue" })).toBe(false);
+    expect(t.session.setNoteSize(N1, 300, 300)).toBe(false);
     expect(t.view().board.notes[0]?.note).toEqual(one);
   });
 });

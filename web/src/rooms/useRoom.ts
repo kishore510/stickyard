@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from "react";
-import type { NoteColor } from "@stickyard/shared";
+import type { NoteColor, NoteRect } from "@stickyard/shared";
 import { WORKER_URL, toWebSocketUrl } from "../config";
 import { browserSocketFactory } from "../connection/socket";
 import { useBoardUi } from "../canvas/uiStore";
 import { STORAGE_KEYS, writeKey } from "../storage";
 import { browserFetch, checkRoom } from "./api";
+import type { StylePatch } from "../notes/board";
 import { INITIAL_VIEW, RoomSession, type RoomView } from "./session";
 
 /** One room visit for the room screen. A new socket per join attempt; closed on unmount. */
@@ -50,6 +51,10 @@ export function useRoom(code: string) {
     setDraft: (id: string, draft: string | null) => session.current?.setDraft(id, draft),
     startDrag: (id: string) => session.current?.startDrag(id) ?? false,
     moveNote: (id: string, x: number, y: number, final: boolean) => session.current?.moveNote(id, x, y, final),
+    startResize: (id: string) => session.current?.startResize(id) ?? false,
+    resizeNote: (id: string, rect: NoteRect, final: boolean) => session.current?.resizeNote(id, rect, final),
+    setNoteSize: (id: string, w: number, h: number) => session.current?.setNoteSize(id, w, h) ?? false,
+    styleNote: (id: string, change: StylePatch) => session.current?.styleNote(id, change) ?? false,
     deleteNote: (id: string) => session.current?.deleteNote(id),
     leave: () => session.current?.close(),
   };

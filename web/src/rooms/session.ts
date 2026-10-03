@@ -10,6 +10,7 @@ import {
   serverMessageSchema,
   type ClientMessage,
   type NoteColor,
+  type NoteRect,
   type Participant,
   type ServerMessage,
 } from "@stickyard/shared";
@@ -20,6 +21,7 @@ import {
   applyAdded,
   applyDeleted,
   applyMoved,
+  applyResized,
   applySnapshot,
   applyUpdated,
   deleteLocal,
@@ -29,10 +31,15 @@ import {
   localId,
   moveLocal,
   rejectAdd,
+  resizeLocal,
   rollback,
   setDraft,
   setDragging,
+  setResizing,
+  styleChanges,
+  styleLocal,
   type Board,
+  type StylePatch,
 } from "../notes/board";
 import type { CodeCheck } from "./api";
 
@@ -54,6 +61,8 @@ export interface EchoEntry {
   name: string;
   colourIndex: number;
   text: string;
+  /** When it arrived here (ms since the epoch, this device's clock). */
+  at: number;
 }
 
 export interface RoomView {
@@ -95,6 +104,8 @@ export const JOIN_TIMEOUT_MS = 10_000;
 export const MAX_MESSAGES = 100;
 /** Drag updates are sent at most this often per note (about 20 a second), then once on drop. */
 export const MOVE_INTERVAL_MS = 50;
+/** Resize updates likewise: at most about 20 a second per note, then once on release. */
+export const RESIZE_INTERVAL_MS = 50;
 
 export const NOTICES = {
   full: `The board is full (${MAX_NOTES_PER_ROOM} notes). Delete a note to add another.`,
@@ -107,6 +118,11 @@ const randomRef = (): string => {
   const bytes = crypto.getRandomValues(new Uint8Array(9));
   return btoa(String.fromCharCode(...bytes)).replaceAll("+", "-").replaceAll("/", "_");
 };
+
+interface Throttle {
+  last: number;
+  timer: ReturnType<typeof setTimeout> | undefined;
+}
 
 export interface SessionOptions {
   /** The room's WebSocket URL (with the code). */
@@ -131,7 +147,9 @@ export class RoomSession {
   /** Everyone seen in this visit, so echoes keep their sender's name after they leave. */
   private readonly known = new Map<string, Participant>();
   /** Per note being moved: when a move was last sent, and the pending trailing send. */
-  private readonly moves = new Map<string, { last: number; timer: ReturnType<typeof setTimeout> | undefined }>();
+  private readonly moves = new Map<string, Throttle>();
+  /** The same for resizes. */
+  private readonly resizes = new Map<string, Throttle>();
   /** Adds deleted here before the server confirmed them: delete them once it does. */
   private readonly abandoned = new Set<string>();
 
@@ -237,18 +255,59 @@ export class RoomSession {
       this.stopMove(id);
       return this.sendMove(id, true);
     }
-    const now = Date.now();
-    const state = this.moves.get(id) ?? { last: -Infinity, timer: undefined };
-    this.moves.set(id, state);
-    if (now - state.last >= MOVE_INTERVAL_MS) {
-      state.last = now;
-      return this.sendMove(id, false);
+    this.throttle(this.moves, id, MOVE_INTERVAL_MS, () => this.sendMove(id, false));
+  }
+
+  /** Starts a resize (a handle grabbed). False for a note that can't be resized yet. */
+  startResize(id: string): boolean {
+    if (!this.live || isLocalId(id) || !findNote(this.view.board, id)) return false;
+    this.update({ board: setResizing(this.view.board, id, true), noteNotice: null });
+    return true;
+  }
+
+  /**
+   * Resizes a note here at once (position and size together, clamped). Non-final resizes are sent
+   * at most every RESIZE_INTERVAL_MS; the final one is sent straight away and stored.
+   */
+  resizeNote(id: string, rect: NoteRect, final: boolean): void {
+    if (!this.live || isLocalId(id)) return;
+    if (!findNote(this.view.board, id)) return this.stopResize(id);
+    let board = resizeLocal(this.view.board, id, rect);
+    if (final) board = setResizing(board, id, false);
+    this.update({ board });
+    if (final) {
+      this.stopResize(id);
+      return this.sendResize(id, true);
     }
-    state.timer ??= setTimeout(() => {
-      state.timer = undefined;
-      state.last = Date.now();
-      this.sendMove(id, false);
-    }, state.last + MOVE_INTERVAL_MS - now);
+    this.throttle(this.resizes, id, RESIZE_INTERVAL_MS, () => this.sendResize(id, false));
+  }
+
+  /** The Width/Height fields: one final resize at the same position. False if refused. */
+  setNoteSize(id: string, w: number, h: number): boolean {
+    const entry = findNote(this.view.board, id);
+    if (!this.live || isLocalId(id) || !entry) return false;
+    const { x, y } = entry.note;
+    const board = resizeLocal(this.view.board, id, { x, y, w, h });
+    if (board === this.view.board) return true;
+    this.update({ board, noteNotice: null });
+    this.sendResize(id, true);
+    return true;
+  }
+
+  /**
+   * Colour and text style: shown at once, sent as one noteEdit with just those fields, rolled
+   * back if refused. A note not confirmed yet gets them sent once it has its server id.
+   */
+  styleNote(id: string, change: StylePatch): boolean {
+    if (!this.live) return false;
+    const entry = findNote(this.view.board, id);
+    if (!entry) return false;
+    const board = styleLocal(this.view.board, id, change);
+    if (board === this.view.board) return true;
+    const changed = styleChanges(entry.note, findNote(board, id)?.note ?? entry.note);
+    this.update({ board, noteNotice: null });
+    if (!isLocalId(id)) this.send({ type: "noteEdit", id, ...changed });
+    return true;
   }
 
   /** Deletes a note here at once. */
@@ -257,9 +316,38 @@ export class RoomSession {
     const entry = findNote(this.view.board, id);
     if (!entry) return;
     this.stopMove(id);
+    this.stopResize(id);
     this.update({ board: deleteLocal(this.view.board, id), noteNotice: null });
     if (entry.clientRef !== null) this.abandoned.add(entry.clientRef);
     else this.send({ type: "noteDelete", id });
+  }
+
+  /** Sends now if `interval` has passed since the last send, else once it has (the latest wins). */
+  private throttle(map: Map<string, Throttle>, id: string, interval: number, sendNow: () => void): void {
+    const now = Date.now();
+    const state = map.get(id) ?? { last: -Infinity, timer: undefined };
+    map.set(id, state);
+    if (now - state.last >= interval) {
+      state.last = now;
+      return sendNow();
+    }
+    state.timer ??= setTimeout(() => {
+      state.timer = undefined;
+      state.last = Date.now();
+      sendNow();
+    }, state.last + interval - now);
+  }
+
+  private sendResize(id: string, final: boolean): void {
+    const entry = findNote(this.view.board, id);
+    if (!entry || !this.live) return;
+    const { x, y, w, h } = entry.note;
+    this.send({ type: "noteResize", id, x, y, w, h, final });
+  }
+
+  private stopResize(id: string): void {
+    clearTimeout(this.resizes.get(id)?.timer);
+    this.resizes.delete(id);
   }
 
   private sendMove(id: string, final: boolean): void {
@@ -275,6 +363,7 @@ export class RoomSession {
 
   private stopAllMoves(): void {
     for (const id of [...this.moves.keys()]) this.stopMove(id);
+    for (const id of [...this.resizes.keys()]) this.stopResize(id);
   }
 
   /** Leaves: closes the socket and reports nothing further. */
@@ -358,6 +447,7 @@ export class RoomSession {
           name: sender.name,
           colourIndex: sender.colourIndex,
           text: message.text,
+          at: Date.now(),
         };
         const mine = sender.id === this.view.you?.id;
         return this.update({
@@ -377,9 +467,10 @@ export class RoomSession {
           // Deleted here before the server confirmed it.
           board = deleteLocal(board, note.id);
           this.send({ type: "noteDelete", id: note.id });
-        } else if (temp && temp.note.text !== note.text) {
-          // Text committed while the add was in flight.
-          this.send({ type: "noteEdit", id: note.id, text: temp.note.text });
+        } else if (temp) {
+          // Text, colour or style committed while the add was in flight: one edit with all of it.
+          const edit = { ...(temp.note.text !== note.text ? { text: temp.note.text } : {}), ...styleChanges(note, temp.note) };
+          if (Object.keys(edit).length > 0) this.send({ type: "noteEdit", id: note.id, ...edit });
         }
         if (temp) this.options.onNoteConfirmed?.(temp.note.id, note.id);
         return this.update({ board, ...(clientRef !== undefined ? { rateLimited: false } : {}) });
@@ -391,8 +482,12 @@ export class RoomSession {
       case "noteMoved":
         return this.update({ board: applyMoved(this.view.board, message) });
 
+      case "noteResized":
+        return this.update({ board: applyResized(this.view.board, message) });
+
       case "noteDeleted": {
         this.stopMove(message.id);
+        this.stopResize(message.id);
         const editing = findNote(this.view.board, message.id)?.draft != null;
         return this.update({
           board: applyDeleted(this.view.board, message.id),
@@ -432,6 +527,7 @@ export class RoomSession {
     }
     if (message.noteId !== undefined) {
       this.stopMove(message.noteId);
+      this.stopResize(message.noteId);
       board = rollback(board, message.noteId);
     }
     const noteNotice =

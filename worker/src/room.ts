@@ -2,8 +2,11 @@ import { DurableObject } from "cloudflare:workers";
 import {
   MAX_NOTES_PER_ROOM,
   MAX_PARTICIPANTS,
+  NOTE_DEFAULTS,
+  NOTE_EDIT_FIELDS,
   PROTOCOL_VERSION,
   clampNotePosition,
+  clampNoteRect,
   clientMessageSchema,
   cleanName,
   cleanNoteText,
@@ -51,6 +54,7 @@ function refOf(message: ClientMessage): ErrorRef {
       return { clientRef: message.clientRef };
     case "noteEdit":
     case "noteMove":
+    case "noteResize":
     case "noteDelete":
       return { noteId: message.id };
     default:
@@ -58,7 +62,10 @@ function refOf(message: ClientMessage): ErrorRef {
   }
 }
 
-type NoteMessage = Extract<ClientMessage, { type: "noteAdd" | "noteEdit" | "noteMove" | "noteDelete" }>;
+type NoteMessage = Extract<ClientMessage, { type: "noteAdd" | "noteEdit" | "noteMove" | "noteResize" | "noteDelete" }>;
+
+/** Drags and resizes in progress: relayed (coalesced), never stored. */
+const isPreview = (message: ClientMessage) => (message.type === "noteMove" || message.type === "noteResize") && !message.final;
 
 /**
  * One instance per room, addressed by the room id from a verified code.
@@ -67,7 +74,7 @@ type NoteMessage = Extract<ClientMessage, { type: "noteAdd" | "noteEdit" | "note
  */
 export class Room extends DurableObject<Env> {
   private readonly notes: NoteStore;
-  /** Non-final moves waiting to be relayed, latest per note. Never stored. */
+  /** Non-final moves and resizes waiting to be relayed, latest per note and kind. Never stored. */
   private readonly pendingMoves = new Map<string, { from: WebSocket; message: ServerMessage }>();
   private flushScheduled = false;
 
@@ -155,8 +162,9 @@ export class Room extends DurableObject<Env> {
   }
 
   private handle(ws: WebSocket, state: SocketState, message: ClientMessage): void {
-    // Anything other than a drag relays pending drags first, so everyone sees changes in arrival order.
-    if (!(message.type === "noteMove" && !message.final)) this.flushMoves();
+    // Anything other than a drag or resize in progress relays pending ones first, so everyone
+    // sees changes in arrival order.
+    if (!isPreview(message)) this.flushMoves();
 
     switch (message.type) {
       case "hello": {
@@ -206,6 +214,7 @@ export class Room extends DurableObject<Env> {
       case "noteAdd":
       case "noteEdit":
       case "noteMove":
+      case "noteResize":
       case "noteDelete": {
         ws.serializeAttachment(state);
         if (!state.participant) return send(ws, error("not_joined", "Join the room first.", refOf(message)));
@@ -229,8 +238,10 @@ export class Room extends DurableObject<Env> {
         const text = cleanNoteText(message.text);
         if (text === null) return send(ws, error("bad_message", "Note text is too long.", refOf(message)));
         // The id, rev and author are the server's; the author comes from this socket.
+        // A new note has the default size and style; noteAdd carries neither.
         const note: Note = {
           id: randomBase64url(12),
+          ...NOTE_DEFAULTS,
           ...clampNotePosition(message.x, message.y),
           text,
           color: message.color,
@@ -246,10 +257,24 @@ export class Room extends DurableObject<Env> {
       case "noteEdit": {
         const current = this.notes.get(message.id);
         if (!current) return;
-        const text = cleanNoteText(message.text);
-        if (text === null) return send(ws, error("bad_message", "Note text is too long.", refOf(message)));
-        if (text === current.text) return;
-        const note: Note = { ...current, text, rev: current.rev + 1 };
+        let next: Note = current;
+        if (message.text !== undefined) {
+          const text = cleanNoteText(message.text);
+          if (text === null) return send(ws, error("bad_message", "Note text is too long.", refOf(message)));
+          next = { ...next, text };
+        }
+        // Keys only (the schema refused anything else); position, size and author never change here.
+        next = {
+          ...next,
+          color: message.color ?? next.color,
+          fontSize: message.fontSize ?? next.fontSize,
+          bold: message.bold ?? next.bold,
+          italic: message.italic ?? next.italic,
+          textColor: message.textColor ?? next.textColor,
+          align: message.align ?? next.align,
+        };
+        if (NOTE_EDIT_FIELDS.every((field) => next[field] === current[field])) return;
+        const note: Note = { ...next, rev: current.rev + 1 };
         this.notes.update(note);
         this.broadcast({ type: "noteUpdated", note });
         return;
@@ -258,10 +283,10 @@ export class Room extends DurableObject<Env> {
       case "noteMove": {
         const current = this.notes.get(message.id);
         if (!current) return;
-        const { x, y } = clampNotePosition(message.x, message.y);
+        const { x, y } = clampNotePosition(message.x, message.y, current);
         if (!message.final) {
           // Relayed to the others only, at the current rev; never stored.
-          this.pendingMoves.set(current.id, {
+          this.pendingMoves.set(`move:${current.id}`, {
             from: ws,
             message: { type: "noteMoved", id: current.id, x, y, rev: current.rev, final: false },
           });
@@ -278,6 +303,28 @@ export class Room extends DurableObject<Env> {
         return;
       }
 
+      case "noteResize": {
+        const current = this.notes.get(message.id);
+        if (!current) return;
+        // Size first, then position, so the whole note stays on the board.
+        const rect = clampNoteRect(message);
+        if (!message.final) {
+          this.pendingMoves.set(`resize:${current.id}`, {
+            from: ws,
+            message: { type: "noteResized", id: current.id, ...rect, rev: current.rev, final: false },
+          });
+          this.scheduleFlush();
+          return;
+        }
+        let note = current;
+        if (rect.x !== current.x || rect.y !== current.y || rect.w !== current.w || rect.h !== current.h) {
+          note = { ...current, ...rect, rev: current.rev + 1 };
+          this.notes.update(note);
+        }
+        this.broadcast({ type: "noteResized", id: note.id, x: note.x, y: note.y, w: note.w, h: note.h, rev: note.rev, final: true });
+        return;
+      }
+
       case "noteDelete": {
         if (!this.notes.get(message.id)) return;
         this.notes.delete(message.id);
@@ -287,7 +334,7 @@ export class Room extends DurableObject<Env> {
     }
   }
 
-  /** Drags that arrive together are coalesced: only the latest position per note is relayed. */
+  /** Drags and resizes that arrive together are coalesced: only the latest per note (and kind) is relayed. */
   private scheduleFlush(): void {
     if (this.flushScheduled) return;
     this.flushScheduled = true;
@@ -300,8 +347,8 @@ export class Room extends DurableObject<Env> {
     const pending = [...this.pendingMoves.values()];
     this.pendingMoves.clear();
     for (const { from, message } of pending) {
-      // A note deleted since then is not moved.
-      if (message.type === "noteMoved" && !this.notes.get(message.id)) continue;
+      // A note deleted since then is not moved or resized.
+      if ((message.type === "noteMoved" || message.type === "noteResized") && !this.notes.get(message.id)) continue;
       this.broadcast(message, from);
     }
   }

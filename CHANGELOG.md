@@ -2,6 +2,24 @@
 
 All notable changes to Stickyard, newest first. The format follows Keep a Changelog. Versions are 0.x: a minor bump for each slice and a patch bump for each follow-up fix. This file is shown in the app under **What’s new**, so entries are written for the people using it.
 
+## [0.6.0] - 2026-10-03
+
+### Added
+- **Resize notes.** Select a note and drag a corner (or an edge) to make it bigger or smaller; the opposite corner stays put. Notes go from 96 to 480 wide and tall and always stay on the board. Others see it change size as you drag.
+- **Width and Height** fields in Properties (and in a phone's note editor) for exact sizes.
+- **Alt+arrow keys** resize the focused note (**Shift** for bigger steps); the arrow keys on their own still move it.
+- **Change a note's colour** at any time from the swatches in Properties or the phone editor.
+- **Text style** for each note: size (Small to Extra large), **Bold**, *Italic*, alignment (left, centre, right) and text colour. **Auto** keeps the usual dark text; every text colour stays readable on every note colour in light and dark themes. Styles apply to the whole note.
+- Chat messages now show **when they arrived** (with the full date when you point at the time).
+- On a wider screen, **chat can be resized** with the grip at its top left (or the arrow keys); double-click the grip to reset. This browser remembers the size.
+
+### Changed
+- Pages from before this update show **Please reload** when they join a session. Reload to get the new version; your notes are kept and start at the usual size and style.
+- About's **Privacy** now mentions that note size and text style are stored with the note, and that the chat size stays in this browser.
+
+### Fixed
+- On a wider screen, the menu (the three bars at the top right) no longer opens behind the Properties panel.
+
 ## [0.5.1] - 2026-10-03
 
 ### Added

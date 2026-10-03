@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MAX_NOTE_TEXT, NOTE_SIZE, type Note } from "@stickyard/shared";
+import { MAX_NOTE_TEXT, NOTE_DEFAULTS, NOTE_DEFAULT_H, NOTE_DEFAULT_W, type Note } from "@stickyard/shared";
 import {
   EMPTY_SELECTION,
   clearSelection,
@@ -65,10 +65,10 @@ describe("selection (a set of note ids)", () => {
 });
 
 describe("note size lookup", () => {
-  it("returns the default size for every note today", () => {
-    const note: Note = { id: "N1", x: 1, y: 2, text: "", color: "yellow", rev: 1, authorId: "A" };
-    expect(noteSize(note)).toEqual({ width: NOTE_SIZE, height: NOTE_SIZE });
-    expect(noteSize({ ...note, id: "N2", x: 900 })).toEqual({ width: NOTE_SIZE, height: NOTE_SIZE });
+  it("is the note's own size (v4); new notes are the default size", () => {
+    const note: Note = { id: "N1", x: 1, y: 2, ...NOTE_DEFAULTS, text: "", color: "yellow", rev: 1, authorId: "A" };
+    expect(noteSize(note)).toEqual({ width: NOTE_DEFAULT_W, height: NOTE_DEFAULT_H });
+    expect(noteSize({ ...note, w: 300, h: 120 })).toEqual({ width: 300, height: 120 });
   });
 });
 

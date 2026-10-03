@@ -37,6 +37,14 @@ describe("handshake", () => {
     c.close();
   });
 
+  it("answers a protocol v3 hello with version_mismatch (pages from before note sizes and styles)", async () => {
+    const { code } = await newRoom();
+    const c = await TestClient.open(code);
+    expect(await c.request(hello(3))).toMatchObject({ type: "error", code: "version_mismatch" });
+    expect(await c.request({ type: "join", name: "Alex" })).toMatchObject({ type: "error", code: "bad_message" });
+    c.close();
+  });
+
   it("answers a future protocol version with version_mismatch", async () => {
     const { code } = await newRoom();
     const c = await TestClient.open(code);

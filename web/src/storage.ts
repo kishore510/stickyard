@@ -19,6 +19,8 @@ export const STORAGE_KEYS = {
   /** The board's side panels (md and up): width and whether collapsed. Layout only. */
   palettePanel: storageKey("palette-panel"),
   propertiesPanel: storageKey("properties-panel"),
+  /** The floating chat panel's size (md and up), once resized. Layout only. */
+  chatPanel: storageKey("chat-panel"),
 } as const;
 // The create passcode is never stored: it lives only in the form's state until it is sent.
 

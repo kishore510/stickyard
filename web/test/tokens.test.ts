@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { BOARD_HEIGHT, BOARD_WIDTH, NOTE_COLORS, NOTE_SIZE, PALETTE_SIZE } from "@stickyard/shared";
+import { BOARD_HEIGHT, BOARD_WIDTH, NOTE_COLORS, NOTE_DEFAULT_W, PALETTE_SIZE } from "@stickyard/shared";
 import { BREAKPOINTS } from "../src/styles/breakpoints";
 
 const SRC = new URL("../src/", import.meta.url).pathname;
@@ -78,7 +78,7 @@ describe("design tokens", () => {
   it("board and note sizes match the shared protocol", () => {
     expect(tokens).toContain(`--sy-board-width: ${BOARD_WIDTH}px;`);
     expect(tokens).toContain(`--sy-board-height: ${BOARD_HEIGHT}px;`);
-    expect(tokens).toContain(`--sy-note-size: ${NOTE_SIZE}px;`);
+    expect(tokens).toContain(`--sy-note-size: ${NOTE_DEFAULT_W}px;`);
   });
 
   it("no colours outside tokens.css", () => {

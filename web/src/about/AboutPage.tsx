@@ -92,13 +92,14 @@ export function AboutPage() {
           <li>
             When you join a session, the name you type, the chat messages you send and the notes you add or change are
             visible to everyone in the session. Names are never verified. Chat messages are passed on by the relay and not
-            saved.
+            saved; the time shown on each is when it reached your device.
           </li>
           <li>
-            Notes are stored by the relay, in that session’s own storage on Cloudflare: each note’s text, colour, place on
-            the board, and the random id the relay gave the visit that added it (not your name). They stay there until
-            someone in the session deletes them or the session is removed; sessions don’t expire yet. Moving a note is
-            passed on to others while you drag, and only where it ends up is stored.
+            Notes are stored by the relay, in that session’s own storage on Cloudflare: each note’s text, colour, text
+            style (size, bold, italic, text colour and alignment), size, place on the board, and the random id the relay
+            gave the visit that added it (not your name). They stay there until someone in the session deletes them or the
+            session is removed; sessions don’t expire yet. Moving or resizing a note is passed on to others while you drag,
+            and only where it ends up is stored.
           </li>
           <li>
             The create passcode is sent only to the relay, only when you start a session, and is never stored in your
@@ -111,7 +112,8 @@ export function AboutPage() {
           </li>
           <li>
             This browser stores only your theme choice, the last version whose notes you opened, the last name you
-            joined with, and how wide the board’s side panels are and whether they’re collapsed: layout preferences only,
+            joined with, how wide the board’s side panels are and whether they’re collapsed, and the chat panel’s size if
+            you resized it: layout preferences only,
             with no session content and nothing about you, and it stays on this device. Where you are on the board, the
             zoom, the tool you pick and which note is selected stay in the open page: they aren’t stored or sent anywhere.
           </li>
