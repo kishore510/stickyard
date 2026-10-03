@@ -100,6 +100,11 @@ Free-plan limits: `docs/LIMITS.md`.
 - Arrange: pure `canvas/arrange.ts` (`align`, `distribute` (3+, idempotent when the notes don't overlap), `matchSize` (first selected as reference), `groupOffset`, `applyRects`), each returning only changed rects, clamped. `canvas/SelectionBar.tsx` (`FloatingBar` generic, Chalkline's ArrangeBar) sits first in the top stack in `RoomBoard` for 2+ notes under Select.
 - Properties for several: "N selected", `Delete N notes` (confirm), and the Colour/Title text/Body text/Size sections read-only with `mixed` fields ("Mixed", `aria-pressed="mixed"`, no swatch pressed). Editing colour or style for several notes at once needs batch style entries (a later protocol change).
 
+## Inline editing (slice 2.9)
+- Web only (no protocol change). From md up, `uiStore.inlineEdit { id, part, n }` marks the note edited in place (`startInlineEdit` selects it; renamed with the note's server id). `RoomBoard.openEditor(id, { fresh, part, touch })` picks in place (mouse, pen, keyboard; the note on screen, `canvas.visible`) or Properties' Title via `requestEdit` (off screen, or a finger tap); phones keep the sheet. Held notes and disconnected boards don't edit.
+- `notes/InlineText.tsx`: two plain textareas (`data-inline="title"|"body"`, never contenteditable) with the part's `partTextClasses`, auto-sized, `nodrag nopan nowheel`, placeholders from `INLINE_PLACEHOLDERS` (`PLACEHOLDER_CLASS`, 3:1 tested). Text is the note's draft (`setDraft`), committed once by `commitEdit` (Enter in body, Esc, blur outside), so remote edits never clobber typing and there are no per-keystroke messages. Pure helpers in `notes/inlineEdit.ts`: `inlineKeyAction`, `fitsCap` (280 across title + newline + body; input past it is refused), `titleLine`, `pasteInto` (cleaned plain text, cut at the cap).
+- `NoteCard` ignores key and focus events whose target isn't the card (they're the text's); the textareas stop propagation, and the global shortcut guards already skip textareas. While editing the card is `role="group"`, `data-editing`, `nodrag`, with a `ring-focus` ring; double-click picks the part from `data-note-body`.
+
 ## Working rules
 - One slice at a time on its own `phase-...` branch. Never commit to `main`. Stop for review at the end of each slice.
 - Do not build beyond the slice scope.

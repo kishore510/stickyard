@@ -2,6 +2,15 @@
 
 All notable changes to Stickyard, newest first. The format follows Keep a Changelog. Versions are 0.x: a minor bump for each slice and a patch bump for each follow-up fix. This file is shown in the app under **What’s new**, so entries are written for the people using it.
 
+## [0.7.1] - 2026-10-03
+
+### Added
+- **Edit notes in place** on a wider screen: type straight onto the note, in the note's own size, weight, colour and alignment. A note added from the palette starts ready to type; double-click a note's title or body to edit that part, or press **Enter** on a selected note. Empty parts show **Type a title** and **Type body** as hints (never saved).
+- While editing: **Enter** or **Tab** moves from the title to the body, **Enter** in the body saves, **Shift+Enter** adds a line, and **Esc** or clicking elsewhere saves. Pasted text is plain text, and the 280-character limit covers title and body together.
+
+### Changed
+- Properties still shows and edits the text, in step with the note. It's where a note opens when it's off screen or tapped with a finger on a tablet. Phones keep the editor sheet.
+
 ## [0.7.0] - 2026-10-03
 
 ### Added

@@ -7,7 +7,8 @@ import { Button } from "../components/ui/button";
 import { readPxToken } from "../lib/cssVar";
 import { useMediaQuery } from "../lib/useMediaQuery";
 import { useWindowWidth } from "../lib/useWindowWidth";
-import { findNote } from "../notes/board";
+import { findNote, isHeld } from "../notes/board";
+import type { InlinePart } from "../notes/inlineEdit";
 import { AddDrawer, CompactPalette, PaletteContent, type PaletteHost } from "../palette/Palette";
 import { cornerLifted, panelWidths, type PanelId } from "../panels/layout";
 import { usePanels } from "../panels/panelStore";
@@ -150,22 +151,31 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
   }, [view.board]);
 
   /**
-   * Opens a note's editor: from md up, the Properties panel (expanded if collapsed) with focus in
-   * Title; on phones, the editor sheet (a draft opens it). `fresh`: a note just added, empty.
+   * Opens a note's editor. From md up: in place on the note (caret in `part`, the title unless
+   * said), or the Properties panel (expanded if collapsed) with focus in Title when the note is
+   * off screen or it was a finger tap. On phones: the editor sheet (a draft opens it).
+   * `fresh`: a note just added, empty. Held (dragged or resized) notes aren't edited.
    */
-  const openEditor = useCallback((id: string, fresh = false) => {
-    const { view: v, room: r, wide: w } = latest.current;
-    // A note just added isn't in this render's board yet (the session has it).
-    const entry = fresh ? null : findNote(v.board, id);
-    if ((!fresh && !entry) || v.status !== "joined") return;
-    if (w) {
-      if (usePanels.getState().properties.collapsed) usePanels.getState().setCollapsed("properties", false);
-      useBoardUi.getState().requestEdit(id);
-      return;
-    }
-    useBoardUi.getState().select(id);
-    r.setDraft(id, entry?.note.text ?? "");
-  }, []);
+  const openEditor = useCallback(
+    (id: string, { fresh = false, part = "title", touch = false }: { fresh?: boolean; part?: InlinePart; touch?: boolean } = {}) => {
+      const { view: v, room: r, wide: w } = latest.current;
+      // A note just added isn't in this render's board yet (the session has it).
+      const entry = fresh ? null : findNote(v.board, id);
+      if ((!fresh && !entry) || v.status !== "joined" || (entry && isHeld(entry))) return;
+      if (w) {
+        if (!touch && (fresh || (entry && canvas.visible(entry.note)))) {
+          useBoardUi.getState().startInlineEdit(id, part);
+          return;
+        }
+        if (usePanels.getState().properties.collapsed) usePanels.getState().setCollapsed("properties", false);
+        useBoardUi.getState().requestEdit(id);
+        return;
+      }
+      useBoardUi.getState().select(id);
+      r.setDraft(id, entry?.note.text ?? "");
+    },
+    [canvas],
+  );
 
   /** Adds a note of this colour at `at` (a board position) or the viewport centre, ready to type. */
   const addNote = useCallback(
@@ -174,7 +184,7 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
       const position = at ?? newNotePosition(canvas.centre(), v.board.notes.map((n) => n.note));
       const id = r.addNote({ ...position, color });
       useBoardUi.getState().setColor(color);
-      if (id) openEditor(id, true);
+      if (id) openEditor(id, { fresh: true });
     },
     [canvas, openEditor],
   );
@@ -247,6 +257,8 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
     resizeNote: room.resizeNote,
     deleteNote: room.deleteNote,
     openEditor,
+    setDraft: room.setDraft,
+    editNote: room.editNote,
     startGroupDrag: room.startGroupDrag,
     moveGroup: room.moveGroup,
     deleteNotes: room.deleteNotes,
