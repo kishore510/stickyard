@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import type { NoteColor } from "@stickyard/shared";
 import { WORKER_URL, toWebSocketUrl } from "../config";
 import { browserSocketFactory } from "../connection/socket";
 import { STORAGE_KEYS, writeKey } from "../storage";
@@ -36,6 +37,12 @@ export function useRoom(code: string) {
     join: (name: string) => (session.current && view.status === "idle" ? session.current.join(name) : start(name)),
     rejoin: (name: string) => start(name),
     say: (text: string) => session.current?.say(text) ?? false,
+    addNote: (at: { x: number; y: number; color: NoteColor }) => session.current?.addNote(at) ?? null,
+    editNote: (id: string, text: string) => session.current?.editNote(id, text) ?? false,
+    setDraft: (id: string, draft: string | null) => session.current?.setDraft(id, draft),
+    startDrag: (id: string) => session.current?.startDrag(id) ?? false,
+    moveNote: (id: string, x: number, y: number, final: boolean) => session.current?.moveNote(id, x, y, final),
+    deleteNote: (id: string) => session.current?.deleteNote(id),
     leave: () => session.current?.close(),
   };
 }

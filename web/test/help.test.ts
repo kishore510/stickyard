@@ -5,7 +5,7 @@ import { buildTopics, parseFrontMatter, searchTopics } from "../src/help/topics"
 
 describe("help topics", () => {
   it("loads the topics, quick start first", () => {
-    expect(HELP_TOPICS.map((t) => t.id)).toEqual(["quick-start", "sessions", "names", "connection", "touch-and-keyboard"]);
+    expect(HELP_TOPICS.map((t) => t.id)).toEqual(["quick-start", "sessions", "notes", "names", "connection", "touch-and-keyboard"]);
     expect(topicById("sessions")?.title).toBe("Starting and joining a session");
     expect(topicById(QUICK_START_ID)?.title).toBe("Quick start");
   });
@@ -26,9 +26,16 @@ describe("help topics", () => {
     expect(names?.text).toContain("24 characters");
   });
 
-  it("help topics only claim what exists: no notes, cursors or QR codes yet", () => {
+  it("the Notes topic covers the caps and last-write-wins", () => {
+    const notes = HELP_TOPICS.find((t) => t.id === "notes");
+    expect(notes?.text).toContain("200 notes");
+    expect(notes?.text).toContain("280 characters");
+    expect(notes?.text).toContain("last wins");
+  });
+
+  it("help topics only claim what exists: no cursors, QR codes, timers or votes yet", () => {
     const all = HELP_TOPICS.map((t) => t.text).join("\n");
-    expect(all).not.toMatch(/qr code|cursor|timer|vote|voting/);
+    expect(all).not.toMatch(/qr code|cursor|timer|vote|voting|zoom|minimap/);
   });
 
   it("rejects a file without valid front matter", () => {
@@ -45,7 +52,7 @@ describe("searchTopics", () => {
   it("filters by title, keywords and text, best first", () => {
     expect(searchTopics(HELP_TOPICS, "reload").map((r) => r.topic.id)[0]).toBe("connection");
     expect(searchTopics(HELP_TOPICS, "verified").map((r) => r.topic.id)).toContain("names");
-    expect(searchTopics(HELP_TOPICS, "swipe").map((r) => r.topic.id)).toEqual(["touch-and-keyboard"]);
+    expect(searchTopics(HELP_TOPICS, "swipe").map((r) => r.topic.id)).toEqual(["touch-and-keyboard", "notes"]);
   });
 
   it("needs every word to match", () => {

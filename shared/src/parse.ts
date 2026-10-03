@@ -4,9 +4,9 @@ import { MAX_MESSAGE_BYTES, type ClientMessage, type ServerMessage } from "./pro
 export type ParseResult<T> = { ok: true; value: T } | { ok: false; error: "bad_message" | "too_large" };
 
 /** UTF-8 byte length, stopping early once past the cap. Runtime-agnostic (no TextEncoder). */
-function byteLength(raw: string): number {
+function byteLength(raw: string, cap: number): number {
   // Every UTF-16 code unit encodes to at least one UTF-8 byte.
-  if (raw.length > MAX_MESSAGE_BYTES) return raw.length;
+  if (raw.length > cap) return raw.length;
   let bytes = 0;
   for (let i = 0; i < raw.length; i++) {
     const code = raw.charCodeAt(i);
@@ -23,15 +23,17 @@ function byteLength(raw: string): number {
 /**
  * Size-cap, JSON-parse and validate one inbound message. Never throws.
  * Binary frames are not part of the protocol and are rejected.
+ * `maxBytes` defaults to the client-to-server cap; the web passes MAX_SERVER_MESSAGE_BYTES.
  */
 export function parseMessage<S extends z.ZodType>(
   raw: string | ArrayBuffer,
   schema: S,
+  maxBytes: number = MAX_MESSAGE_BYTES,
 ): ParseResult<z.infer<S>> {
   if (typeof raw !== "string") {
-    return { ok: false, error: raw.byteLength > MAX_MESSAGE_BYTES ? "too_large" : "bad_message" };
+    return { ok: false, error: raw.byteLength > maxBytes ? "too_large" : "bad_message" };
   }
-  if (byteLength(raw) > MAX_MESSAGE_BYTES) return { ok: false, error: "too_large" };
+  if (byteLength(raw, maxBytes) > maxBytes) return { ok: false, error: "too_large" };
 
   let json: unknown;
   try {

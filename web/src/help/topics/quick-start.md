@@ -2,13 +2,13 @@
 title: Quick start
 order: 1
 summary: What Stickyard is, and how to start or join a session.
-keywords: start, begin, about, what, join, link, name, session, echo
+keywords: start, begin, about, what, join, link, name, session, echo, note, board
 ---
 Stickyard is a shared board of sticky notes for workshops and retros. Everyone in a session will see the same board, and changes will show up for everyone as they happen.
 
 ## What works today
 
-This version is an **echo room**: people join a session by link and name, see who else is there, and see each other's messages as soon as they're sent. Boards and notes aren't here yet.
+People join a session by link and name and share one **board** of sticky notes: anyone can add, edit, move and delete notes, and everyone sees the changes straight away. See [Notes](help:notes). There's also a simple message box, and a list of who's there.
 
 ## Join a session
 

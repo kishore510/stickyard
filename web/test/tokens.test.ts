@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { PALETTE_SIZE } from "@stickyard/shared";
+import { BOARD_HEIGHT, BOARD_WIDTH, NOTE_COLORS, NOTE_SIZE, PALETTE_SIZE } from "@stickyard/shared";
 import { BREAKPOINTS } from "../src/styles/breakpoints";
 
 const SRC = new URL("../src/", import.meta.url).pathname;
@@ -63,6 +63,22 @@ describe("design tokens", () => {
 
   it("participant colours are mapped to Tailwind utilities", () => {
     for (let i = 1; i <= PALETTE_SIZE; i++) expect(tokens).toContain(`--color-participant-${i}: var(--sy-participant-${i});`);
+  });
+
+  it.each([':root,\n[data-theme="light"]', '[data-theme="dark"]'])("every note colour, readable with note text, in %s", (selector) => {
+    const c = theme(selector);
+    for (const key of NOTE_COLORS) {
+      const bg = c[`note-${key}`];
+      expect(bg, `--sy-note-${key}`).toBeDefined();
+      expect(contrast(c["note-fg"]!, bg!), `note-fg on ${key}`).toBeGreaterThanOrEqual(4.5);
+      expect(tokens).toContain(`--color-note-${key}: var(--sy-note-${key});`);
+    }
+  });
+
+  it("board and note sizes match the shared protocol", () => {
+    expect(tokens).toContain(`--sy-board-width: ${BOARD_WIDTH}px;`);
+    expect(tokens).toContain(`--sy-board-height: ${BOARD_HEIGHT}px;`);
+    expect(tokens).toContain(`--sy-note-size: ${NOTE_SIZE}px;`);
   });
 
   it("no colours outside tokens.css", () => {

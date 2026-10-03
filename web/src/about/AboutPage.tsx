@@ -90,8 +90,14 @@ export function AboutPage() {
         <ul className="flex list-disc flex-col gap-xs pl-lg">
           <li>No analytics, no tracking and no ads. The font and icons are bundled with the app.</li>
           <li>
-            When you join a session, the name you type and the messages you send are visible to everyone in the session.
-            Names are never verified. Messages are passed on by the relay and not saved.
+            When you join a session, the name you type, the messages you send and the notes you add or change are visible
+            to everyone in the session. Names are never verified. Messages are passed on by the relay and not saved.
+          </li>
+          <li>
+            Notes are stored by the relay, in that session’s own storage on Cloudflare: each note’s text, colour, place on
+            the board, and the random id the relay gave the visit that added it (not your name). They stay there until
+            someone in the session deletes them or the session is removed; sessions don’t expire yet. Moving a note is
+            passed on to others while you drag, and only where it ends up is stored.
           </li>
           <li>
             The create passcode is sent only to the relay, only when you start a session, and is never stored in your

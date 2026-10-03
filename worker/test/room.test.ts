@@ -29,6 +29,14 @@ describe("handshake", () => {
     c.close();
   });
 
+  it("answers a protocol v2 hello with version_mismatch (pages from before notes)", async () => {
+    const { code } = await newRoom();
+    const c = await TestClient.open(code);
+    expect(await c.request(hello(2))).toMatchObject({ type: "error", code: "version_mismatch" });
+    expect(await c.request({ type: "join", name: "Alex" })).toMatchObject({ type: "error", code: "bad_message" });
+    c.close();
+  });
+
   it("answers a future protocol version with version_mismatch", async () => {
     const { code } = await newRoom();
     const c = await TestClient.open(code);
@@ -247,7 +255,7 @@ describe("leaving", () => {
     a.close();
   });
 
-  it("an empty room stores nothing", async () => {
+  it("a room without notes stores no rows (only its schema version)", async () => {
     const { code, stub } = await newRoom();
     const a = await TestClient.open(code);
     await a.enter("Alex");
@@ -256,11 +264,10 @@ describe("leaving", () => {
     await a.waitClose();
     const stored = await runInDurableObject(stub, async (_i, state) => ({
       keys: (await state.storage.list()).size,
-      tables: state.storage.sql
-        .exec<{ name: string }>("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE '\\_cf\\_%' ESCAPE '\\'")
-        .toArray(),
+      notes: state.storage.sql.exec<{ n: number }>("SELECT COUNT(*) AS n FROM notes").one().n,
+      meta: state.storage.sql.exec<{ key: string }>("SELECT key FROM meta").toArray(),
     }));
-    expect(stored).toEqual({ keys: 0, tables: [] });
+    expect(stored).toEqual({ keys: 0, notes: 0, meta: [{ key: "schema_version" }] });
   });
 });
 
@@ -297,12 +304,14 @@ describe("rate limiting", () => {
     const { code } = await newRoom();
     const a = await TestClient.open(code);
     await a.enter("Alex"); // 2 tokens used
-    const burst = SOCKET_LIMITS.burst;
-    for (let i = 0; i < burst + 2; i++) a.send({ type: "say", text: `m${i}` });
+    // Well past the burst, so slow test machines (which refill tokens while sending) still go
+    // over, but under the violations that close the socket.
+    const sent = SOCKET_LIMITS.burst + SOCKET_LIMITS.maxViolations / 2;
+    for (let i = 0; i < sent; i++) a.send({ type: "say", text: `m${i}` });
     const replies = [];
-    for (let i = 0; i < burst + 2; i++) replies.push(await a.next());
+    for (let i = 0; i < sent; i++) replies.push(await a.next());
     expect(replies.filter((r) => r.type === "error" && r.code === "rate_limited").length).toBeGreaterThanOrEqual(2);
-    expect(replies.filter((r) => r.type === "echo").length).toBeLessThanOrEqual(burst);
+    expect(replies.filter((r) => r.type === "echo").length).toBeLessThan(sent);
 
     // Tokens come back over time.
     await new Promise((resolve) => setTimeout(resolve, 1100));
@@ -310,11 +319,25 @@ describe("rate limiting", () => {
     a.close();
   });
 
-  it(`closes the socket after ${SOCKET_LIMITS.maxViolations} consecutive violations`, async () => {
+  it(`closes the socket after ${SOCKET_LIMITS.maxViolations} violations in a window`, async () => {
     const { code } = await newRoom();
     const a = await TestClient.open(code);
     await a.enter("Alex");
     for (let i = 0; i < SOCKET_LIMITS.burst + SOCKET_LIMITS.maxViolations * 10; i++) a.send({ type: "say", text: "spam" });
+    expect(await a.waitClose()).toBe(1008);
+  });
+
+  it("a sender at about twice the rate is still closed (violations needn't be consecutive)", async () => {
+    const { code } = await newRoom();
+    const a = await TestClient.open(code);
+    await a.enter("Alex");
+    for (let i = 0; i < SOCKET_LIMITS.burst; i++) a.send({ type: "say", text: "fill" });
+    // Each pause lets about one token back, so accepted and refused messages alternate.
+    for (let i = 0; i < SOCKET_LIMITS.maxViolations * 2 + 4 && a.closeCode === null; i++) {
+      a.send({ type: "say", text: "a" });
+      a.send({ type: "say", text: "b" });
+      await new Promise((resolve) => setTimeout(resolve, 1000 / SOCKET_LIMITS.refillPerSecond));
+    }
     expect(await a.waitClose()).toBe(1008);
   });
 

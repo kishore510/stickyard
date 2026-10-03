@@ -24,10 +24,14 @@ export const CREATE_LIMITS = {
   retentionMs: 2 * DAY,
 } as const;
 
-/** Per-WebSocket token bucket: about 5 messages a second, bursts of 10. */
+/**
+ * Per-WebSocket token bucket: about 30 messages a second, bursts of 40. A note drag sends
+ * about 20 a second (web/src/rooms/session.ts), so dragging stays well inside it.
+ */
 export const SOCKET_LIMITS = {
-  refillPerSecond: 5,
-  burst: 10,
-  /** Consecutive over-limit messages before the socket is closed. */
+  refillPerSecond: 30,
+  burst: 40,
+  /** Over-limit messages within `violationWindowMs` before the socket is closed. */
   maxViolations: 20,
+  violationWindowMs: 10_000,
 } as const;

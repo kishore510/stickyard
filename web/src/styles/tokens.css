@@ -43,6 +43,16 @@
   --sy-participant-6: #0f766e;
   --sy-participant-7: #a16207;
   --sy-participant-8: #57534e;
+  /* The board and its notes. Note colours are keyed by the protocol's palette keys. */
+  --sy-board: #eae7df;
+  --sy-board-dot: #cdc9bd;
+  --sy-note-fg: #1d2327;
+  --sy-note-yellow: #fff0a3;
+  --sy-note-pink: #ffd3e2;
+  --sy-note-blue: #cde4fb;
+  --sy-note-green: #d3f2c7;
+  --sy-note-orange: #ffd8b0;
+  --sy-note-purple: #e4d9fb;
 }
 
 /* ── Dark: deep slate ──────────────────────────────────────────────── */
@@ -76,6 +86,16 @@
   --sy-participant-6: #2dd4bf;
   --sy-participant-7: #facc15;
   --sy-participant-8: #c8bfb6;
+  /* Notes stay paper-light in the dark theme, slightly muted, with dark text. */
+  --sy-board: #182024;
+  --sy-board-dot: #2e3a40;
+  --sy-note-fg: #14191c;
+  --sy-note-yellow: #e8d679;
+  --sy-note-pink: #e6a9bf;
+  --sy-note-blue: #9fc4e8;
+  --sy-note-green: #a9d69a;
+  --sy-note-orange: #e6b07c;
+  --sy-note-purple: #c0b0e6;
 }
 
 /* ── Theme-independent tokens ──────────────────────────────────────── */
@@ -123,6 +143,20 @@
   --sy-viewport-h: 100dvh;
   --sy-full-sheet-h: calc(100dvh - max(var(--sy-gutter), env(safe-area-inset-top, 0px)));
 
+  /* Board and notes. Board units are CSS pixels; these must match BOARD_WIDTH, BOARD_HEIGHT
+     and NOTE_SIZE in shared/src/protocol.ts (a test checks). */
+  --sy-board-width: 3200px;
+  --sy-board-height: 2000px;
+  --sy-note-size: 160px;
+  --sy-board-grid: 32px;
+  --sy-board-dot-size: 1.5px;
+  /* The board's window on the page. */
+  --sy-board-view-h: max(20rem, 62dvh);
+  /* Colour swatch inside its 44px touch target. */
+  --sy-swatch: 24px;
+  /* Room left under the page for the floating bottom bar. */
+  --sy-bar-space: calc(var(--sy-touch-min) + 2 * var(--sy-space-xs) + var(--sy-space-sm) + max(var(--sy-gutter), var(--sy-safe-bottom)));
+
   /* Viewport and safe areas (notches, home indicator) */
   --sy-safe-top: env(safe-area-inset-top, 0px);
   --sy-safe-right: env(safe-area-inset-right, 0px);
@@ -147,6 +181,8 @@
   /* Motion */
   --sy-duration-fast: 120ms;
   --sy-duration-base: 200ms;
+  /* Remote notes ease towards each new drag position (sent about every 50ms). */
+  --sy-duration-move: 100ms;
   --sy-ease: cubic-bezier(0.2, 0, 0, 1);
 }
 
@@ -155,6 +191,7 @@
   :root {
     --sy-duration-fast: 0ms;
     --sy-duration-base: 0ms;
+    --sy-duration-move: 0ms;
   }
 }
 
@@ -186,6 +223,14 @@
   --color-participant-6: var(--sy-participant-6);
   --color-participant-7: var(--sy-participant-7);
   --color-participant-8: var(--sy-participant-8);
+  --color-board: var(--sy-board);
+  --color-note-fg: var(--sy-note-fg);
+  --color-note-yellow: var(--sy-note-yellow);
+  --color-note-pink: var(--sy-note-pink);
+  --color-note-blue: var(--sy-note-blue);
+  --color-note-green: var(--sy-note-green);
+  --color-note-orange: var(--sy-note-orange);
+  --color-note-purple: var(--sy-note-purple);
   --color-transparent: transparent;
   --color-current: currentColor;
 
@@ -216,6 +261,12 @@
   --spacing-term: var(--sy-term-width);
   --spacing-sheet: var(--sy-sheet-width);
   --spacing-content: var(--sy-content-max);
+  --spacing-note: var(--sy-note-size);
+  --spacing-board-w: var(--sy-board-width);
+  --spacing-board-h: var(--sy-board-height);
+  --spacing-board-view: var(--sy-board-view-h);
+  --spacing-swatch: var(--sy-swatch);
+  --spacing-bar: var(--sy-bar-space);
 
   --container-*: initial;
   --container-content: var(--sy-content-max);

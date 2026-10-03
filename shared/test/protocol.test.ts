@@ -19,8 +19,8 @@ const alex = { id: ID_A, name: "Alex", colourIndex: 0 };
 const sam = { id: ID_B, name: "Sam", colourIndex: 1 };
 
 describe("constants", () => {
-  it("PROTOCOL_VERSION is 2", () => {
-    expect(PROTOCOL_VERSION).toBe(2);
+  it("PROTOCOL_VERSION is 3", () => {
+    expect(PROTOCOL_VERSION).toBe(3);
   });
 
   it("limits are the slice 1 defaults", () => {
@@ -33,7 +33,8 @@ describe("constants", () => {
 
 describe("clientMessageSchema", () => {
   it.each([
-    ["hello v2", { type: "hello", protocolVersion: 2 }],
+    ["hello v3", { type: "hello", protocolVersion: 3 }],
+    ["hello v2 (so the server can report a mismatch)", { type: "hello", protocolVersion: 2 }],
     ["hello v1 (so the server can report a mismatch)", { type: "hello", protocolVersion: 1 }],
     ["hello from the future", { type: "hello", protocolVersion: 99 }],
     ["join", { type: "join", name: "Alex" }],
@@ -91,6 +92,7 @@ describe("serverMessageSchema", () => {
     "not_joined",
     "already_joined",
     "invalid_name",
+    "notes_full",
   ] as const)("accepts error with code %s", (code) => {
     expect(serverMessageSchema.safeParse({ type: "error", code, message: "x" }).success).toBe(true);
   });

@@ -1,6 +1,6 @@
 ---
 title: Connection
-order: 4
+order: 5
 summary: What the connection status means, and what to do about "Please reload".
 keywords: connection, connect, relay, server, connected, reload, offline, error, protocol, version, websocket, lost, rejoin
 ---

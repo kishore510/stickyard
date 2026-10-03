@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { PROTOCOL_VERSION, type Participant } from "@stickyard/shared";
+import { MAX_NOTES_PER_ROOM, PROTOCOL_VERSION, type Note, type Participant } from "@stickyard/shared";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -379,6 +379,130 @@ describe("the room", () => {
     expect(dialog()?.querySelector("h2")?.textContent).toBe("Help");
     expect(socket.closed).toBe(false);
     expect(document.querySelector('[aria-labelledby="people-heading"]')).not.toBeNull();
+  });
+});
+
+describe("the board", () => {
+  const N1 = "NNNNNNNNNNNNNNN1";
+  const one: Note = { id: N1, x: 40, y: 60, text: "Idea one", color: "yellow", rev: 1, authorId: sam.id };
+  const notes = () => [...document.querySelectorAll<HTMLElement>('[aria-roledescription="note"]')];
+  const sentOfType = (socket: FakeWebSocket, type: string) =>
+    (socket.sent as Record<string, unknown>[]).filter((m) => m.type === type);
+  const textarea = () => dialog()?.querySelector("textarea") ?? null;
+  async function typeArea(value: string) {
+    const el = textarea();
+    if (!el) throw new Error("no editor");
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set?.call(el, value);
+      el.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+  }
+  async function key(el: HTMLElement | null | undefined, k: string, init: KeyboardEventInit = {}) {
+    if (!el) throw new Error("no element");
+    await act(async () => {
+      el.dispatchEvent(new KeyboardEvent("keydown", { key: k, bubbles: true, cancelable: true, ...init }));
+    });
+  }
+  async function withNotes(...list: Note[]) {
+    const socket = await inRoom();
+    await server(socket, { data: { type: "snapshot", notes: list } });
+    return socket;
+  }
+
+  it("renders the snapshot's notes as plain text, labelled with colour and truncated text", async () => {
+    const evil = '<img src=x onerror="alert(1)"><b>Needs follow-up</b>';
+    await withNotes(one, { ...one, id: "NNNNNNNNNNNNNNN2", text: evil, color: "pink" });
+    expect(notes().map((n) => n.getAttribute("aria-label"))).toEqual([
+      "Yellow note: Idea one",
+      `Pink note: ${evil.slice(0, 40)}…`,
+    ]);
+    expect(notes()[1]?.textContent).toBe(evil);
+    expect(document.querySelector("img")).toBeNull();
+    expect(notes()[0]?.tabIndex).toBe(0);
+    expect(notes()[0]?.style.transform).toBe("translate(40px, 60px)");
+  });
+
+  it("Add note sends noteAdd with the chosen colour and opens the editor; Enter saves", async () => {
+    const socket = await withNotes();
+    await click(document.querySelector<HTMLElement>('[role="radio"][aria-label="Blue"]') ?? undefined);
+    await click(document.querySelector<HTMLElement>('[aria-label="Add note"]') ?? undefined);
+    const [add] = sentOfType(socket, "noteAdd");
+    expect(add).toMatchObject({ color: "blue", text: "" });
+    expect(notes()).toHaveLength(1);
+    expect(dialog()?.querySelector("h2")?.textContent).toBe("Edit note");
+    await server(socket, {
+      data: { type: "noteAdded", clientRef: add?.clientRef, note: { ...one, color: "blue", text: "", authorId: alex.id } },
+    });
+    await typeArea("Idea one");
+    await key(textarea(), "Enter");
+    await settle();
+    expect(sentOfType(socket, "noteEdit")).toEqual([{ type: "noteEdit", id: N1, text: "Idea one" }]);
+    expect(dialog()).toBeNull();
+    expect(notes()[0]?.textContent).toBe("Idea one");
+  });
+
+  it("Shift+Enter doesn't save (it's a new line)", async () => {
+    const socket = await withNotes(one);
+    await key(notes()[0], "Enter");
+    await typeArea("Idea one\nmore");
+    await key(textarea(), "Enter", { shiftKey: true });
+    expect(dialog()).not.toBeNull();
+    expect(sentOfType(socket, "noteEdit")).toEqual([]);
+  });
+
+  it("a remote edit while typing doesn't replace the draft", async () => {
+    const socket = await withNotes(one);
+    await key(notes()[0], "Enter");
+    await typeArea("My draft");
+    await server(socket, { data: { type: "noteUpdated", note: { ...one, text: "Remote text", rev: 2 } } });
+    expect(textarea()?.value).toBe("My draft");
+    await click(byText("button", "Done"));
+    expect(sentOfType(socket, "noteEdit").at(-1)).toEqual({ type: "noteEdit", id: N1, text: "My draft" });
+  });
+
+  it("arrow keys move a note, then commit the position", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const socket = await withNotes(one);
+    await key(notes()[0], "ArrowRight");
+    await key(notes()[0], "ArrowDown", { shiftKey: true });
+    expect(notes()[0]?.style.transform).toBe("translate(50px, 110px)");
+    await act(async () => {
+      vi.advanceTimersByTime(1000);
+    });
+    expect(sentOfType(socket, "noteMove").at(-1)).toEqual({ type: "noteMove", id: N1, x: 50, y: 110, final: true });
+    vi.useRealTimers();
+  });
+
+  it("Delete asks first when the note has text, and deletes on yes", async () => {
+    const socket = await withNotes(one, { ...one, id: "NNNNNNNNNNNNNNN2", text: "" });
+    const confirm = vi.fn(() => false);
+    vi.stubGlobal("confirm", confirm);
+    await key(notes()[0], "Delete");
+    expect(confirm).toHaveBeenCalled();
+    expect(sentOfType(socket, "noteDelete")).toEqual([]);
+    confirm.mockReturnValue(true);
+    await key(notes()[0], "Delete");
+    expect(sentOfType(socket, "noteDelete")).toEqual([{ type: "noteDelete", id: N1 }]);
+    // An empty note goes without asking.
+    confirm.mockClear();
+    await key(notes()[0], "Delete");
+    expect(confirm).not.toHaveBeenCalled();
+    expect(notes()).toHaveLength(0);
+  });
+
+  it(`at ${MAX_NOTES_PER_ROOM} notes, Add note is disabled with a reason`, async () => {
+    await withNotes(...Array.from({ length: MAX_NOTES_PER_ROOM }, (_, i) => ({ ...one, id: `N${String(i).padStart(15, "0")}` })));
+    expect(document.querySelector<HTMLButtonElement>('[aria-label="Add note"]')?.disabled).toBe(true);
+    expect(document.body.textContent).toContain(`The board is full (${MAX_NOTES_PER_ROOM} notes)`);
+  });
+
+  it("disconnected: the board is read-only and Add note is disabled", async () => {
+    const socket = await withNotes(one);
+    await server(socket, "close");
+    expect(document.querySelector<HTMLButtonElement>('[aria-label="Add note"]')?.disabled).toBe(true);
+    expect(notes()[0]?.getAttribute("aria-disabled")).toBe("true");
+    await key(notes()[0], "Enter");
+    expect(dialog()).toBeNull();
   });
 });
 

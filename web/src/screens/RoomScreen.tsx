@@ -1,10 +1,24 @@
 import { useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { Check, Copy, LogOut, RefreshCw, RotateCcw, Send, UserRound } from "lucide-react";
-import { MAX_NAME_LENGTH, MAX_PARTICIPANTS, MAX_TEXT_LENGTH, cleanName, isRoomCodeShape, type Participant } from "@stickyard/shared";
+import {
+  MAX_NAME_LENGTH,
+  MAX_NOTES_PER_ROOM,
+  MAX_PARTICIPANTS,
+  MAX_TEXT_LENGTH,
+  NOTE_SIZE,
+  cleanName,
+  isRoomCodeShape,
+  type NoteColor,
+  type Participant,
+} from "@stickyard/shared";
 import { Button } from "../components/ui/button";
 import { FieldError, Label } from "../components/ui/field";
 import { Input } from "../components/ui/input";
 import { cn } from "../lib/utils";
+import { AddNoteBar, notesFullReason } from "../notes/AddNoteBar";
+import { BoardView } from "../notes/BoardView";
+import type { NoteActions } from "../notes/NoteCard";
+import { NoteEditor } from "../notes/NoteEditor";
 import { participantColourClass } from "../rooms/colours";
 import { roomLink } from "../rooms/link";
 import { useRoom } from "../rooms/useRoom";
@@ -12,9 +26,13 @@ import { Sheet } from "../shell/Sheet";
 import { STORAGE_KEYS, readKey } from "../storage";
 
 /*
- * A session: `#/room/<code>`. Names and text from the room are untrusted and only ever
- * rendered as React text, never as HTML.
+ * A session: `#/room/<code>`. Names, messages and note text from the room are untrusted and
+ * only ever rendered as React text, never as HTML.
  */
+
+/** New notes step down and right from the centre of the visible board, so they don't stack exactly. */
+const CASCADE_STEP = 24;
+const CASCADE_STEPS = 5;
 
 const PAGE = "mx-auto flex w-full max-w-content flex-1 flex-col gap-lg py-lg";
 const HOME_LINK = "inline-flex min-h-touch items-center font-medium text-accent underline";
@@ -190,6 +208,9 @@ export function RoomScreen({ code }: { code: string }) {
   const { view } = room;
   const [everJoined, setEverJoined] = useState(false);
   const lastName = useRef("");
+  const viewportRef = useRef<HTMLDivElement>(null);
+  const [color, setColor] = useState<NoteColor>("yellow");
+  const added = useRef(0);
 
   if (view.status === "joined" && !everJoined) setEverJoined(true);
 
@@ -239,11 +260,37 @@ export function RoomScreen({ code }: { code: string }) {
   }
 
   const live = view.status === "joined";
+  const notesFull = view.board.notes.length >= MAX_NOTES_PER_ROOM;
+  // At most one note is edited at a time: the one with a draft.
+  const editing = live ? view.board.notes.find((n) => n.draft !== null) : undefined;
+
+  const addNote = () => {
+    const viewport = viewportRef.current;
+    const step = (added.current++ % CASCADE_STEPS) * CASCADE_STEP;
+    const x = (viewport ? viewport.scrollLeft + viewport.clientWidth / 2 : 0) - NOTE_SIZE / 2 + step;
+    const y = (viewport ? viewport.scrollTop + viewport.clientHeight / 2 : 0) - NOTE_SIZE / 2 + step;
+    const id = room.addNote({ x, y, color });
+    // Straight into typing.
+    if (id) room.setDraft(id, "");
+  };
+
+  const actions: NoteActions = {
+    startDrag: room.startDrag,
+    moveNote: room.moveNote,
+    openEditor: (id) => {
+      const entry = view.board.notes.find((n) => n.note.id === id);
+      if (entry) room.setDraft(id, entry.note.text);
+    },
+    deleteNote: room.deleteNote,
+  };
+
   return (
-    <div className={PAGE}>
+    <div className={cn(PAGE, "max-w-none")}>
       <div className="flex flex-col gap-xs">
         <h1 className="text-2xl font-semibold">Session</h1>
-        <p className="text-sm text-fg-muted">Everything typed here is shown to everyone in the session. Nothing is saved.</p>
+        <p className="text-sm text-fg-muted">
+          Everything here is shown to everyone in the session. Notes are kept by the relay; messages aren’t saved.
+        </p>
       </div>
 
       <p aria-live="polite" className="sr-only">
@@ -264,44 +311,71 @@ export function RoomScreen({ code }: { code: string }) {
         </div>
       )}
 
-      <People people={live ? view.participants : []} you={view.you} />
+      <BoardView board={view.board} editable={live} viewportRef={viewportRef} actions={actions} />
+      {view.noteNotice && (
+        <p role="status" className="text-sm text-status-warn">
+          {view.noteNotice}
+        </p>
+      )}
 
-      <section aria-labelledby="echo-heading" className="flex flex-col gap-md">
-        <h2 id="echo-heading" className="text-lg font-semibold">
-          Echo
-        </h2>
-        <EchoBox say={room.say} disabled={!live} />
-        {view.rateLimited && (
-          <p role="status" className="text-sm text-status-warn">
-            You’re sending messages quickly. Wait a moment, then try again.
-          </p>
-        )}
-        <ol aria-label="Messages" className="flex flex-col gap-sm">
-          {view.messages.map((m) => (
-            <li key={m.key} className="flex flex-col gap-2xs rounded-md border border-border bg-surface p-ms">
-              <span className="flex items-center gap-sm text-sm font-medium">
-                <Dot colourIndex={m.colourIndex} />
-                <span className="min-w-0 break-words">{m.name}</span>
-              </span>
-              <span className="break-words whitespace-pre-wrap">{m.text}</span>
-            </li>
-          ))}
-        </ol>
-        {view.messages.length === 0 && <p className="text-sm text-fg-muted">No messages yet. Say hello.</p>}
-      </section>
+      <div className="mx-auto flex w-full max-w-content flex-col gap-lg">
+        <People people={live ? view.participants : []} you={view.you} />
 
-      <div className="flex flex-wrap gap-sm">
-        <CopyLink code={code} />
-        <Button
-          onClick={() => {
-            room.leave();
-            goHome();
-          }}
-        >
-          <LogOut />
-          Leave
-        </Button>
+        <section aria-labelledby="echo-heading" className="flex flex-col gap-md">
+          <h2 id="echo-heading" className="text-lg font-semibold">
+            Echo
+          </h2>
+          <EchoBox say={room.say} disabled={!live} />
+          {view.rateLimited && (
+            <p role="status" className="text-sm text-status-warn">
+              You’re sending messages quickly. Wait a moment, then try again.
+            </p>
+          )}
+          <ol aria-label="Messages" className="flex flex-col gap-sm">
+            {view.messages.map((m) => (
+              <li key={m.key} className="flex flex-col gap-2xs rounded-md border border-border bg-surface p-ms">
+                <span className="flex items-center gap-sm text-sm font-medium">
+                  <Dot colourIndex={m.colourIndex} />
+                  <span className="min-w-0 break-words">{m.name}</span>
+                </span>
+                <span className="break-words whitespace-pre-wrap">{m.text}</span>
+              </li>
+            ))}
+          </ol>
+          {view.messages.length === 0 && <p className="text-sm text-fg-muted">No messages yet. Say hello.</p>}
+        </section>
+
+        <div className="flex flex-wrap gap-sm">
+          <CopyLink code={code} />
+          <Button
+            onClick={() => {
+              room.leave();
+              goHome();
+            }}
+          >
+            <LogOut />
+            Leave
+          </Button>
+        </div>
       </div>
+
+      {/* Room for the floating bottom bar. */}
+      <div aria-hidden="true" className="h-bar shrink-0" />
+      <AddNoteBar
+        color={color}
+        onColor={setColor}
+        onAdd={addNote}
+        disabledReason={!live ? "Reconnect to add or change notes." : notesFull ? notesFullReason : null}
+      />
+      {editing && (
+        <NoteEditor
+          key="note-editor"
+          entry={editing}
+          onDraft={(text) => room.setDraft(editing.note.id, text)}
+          onCommit={() => room.editNote(editing.note.id, editing.draft ?? editing.note.text)}
+          onDelete={() => room.deleteNote(editing.note.id)}
+        />
+      )}
     </div>
   );
 }

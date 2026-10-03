@@ -41,6 +41,14 @@ Free-plan limits: `docs/LIMITS.md`.
 - No `console.` in `worker/src` (test enforces). Never log bodies, names, text, passcodes, codes or IPs.
 - Web: `#/room/<code>`; sheets opened from a room show over it (`App.tsx` keeps the base page). The create passcode is never stored; `stickyard:name` holds the last-used name.
 
+## Notes and protocol v3 (slice 2)
+- `PROTOCOL_VERSION = 3`. Client adds `noteAdd { clientRef, x, y, color, text }`, `noteEdit { id, text }`, `noteMove { id, x, y, final }`, `noteDelete { id }` (strict schemas: extra fields are refused). Server adds `snapshot` (right after `joined`), `noteAdded` (`clientRef` only in the sender's copy), `noteUpdated`, `noteMoved`, `noteDeleted`; `error` may carry `clientRef` or `noteId` so the sender can roll back. v2 pages get `version_mismatch`.
+- Board constants (`BOARD_WIDTH/HEIGHT`, `NOTE_SIZE`, `MAX_NOTES_PER_ROOM`, `MAX_NOTE_TEXT`, `NOTE_COLORS`) live in `shared/src/protocol.ts`; tokens.css mirrors the sizes (test checks). Server clamps with `clampNotePosition`; note text is cleaned with `cleanNoteText` (keeps newlines, may be empty).
+- Last-write-wins in arrival order; every stored change bumps `rev`. Non-final moves are relayed to the others only, coalesced per note, at the current rev, never stored. Ops on unknown ids are ignored silently.
+- Room DO SQLite: `worker/src/noteStore.ts` (`meta.schema_version`, `notes`). Writes only on add/edit/final move/delete, and only when something changed. Schema change = bump `SCHEMA_VERSION` + a migrate step + tests.
+- Rate limit: `SOCKET_LIMITS` (30/s, burst 40); 20 violations within 10 s close the socket.
+- Web: `web/src/notes/board.ts` is the pure board state (confirmed vs shown, drafts, pending deletes); `RoomSession` drives it and throttles drags (`MOVE_INTERVAL_MS`). A note with a `draft` is the one being edited. Note colours map to `--sy-note-*` tokens in `web/src/notes/colours.ts`.
+
 ## Working rules
 - One slice at a time on its own `phase-...` branch. Never commit to `main`. Stop for review at the end of each slice.
 - Do not build beyond the slice scope.
