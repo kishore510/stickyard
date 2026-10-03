@@ -152,6 +152,36 @@ afterEach(async () => {
 });
 
 describe("home", () => {
+  it("is a welcome screen: one h1 (the wordmark as text), the decorative mark, the tagline, both actions and three points", async () => {
+    await mount();
+    const main = document.querySelector("main");
+    expect(main?.querySelectorAll("h1")).toHaveLength(1);
+    expect(main?.querySelector("h1")?.textContent).toBe("Stickyard");
+    const mark = main?.querySelector("svg[data-stickyard-mark]");
+    expect(mark?.getAttribute("aria-hidden")).toBe("true");
+    expect(main?.textContent).toContain("Sticky-note boards for workshops and retros. No accounts: open a link, type a name.");
+    expect(button("Start session")).toBeDefined();
+    expect(button("Join")).toBeDefined();
+    const points = [...(main?.querySelectorAll("[data-welcome-points] li") ?? [])].map((li) => li.textContent);
+    expect(points).toHaveLength(3);
+    expect(main?.textContent).not.toContain("LOCAL-FIRST");
+    expect(main?.textContent).not.toContain("echo room");
+    // The version stays on the page.
+    expect(document.querySelector("footer")?.textContent).toMatch(/Stickyard v\d+\.\d+\.\d+/);
+  });
+
+  it("sheets open over the welcome screen, and closing goes back to it", async () => {
+    await mount();
+    await click(byText("footer a", /Stickyard v/));
+    expect(document.querySelector('[role="dialog"]')).not.toBeNull();
+    expect(window.location.hash).toBe("#/about");
+    expect(document.querySelector("main h1")?.textContent).toBe("Stickyard");
+    await click(document.querySelector<HTMLElement>('[role="dialog"] [aria-label="Close"]') ?? undefined);
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+    expect(window.location.hash).toBe("#/");
+    expect(document.querySelector("main svg[data-stickyard-mark]")).not.toBeNull();
+  });
+
   it("has Start a session, Join a session and the connection status", async () => {
     await mount();
     expect(document.querySelector("main h1")?.textContent).toBe("Stickyard");
@@ -333,6 +363,13 @@ async function openFromTopBar(label: string) {
 }
 
 describe("the room", () => {
+  it("a room link goes straight to the name sheet: no welcome screen", async () => {
+    await mount(`#/room/${CODE}`);
+    expect(document.querySelector("svg[data-stickyard-mark]")).toBeNull();
+    expect(document.body.textContent).not.toContain("Sticky-note boards for workshops and retros.");
+    expect(byText("label", "Your name")).toBeDefined();
+  });
+
   it("is a full-bleed board: no Session heading, message box or People list on the page", async () => {
     await inRoom();
     expect(document.querySelector("main h1")).toBeNull();
