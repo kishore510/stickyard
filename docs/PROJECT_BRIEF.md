@@ -1,6 +1,6 @@
 # Project Brief: Stickyard
 
-Last updated: 2 October 2026 (thread 2). Update the status table and session log at the end of every thread, then re-upload.
+Last updated: 3 October 2026 (thread 3). Update the status table and session log at the end of every thread, then re-upload.
 
 ## 1. Purpose
 
@@ -75,7 +75,8 @@ Keep tsc, tests and build green. Stop for review with a summary of what was buil
 
 | Slice | Scope | Status |
 |---|---|---|
-| 0 | Repo, CI, Pages deploy, Worker deploy, secrets hygiene, protocol version, Origin check | Prompt written, not started |
+| 0 | Repo, CI, Pages deploy, Worker deploy, secrets hygiene, protocol version, Origin check | Done (v0.1.0, PR #1) |
+| 0.5 | App shell and design system: top bar, menu, Help / What's new / About sheets, theme, tokens from Chalkline | Done (v0.2.0) |
 | 1 | Echo room, gated room creation, signed room codes | Not started |
 | 2 | Shared stickies, last-write-wins | Not started |
 | 3 onwards | See PHASE_PLAN.md | Not started |
@@ -87,7 +88,7 @@ Keep tsc, tests and build green. Stop for review with a summary of what was buil
 - v1 target: retros/brainstorms (suggested) vs general canvas
 - Whether to adopt Yjs after slice 2
 - AI key handling
-- Visual identity (accent colour, logo)
+- Visual identity: decided in slice 0.5 (Chalkline's warm neutral + blue accent, Inter, sticky-note mark); revisit only if it needs its own identity
 - Per-friend invite codes (revocable) vs one shared create passcode
 - Real-world comparison: spend 10 minutes in Microsoft Whiteboard and list what annoys me
 
@@ -99,6 +100,7 @@ Start a thread with the slice and what I want (for example "Slice 1, write the C
 
 - Thread 1: Chose the idea (collaborative sticky-note whiteboard), architecture (GitHub Pages + Cloudflare Worker/Durable Objects), and drafted this brief. Next: slice 0 prompt.
 - Thread 2: Wrote the slice 0 prompt (including repo creation and secrets hygiene). Decided the room-creation model: open join, passcode-gated creation, signed room codes, kill switch, host token. Next: run slice 0, then slice 1 prompt.
+- Thread 3: Slice 0 merged to main (PR #1) and deployed. Slice 0.5 (app shell and design system) built from Chalkline's patterns: top bar with menu and theme toggle, Help / What's new / About as hash-routed sheets, tokens and Inter bundled locally, v0.2.0. Next: slice 1 prompt.
 
 ## 10. One-time manual setup
 

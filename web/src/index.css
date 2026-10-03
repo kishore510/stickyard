@@ -1,29 +1,83 @@
 @import "tailwindcss";
+/* Inter, bundled with the app (no font requests to other sites). */
+@import "@fontsource-variable/inter";
 @import "./styles/tokens.css";
 
-html,
-body,
-#root {
-  min-height: var(--sy-viewport-h);
+@layer base {
+  html,
+  body,
+  #root {
+    min-height: var(--sy-viewport-h);
+  }
+
+  body {
+    margin: 0;
+    background-color: var(--sy-bg);
+    color: var(--sy-fg);
+    font-family: var(--sy-font);
+    font-size: var(--sy-text-base);
+    font-synthesis: none;
+    -webkit-font-smoothing: antialiased;
+    -webkit-tap-highlight-color: transparent;
+    text-rendering: optimizeLegibility;
+  }
+
+  :focus-visible {
+    outline: var(--sy-focus-width) solid var(--sy-focus);
+    outline-offset: var(--sy-focus-width);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0s !important;
+      transition-duration: 0s !important;
+    }
+  }
 }
 
-body {
-  margin: 0;
-  background: var(--sy-bg);
-  color: var(--sy-fg);
-  font-family: var(--sy-font);
-  font-size: var(--sy-text-base);
-  padding: var(--sy-safe-top) var(--sy-safe-right) var(--sy-safe-bottom) var(--sy-safe-left);
+/* Side padding that respects notches and rounded corners. */
+@utility sy-safe-x {
+  padding-left: max(var(--sy-gutter), var(--sy-safe-left));
+  padding-right: max(var(--sy-gutter), var(--sy-safe-right));
 }
 
-:focus-visible {
-  outline: var(--sy-focus-width) solid var(--sy-focus);
-  outline-offset: var(--sy-focus-width);
+@utility sy-safe-top {
+  padding-top: var(--sy-safe-top);
 }
 
-@media (prefers-reduced-motion: reduce) {
-  * {
-    animation: none !important;
-    transition: none !important;
+@utility sy-safe-bottom {
+  padding-bottom: max(var(--sy-gutter), var(--sy-safe-bottom));
+}
+
+/* Sheets slide in: up from the bottom on phones, in from the right from md up. */
+@utility sy-sheet-in {
+  animation: sy-sheet-up var(--sy-duration-base) var(--sy-ease);
+
+  @variant md {
+    animation-name: sy-sheet-left;
+  }
+}
+
+@utility sy-fade-in {
+  animation: sy-fade var(--sy-duration-base) var(--sy-ease);
+}
+
+@keyframes sy-sheet-up {
+  from {
+    transform: translateY(100%);
+  }
+}
+
+@keyframes sy-sheet-left {
+  from {
+    transform: translateX(100%);
+  }
+}
+
+@keyframes sy-fade {
+  from {
+    opacity: 0;
   }
 }

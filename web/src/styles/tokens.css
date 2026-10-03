@@ -1,114 +1,242 @@
 /*
  * Design tokens: the ONLY place colours and sizes are defined.
- * Tailwind's default palette, spacing and type scale are cleared below, so utilities
- * can only use these tokens (e.g. bg-surface, text-fg, p-md, min-h-touch, text-lg).
+ * Tailwind's default palette, spacing, type scale, radii, shadows and breakpoints are
+ * cleared below, so utilities can only use these tokens (e.g. bg-surface, text-fg, p-md,
+ * min-h-touch, text-lg, w-menu, md:max-w-sheet).
+ *
+ * Colours are plain 6-digit hex (8-digit for translucent) so test/tokens.test.ts can
+ * parse them and check contrast. The theme is applied as <html data-theme="light|dark">
+ * (resolved from the light / dark / follow-system preference; see src/shell/theme.ts and
+ * the inline script in index.html).
  */
 
-:root {
-  color-scheme: light dark;
+/* ── Light: warm paper ─────────────────────────────────────────────── */
+:root,
+[data-theme="light"] {
+  color-scheme: light;
 
-  /* Colour: light */
-  --sy-bg: #f7f5ef;
+  --sy-bg: #f4f3ef;
   --sy-surface: #ffffff;
-  --sy-fg: #1d1b16;
-  --sy-fg-muted: #5c5848;
-  --sy-border: #d9d4c4;
-  --sy-accent: #8a5a00;
+  --sy-surface-muted: #efeee9;
+  --sy-border: #dcd9d0;
+  --sy-border-strong: #81888d;
+  --sy-fg: #1d2327;
+  --sy-fg-muted: #5a6368;
+  --sy-accent: #1f6aa5;
+  --sy-accent-hover: #185686;
+  --sy-accent-subtle: #1f6aa51f;
   --sy-accent-fg: #ffffff;
-  --sy-focus: #1a5fd0;
+  --sy-focus: #1f6aa5;
+  --sy-overlay: #1d232766;
+  --sy-shadow: #1d23271a;
+  --sy-shadow-strong: #1d232729;
   --sy-status-pending: #8a6d00;
   --sy-status-ok: #1e7a3a;
   --sy-status-warn: #a14d00;
   --sy-status-error: #b3261e;
+}
 
+/* ── Dark: deep slate ──────────────────────────────────────────────── */
+[data-theme="dark"] {
+  color-scheme: dark;
+
+  --sy-bg: #12181b;
+  --sy-surface: #1f282d;
+  --sy-surface-muted: #28333a;
+  --sy-border: #334047;
+  --sy-border-strong: #6f7e86;
+  --sy-fg: #ebede6;
+  --sy-fg-muted: #a5afb3;
+  --sy-accent: #7cc0e6;
+  --sy-accent-hover: #9dd0ee;
+  --sy-accent-subtle: #7cc0e626;
+  --sy-accent-fg: #0d1a22;
+  --sy-focus: #7cc0e6;
+  --sy-overlay: #00000099;
+  --sy-shadow: #00000059;
+  --sy-shadow-strong: #00000080;
+  --sy-status-pending: #e8c45a;
+  --sy-status-ok: #6fd68e;
+  --sy-status-warn: #ffab5e;
+  --sy-status-error: #ff8a80;
+}
+
+/* ── Theme-independent tokens ──────────────────────────────────────── */
+:root {
   /* Spacing */
+  --sy-space-2xs: 0.125rem;
   --sy-space-xs: 0.25rem;
   --sy-space-sm: 0.5rem;
+  --sy-space-ms: 0.75rem;
   --sy-space-md: 1rem;
   --sy-space-lg: 1.5rem;
   --sy-space-xl: 2.5rem;
 
-  /* Sizing */
+  /* Touch and focus */
   --sy-touch-min: 44px;
-  --sy-content-max: 36rem;
-  --sy-dot: 0.75rem;
-  --sy-radius: 0.75rem;
+  --sy-focus-width: 2px;
   --sy-border-width: 1px;
-  --sy-focus-width: 3px;
+  /* Downward drag on a phone sheet's header that closes it. Read by src/shell/Sheet.tsx. */
+  --sy-swipe-close: 80px;
 
-  /* Type */
-  --sy-font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  --sy-text-sm: 0.875rem;
-  --sy-text-base: 1rem;
-  --sy-text-lg: 1.25rem;
-  --sy-text-xl: 1.75rem;
+  /* Icons and marks */
+  --sy-icon: 20px;
+  --sy-icon-sm: 16px;
+  --sy-icon-lg: 24px;
+  --sy-logo: 28px;
+  --sy-dot: 0.75rem;
+  /* "What's new" dot on the menu button. */
+  --sy-badge-dot: 8px;
+  --sy-badge-ring: 2px;
+  /* Grab handle at the top of a phone sheet. */
+  --sy-handle-width: 36px;
+  --sy-handle-height: 4px;
+
+  /* Layout */
+  --sy-gutter: 16px;
+  --sy-header-h: 56px;
+  --sy-toolbar-gap: 4px;
+  --sy-content-max: 36rem;
+  /* Menu popover, and the label column in About's details. */
+  --sy-menu-width: 18rem;
+  --sy-menu-max-h: 80dvh;
+  --sy-term-width: 6.5rem;
+  /* Sheets: full height on phones (a sliver of the page shows above), a side panel from md up. */
+  --sy-sheet-width: 400px;
+  --sy-viewport-h: 100dvh;
+  --sy-full-sheet-h: calc(100dvh - max(var(--sy-gutter), env(safe-area-inset-top, 0px)));
 
   /* Viewport and safe areas (notches, home indicator) */
-  --sy-viewport-h: 100dvh;
   --sy-safe-top: env(safe-area-inset-top, 0px);
   --sy-safe-right: env(safe-area-inset-right, 0px);
   --sy-safe-bottom: env(safe-area-inset-bottom, 0px);
   --sy-safe-left: env(safe-area-inset-left, 0px);
+
+  /* Shape */
+  --sy-radius-sm: 8px;
+  --sy-radius-md: 10px;
+  --sy-radius-lg: 12px;
+
+  /* Type */
+  --sy-font: "Inter Variable", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --sy-font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --sy-text-xs: 0.75rem;
+  --sy-text-sm: 0.875rem;
+  --sy-text-base: 1rem;
+  --sy-text-lg: 1.125rem;
+  --sy-text-xl: 1.25rem;
+  --sy-text-2xl: 1.5rem;
+
+  /* Motion */
+  --sy-duration-fast: 120ms;
+  --sy-duration-base: 200ms;
+  --sy-ease: cubic-bezier(0.2, 0, 0, 1);
 }
 
-@media (prefers-color-scheme: dark) {
+/* Reduce motion: every animation length is 0. */
+@media (prefers-reduced-motion: reduce) {
   :root {
-    --sy-bg: #15140f;
-    --sy-surface: #211f19;
-    --sy-fg: #f1ede2;
-    --sy-fg-muted: #b5ae9b;
-    --sy-border: #3d3a30;
-    --sy-accent: #f0b43c;
-    --sy-accent-fg: #1d1b16;
-    --sy-focus: #8ab4ff;
-    --sy-status-pending: #e8c45a;
-    --sy-status-ok: #6fd68e;
-    --sy-status-warn: #ffab5e;
-    --sy-status-error: #ff8a80;
+    --sy-duration-fast: 0ms;
+    --sy-duration-base: 0ms;
   }
 }
 
-/* Expose tokens to Tailwind, and nothing else. */
+/* ── Tailwind mapping: only token-backed utilities exist ────────────── */
 @theme inline {
   --color-*: initial;
   --color-bg: var(--sy-bg);
   --color-surface: var(--sy-surface);
+  --color-surface-muted: var(--sy-surface-muted);
+  --color-border: var(--sy-border);
+  --color-border-strong: var(--sy-border-strong);
   --color-fg: var(--sy-fg);
   --color-fg-muted: var(--sy-fg-muted);
-  --color-border: var(--sy-border);
   --color-accent: var(--sy-accent);
+  --color-accent-hover: var(--sy-accent-hover);
+  --color-accent-subtle: var(--sy-accent-subtle);
   --color-accent-fg: var(--sy-accent-fg);
   --color-focus: var(--sy-focus);
+  --color-overlay: var(--sy-overlay);
   --color-status-pending: var(--sy-status-pending);
   --color-status-ok: var(--sy-status-ok);
   --color-status-warn: var(--sy-status-warn);
   --color-status-error: var(--sy-status-error);
+  --color-transparent: transparent;
+  --color-current: currentColor;
 
   --spacing: initial;
   --spacing-*: initial;
   --spacing-0: 0;
+  --spacing-px: var(--sy-border-width);
+  --spacing-2xs: var(--sy-space-2xs);
   --spacing-xs: var(--sy-space-xs);
   --spacing-sm: var(--sy-space-sm);
+  --spacing-ms: var(--sy-space-ms);
   --spacing-md: var(--sy-space-md);
   --spacing-lg: var(--sy-space-lg);
   --spacing-xl: var(--sy-space-xl);
   --spacing-touch: var(--sy-touch-min);
+  --spacing-header: var(--sy-header-h);
+  --spacing-toolbar: var(--sy-toolbar-gap);
+  --spacing-gutter: var(--sy-gutter);
+  --spacing-icon: var(--sy-icon);
+  --spacing-icon-sm: var(--sy-icon-sm);
+  --spacing-icon-lg: var(--sy-icon-lg);
+  --spacing-logo: var(--sy-logo);
   --spacing-dot: var(--sy-dot);
+  --spacing-badge: var(--sy-badge-dot);
+  --spacing-handle-w: var(--sy-handle-width);
+  --spacing-handle-h: var(--sy-handle-height);
+  --spacing-menu: var(--sy-menu-width);
+  --spacing-term: var(--sy-term-width);
+  --spacing-sheet: var(--sy-sheet-width);
   --spacing-content: var(--sy-content-max);
 
   --container-*: initial;
   --container-content: var(--sy-content-max);
+  --container-sheet: var(--sy-sheet-width);
 
   --radius-*: initial;
-  --radius-card: var(--sy-radius);
+  --radius-sm: var(--sy-radius-sm);
+  --radius-md: var(--sy-radius-md);
+  --radius-lg: var(--sy-radius-lg);
+  /* Kept for slice 0 markup: cards use the large radius. */
+  --radius-card: var(--sy-radius-lg);
   --radius-full: 9999px;
+
+  --shadow-*: initial;
+  --shadow-sm: 0 1px 2px var(--sy-shadow);
+  --shadow-md: 0 2px 8px var(--sy-shadow), 0 1px 2px var(--sy-shadow);
+  --shadow-lg: 0 12px 32px var(--sy-shadow-strong), 0 2px 6px var(--sy-shadow);
 
   --font-*: initial;
   --font-sans: var(--sy-font);
+  --font-mono: var(--sy-font-mono);
 
   --text-*: initial;
+  --text-xs: var(--sy-text-xs);
+  --text-xs--line-height: 1rem;
   --text-sm: var(--sy-text-sm);
+  --text-sm--line-height: 1.25rem;
   --text-base: var(--sy-text-base);
+  --text-base--line-height: 1.5rem;
   --text-lg: var(--sy-text-lg);
+  --text-lg--line-height: 1.75rem;
   --text-xl: var(--sy-text-xl);
+  --text-xl--line-height: 1.75rem;
+  --text-2xl: var(--sy-text-2xl);
+  --text-2xl--line-height: 2rem;
+
+  --ease-standard: var(--sy-ease);
+  --default-transition-duration: var(--sy-duration-fast);
+  --default-transition-timing-function: var(--sy-ease);
+}
+
+/* Breakpoints (Chalkline's). Must match src/styles/breakpoints.ts (a test checks). */
+@theme {
+  --breakpoint-*: initial;
+  --breakpoint-sm: 40rem;
+  --breakpoint-md: 48rem;
+  --breakpoint-lg: 64rem;
+  --breakpoint-xl: 80rem;
 }

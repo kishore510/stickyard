@@ -1,0 +1,63 @@
+import { readdirSync, readFileSync, statSync } from "node:fs";
+import { join } from "node:path";
+import { describe, expect, it } from "vitest";
+import { BREAKPOINTS } from "../src/styles/breakpoints";
+
+const SRC = new URL("../src/", import.meta.url).pathname;
+const tokens = readFileSync(join(SRC, "styles/tokens.css"), "utf8");
+
+const files = (dir: string): string[] =>
+  readdirSync(dir).flatMap((name) => {
+    const path = join(dir, name);
+    return statSync(path).isDirectory() ? files(path) : [path];
+  });
+
+/** The colour block for one theme, as { name: hex }. */
+function theme(selector: string): Record<string, string> {
+  const start = tokens.indexOf(selector);
+  const block = tokens.slice(start, tokens.indexOf("}", start));
+  return Object.fromEntries([...block.matchAll(/--sy-([\w-]+):\s*(#[0-9a-f]{6})\b/g)].map((m) => [m[1], m[2]]));
+}
+
+const luminance = (hex: string) => {
+  const [r, g, b] = [1, 3, 5].map((i) => {
+    const c = Number.parseInt(hex.slice(i, i + 2), 16) / 255;
+    return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+  }) as [number, number, number];
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+};
+const contrast = (a: string, b: string) => {
+  const [x, y] = [luminance(a), luminance(b)].sort((p, q) => q - p) as [number, number];
+  return (x + 0.05) / (y + 0.05);
+};
+
+describe("design tokens", () => {
+  it("breakpoints in script match tokens.css", () => {
+    for (const [name, value] of Object.entries(BREAKPOINTS)) expect(tokens).toContain(`--breakpoint-${name}: ${value};`);
+  });
+
+  it.each([':root,\n[data-theme="light"]', '[data-theme="dark"]'])("text and accent contrast in %s", (selector) => {
+    const c = theme(selector);
+    for (const bg of ["bg", "surface", "surface-muted"]) {
+      expect(contrast(c.fg!, c[bg]!), `fg on ${bg}`).toBeGreaterThanOrEqual(4.5);
+      expect(contrast(c["fg-muted"]!, c[bg]!), `fg-muted on ${bg}`).toBeGreaterThanOrEqual(4.5);
+      expect(contrast(c.accent!, c[bg]!), `accent on ${bg}`).toBeGreaterThanOrEqual(4.5);
+    }
+    expect(contrast(c["accent-fg"]!, c.accent!), "accent-fg on accent").toBeGreaterThanOrEqual(4.5);
+  });
+
+  it("no colours outside tokens.css", () => {
+    for (const path of files(SRC).filter((p) => /\.(tsx?|css)$/.test(p) && !p.endsWith("tokens.css"))) {
+      const text = readFileSync(path, "utf8");
+      expect(text.match(/#[0-9a-fA-F]{3,8}\b(?![\w-])/g) ?? [], path).toEqual([]);
+      expect(text.match(/\b(rgb|hsl|oklch)a?\(/g) ?? [], path).toEqual([]);
+    }
+  });
+
+  it("no hard-coded sizes in class names (only token-backed values)", () => {
+    for (const path of files(SRC).filter((p) => p.endsWith(".tsx"))) {
+      const text = readFileSync(path, "utf8");
+      expect(text.match(/\b[\w:-]+-\[[^\]]*\d(px|rem|em)[^\]]*\]/g) ?? [], path).toEqual([]);
+    }
+  });
+});

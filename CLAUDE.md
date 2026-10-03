@@ -18,6 +18,18 @@ Free-plan limits: `docs/LIMITS.md`.
 - Worker URL lives in one config constant in `web/`. Browser storage keys use the `stickyard:` prefix helper.
 - Design tokens (CSS variables) in one file; no hard-coded colours or sizes elsewhere. Light + dark, `dvh`, safe areas, 44px touch targets.
 
+## App shell conventions (slice 0.5)
+- Design language and structure come from the Chalkline project (patterns only, never its content). Tokens live in `web/src/styles/tokens.css` (`--sy-*`, light/dark via `<html data-theme>`, Chalkline breakpoints, mirrored in `web/src/styles/breakpoints.ts`). Tailwind's defaults are cleared, so only token utilities exist (`p-md`, `size-touch`, `w-menu`, `text-fg-muted`...). `web/test/tokens.test.ts` rejects colours outside the token file and px/rem arbitrary values in class names.
+- Components: shadcn/ui-style, hand-written with `cva` + `cn` in `web/src/components/ui/`; icons from `lucide-react`. Inter is bundled via `@fontsource-variable/inter` (no font requests).
+- Sheets: Help, What's new and About are one modal `Sheet` frame (`web/src/shell/Sheet.tsx`): full-height bottom sheet on phone, 400px right panel from `md`. Focus trapped and restored, Esc / X / tap outside / swipe down close.
+- Hash routes (`web/src/router.ts`): `#/` home; sheets `#/help`, `#/help/<topic>`, `#/changelog`, `#/about`. Open sheets with `openSheet()` and close with `closeSheets()` from `web/src/shell/nav.ts` (history state tracks depth so Back and close behave). New sheets: add a `Sheet` kind, a hash in `parseHash`/`sheetHash`, and a case in `SheetHost`.
+- Menu groups live in `GROUPS` in `web/src/shell/Menu.tsx`. Add a group only when its feature exists; no placeholders.
+- Help content: one Markdown file per topic in `web/src/help/topics/` with front matter (`title`, `order`, `summary`, `keywords`); the file name is the topic id. Only document what exists. Markdown is parsed to a tree and rendered as React elements, never HTML.
+- What's new renders root `CHANGELOG.md` (Keep a Changelog: `## [x.y.z] - YYYY-MM-DD`, `### Added/Changed/Fixed`, user-facing wording). Its newest entry must equal the version, and all four package.json versions must match (tests check). Bump with `npm version x.y.z --no-git-tag-version --workspaces --include-workspace-root`, and update the `@stickyard/shared` range in web/worker.
+- Build info (version, short commit, build date, credits) is injected by `web/vite.config.ts`; About reads it via `web/src/version.ts`. Copy details = version, build, protocol, browser only.
+- About > Privacy must stay true: any slice that changes what is stored in the browser or sent anywhere updates that text in the same change.
+- Storage keys: `STORAGE_KEYS` in `web/src/storage.ts` (`stickyard:theme`, `stickyard:last-seen-version`); always read/write via `readKey`/`writeKey` (never throw).
+
 ## Working rules
 - One slice at a time on its own `phase-...` branch. Never commit to `main`. Stop for review at the end of each slice.
 - Do not build beyond the slice scope.

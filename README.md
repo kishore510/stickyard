@@ -6,7 +6,7 @@ Personal learning project. Front end on GitHub Pages, relay on a Cloudflare Work
 
 See [docs/PROJECT_BRIEF.md](docs/PROJECT_BRIEF.md), [docs/PHASE_PLAN.md](docs/PHASE_PLAN.md) and [docs/LIMITS.md](docs/LIMITS.md).
 
-**Status:** slice 0 (setup). The page is a connection check that proves Pages → WebSocket → Worker → Durable Object → handshake reply.
+**Status:** slice 0.5 (app shell and design system, v0.2.0). The home page is still the connection check (Pages → WebSocket → Worker → Durable Object → handshake reply), now inside the app shell with Help, What's new and About.
 
 ## Layout
 
