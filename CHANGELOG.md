@@ -2,6 +2,24 @@
 
 All notable changes to Stickyard, newest first. The format follows Keep a Changelog. Versions are 0.x: a minor bump for each slice and a patch bump for each follow-up fix. This file is shown in the app under **What’s new**, so entries are written for the people using it.
 
+## [0.4.0] - 2026-10-03
+
+### Added
+- **Shared notes.** Every session now has a board of sticky notes. Pick a colour and choose **Add note** in the bar at the bottom of the screen; the note appears where you're looking, ready to type in.
+- Tap or click a note to edit it. **Enter** saves and **Shift+Enter** starts a new line. Notes can be up to 280 characters.
+- Drag notes to move them. Everyone sees notes move as they're dragged.
+- Delete a note from its editor or with the **Delete** key. You're asked first if it has text.
+- Move around the board by dragging an empty part of it, or by scrolling.
+- Keyboard support: **Tab** to a note, **Enter** to edit, **arrow keys** to move (hold **Shift** for bigger steps), **Delete** to delete.
+- If two people change the same note, the last change saved wins. What you're typing is never replaced while you type.
+- Notes are kept by the relay, so the board is still there when people leave and come back. A board holds up to 200 notes.
+- Help: a new topic, **Notes**.
+
+### Changed
+- The message format between the app and the relay is now protocol v3. A page left open from an earlier version asks you to reload.
+- While the connection is lost, the board stays on screen but can't be changed until you rejoin.
+- About's **Privacy** now says what the relay stores for notes.
+
 ## [0.3.0] - 2026-10-03
 
 ### Added

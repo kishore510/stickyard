@@ -21,7 +21,8 @@ function SkipLink() {
 
 /**
  * The app shell: skip link, top bar (header + nav), page content (main) and footer.
- * The floating bottom bar region (Chalkline's thumb toolbar) is left for slice 2's add note.
+ * The floating bottom bar (Chalkline's thumb toolbar) is rendered by the room screen
+ * (notes/AddNoteBar.tsx), fixed above the safe area, with a spacer so content isn't hidden.
  */
 export function Shell({ children }: { children: ReactNode }) {
   return (

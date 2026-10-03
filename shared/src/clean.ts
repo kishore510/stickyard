@@ -1,7 +1,7 @@
-import { MAX_NAME_LENGTH, MAX_TEXT_LENGTH } from "./protocol";
+import { MAX_NAME_LENGTH, MAX_NOTE_TEXT, MAX_TEXT_LENGTH } from "./protocol";
 
 /*
- * Cleaning for untrusted display text (names and echoed messages). Both sides use it:
+ * Cleaning for untrusted display text (names, echoed messages and note text). Both sides use it:
  * the server is the authority, the client cleans first only to give quicker feedback.
  */
 
@@ -36,4 +36,24 @@ export function cleanName(raw: string): string | null {
 /** Same cleaning as names; 1..MAX_TEXT_LENGTH characters, else null. */
 export function cleanText(raw: string): string | null {
   return clean(raw, MAX_TEXT_LENGTH);
+}
+
+/** Line breaks in any form become "\n"; other whitespace controls become spaces. */
+const LINE_BREAKS = /\r\n?|[\u0085\u2028\u2029]/g;
+const SPACE_CONTROLS = /[\t\v\f]/g;
+/** CONTROLS without "\n". */
+const CONTROLS_EXCEPT_NEWLINE = /[\u0000-\u0009\u000B-\u001F\u007F-\u009F]/g;
+
+/**
+ * Note text: like messages, but keeps line breaks and inner spacing. Trimmed; may be empty.
+ * Null if longer than MAX_NOTE_TEXT characters after cleaning.
+ */
+export function cleanNoteText(raw: string): string | null {
+  const value = raw
+    .replace(LINE_BREAKS, "\n")
+    .replace(SPACE_CONTROLS, " ")
+    .replace(INVISIBLE, "")
+    .replace(CONTROLS_EXCEPT_NEWLINE, "")
+    .trim();
+  return codePointLength(value) > MAX_NOTE_TEXT ? null : value;
 }

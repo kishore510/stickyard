@@ -1,6 +1,6 @@
 ---
 title: Touch and keyboard tips
-order: 5
+order: 6
 summary: Taps, swipes, keys and links that make Stickyard quicker to use.
 keywords: touch, tap, swipe, keyboard, tab, escape, esc, arrow, shortcut, screen reader, theme, dark, light, back, link
 ---
@@ -10,12 +10,14 @@ keywords: touch, tap, swipe, keyboard, tab, escape, esc, arrow, shortcut, screen
 - On a phone, Help, What's new and About open as a sheet from the bottom. To close it, swipe it down by its top edge, tap the page above it, or tap **X**.
 - On a wider screen they open as a panel on the right. Click outside it or choose **X** to close it.
 - The back arrow in a sheet returns to the page you came from.
+- On the board, drag a note to move it, tap it to edit it, and swipe an empty part of the board to move around. The colour choice and **+** (add note) sit in the bar at the bottom.
 
 ## Keyboard
 
 - **Tab** moves between buttons and links. **Enter** or **Space** chooses one. The first Tab on a page offers **Skip to content**.
 - In the menu, the **arrow keys** move between items and **Esc** closes it.
 - **Esc** closes a sheet, and focus returns to where you were.
+- On the board, **Tab** moves between notes. **Enter** edits the focused note, the **arrow keys** move it (**Shift** for bigger steps) and **Delete** deletes it.
 
 ## Links and the Back button
 

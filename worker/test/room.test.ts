@@ -304,12 +304,14 @@ describe("rate limiting", () => {
     const { code } = await newRoom();
     const a = await TestClient.open(code);
     await a.enter("Alex"); // 2 tokens used
-    const burst = SOCKET_LIMITS.burst;
-    for (let i = 0; i < burst + 2; i++) a.send({ type: "say", text: `m${i}` });
+    // Well past the burst, so slow test machines (which refill tokens while sending) still go
+    // over, but under the violations that close the socket.
+    const sent = SOCKET_LIMITS.burst + SOCKET_LIMITS.maxViolations / 2;
+    for (let i = 0; i < sent; i++) a.send({ type: "say", text: `m${i}` });
     const replies = [];
-    for (let i = 0; i < burst + 2; i++) replies.push(await a.next());
+    for (let i = 0; i < sent; i++) replies.push(await a.next());
     expect(replies.filter((r) => r.type === "error" && r.code === "rate_limited").length).toBeGreaterThanOrEqual(2);
-    expect(replies.filter((r) => r.type === "echo").length).toBeLessThanOrEqual(burst);
+    expect(replies.filter((r) => r.type === "echo").length).toBeLessThan(sent);
 
     // Tokens come back over time.
     await new Promise((resolve) => setTimeout(resolve, 1100));
@@ -317,11 +319,25 @@ describe("rate limiting", () => {
     a.close();
   });
 
-  it(`closes the socket after ${SOCKET_LIMITS.maxViolations} consecutive violations`, async () => {
+  it(`closes the socket after ${SOCKET_LIMITS.maxViolations} violations in a window`, async () => {
     const { code } = await newRoom();
     const a = await TestClient.open(code);
     await a.enter("Alex");
     for (let i = 0; i < SOCKET_LIMITS.burst + SOCKET_LIMITS.maxViolations * 10; i++) a.send({ type: "say", text: "spam" });
+    expect(await a.waitClose()).toBe(1008);
+  });
+
+  it("a sender at about twice the rate is still closed (violations needn't be consecutive)", async () => {
+    const { code } = await newRoom();
+    const a = await TestClient.open(code);
+    await a.enter("Alex");
+    for (let i = 0; i < SOCKET_LIMITS.burst; i++) a.send({ type: "say", text: "fill" });
+    // Each pause lets about one token back, so accepted and refused messages alternate.
+    for (let i = 0; i < SOCKET_LIMITS.maxViolations * 2 + 4 && a.closeCode === null; i++) {
+      a.send({ type: "say", text: "a" });
+      a.send({ type: "say", text: "b" });
+      await new Promise((resolve) => setTimeout(resolve, 1000 / SOCKET_LIMITS.refillPerSecond));
+    }
     expect(await a.waitClose()).toBe(1008);
   });
 

@@ -51,6 +51,18 @@
   padding-bottom: max(var(--sy-gutter), var(--sy-safe-bottom));
 }
 
+/* The board's dot grid. */
+@utility sy-board-dots {
+  background-color: var(--sy-board);
+  background-image: radial-gradient(var(--sy-board-dot) var(--sy-board-dot-size), transparent var(--sy-board-dot-size));
+  background-size: var(--sy-board-grid) var(--sy-board-grid);
+}
+
+/* Notes moved by someone else ease to each new position; ones you drag follow the pointer. */
+@utility sy-note-motion {
+  transition: transform var(--sy-duration-move) linear;
+}
+
 /* Sheets slide in: up from the bottom on phones, in from the right from md up. */
 @utility sy-sheet-in {
   animation: sy-sheet-up var(--sy-duration-base) var(--sy-ease);

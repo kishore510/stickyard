@@ -65,3 +65,17 @@ Estimates against the free allowances above (checked 2 October 2026).
 **Echo traffic.** A room stores nothing (no rows read or written). Each socket opening is 1 Worker request + 1 DO request. Inbound WebSocket messages bill at 20:1, so 100 `say` messages ≈ 5 DO requests; the fan-out to other sockets is outgoing and not billed as requests. The per-socket token bucket (5/s, burst 10) caps one socket at about 0.25 DO requests/s (≈ 900/hour). Per-socket state lives in the WebSocket attachment, so idle rooms hibernate and use no duration.
 
 **Residual risk.** None of this stops a script from spending the **daily request budget** (100,000 Worker requests, 100,000 DO requests): Origin checks don't apply to scripts, invalid codes are cheap but still count as Worker requests, and a valid room link can be used to open many sockets. If that happens, the free plan **fails closed**: requests error until 00:00 UTC, then everything recovers. No bill, no data at risk; the app is simply unavailable for the rest of the day.
+
+## Slice 2: what notes cost
+
+Estimates against the free allowances above (checked 2 October 2026; not re-checked for slice 2).
+
+**Writes (100,000 rows/day).** Only commits write: an add, an edit that changes the text, a drop that changes the position, a delete. Each is **1 row**. Dragging writes nothing. A busy workshop (20 people, 50 notes each edited and moved a few times) is a few thousand row writes. Plus 1 row when a room's tables are first created.
+
+**Reads (5,000,000 rows/day).** Notes are read once when the Durable Object wakes (up to 200 rows, plus 1 for the schema version) and then served from memory. A room that hibernates and wakes often re-reads them each time.
+
+**Requests.** A drag sends about 20 messages a second (20:1 billing → about 1 DO request/s per person dragging). The per-socket bucket is now 30/s with a burst of 40 (it was 5/s), so a script on one socket can spend up to about 1.5 DO requests/s. Twenty violations within 10 seconds close the socket.
+
+**Storage.** At most 200 notes × about 1.2 KB = well under 1 MB per room. Rooms don't expire yet (slice 5), so storage grows with the number of rooms that have notes.
+
+**Messages out.** A snapshot of a full board is up to about 260 KB; the web accepts server messages up to `MAX_SERVER_MESSAGE_BYTES` (512 KiB). Outgoing messages aren't billed as requests.

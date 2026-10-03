@@ -259,7 +259,7 @@ describe("notes", () => {
 
   it("add: optimistic note, noteAdd sent, swapped for the server note on noteAdded", () => {
     const t = withBoard();
-    expect(t.session.addNote({ x: 10, y: 20, color: "pink" })).toBe(true);
+    expect(t.session.addNote({ x: 10, y: 20, color: "pink" })).toMatch(/^local:/);
     const sent = lastSent(t);
     expect(sent).toMatchObject({ type: "noteAdd", x: 10, y: 20, color: "pink", text: "" });
     const ref = String(sent.clientRef);
@@ -293,8 +293,9 @@ describe("notes", () => {
     const notes = Array.from({ length: MAX_NOTES_PER_ROOM }, (_, i) => ({ ...one, id: `N${String(i).padStart(15, "0")}` }));
     const t = withBoard(...notes);
     const count = t.sock().sent.length;
-    expect(t.session.addNote({ x: 0, y: 0, color: "yellow" })).toBe(false);
+    expect(t.session.addNote({ x: 0, y: 0, color: "yellow" })).toBeNull();
     expect(t.sock().sent).toHaveLength(count);
+    expect(t.view().noteNotice).toMatch(/full/i);
   });
 
   it("edit sends cleaned text and shows it at once; a rejection rolls it back", () => {
@@ -355,6 +356,25 @@ describe("notes", () => {
     expect(t.view().board.notes).toEqual([]);
   });
 
+  it("a remote delete of the note being edited says so", () => {
+    const t = withBoard(one);
+    t.session.setDraft(N1, "My draft");
+    t.sock().receive({ type: "noteDeleted", id: N1 });
+    expect(t.view().board.notes).toEqual([]);
+    expect(t.view().noteNotice).toMatch(/deleted/i);
+  });
+
+  it("deleting a note before the server confirms it deletes it once confirmed", () => {
+    const t = withBoard();
+    const id = t.session.addNote({ x: 10, y: 20, color: "pink" }) ?? "";
+    const ref = String(lastSent(t).clientRef);
+    t.session.deleteNote(id);
+    expect(t.view().board.notes).toEqual([]);
+    t.sock().receive({ type: "noteAdded", note: { ...one, authorId: alex.id }, clientRef: ref });
+    expect(lastSent(t)).toEqual({ type: "noteDelete", id: N1 });
+    expect(t.view().board.notes).toEqual([]);
+  });
+
   it("delete is optimistic and sends noteDelete", () => {
     const t = withBoard(one);
     t.session.deleteNote(N1);
@@ -371,7 +391,7 @@ describe("notes", () => {
   it("disconnected: editing is blocked and nothing is sent", () => {
     const t = withBoard(one);
     t.sock().serverClose();
-    expect(t.session.addNote({ x: 0, y: 0, color: "yellow" })).toBe(false);
+    expect(t.session.addNote({ x: 0, y: 0, color: "yellow" })).toBeNull();
     t.session.editNote(N1, "Needs follow-up");
     t.session.deleteNote(N1);
     t.session.moveNote(N1, 1, 1, true);

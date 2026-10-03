@@ -1,22 +1,49 @@
 import {
+  MAX_NOTES_PER_ROOM,
+  MAX_SERVER_MESSAGE_BYTES,
   PROTOCOL_VERSION,
   cleanName,
+  cleanNoteText,
   cleanText,
   encodeMessage,
   parseMessage,
   serverMessageSchema,
   type ClientMessage,
+  type NoteColor,
   type Participant,
   type ServerMessage,
 } from "@stickyard/shared";
 import type { SocketFactory, SocketLike } from "../connection/socket";
+import {
+  EMPTY_BOARD,
+  addLocal,
+  applyAdded,
+  applyDeleted,
+  applyMoved,
+  applySnapshot,
+  applyUpdated,
+  deleteLocal,
+  editLocal,
+  findNote,
+  isLocalId,
+  localId,
+  moveLocal,
+  rejectAdd,
+  rollback,
+  setDraft,
+  setDragging,
+  type Board,
+} from "../notes/board";
 import type { CodeCheck } from "./api";
 
 /*
- * One visit to a room: connect, hello, join, then follow participants and echoes.
+ * One visit to a room: connect, hello, join, then follow participants, echoes and notes.
  * Everything the server sends is validated against the shared schema; anything this page
  * can't understand means it is out of date ("reload"). Names and text are kept as plain
  * strings and only ever rendered as text.
+ *
+ * Notes are optimistic: local changes show at once and roll back if the server refuses them
+ * (see notes/board.ts). Editing needs a live connection; there's no offline queue yet.
  */
 
 export type RoomStatus = "idle" | "connecting" | "joined" | "invalid" | "full" | "reload" | "unreachable" | "disconnected";
@@ -40,6 +67,9 @@ export interface RoomView {
   rateLimited: boolean;
   /** For an aria-live region: "<name> joined" / "<name> left". */
   announcement: string;
+  board: Board;
+  /** A short message about a refused note change, until the next note action. */
+  noteNotice: string | null;
 }
 
 export const INITIAL_VIEW: RoomView = {
@@ -50,11 +80,27 @@ export const INITIAL_VIEW: RoomView = {
   nameError: false,
   rateLimited: false,
   announcement: "",
+  board: EMPTY_BOARD,
+  noteNotice: null,
 };
 
 export const JOIN_TIMEOUT_MS = 10_000;
 /** Echoes kept on screen. */
 export const MAX_MESSAGES = 100;
+/** Drag updates are sent at most this often per note (about 20 a second), then once on drop. */
+export const MOVE_INTERVAL_MS = 50;
+
+export const NOTICES = {
+  full: `The board is full (${MAX_NOTES_PER_ROOM} notes). Delete a note to add another.`,
+  tooQuick: "That change was too quick and wasn’t saved. Try again.",
+  refused: "That change wasn’t saved. Try again.",
+  deletedWhileEditing: "Someone else deleted the note you were editing.",
+} as const;
+
+const randomRef = (): string => {
+  const bytes = crypto.getRandomValues(new Uint8Array(9));
+  return btoa(String.fromCharCode(...bytes)).replaceAll("+", "-").replaceAll("/", "_");
+};
 
 export interface SessionOptions {
   /** The room's WebSocket URL (with the code). */
@@ -76,6 +122,10 @@ export class RoomSession {
   private nextKey = 0;
   /** Everyone seen in this visit, so echoes keep their sender's name after they leave. */
   private readonly known = new Map<string, Participant>();
+  /** Per note being moved: when a move was last sent, and the pending trailing send. */
+  private readonly moves = new Map<string, { last: number; timer: ReturnType<typeof setTimeout> | undefined }>();
+  /** Adds deleted here before the server confirmed them: delete them once it does. */
+  private readonly abandoned = new Set<string>();
 
   constructor(private readonly options: SessionOptions) {}
 
@@ -114,10 +164,116 @@ export class RoomSession {
     return true;
   }
 
+  private get live(): boolean {
+    return !this.stopped && this.view.status === "joined";
+  }
+
+  /** Adds an empty note (or one with `text`). Its temporary id, or null if not connected or the board is full. */
+  addNote({ x, y, color, text = "" }: { x: number; y: number; color: NoteColor; text?: string }): string | null {
+    if (!this.live || !this.view.you) return null;
+    if (this.view.board.notes.length >= MAX_NOTES_PER_ROOM) {
+      this.update({ noteNotice: NOTICES.full });
+      return null;
+    }
+    const clean = cleanNoteText(text);
+    if (clean === null) return null;
+    const clientRef = randomRef();
+    const board = addLocal(this.view.board, { clientRef, x, y, color, text: clean, authorId: this.view.you.id });
+    const note = findNote(board, localId(clientRef))?.note;
+    if (!note) return null;
+    this.update({ board, noteNotice: null });
+    this.send({ type: "noteAdd", clientRef, x: note.x, y: note.y, color, text: clean });
+    return note.id;
+  }
+
+  /** Commits an edit. Text is cleaned; an unchanged text just ends the draft. False if refused. */
+  editNote(id: string, text: string): boolean {
+    if (!this.live) return false;
+    const entry = findNote(this.view.board, id);
+    const clean = cleanNoteText(text);
+    if (!entry || clean === null) return false;
+    if (clean === entry.note.text) {
+      this.update({ board: setDraft(this.view.board, id, null) });
+      return true;
+    }
+    this.update({ board: editLocal(this.view.board, id, clean), noteNotice: null });
+    // A note that isn't confirmed yet gets its text sent once it has a server id.
+    if (!isLocalId(id)) this.send({ type: "noteEdit", id, text: clean });
+    return true;
+  }
+
+  /** Text being typed; kept even if someone else changes the note meanwhile. */
+  setDraft(id: string, draft: string | null): void {
+    if (this.stopped) return;
+    this.update({ board: setDraft(this.view.board, id, draft) });
+  }
+
+  /** Starts a drag. False for a note that can't move yet (not connected, or not confirmed). */
+  startDrag(id: string): boolean {
+    if (!this.live || isLocalId(id) || !findNote(this.view.board, id)) return false;
+    this.update({ board: setDragging(this.view.board, id, true), noteNotice: null });
+    return true;
+  }
+
+  /**
+   * Moves a note here at once. Non-final moves are sent at most every MOVE_INTERVAL_MS
+   * (the latest position wins); the final one is sent straight away and stored by the server.
+   */
+  moveNote(id: string, x: number, y: number, final: boolean): void {
+    if (!this.live || isLocalId(id)) return;
+    if (!findNote(this.view.board, id)) return this.stopMove(id);
+    let board = moveLocal(this.view.board, id, x, y);
+    if (final) board = setDragging(board, id, false);
+    this.update({ board });
+    if (final) {
+      this.stopMove(id);
+      return this.sendMove(id, true);
+    }
+    const now = Date.now();
+    const state = this.moves.get(id) ?? { last: -Infinity, timer: undefined };
+    this.moves.set(id, state);
+    if (now - state.last >= MOVE_INTERVAL_MS) {
+      state.last = now;
+      return this.sendMove(id, false);
+    }
+    state.timer ??= setTimeout(() => {
+      state.timer = undefined;
+      state.last = Date.now();
+      this.sendMove(id, false);
+    }, state.last + MOVE_INTERVAL_MS - now);
+  }
+
+  /** Deletes a note here at once. */
+  deleteNote(id: string): void {
+    if (!this.live) return;
+    const entry = findNote(this.view.board, id);
+    if (!entry) return;
+    this.stopMove(id);
+    this.update({ board: deleteLocal(this.view.board, id), noteNotice: null });
+    if (entry.clientRef !== null) this.abandoned.add(entry.clientRef);
+    else this.send({ type: "noteDelete", id });
+  }
+
+  private sendMove(id: string, final: boolean): void {
+    const entry = findNote(this.view.board, id);
+    if (!entry || !this.live) return;
+    this.send({ type: "noteMove", id, x: entry.note.x, y: entry.note.y, final });
+  }
+
+  private stopMove(id: string): void {
+    clearTimeout(this.moves.get(id)?.timer);
+    this.moves.delete(id);
+  }
+
+  private stopAllMoves(): void {
+    for (const id of [...this.moves.keys()]) this.stopMove(id);
+  }
+
   /** Leaves: closes the socket and reports nothing further. */
   close(): void {
     this.stopped = true;
     clearTimeout(this.timer);
+    this.stopAllMoves();
     this.socket?.close();
   }
 
@@ -132,6 +288,7 @@ export class RoomSession {
     const { status } = this.view;
     if (status === "invalid" || status === "full" || status === "reload" || status === "unreachable") return;
     clearTimeout(this.timer);
+    this.stopAllMoves();
     this.socket = null;
     if (status === "joined") return this.update({ status: "disconnected" });
     if (this.opened) return this.update({ status: "unreachable" });
@@ -143,7 +300,7 @@ export class RoomSession {
 
   private onMessage(data: unknown): void {
     if (this.stopped) return;
-    const parsed = parseMessage(typeof data === "string" ? data : new ArrayBuffer(0), serverMessageSchema);
+    const parsed = parseMessage(typeof data === "string" ? data : new ArrayBuffer(0), serverMessageSchema, MAX_SERVER_MESSAGE_BYTES);
     if (!parsed.ok) return this.finish("reload");
     this.handle(parsed.value);
   }
@@ -195,7 +352,41 @@ export class RoomSession {
         });
       }
 
+      case "snapshot":
+        return this.update({ board: applySnapshot(this.view.board, message.notes) });
+
+      case "noteAdded": {
+        const { note, clientRef } = message;
+        const temp = clientRef === undefined ? undefined : findNote(this.view.board, localId(clientRef));
+        let board = applyAdded(this.view.board, note, clientRef);
+        if (clientRef !== undefined && this.abandoned.delete(clientRef)) {
+          // Deleted here before the server confirmed it.
+          board = deleteLocal(board, note.id);
+          this.send({ type: "noteDelete", id: note.id });
+        } else if (temp && temp.note.text !== note.text) {
+          // Text committed while the add was in flight.
+          this.send({ type: "noteEdit", id: note.id, text: temp.note.text });
+        }
+        return this.update({ board, ...(clientRef !== undefined ? { rateLimited: false } : {}) });
+      }
+
+      case "noteUpdated":
+        return this.update({ board: applyUpdated(this.view.board, message.note) });
+
+      case "noteMoved":
+        return this.update({ board: applyMoved(this.view.board, message) });
+
+      case "noteDeleted": {
+        this.stopMove(message.id);
+        const editing = findNote(this.view.board, message.id)?.draft != null;
+        return this.update({
+          board: applyDeleted(this.view.board, message.id),
+          ...(editing ? { noteNotice: NOTICES.deletedWhileEditing } : {}),
+        });
+      }
+
       case "error":
+        if (message.clientRef !== undefined || message.noteId !== undefined) return this.noteRefused(message);
         switch (message.code) {
           case "version_mismatch":
             return this.finish("reload");
@@ -206,6 +397,8 @@ export class RoomSession {
             return this.update({ status: "idle", nameError: true });
           case "rate_limited":
             return this.update({ rateLimited: true });
+          case "notes_full":
+            return this.update({ noteNotice: NOTICES.full });
           case "bad_message":
           case "too_large":
           case "not_joined":
@@ -213,6 +406,22 @@ export class RoomSession {
             return;
         }
     }
+  }
+
+  /** The server refused a note change: roll it back and say why. */
+  private noteRefused(message: Extract<ServerMessage, { type: "error" }>): void {
+    let board = this.view.board;
+    if (message.clientRef !== undefined) {
+      this.abandoned.delete(message.clientRef);
+      board = rejectAdd(board, message.clientRef);
+    }
+    if (message.noteId !== undefined) {
+      this.stopMove(message.noteId);
+      board = rollback(board, message.noteId);
+    }
+    const noteNotice =
+      message.code === "notes_full" ? NOTICES.full : message.code === "rate_limited" ? NOTICES.tooQuick : NOTICES.refused;
+    this.update({ board, noteNotice, ...(message.code === "rate_limited" ? { rateLimited: true } : {}) });
   }
 
   private startTimer(): void {

@@ -59,6 +59,14 @@ const storedNotes = (stub: DurableObjectStub<Room>) =>
     ).toArray(),
   );
 
+/** Inserts `n` notes straight into a room's table (before anything has loaded them). */
+const seed = (sql: SqlStorage, n: number, authorId = "AAAAAAAAAAAAAAAA") => {
+  for (let i = 0; i < n; i++) {
+    const id = `seed${String(i).padStart(12, "0")}`;
+    sql.exec("INSERT INTO notes (id, x, y, text, color, rev, author_id) VALUES (?, 0, 0, 'Idea one', 'yellow', 1, ?)", id, authorId);
+  }
+};
+
 const closeAll = (...clients: TestClient[]) => {
   for (const c of clients) c.close();
 };
@@ -142,7 +150,7 @@ describe("noteAdd", () => {
   it(`refuses note ${MAX_NOTES_PER_ROOM + 1} with notes_full and the clientRef`, async () => {
     const { code, stub } = await newRoom();
     // Fill the table directly: sending 200 adds would trip the rate limit.
-    await runInDurableObject(stub, (room: Room) => room.seedNotesForTest(MAX_NOTES_PER_ROOM - 1));
+    await runInDurableObject(stub, (_room, state) => seed(state.storage.sql, MAX_NOTES_PER_ROOM - 1));
     const a = await TestClient.open(code);
     await a.enter("Alex");
     expect(a.snapshot?.notes).toHaveLength(MAX_NOTES_PER_ROOM - 1);
@@ -350,14 +358,17 @@ describe("caps on the wire", () => {
     const { a, b, stub } = await pair();
     const note = await addNote(a);
     await nextOfType(b, "noteAdded");
-    const total = SOCKET_LIMITS.burst + 10;
-    for (let i = 0; i < total; i++) a.send({ type: "noteMove", id: note.id, x: 1 + i, y: 1, final: true });
+    // Batches of 10 until one is refused: independent of how fast this machine processes them,
+    // and never near the violations that close the socket.
     const limited: ServerMessage[] = [];
     let moved = 0;
-    while (limited.length + moved < total) {
-      const m = await a.next();
-      if (m.type === "error") limited.push(m);
-      else if (m.type === "noteMoved") moved++;
+    for (let sent = 0; limited.length === 0 && sent < 1000; ) {
+      for (let i = 0; i < 10; i++, sent++) a.send({ type: "noteMove", id: note.id, x: 1 + (sent % 1000), y: 1, final: true });
+      for (let i = 0; i < 10; i++) {
+        const m = await a.next();
+        if (m.type === "error") limited.push(m);
+        else if (m.type === "noteMoved") moved++;
+      }
     }
     expect(limited.length).toBeGreaterThan(0);
     expect(limited[0]).toMatchObject({ code: "rate_limited", noteId: note.id });
@@ -415,8 +426,8 @@ describe("persistence", () => {
 
   it("skips stored rows that don't validate rather than failing to load", async () => {
     const { code, stub } = await newRoom();
-    await runInDurableObject(stub, (room: Room, state) => {
-      room.seedNotesForTest(1);
+    await runInDurableObject(stub, (_room, state) => {
+      seed(state.storage.sql, 1);
       state.storage.sql.exec("INSERT INTO notes (id, x, y, text, color, rev, author_id) VALUES ('bad', 0, 0, 'x', 'mauve', 1, 'x')");
     });
     await evictDurableObject(stub, { webSockets: "close" });

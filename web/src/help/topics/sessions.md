@@ -22,7 +22,8 @@ A **session** is one shared room with its own link. Its address looks like `#/ro
 
 ## In a session
 
+- The **board** holds the session's notes. See [Notes](help:notes).
 - **People** lists everyone who's in the session now, each with a coloured dot.
 - Type in **Message** and choose **Send**: everyone in the session sees it straight away, with your name. Messages can be up to 280 characters.
 - Messages aren't saved. Someone who joins later doesn't see earlier messages.
-- **Leave** takes you back to the start page. If your connection drops, choose **Rejoin**.
+- **Leave** takes you back to the start page. Your notes stay on the board. If your connection drops, choose **Rejoin**.

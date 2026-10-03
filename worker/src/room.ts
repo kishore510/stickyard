@@ -1,25 +1,30 @@
 import { DurableObject } from "cloudflare:workers";
 import {
+  MAX_NOTES_PER_ROOM,
   MAX_PARTICIPANTS,
   PROTOCOL_VERSION,
+  clampNotePosition,
   clientMessageSchema,
   cleanName,
+  cleanNoteText,
   cleanText,
   encodeMessage,
   parseMessage,
   participantSchema,
   type ClientMessage,
   type ErrorCode,
+  type Note,
   type Participant,
   type ServerMessage,
 } from "@stickyard/shared";
 import { z } from "zod";
 import { randomBase64url } from "./crypto";
 import { SOCKET_LIMITS } from "./limits";
+import { NoteStore } from "./noteStore";
 
 /**
  * Per-socket state, kept in the WebSocket attachment so it survives hibernation.
- * Nothing is written to storage: an empty room stores nothing (persistence is slice 5).
+ * Notes live in the room's SQLite (see noteStore.ts); nothing about people is stored.
  */
 const socketStateSchema = z.object({
   /** Said hello with our protocol version. */
@@ -29,12 +34,31 @@ const socketStateSchema = z.object({
   /** Token bucket. */
   tokens: z.number(),
   at: z.number(),
-  /** Consecutive over-limit messages. */
+  /** Over-limit messages since `strikeAt` (the start of the current violation window). */
   strikes: z.number().int(),
+  strikeAt: z.number(),
 });
 type SocketState = z.infer<typeof socketStateSchema>;
 
-const error = (code: ErrorCode, message: string): ServerMessage => ({ type: "error", code, message });
+/** Which note (or pending add) an error is about, so the sender can roll back. */
+type ErrorRef = { clientRef: string } | { noteId: string } | Record<string, never>;
+
+const error = (code: ErrorCode, message: string, ref: ErrorRef = {}): ServerMessage => ({ type: "error", code, message, ...ref });
+
+function refOf(message: ClientMessage): ErrorRef {
+  switch (message.type) {
+    case "noteAdd":
+      return { clientRef: message.clientRef };
+    case "noteEdit":
+    case "noteMove":
+    case "noteDelete":
+      return { noteId: message.id };
+    default:
+      return {};
+  }
+}
+
+type NoteMessage = Extract<ClientMessage, { type: "noteAdd" | "noteEdit" | "noteMove" | "noteDelete" }>;
 
 /**
  * One instance per room, addressed by the room id from a verified code.
@@ -42,10 +66,32 @@ const error = (code: ErrorCode, message: string): ServerMessage => ({ type: "err
  * list is derived from the live sockets' attachments.
  */
 export class Room extends DurableObject<Env> {
+  private readonly notes: NoteStore;
+  /** Non-final moves waiting to be relayed, latest per note. Never stored. */
+  private readonly pendingMoves = new Map<string, { from: WebSocket; message: ServerMessage }>();
+  private flushScheduled = false;
+
+  constructor(ctx: DurableObjectState, env: Env) {
+    super(ctx, env);
+    this.notes = new NoteStore(ctx.storage.sql);
+  }
+
+  /** SQLite rows written by this instance (tests check drags write nothing). */
+  get rowsWritten(): number {
+    return this.notes.rowsWritten;
+  }
+
   override async fetch(_request: Request): Promise<Response> {
     const pair = new WebSocketPair();
     this.ctx.acceptWebSocket(pair[1]);
-    const state: SocketState = { hello: false, participant: null, tokens: SOCKET_LIMITS.burst, at: Date.now(), strikes: 0 };
+    const state: SocketState = {
+      hello: false,
+      participant: null,
+      tokens: SOCKET_LIMITS.burst,
+      at: Date.now(),
+      strikes: 0,
+      strikeAt: 0,
+    };
     pair[1].serializeAttachment(state);
     return new Response(null, { status: 101, webSocket: pair[0] });
   }
@@ -62,6 +108,11 @@ export class Room extends DurableObject<Env> {
     state.tokens = Math.min(SOCKET_LIMITS.burst, state.tokens + ((now - state.at) / 1000) * SOCKET_LIMITS.refillPerSecond);
     state.at = now;
     if (state.tokens < 1) {
+      // Counted per window, not consecutively: a sender at twice the rate still gets closed.
+      if (now - state.strikeAt > SOCKET_LIMITS.violationWindowMs) {
+        state.strikes = 0;
+        state.strikeAt = now;
+      }
       state.strikes += 1;
       if (state.strikes >= SOCKET_LIMITS.maxViolations) {
         this.leave(ws, state);
@@ -69,11 +120,12 @@ export class Room extends DurableObject<Env> {
         return;
       }
       ws.serializeAttachment(state);
-      send(ws, error("rate_limited", "Slow down a little."));
+      // The message is dropped. Name the note it was about (if any) so the sender can roll back.
+      const dropped = parseMessage(message, clientMessageSchema);
+      send(ws, error("rate_limited", "Slow down a little.", dropped.ok ? refOf(dropped.value) : {}));
       return;
     }
     state.tokens -= 1;
-    state.strikes = 0;
 
     const parsed = parseMessage(message, clientMessageSchema);
     if (!parsed.ok) {
@@ -103,6 +155,9 @@ export class Room extends DurableObject<Env> {
   }
 
   private handle(ws: WebSocket, state: SocketState, message: ClientMessage): void {
+    // Anything other than a drag relays pending drags first, so everyone sees changes in arrival order.
+    if (!(message.type === "noteMove" && !message.final)) this.flushMoves();
+
     switch (message.type) {
       case "hello": {
         if (message.protocolVersion !== PROTOCOL_VERSION) {
@@ -133,6 +188,7 @@ export class Room extends DurableObject<Env> {
         ws.serializeAttachment(state);
 
         send(ws, { type: "joined", you, participants: this.participants().map(({ participant }) => participant) });
+        send(ws, { type: "snapshot", notes: this.notes.all() });
         this.broadcast({ type: "participant_joined", participant: you }, ws);
         return;
       }
@@ -146,6 +202,107 @@ export class Room extends DurableObject<Env> {
         this.broadcast({ type: "echo", from: state.participant.id, text });
         return;
       }
+
+      case "noteAdd":
+      case "noteEdit":
+      case "noteMove":
+      case "noteDelete": {
+        ws.serializeAttachment(state);
+        if (!state.participant) return send(ws, error("not_joined", "Join the room first.", refOf(message)));
+        this.handleNote(ws, state.participant, message);
+        return;
+      }
+    }
+  }
+
+  /**
+   * Last-write-wins, in arrival order. Every stored change bumps the note's rev.
+   * Edits, moves and deletes of an unknown (or already deleted) note are ignored silently.
+   * Logging hygiene: nothing here logs note text (or anything else).
+   */
+  private handleNote(ws: WebSocket, you: Participant, message: NoteMessage): void {
+    switch (message.type) {
+      case "noteAdd": {
+        if (this.notes.count >= MAX_NOTES_PER_ROOM) {
+          return send(ws, error("notes_full", `This board has the maximum of ${MAX_NOTES_PER_ROOM} notes.`, refOf(message)));
+        }
+        const text = cleanNoteText(message.text);
+        if (text === null) return send(ws, error("bad_message", "Note text is too long.", refOf(message)));
+        // The id, rev and author are the server's; the author comes from this socket.
+        const note: Note = {
+          id: randomBase64url(12),
+          ...clampNotePosition(message.x, message.y),
+          text,
+          color: message.color,
+          rev: 1,
+          authorId: you.id,
+        };
+        this.notes.insert(note);
+        send(ws, { type: "noteAdded", note, clientRef: message.clientRef });
+        this.broadcast({ type: "noteAdded", note }, ws);
+        return;
+      }
+
+      case "noteEdit": {
+        const current = this.notes.get(message.id);
+        if (!current) return;
+        const text = cleanNoteText(message.text);
+        if (text === null) return send(ws, error("bad_message", "Note text is too long.", refOf(message)));
+        if (text === current.text) return;
+        const note: Note = { ...current, text, rev: current.rev + 1 };
+        this.notes.update(note);
+        this.broadcast({ type: "noteUpdated", note });
+        return;
+      }
+
+      case "noteMove": {
+        const current = this.notes.get(message.id);
+        if (!current) return;
+        const { x, y } = clampNotePosition(message.x, message.y);
+        if (!message.final) {
+          // Relayed to the others only, at the current rev; never stored.
+          this.pendingMoves.set(current.id, {
+            from: ws,
+            message: { type: "noteMoved", id: current.id, x, y, rev: current.rev, final: false },
+          });
+          this.scheduleFlush();
+          return;
+        }
+        let note = current;
+        if (x !== current.x || y !== current.y) {
+          note = { ...current, x, y, rev: current.rev + 1 };
+          this.notes.update(note);
+        }
+        // Sent even when unchanged, so everyone who saw the drag sees where it ended.
+        this.broadcast({ type: "noteMoved", id: note.id, x: note.x, y: note.y, rev: note.rev, final: true });
+        return;
+      }
+
+      case "noteDelete": {
+        if (!this.notes.get(message.id)) return;
+        this.notes.delete(message.id);
+        this.broadcast({ type: "noteDeleted", id: message.id });
+        return;
+      }
+    }
+  }
+
+  /** Drags that arrive together are coalesced: only the latest position per note is relayed. */
+  private scheduleFlush(): void {
+    if (this.flushScheduled) return;
+    this.flushScheduled = true;
+    setTimeout(() => this.flushMoves(), 0);
+  }
+
+  private flushMoves(): void {
+    this.flushScheduled = false;
+    if (this.pendingMoves.size === 0) return;
+    const pending = [...this.pendingMoves.values()];
+    this.pendingMoves.clear();
+    for (const { from, message } of pending) {
+      // A note deleted since then is not moved.
+      if (message.type === "noteMoved" && !this.notes.get(message.id)) continue;
+      this.broadcast(message, from);
     }
   }
 
