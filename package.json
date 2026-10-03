@@ -1,0 +1,25 @@
+{
+  "name": "stickyard",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "shared",
+    "web",
+    "worker"
+  ],
+  "engines": {
+    "node": ">=22.12"
+  },
+  "scripts": {
+    "typecheck": "npm run typecheck --workspaces",
+    "test": "npm run test --workspaces",
+    "build": "npm run build -w web -w worker",
+    "dev:web": "npm run dev -w web",
+    "dev:worker": "npm run dev -w worker"
+  },
+  "devDependencies": {
+    "typescript": "5.9",
+    "vitest": "^4.1.11"
+  }
+}
