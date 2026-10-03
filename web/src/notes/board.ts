@@ -28,7 +28,7 @@ export interface BoardNote {
 
 /** The style fields (and colour) one change may set. */
 export type StylePatch = Partial<NoteStyle>;
-const STYLE_KEYS = ["color", "fontSize", "bold", "italic", "textColor", "align"] as const satisfies readonly (keyof NoteStyle)[];
+const STYLE_KEYS = ["color", "fontSize", "bold", "italic", "textColor", "align", "titleAlign"] as const satisfies readonly (keyof NoteStyle)[];
 
 /** Being moved or resized here: its rect is this page's until release. */
 export const isHeld = (entry: BoardNote) => entry.dragging || entry.resizing;
@@ -213,7 +213,7 @@ export function styleChanges(from: Note, to: Note): StylePatch {
 }
 
 function pickStyle(n: Note): NoteStyle {
-  return { color: n.color, fontSize: n.fontSize, bold: n.bold, italic: n.italic, textColor: n.textColor, align: n.align };
+  return { color: n.color, fontSize: n.fontSize, bold: n.bold, italic: n.italic, textColor: n.textColor, align: n.align, titleAlign: n.titleAlign };
 }
 
 function definedStyle(change: StylePatch): StylePatch {

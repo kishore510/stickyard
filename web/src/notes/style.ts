@@ -67,3 +67,8 @@ export const NOTE_ALIGN_NAMES: Record<NoteAlign, string> = {
   center: "Align centre",
   right: "Align right",
 };
+
+/** Accessible names for the title's and body's alignment buttons. */
+export function alignLabel(part: "title" | "body", key: NoteAlign): string {
+  return `Align ${part} ${key === "center" ? "centre" : key}`;
+}

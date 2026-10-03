@@ -10,8 +10,10 @@ import { NOTE_DEFAULTS, clampNoteRect, noteSchema, type Note } from "@stickyard/
  *   2 (slice 2.7): notes gains w, h, font_size, bold, italic, text_color, align. Every new
  *     column is NOT NULL with the default as its DEFAULT, so existing rows get the default size
  *     and style, and older code that inserts or updates without them still works (rollback).
+ *   3 (slice 2.7.1): notes gains title_align (NOT NULL DEFAULT 'left'), set to each note's
+ *     existing align so titles look the same as before.
  */
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;
 
 /** Columns added by version 2, with their SQL definitions. Defaults come from NOTE_DEFAULTS. */
 const V2_COLUMNS: [name: string, definition: string][] = [
@@ -37,11 +39,12 @@ interface NoteRow extends Record<string, SqlStorageValue> {
   italic: number;
   text_color: string;
   align: string;
+  title_align: string;
   rev: number;
   author_id: string;
 }
 
-const COLUMNS = "id, x, y, w, h, text, color, font_size, bold, italic, text_color, align, rev, author_id";
+const COLUMNS = "id, x, y, w, h, text, color, font_size, bold, italic, text_color, align, title_align, rev, author_id";
 
 export class NoteStore {
   /** Rows written by this instance. Tests use it to prove drags and resizes don't write. */
@@ -80,6 +83,14 @@ export class NoteStore {
         if (!existing.has(name)) this.sql.exec(`ALTER TABLE notes ADD COLUMN ${name} ${definition}`);
       }
     }
+    if (version < 3) {
+      const existing = new Set(this.sql.exec<{ name: string }>("SELECT name FROM pragma_table_info('notes')").toArray().map((c) => c.name));
+      if (!existing.has("title_align")) {
+        this.sql.exec(`ALTER TABLE notes ADD COLUMN title_align TEXT NOT NULL DEFAULT '${NOTE_DEFAULTS.titleAlign}'`);
+      }
+      // Titles keep the alignment the whole note had. Safe to repeat: it only runs below version 3.
+      this.write("UPDATE notes SET title_align = align");
+    }
     this.write("INSERT OR REPLACE INTO meta (key, value) VALUES ('schema_version', ?)", SCHEMA_VERSION);
   }
 
@@ -103,6 +114,7 @@ export class NoteStore {
         italic: row.italic === 1,
         textColor: row.text_color,
         align: row.align,
+        titleAlign: row.title_align,
         rev: row.rev,
         authorId: row.author_id,
       });
@@ -125,14 +137,14 @@ export class NoteStore {
   }
 
   insert(note: Note): void {
-    this.write(`INSERT INTO notes (${COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, ...values(note));
+    this.write(`INSERT INTO notes (${COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, ...values(note));
     this.notes().set(note.id, note);
   }
 
   /** Saves a changed note (everything but its id and author). Keeps its place in creation order. */
   update(note: Note): void {
     this.write(
-      `UPDATE notes SET x = ?, y = ?, w = ?, h = ?, text = ?, color = ?, font_size = ?, bold = ?, italic = ?, text_color = ?, align = ?, rev = ?
+      `UPDATE notes SET x = ?, y = ?, w = ?, h = ?, text = ?, color = ?, font_size = ?, bold = ?, italic = ?, text_color = ?, align = ?, title_align = ?, rev = ?
        WHERE id = ?`,
       ...values(note).slice(1, -1),
       note.id,
@@ -154,5 +166,5 @@ export class NoteStore {
 
 /** A note's column values, in COLUMNS order. */
 function values(n: Note): SqlStorageValue[] {
-  return [n.id, n.x, n.y, n.w, n.h, n.text, n.color, n.fontSize, Number(n.bold), Number(n.italic), n.textColor, n.align, n.rev, n.authorId];
+  return [n.id, n.x, n.y, n.w, n.h, n.text, n.color, n.fontSize, Number(n.bold), Number(n.italic), n.textColor, n.align, n.titleAlign, n.rev, n.authorId];
 }

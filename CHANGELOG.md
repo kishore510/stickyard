@@ -2,6 +2,15 @@
 
 All notable changes to Stickyard, newest first. The format follows Keep a Changelog. Versions are 0.x: a minor bump for each slice and a patch bump for each follow-up fix. This file is shown in the app under **What’s new**, so entries are written for the people using it.
 
+## [0.6.1] - 2026-10-03
+
+### Added
+- **Title and body alignment, separately.** A note's title (its first line) and its body can each be aligned left, centre or right, from **Text** in Properties or a phone's note editor.
+
+### Changed
+- Existing notes keep their look: each title starts with the alignment the whole note had.
+- Pages from before this update show **Please reload** when they join a session.
+
 ## [0.6.0] - 2026-10-03
 
 ### Added
