@@ -137,7 +137,10 @@ export class TestClient {
     this.ws.close(1000, "bye");
   }
 
-  /** hello + join; returns the `joined` message. The snapshot that follows it is kept in `snapshot`. */
+  /**
+   * hello + join; returns the `joined` message. The notes snapshot that follows it is kept in
+   * `snapshot`, and the frames snapshot right after that (protocol v9) in `frames`.
+   */
   async enter(name: string): Promise<Extract<ServerMessage, { type: "joined" }>> {
     const welcome = await this.request({ type: "hello", protocolVersion: PROTOCOL_VERSION });
     if (welcome.type !== "welcome") throw new Error(`expected welcome, got ${JSON.stringify(welcome)}`);
@@ -146,10 +149,14 @@ export class TestClient {
     const snapshot = await this.next();
     if (snapshot.type !== "snapshot") throw new Error(`expected snapshot, got ${JSON.stringify(snapshot)}`);
     this.snapshot = snapshot;
+    const frames = await this.next();
+    if (frames.type !== "framesSnapshot") throw new Error(`expected framesSnapshot, got ${JSON.stringify(frames)}`);
+    this.frames = frames;
     return joined;
   }
 
   snapshot: Extract<ServerMessage, { type: "snapshot" }> | null = null;
+  frames: Extract<ServerMessage, { type: "framesSnapshot" }> | null = null;
 }
 
 /** Waits until `client` gets a message of `type`, skipping others. */

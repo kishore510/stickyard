@@ -1895,3 +1895,138 @@ describe("stacking order (slice z-order)", () => {
     expect(orders(socket).at(-1)).toEqual({ type: "notesOrder", ids: [N1], action: "back" });
   });
 });
+
+describe("frames (slice frames, protocol v9)", () => {
+  const N1 = "NNNNNNNNNNNNNNN1";
+  const F1 = "FFFFFFFFFFFFFFF1";
+  const inside: Note = { id: N1, x: 200, y: 200, ...NOTE_DEFAULTS, text: "Idea one", color: "yellow", z: -5, rev: 1, authorId: sam.id };
+  const start = { id: F1, x: 100, y: 100, w: 640, h: 400, title: "Start", color: "neutral", rev: 1, authorId: sam.id };
+  const properties = () => document.querySelector<HTMLElement>('aside[aria-label="Properties"]');
+  const frameNode = () => document.querySelector<HTMLElement>(`.react-flow__node[data-id="${F1}"]`);
+  const noteEl = () => document.querySelector<HTMLElement>('[aria-roledescription="note"]');
+  const sentOfType = (socket: FakeWebSocket, t: string) => (socket.sent as Record<string, unknown>[]).filter((m) => m.type === t);
+  async function withBoard(wide = true, frames = [start], notes: Note[] = [inside]) {
+    setWide(wide);
+    const socket = await inRoom();
+    await server(socket, { data: { type: "snapshot", notes } });
+    await server(socket, { data: { type: "framesSnapshot", frames } });
+    for (let i = 0; i < 100 && !(frames.length === 0 || frameNode()); i++) await settle();
+    return socket;
+  }
+  async function press(el: Element | null | undefined, init: MouseEventInit = {}) {
+    if (!el) throw new Error("nothing to press");
+    await act(async () => {
+      el.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, cancelable: true, pointerType: "mouse", button: 0 }));
+      el.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, ...init }));
+    });
+    await settle();
+  }
+
+  it("frames render behind every note, with the title in a header strip", async () => {
+    await withBoard();
+    const frameZ = Number(frameNode()?.style.zIndex);
+    const noteZ = Number(document.querySelector<HTMLElement>(`.react-flow__node[data-id="${N1}"]`)?.style.zIndex);
+    expect(frameZ).toBeLessThan(noteZ);
+    expect(frameNode()?.querySelector<HTMLInputElement>("input[data-frame-title]")?.value).toBe("Start");
+  });
+
+  it("the frame body is click-through: a note inside it is still selectable, and the body has no pointer events", async () => {
+    await withBoard();
+    expect(frameNode()?.style.pointerEvents).toBe("none");
+    await press(noteEl());
+    expect(noteEl()?.getAttribute("aria-current")).toBe("true");
+    expect(properties()?.querySelector("h3")?.textContent).toContain("note");
+  });
+
+  it("a marquee started over a frame's body selects the notes it touches", async () => {
+    await withBoard();
+    const pane = document.querySelector<HTMLElement>(".react-flow__pane");
+    if (!pane) throw new Error("no pane");
+    const [tx, ty, zoom] = (document.querySelector(".react-flow__viewport")?.getAttribute("style") ?? "").match(/-?[\d.]+/g)?.map(Number) ?? [0, 0, 1];
+    const at = (x: number, y: number) => ({ clientX: (tx ?? 0) + x * (zoom ?? 1), clientY: (ty ?? 0) + y * (zoom ?? 1) });
+    const ev = (target: EventTarget, type: string, init: PointerEventInit) =>
+      act(async () => {
+        target.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, pointerType: "mouse", button: 0, ...init }));
+      });
+    // (150, 300) is inside the frame (100..740, 100..500) but not on the note.
+    await ev(pane, "pointerdown", at(150, 300));
+    await ev(window, "pointermove", at(260, 260));
+    await ev(window, "pointerup", at(260, 260));
+    await settle();
+    expect(noteEl()?.getAttribute("aria-current")).toBe("true");
+  });
+
+  it("clicking the title bar selects the frame alone; Properties shows its fields; selecting a note deselects it", async () => {
+    await withBoard();
+    await press(noteEl());
+    await press(frameNode()?.querySelector("[data-frame-handle='header']"));
+    expect(noteEl()?.getAttribute("aria-current")).toBeNull();
+    expect(properties()?.querySelector("h3")?.textContent).toBe("Frame");
+    expect(properties()?.querySelector<HTMLInputElement>('input[name="frameTitle"]')?.value).toBe("Start");
+    expect(properties()?.querySelectorAll('[aria-label="Frame colour"] button')).toHaveLength(7);
+    expect(properties()?.querySelector('input[name="frameWidth"]')).not.toBeNull();
+    expect(properties()?.querySelector('input[name="frameHeight"]')).not.toBeNull();
+    expect(properties()?.textContent).toContain("Sam");
+    await press(noteEl());
+    expect(properties()?.querySelector("h3")?.textContent).not.toBe("Frame");
+  });
+
+  it("the title is typed in the header as a draft: a remote edit doesn't replace it, Enter sends one frameEdit", async () => {
+    const socket = await withBoard();
+    const input = frameNode()?.querySelector<HTMLInputElement>("input[data-frame-title]");
+    if (!input) throw new Error("no title input");
+    await act(async () => input.focus());
+    await type(input, "Stop");
+    expect(sentOfType(socket, "frameEdit")).toEqual([]);
+    await server(socket, { data: { type: "frameUpdated", frame: { ...start, title: "Theirs", rev: 2 } } });
+    expect(frameNode()?.querySelector<HTMLInputElement>("input[data-frame-title]")?.value).toBe("Stop");
+    await act(async () => {
+      input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+    });
+    await settle();
+    expect(sentOfType(socket, "frameEdit")).toEqual([{ type: "frameEdit", id: F1, title: "Stop" }]);
+  });
+
+  it("Delete (Properties) asks first when the frame has a title or notes, and never deletes notes", async () => {
+    const socket = await withBoard();
+    await press(frameNode()?.querySelector("[data-frame-handle='header']"));
+    const confirm = vi.fn(() => true);
+    vi.stubGlobal("confirm", confirm);
+    await click(properties()?.querySelector<HTMLElement>('[aria-label="Delete frame"]') ?? undefined);
+    expect(confirm).toHaveBeenCalled();
+    expect(sentOfType(socket, "frameDelete")).toEqual([{ type: "frameDelete", id: F1 }]);
+    expect(sentOfType(socket, "noteDelete")).toEqual([]);
+    expect(noteEl()).not.toBeNull();
+  });
+
+  it("the Delete key deletes the selected frame (asking first)", async () => {
+    const socket = await withBoard();
+    await press(frameNode()?.querySelector("[data-frame-handle='header']"));
+    vi.stubGlobal("confirm", () => true);
+    await act(async () => {
+      document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "Delete", bubbles: true, cancelable: true }));
+    });
+    await settle();
+    expect(sentOfType(socket, "frameDelete")).toEqual([{ type: "frameDelete", id: F1 }]);
+  });
+
+  it("the palette has a Frames tile from md up; a click adds a frame with its title ready to type", async () => {
+    const socket = await withBoard(true, [], []);
+    const tile = document.querySelector<HTMLElement>('aside[aria-label="Palette"] [aria-label="Frame"]');
+    expect(tile).not.toBeNull();
+    await click(tile ?? undefined);
+    expect(sentOfType(socket, "frameAdd")).toHaveLength(1);
+    expect(sentOfType(socket, "frameAdd")[0]).toMatchObject({ color: "neutral", title: "" });
+    for (let i = 0; i < 20 && document.activeElement?.getAttribute("data-frame-title") === null; i++) await settle();
+    expect(document.activeElement?.hasAttribute("data-frame-title")).toBe(true);
+  });
+
+  it("phones show frames, but there's no Frames tile in the add drawer and the title isn't editable", async () => {
+    await withBoard(false);
+    expect(frameNode()).not.toBeNull();
+    expect(frameNode()?.textContent).toContain("Start");
+    expect(frameNode()?.querySelector("input[data-frame-title]")).toBeNull();
+    await click(document.querySelector<HTMLElement>('[aria-label="Add note"]') ?? undefined);
+    expect(document.querySelector('[role="dialog"] [aria-label="Frame"]')).toBeNull();
+  });
+});
