@@ -20,7 +20,7 @@ export const RECONNECT_JITTER = 0.2;
 /** Automatic tries per drop; then Rejoin (or the network coming back) starts again. */
 export const RECONNECT_MAX_ATTEMPTS = 8;
 /** After this many sockets in a row that never opened, ask GET /health why. */
-export const PROBE_AFTER_FAILED_OPENS = 3;
+export const PROBE_AFTER_FAILED_OPENS = 5;
 /** While the relay looks down (or over its daily limit): one health probe this often, while visible. */
 export const LIMIT_RETRY_MS = 60_000;
 /** Probes while it looks down before giving up (an hour). */

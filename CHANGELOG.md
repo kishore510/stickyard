@@ -2,6 +2,15 @@
 
 All notable changes to Stickyard, newest first. The format follows Keep a Changelog. Versions are 0.x: a minor bump for each slice and a patch bump for each follow-up fix. This file is shown in the app under **What’s new**, so entries are written for the people using it.
 
+## [0.15.0] - 2026-10-04
+
+### Changed
+- Groundwork for hosts. Nothing new is visible yet: the buttons come in a later release. Whoever starts a session becomes its host, and Stickyard remembers that on the device it was started from. In a later release, a host will be able to lock the board (so only hosts can change it), run a timer and end the session for everyone.
+- If a host ends a session, opening its link says **Session ended**, with a button back to the start page, and Stickyard doesn't try to reconnect.
+- About > Privacy now mentions the host key this browser keeps for sessions you start, and when it's removed. Help explains who the host is.
+- After a dropped connection, Stickyard keeps trying normally for a little longer (about 30 seconds instead of 10) before it suggests the relay may be down or over its daily limit, so a short relay restart recovers by itself.
+- Everyone needs this version: pages from before it are asked to reload.
+
 ## [0.14.0] - 2026-10-04
 
 ### Added

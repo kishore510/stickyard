@@ -390,6 +390,24 @@ export class NoteStore {
     );
   }
 
+  /* ── Room settings in meta (protocol v12: locked, timer_started_at, timer_duration_ms) ── */
+
+  /** A meta value, or null when the key isn't there. */
+  getMeta(key: string): number | null {
+    const row = this.sql.exec<{ value: number }>("SELECT value FROM meta WHERE key = ?", key).toArray()[0];
+    return row ? row.value : null;
+  }
+
+  /** Sets meta keys (and deletes those given null) in one transaction. Callers write only when something changed. */
+  setMeta(values: Record<string, number | null>): void {
+    this.transact(() => {
+      for (const [key, value] of Object.entries(values)) {
+        if (value === null) this.write("DELETE FROM meta WHERE key = ?", key);
+        else this.write("INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value", key, value);
+      }
+    });
+  }
+
   private write(query: string, ...bindings: SqlStorageValue[]): void {
     const cursor = this.sql.exec(query, ...bindings);
     cursor.toArray();

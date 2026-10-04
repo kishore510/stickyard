@@ -6,6 +6,7 @@ import {
   MAX_NOTES_PER_ROOM,
   MAX_SERVER_MESSAGE_BYTES,
   PROTOCOL_VERSION,
+  ROOM_ENDED_CLOSE_CODE,
   ROOM_EXPIRED_CLOSE_CODE,
   ROOM_IDLE_EXPIRY_DAYS,
   clampFramePosition,
@@ -33,6 +34,7 @@ import {
   type OrderAction,
   type Participant,
   type ServerMessage,
+  type TimerState,
 } from "@stickyard/shared";
 import {
   LIMIT_MAX_PROBES,
@@ -129,7 +131,31 @@ import { discardUnconfirmed, resyncFrames, resyncNotes, unsavedKeys, type Orphan
  * `expired`: the relay closed the socket with ROOM_EXPIRED_CLOSE_CODE (4410): nobody was in the
  * room for ROOM_IDLE_EXPIRY_DAYS, so it was deleted. Final: no retries, no probes, no Rejoin.
  */
-export type RoomStatus = "idle" | "connecting" | "joined" | "invalid" | "full" | "reload" | "unreachable" | "disconnected" | "expired";
+export type RoomStatus = "idle" | "connecting" | "joined" | "invalid" | "full" | "reload" | "unreachable" | "disconnected" | "expired" | "ended";
+
+/** What the page says about a session a host ended (protocol v12, close code 4411). */
+export const ENDED_TEXT = {
+  title: "Session ended",
+  body: "This session was ended by the host.",
+  home: "Go to the start page",
+} as const;
+
+/** The room's timer here: the relay's start and length, and the relay's clock minus this device's. */
+export interface RoomTimer {
+  startedAt: number;
+  durationMs: number;
+  offsetMs: number;
+}
+
+/** The timer from the relay's message: its clock offset is worked out from serverNow on arrival. */
+export function roomTimer(timer: TimerState | null, now = Date.now()): RoomTimer | null {
+  return timer ? { startedAt: timer.startedAt, durationMs: timer.durationMs, offsetMs: timer.serverNow - now } : null;
+}
+
+/** Milliseconds left at this device's `now` (0 once it has run out). */
+export function timerRemainingMs(timer: RoomTimer, now: number): number {
+  return Math.max(0, timer.startedAt + timer.durationMs - (now + timer.offsetMs));
+}
 
 /** What the page says about an expired session. */
 export const EXPIRED_TEXT = {
@@ -199,6 +225,12 @@ export interface RoomView {
   orphanDraft: OrphanDraft | null;
   /** Every participant id you've had in this visit (a reconnect gives a new one): your notes stay yours. */
   yourIds: ReadonlySet<string>;
+  /** Protocol v12: this visit has host powers (the relay granted claimHost). */
+  isHost: boolean;
+  /** Protocol v12: the host has locked the board (only hosts can change it). */
+  locked: boolean;
+  /** Protocol v12: the room's timer, or null. */
+  timer: RoomTimer | null;
 }
 
 /** A delete's outcome: `partial` when some notes weren't (or may not have been) deleted. */
@@ -229,6 +261,9 @@ export const INITIAL_VIEW: RoomView = {
   dropReport: null,
   orphanDraft: null,
   yourIds: new Set(),
+  isHost: false,
+  locked: false,
+  timer: null,
 };
 
 /** What a dropped connection says about changes it may have lost. */
@@ -338,6 +373,8 @@ export const NOTICES = {
   tooQuick: "That change was too quick and wasn’t saved. Try again.",
   refused: "That change wasn’t saved. Try again.",
   deletedWhileEditing: "Someone else deleted the note you were editing.",
+  locked: "The host has locked the board.",
+  notHost: "Only the host can do that.",
   framesFull: `The board has the maximum of ${MAX_FRAMES_PER_ROOM} frames. Delete a frame to add another.`,
   frameTooFull: `This frame holds more than ${MAX_BATCH_ENTRIES} notes, so it moved on its own.`,
   templatePartial: "The template was only partly added. The frames that were added stay on the board; delete any you don’t want.",
@@ -477,6 +514,10 @@ export interface SessionOptions {
   storedName?(): string | null;
   /** For the backoff's jitter (0..1). */
   random?(): number;
+  /** Protocol v12: this room's host token on this device, if it started the session (sent only in claimHost). */
+  hostToken?(): string | null;
+  /** Protocol v12: forget the stored host token (refused, or the session ended or expired). */
+  forgetHostToken?(): void;
 }
 
 /** Reconnecting: which try, why it waits, and its timer. */
@@ -1558,7 +1599,12 @@ export class RoomSession {
     }
     const reason = message.code === "notes_full" || message.code === "frames_full" || message.code === "rate_limited" ? message.code : "invalid";
     board = this.refuseUnanswered(board, batch, reason);
-    this.update({ ...(message.code === "rate_limited" ? { rateLimited: true } : {}), ...this.itemsDone(batch.run, board) });
+    this.update({
+      ...(message.code === "rate_limited" ? { rateLimited: true } : {}),
+      ...this.itemsDone(batch.run, board),
+      // A locked board refused the whole message: say that, once, instead of the item counts.
+      ...(message.code === "board_locked" ? { noteNotice: NOTICES.locked } : {}),
+    });
   }
 
   /** Rolls back the batch's items still pending, counting them under `reason`. */
@@ -2142,9 +2188,10 @@ export class RoomSession {
   private onClose(code?: number): void {
     if (this.stopped) return;
     const { status } = this.view;
-    if (status === "invalid" || status === "full" || status === "reload" || status === "unreachable" || status === "expired") return;
-    // The room has expired: final, on a first join or a reconnect alike (and only this code).
-    if (code === ROOM_EXPIRED_CLOSE_CODE) return this.roomExpired();
+    if (status === "invalid" || status === "full" || status === "reload" || status === "unreachable" || status === "expired" || status === "ended") return;
+    // The room has expired, or a host ended it: final, on a first join or a reconnect alike (and only these codes).
+    if (code === ROOM_EXPIRED_CLOSE_CODE) return this.roomGone("expired");
+    if (code === ROOM_ENDED_CLOSE_CODE) return this.roomGone("ended");
     if (status === "joined") {
       this.detach(false);
       return this.dropped();
@@ -2184,21 +2231,58 @@ export class RoomSession {
         this.known.set(message.you.id, message.you);
         this.yourIds.add(message.you.id);
         this.joinedName = message.you.name;
+        // Protocol v12: the room's lock and timer come with joined; host powers are claimed again
+        // on every join and reconnect (a new participant), with the token kept on this device.
+        const roomState = { locked: message.locked, timer: roomTimer(message.timer), isHost: message.you.host };
         if (this.retry) {
           // A reconnect: live once the snapshot has replaced the board (the join timer runs till then).
           this.resyncing = true;
           this.quietUntil = Date.now() + RESYNC_QUIET_MS;
-          return this.update({ you: message.you, participants: message.participants, nameError: false, people: new Map(this.known), yourIds: new Set(this.yourIds) });
+          this.update({ you: message.you, participants: message.participants, nameError: false, people: new Map(this.known), yourIds: new Set(this.yourIds), ...roomState });
+          return this.claimHost();
         }
         clearTimeout(this.timer);
-        return this.update({
+        this.update({
           yourIds: new Set(this.yourIds),
           status: "joined",
           you: message.you,
           participants: message.participants,
           nameError: false,
           people: new Map(this.known),
+          ...roomState,
         });
+        return this.claimHost();
+
+      case "hostGranted": {
+        const you = this.view.you ? { ...this.view.you, host: true } : null;
+        if (you) this.known.set(you.id, you);
+        return this.update({
+          isHost: true,
+          you,
+          participants: this.view.participants.map((p) => (p.id === you?.id ? you : p)),
+          people: new Map(this.known),
+        });
+      }
+
+      case "participantUpdated": {
+        const p = message.participant;
+        this.known.set(p.id, p);
+        return this.update({
+          participants: this.view.participants.map((q) => (q.id === p.id ? p : q)),
+          ...(this.view.you?.id === p.id ? { you: p, isHost: p.host } : {}),
+          people: new Map(this.known),
+        });
+      }
+
+      case "lockChanged":
+        return this.update({ locked: message.locked });
+
+      case "timerChanged":
+        return this.update({ timer: roomTimer(message.timer) });
+
+      case "sessionEnded":
+        // A host ended the session: final. The relay closes the socket with 4411 next.
+        return this.roomGone("ended");
 
       case "participant_joined": {
         const p = message.participant;
@@ -2364,6 +2448,14 @@ export class RoomSession {
             return this.update({ noteNotice: NOTICES.full });
           case "frames_full":
             return this.update({ noteNotice: NOTICES.framesFull });
+          case "board_locked":
+            return this.update({ noteNotice: NOTICES.locked });
+          case "not_host":
+            return this.update({ noteNotice: NOTICES.notHost });
+          case "bad_host_token":
+            // The stored token doesn't open this room: forget it, quietly (nothing visible depends on it yet).
+            this.options.forgetHostToken?.();
+            return this.update({ isHost: false });
           case "bad_message":
           case "too_large":
           case "not_joined":
@@ -2489,7 +2581,9 @@ export class RoomSession {
           ? NOTICES.framesFull
           : message.code === "rate_limited"
             ? NOTICES.tooQuick
-            : NOTICES.refused;
+            : message.code === "board_locked"
+              ? NOTICES.locked
+              : NOTICES.refused;
     this.update({
       board,
       ...(ours ? {} : { noteNotice }),
@@ -2521,11 +2615,13 @@ export class RoomSession {
   }
 
   /**
-   * The relay says the room has expired (4410). Its board is gone, so everything goes with it:
-   * retries, probes, browser listeners, queued work, runs and the undo history. Nothing is
-   * tried again; the page shows the expired message instead of the board.
+   * The relay says the room has expired (4410) or a host ended it (sessionEnded, 4411). Its board
+   * is gone, so everything goes with it: retries, probes, browser listeners, queued work, runs,
+   * the undo history and this device's host token. Nothing is tried again; the page shows the
+   * matching message instead of the board.
    */
-  private roomExpired(): void {
+  private roomGone(status: "expired" | "ended"): void {
+    this.options.forgetHostToken?.();
     clearTimeout(this.timer);
     this.stopRetry();
     this.unlisten?.();
@@ -2548,7 +2644,10 @@ export class RoomSession {
     this.stopAllMoves();
     this.detach(true);
     this.update({
-      status: "expired",
+      status,
+      isHost: false,
+      locked: false,
+      timer: null,
       board: EMPTY_BOARD,
       synced: false,
       presenceToast: null,
@@ -2558,6 +2657,12 @@ export class RoomSession {
       dropReport: null,
       orphanDraft: null,
     });
+  }
+
+  /** Protocol v12: claims host powers with this room's token, if this device has one. Never shown or logged. */
+  private claimHost(): void {
+    const token = this.options.hostToken?.();
+    if (token) this.send({ type: "claimHost", token });
   }
 
   /** A final state: report it and close the socket. */

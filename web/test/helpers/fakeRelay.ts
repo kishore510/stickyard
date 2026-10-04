@@ -20,8 +20,8 @@ import { RoomSession, type RoomView, type SessionOptions } from "../../src/rooms
  * Refusals can be switched on per batch or per frame.
  */
 
-export const alex: Participant = { id: "AAAAAAAAAAAAAAAA", name: "Alex", colourIndex: 0 };
-export const sam: Participant = { id: "BBBBBBBBBBBBBBBB", name: "Sam", colourIndex: 1 };
+export const alex: Participant = { id: "AAAAAAAAAAAAAAAA", name: "Alex", colourIndex: 0, host: false };
+export const sam: Participant = { id: "BBBBBBBBBBBBBBBB", name: "Sam", colourIndex: 1, host: false };
 export const nid = (i: number) => `note${String(i).padStart(12, "0")}`;
 export const fid = (i: number) => `frme${String(i).padStart(12, "0")}`;
 export const note = (i: number, extra: Partial<Note> = {}): Note => ({ id: nid(i), x: 10 * i, y: 20, ...NOTE_DEFAULTS, text: `Note ${i}`, color: "yellow", z: i, rev: 1, authorId: sam.id, ...extra });
@@ -50,6 +50,10 @@ export class Relay {
   welcomeVersion = PROTOCOL_VERSION;
   /** Hold the framesSnapshot until sendFrames() (a late frames message). */
   holdFrames = false;
+  /** Protocol v12: the room's host token (a fake value), lock and timer as joined reports them. */
+  hostToken = "fakeHostToken".padEnd(43, "x");
+  locked = false;
+  timer: { startedAt: number; durationMs: number; serverNow: number } | null = null;
   /** Sockets opened so far, and how many of them this page closed. */
   sockets = 0;
   closes = 0;
@@ -91,6 +95,10 @@ export class Relay {
     const h = this.handlers;
     this.handlers = null;
     h?.onClose();
+  }
+  /** Sends any server message to the page (validated by the page like everything else). */
+  emit(message: unknown) {
+    this.out(message);
   }
   /** The relay closes the socket with a close code (4410: the room has expired). */
   closeWith(code: number) {
@@ -136,11 +144,14 @@ export class Relay {
       case "join": {
         if (this.joinError) return this.out({ type: "error", code: this.joinError, message: "No." });
         const you = { ...this.you, name: m.name as string };
-        this.out({ type: "joined", you, participants: [you, ...this.others] });
+        this.out({ type: "joined", you, participants: [you, ...this.others], locked: this.locked, timer: this.timer });
         this.out({ type: "snapshot", notes: [...this.notes.values()] });
         if (this.holdFrames) return;
         return this.out({ type: "framesSnapshot", frames: [...this.frames.values()] });
       }
+      case "claimHost":
+        if (m.token !== this.hostToken) return this.out({ type: "error", code: "bad_host_token", message: "No." });
+        return this.out({ type: "hostGranted" });
       case "say":
         return this.out({ type: "echo", from: this.you.id, text: m.text });
       case "noteMove": {

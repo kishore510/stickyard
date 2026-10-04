@@ -12,9 +12,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 const CODE = `${"a".repeat(22)}.${"B".repeat(22)}`;
+/** A fake host token (43 base64url characters), never a real one. */
+const HOST_TOKEN = "fakeHostToken".padEnd(43, "x");
 const PASSCODE = "test-passcode-in-the-ui";
-const alex: Participant = { id: "AAAAAAAAAAAAAAAA", name: "Alex", colourIndex: 0 };
-const sam: Participant = { id: "BBBBBBBBBBBBBBBB", name: "Sam", colourIndex: 9 };
+const alex: Participant = { id: "AAAAAAAAAAAAAAAA", name: "Alex", colourIndex: 0, host: false };
+const sam: Participant = { id: "BBBBBBBBBBBBBBBB", name: "Sam", colourIndex: 9, host: false };
 
 class FakeWebSocket {
   static instances: FakeWebSocket[] = [];
@@ -219,9 +221,9 @@ describe("home", () => {
 });
 
 describe("start a session", () => {
-  it("creates a room, goes to it, clears the passcode, and stores nothing", async () => {
+  it("creates a room, goes to it, clears the passcode, and stores only the room's host token", async () => {
     routes = (url, init) =>
-      url.endsWith("/rooms") && init?.method === "POST" ? jsonResponse(200, { code: CODE }) : healthy(url, init);
+      url.endsWith("/rooms") && init?.method === "POST" ? jsonResponse(200, { code: CODE, hostToken: HOST_TOKEN }) : healthy(url, init);
     const setItem = vi.spyOn(Storage.prototype, "setItem");
     await mount();
     const before = storageSnapshot();
@@ -234,9 +236,14 @@ describe("start a session", () => {
     expect(post?.[0]).not.toContain(PASSCODE);
     expect(window.location.hash).toBe(`#/room/${CODE}`);
 
+    // The one new key: this room's host token (protocol v12), under stickyard:host:<room id>.
+    expect(localStorage.getItem(`stickyard:host:${CODE.split(".")[0]}`)).toBe(HOST_TOKEN);
+    localStorage.removeItem(`stickyard:host:${CODE.split(".")[0]}`);
     expect(storageSnapshot()).toBe(before);
     expect(storageSnapshot()).not.toContain(PASSCODE);
     for (const call of setItem.mock.calls) expect(JSON.stringify(call)).not.toContain(PASSCODE);
+    // The token is never in the address.
+    expect(window.location.href).not.toContain(HOST_TOKEN);
   });
 
   it.each([
@@ -323,7 +330,7 @@ describe("the name sheet", () => {
       { type: "hello", protocolVersion: PROTOCOL_VERSION },
       { type: "join", name: "Alex" },
     ]);
-    await server(socket, { data: { type: "joined", you: alex, participants: [alex] } });
+    await server(socket, { data: { type: "joined", you: alex, participants: [alex], locked: false, timer: null } });
     expect(dialog()).toBeNull();
     expect(localStorage.getItem("stickyard:name")).toBe("Alex");
   });
@@ -354,7 +361,7 @@ describe("the name sheet", () => {
 async function inRoom() {
   await mount(`#/room/${CODE}`);
   const socket = await joinAs("Alex");
-  await server(socket, { data: { type: "joined", you: alex, participants: [alex, sam] } });
+  await server(socket, { data: { type: "joined", you: alex, participants: [alex, sam], locked: false, timer: null } });
   return socket;
 }
 
@@ -410,7 +417,7 @@ describe("the room", () => {
 
   it("renders participant names as plain text, never HTML", async () => {
     const socket = await inRoom();
-    await server(socket, { data: { type: "participant_joined", participant: { id: "CCCCCCCCCCCCCCCC", name: "<i>Kai</i>", colourIndex: 2 } } });
+    await server(socket, { data: { type: "participant_joined", participant: { id: "CCCCCCCCCCCCCCCC", name: "<i>Kai</i>", colourIndex: 2, host: false } } });
     await openFromTopBar("Participants");
     expect(dialog()?.textContent).toContain("<i>Kai</i>");
     expect(dialog()?.querySelector("i")).toBeNull();
@@ -420,7 +427,7 @@ describe("the room", () => {
     const socket = await inRoom();
     await server(socket, { data: { type: "snapshot", notes: [] } });
     const live = () => [...document.querySelectorAll('[aria-live="polite"]')].map((e) => e.textContent).join(" ");
-    await server(socket, { data: { type: "participant_joined", participant: { id: "CCCCCCCCCCCCCCCC", name: "Kai", colourIndex: 2 } } });
+    await server(socket, { data: { type: "participant_joined", participant: { id: "CCCCCCCCCCCCCCCC", name: "Kai", colourIndex: 2, host: false } } });
     await server(socket, { data: { type: "participant_left", id: sam.id } });
     expect(live()).not.toContain("Kai joined");
     // A leave waits a short grace (a quick reconnect cancels it), so the toast comes after it.
@@ -539,7 +546,7 @@ describe("chat", () => {
   it("renders chat text and names as plain text, never HTML", async () => {
     const socket = await inRoom();
     const evil = '<img src=x onerror="alert(1)"><b>bold</b>';
-    await server(socket, { data: { type: "participant_joined", participant: { id: "CCCCCCCCCCCCCCCC", name: "<i>Kai</i>", colourIndex: 2 } } });
+    await server(socket, { data: { type: "participant_joined", participant: { id: "CCCCCCCCCCCCCCCC", name: "<i>Kai</i>", colourIndex: 2, host: false } } });
     await server(socket, { data: { type: "echo", from: "CCCCCCCCCCCCCCCC", text: evil } });
     await openFromTopBar("Chat");
     expect(messages()?.textContent).toContain(evil);
@@ -1465,6 +1472,47 @@ describe("room error screens", () => {
     await server(socket, "open");
     await server(socket, { data: { type: "error", code: "version_mismatch", message: "x" } });
     expect(document.querySelector("main h1")?.textContent).toBe("Please reload");
+  });
+});
+
+describe("a session the host ended (4411)", () => {
+  const ENDED = "This session was ended by the host.";
+
+  it.each([
+    ["phone", false],
+    ["wide", true],
+  ])("%s: on sessionEnded, a page says so politely with a button to the start page; no board, no Rejoin; the token goes", async (_label, isWide) => {
+    setWide(isWide);
+    localStorage.setItem(`stickyard:host:${CODE.split(".")[0]}`, HOST_TOKEN);
+    const socket = await inRoom();
+    expect(socket.sent).toContainEqual({ type: "claimHost", token: HOST_TOKEN });
+    await server(socket, { data: { type: "hostGranted" } });
+    await server(socket, { data: { type: "snapshot", notes: [] } });
+    await server(socket, { data: { type: "framesSnapshot", frames: [] } });
+    const opened = FakeWebSocket.instances.length;
+    await server(socket, { data: { type: "sessionEnded" } });
+    await server(socket, { close: 4411 });
+    await settle();
+    const page = document.querySelector<HTMLElement>("[data-session-ended]");
+    expect(page).not.toBeNull();
+    expect(document.querySelector("main h1")?.textContent).toBe("Session ended");
+    const status = page?.querySelector('[role="status"]');
+    expect(status?.getAttribute("aria-live")).toBe("polite");
+    expect(status?.textContent).toBe(ENDED);
+    expect(button("Go to the start page")?.className).toContain("h-touch");
+    expect(document.querySelector(".react-flow")).toBeNull();
+    expect(button("Rejoin")).toBeUndefined();
+    expect(localStorage.getItem(`stickyard:host:${CODE.split(".")[0]}`)).toBeNull();
+    await act(() => new Promise((r) => setTimeout(r, 1500)));
+    expect(FakeWebSocket.instances.length).toBe(opened);
+  });
+
+  it("no claimHost without a stored token, and the token is never in the page", async () => {
+    const socket = await inRoom();
+    expect(socket.sent.some((m) => (m as { type?: string }).type === "claimHost")).toBe(false);
+    localStorage.setItem(`stickyard:host:${CODE.split(".")[0]}`, HOST_TOKEN);
+    await server(socket, { data: { type: "snapshot", notes: [] } });
+    expect(document.body.innerHTML).not.toContain(HOST_TOKEN);
   });
 });
 
@@ -2890,7 +2938,7 @@ describe("reconnecting (UI)", () => {
   const notes = () => [...document.querySelectorAll<HTMLElement>('[aria-roledescription="note"]')];
   const properties = () => document.querySelector<HTMLElement>('aside[aria-label="Properties"]');
   const titleArea = () => document.querySelector<HTMLTextAreaElement>('textarea[data-inline="title"]');
-  const newMe: Participant = { id: "CCCCCCCCCCCCCCCC", name: "Alex", colourIndex: 4 };
+  const newMe: Participant = { id: "CCCCCCCCCCCCCCCC", name: "Alex", colourIndex: 4, host: false };
 
   async function withNotes(isWide: boolean, ...list: Note[]) {
     setWide(isWide);
@@ -2910,7 +2958,7 @@ describe("reconnecting (UI)", () => {
   async function answer(socket: FakeWebSocket, list: Note[], you: Participant = newMe) {
     await server(socket, "open");
     await server(socket, { data: { type: "welcome", protocolVersion: PROTOCOL_VERSION } });
-    await server(socket, { data: { type: "joined", you, participants: [you, sam] } });
+    await server(socket, { data: { type: "joined", you, participants: [you, sam], locked: false, timer: null } });
     await server(socket, { data: { type: "snapshot", notes: list } });
     await server(socket, { data: { type: "framesSnapshot", frames: [] } });
   }
@@ -3029,13 +3077,13 @@ describe("reconnecting (UI)", () => {
 });
 
 describe("presence (UI)", () => {
-  const people = (n: number): Participant[] => Array.from({ length: n }, (_, i) => ({ id: `PPPPPPPPPPPPP${String(i).padStart(3, "0")}`, name: `Person ${i}`, colourIndex: i }));
+  const people = (n: number): Participant[] => Array.from({ length: n }, (_, i) => ({ id: `PPPPPPPPPPPPP${String(i).padStart(3, "0")}`, name: `Person ${i}`, colourIndex: i, host: false }));
   const participantsButton = () => document.querySelector<HTMLElement>('header [aria-label^="Participants"]');
   async function roomWith(list: Participant[], isWide: boolean) {
     setWide(isWide);
     await mount(`#/room/${CODE}`);
     const socket = await joinAs("Alex");
-    await server(socket, { data: { type: "joined", you: alex, participants: list } });
+    await server(socket, { data: { type: "joined", you: alex, participants: list, locked: false, timer: null } });
     await server(socket, { data: { type: "snapshot", notes: [] } });
     return socket;
   }
@@ -3068,7 +3116,7 @@ describe("presence (UI)", () => {
   it("toasts are plain text, polite, don't take focus, and leave the ribbon and the top bar alone", async () => {
     const socket = await roomWith([alex, sam], false);
     const before = document.activeElement;
-    await server(socket, { data: { type: "participant_joined", participant: { id: "CCCCCCCCCCCCCCCC", name: "<i>Kai</i>", colourIndex: 2 } } });
+    await server(socket, { data: { type: "participant_joined", participant: { id: "CCCCCCCCCCCCCCCC", name: "<i>Kai</i>", colourIndex: 2, host: false } } });
     await act(() => new Promise((resolve) => setTimeout(resolve, 1100)));
     const region = document.querySelector<HTMLElement>("[data-presence-toasts]");
     expect(region?.getAttribute("aria-live")).toBe("polite");

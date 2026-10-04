@@ -31,7 +31,7 @@ import { TEMPLATES, type Template } from "../src/templates/registry";
 
 /* Slice templates (web only): ready-made sets of frames. Generic fixtures. */
 
-const alex: Participant = { id: "AAAAAAAAAAAAAAAA", name: "Alex", colourIndex: 0 };
+const alex: Participant = { id: "AAAAAAAAAAAAAAAA", name: "Alex", colourIndex: 0, host: false };
 const frameId = (i: number) => `frame${String(i).padStart(11, "0")}`;
 const noteId = (i: number) => `note${String(i).padStart(12, "0")}`;
 const frame = (i: number, extra: Partial<Frame> = {}): Frame => ({
@@ -174,7 +174,7 @@ function session({ frames = [] as Frame[], notes = [] as Note[] } = {}) {
   };
   sock().handlers.onOpen();
   sock().receive({ type: "welcome", protocolVersion: PROTOCOL_VERSION });
-  sock().receive({ type: "joined", you: alex, participants: [alex] });
+  sock().receive({ type: "joined", you: alex, participants: [alex], locked: false, timer: null });
   sock().receive({ type: "snapshot", notes });
   sock().receive({ type: "framesSnapshot", frames });
   const view = () => views.at(-1)!;

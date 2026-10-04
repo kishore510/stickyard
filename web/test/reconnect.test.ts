@@ -74,8 +74,9 @@ describe("attempt cap", () => {
 
 describe("health probe rule", () => {
   it(`probes the relay after ${PROBE_AFTER_FAILED_OPENS} sockets in a row failed to open`, () => {
-    expect(PROBE_AFTER_FAILED_OPENS).toBe(3);
-    expect([0, 1, 2, 3, 4].map(shouldProbe)).toEqual([false, false, false, true, true]);
+    // Raised from 3 in v0.15.0, so a relay restart or deploy (about 10 s) recovers on the normal backoff.
+    expect(PROBE_AFTER_FAILED_OPENS).toBe(5);
+    expect([0, 1, 2, 3, 4, 5, 6].map(shouldProbe)).toEqual([false, false, false, false, false, true, true]);
   });
 
   it("slows right down while the relay looks down: one probe a minute, for at most an hour", () => {
@@ -139,7 +140,7 @@ describe("what the connection status says", () => {
 });
 
 describe("a new participant id after a reconnect", () => {
-  const me = { id: "NEWNEWNEWNEWNEW1", name: "Alex", colourIndex: 3 };
+  const me = { id: "NEWNEWNEWNEWNEW1", name: "Alex", colourIndex: 3, host: false };
   const old = "OLDOLDOLDOLDOLD1";
   it("your notes from before are still yours", () => {
     const room = { you: me, participants: [me], people: new Map([[old, { ...me, id: old }], [me.id, me]]), yourIds: new Set([old, me.id]) };

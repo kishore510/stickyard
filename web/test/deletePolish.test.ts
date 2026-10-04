@@ -24,8 +24,8 @@ class FakeSocket {
   }
 }
 
-const alex: Participant = { id: "AAAAAAAAAAAAAAAA", name: "Alex", colourIndex: 0 };
-const sam: Participant = { id: "BBBBBBBBBBBBBBBB", name: "Sam", colourIndex: 1 };
+const alex: Participant = { id: "AAAAAAAAAAAAAAAA", name: "Alex", colourIndex: 0, host: false };
+const sam: Participant = { id: "BBBBBBBBBBBBBBBB", name: "Sam", colourIndex: 1, host: false };
 const id = (i: number) => `note${String(i).padStart(12, "0")}`;
 const note = (i: number): Note => ({ id: id(i), x: 10, y: 5, ...NOTE_DEFAULTS, text: "", color: "yellow", z: i, rev: 1, authorId: sam.id });
 const range = (n: number) => Array.from({ length: n }, (_, i) => i);
@@ -47,7 +47,7 @@ function withBoard(count: number) {
   };
   sock().handlers.onOpen();
   sock().receive({ type: "welcome", protocolVersion: PROTOCOL_VERSION });
-  sock().receive({ type: "joined", you: alex, participants: [sam, alex] });
+  sock().receive({ type: "joined", you: alex, participants: [sam, alex], locked: false, timer: null });
   sock().receive({ type: "snapshot", notes: range(count).map(note) });
   const view = () => views.at(-1)!;
   const batches = () => sock().sent.filter((m) => m.type === "noteBatch") as { ops: { op: string; id: string }[]; final: boolean }[];

@@ -215,8 +215,9 @@ describe("the alarm firing", () => {
     expect(Number(rows.meta![0]!.value)).toBeGreaterThanOrEqual(t0 - 5_000);
     // deleteAll() removed the alarm (compatibility date >= 2026-02-24).
     expect(await alarmAt(stub)).toBeNull();
-    // The tombstone is the only write: one row plus its primary-key index entry.
-    expect(await rowsWritten(stub)).toBe(before + 2);
+    // Since v0.15.0 the burial empties meta (the schema version: 1 row) and writes the tombstone in
+    // one transaction, then again after deleteAll() (2 rows each: the row and its index entry).
+    expect(await rowsWritten(stub)).toBe(before + 5);
     expect(await runInDurableObject(stub, (_r, state) => readTombstone(state.storage.sql))).not.toBeNull();
   });
 

@@ -255,7 +255,7 @@ class FakeSocket {
   }
 }
 
-const alex: Participant = { id: "AAAAAAAAAAAAAAAA", name: "Alex", colourIndex: 0 };
+const alex: Participant = { id: "AAAAAAAAAAAAAAAA", name: "Alex", colourIndex: 0, host: false };
 
 function room(notes: Note[], frames: Frame[] = []) {
   let socket: FakeSocket | null = null;
@@ -266,7 +266,7 @@ function room(notes: Note[], frames: Frame[] = []) {
   const sock = () => socket!;
   sock().handlers.onOpen();
   sock().receive({ type: "welcome", protocolVersion: PROTOCOL_VERSION });
-  sock().receive({ type: "joined", you: alex, participants: [alex] });
+  sock().receive({ type: "joined", you: alex, participants: [alex], locked: false, timer: null });
   sock().receive({ type: "snapshot", notes });
   sock().receive({ type: "framesSnapshot", frames });
   const start = sock().sent.length;

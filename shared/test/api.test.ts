@@ -30,8 +30,8 @@ describe("createRoomRequestSchema", () => {
 });
 
 describe("createRoomResponseSchema", () => {
-  it("accepts a code", () => {
-    expect(createRoomResponseSchema.safeParse({ code: CODE }).success).toBe(true);
+  it("accepts a code with its host token", () => {
+    expect(createRoomResponseSchema.safeParse({ code: CODE, hostToken: "h".repeat(43) }).success).toBe(true);
   });
 
   it("rejects a malformed code", () => {

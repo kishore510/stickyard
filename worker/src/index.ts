@@ -5,6 +5,8 @@ import { apiError, corsHeaders, json, notFound, readCappedBody } from "./http";
 import { legacySocket } from "./legacy";
 import { LIMITER_NAME, clientKey } from "./limiter";
 import { isAllowedOrigin, parseAllowedOrigins } from "./origin";
+import { hostTokenFor } from "./hostToken";
+import { ROOM_ID_HEADER } from "./room";
 import { createRoomCode, verifyRoomCode } from "./roomCode";
 
 export { Room } from "./room";
@@ -43,8 +45,12 @@ async function createRoom(request: Request, env: WorkerEnv, origin: string): Pro
   const decision = await env.LIMITER.getByName(LIMITER_NAME).attempt(client, passcodeOk, Date.now());
 
   switch (decision.outcome) {
-    case "created":
-      return json({ code: await createRoomCode(config.signingKey) }, 200, cors);
+    case "created": {
+      // The host token goes back only here, once, next to the code (protocol v12).
+      const code = await createRoomCode(config.signingKey);
+      const hostToken = await hostTokenFor(code.split(".")[0] ?? "", config.signingKey);
+      return json({ code, hostToken }, 200, cors);
+    }
     case "invalid":
       return apiError("invalid_passcode", 401, cors);
     case "limited":
@@ -75,7 +81,11 @@ async function openSocket(request: Request, url: URL, env: WorkerEnv): Promise<R
   const id = await verifyRoomCode(url.searchParams.get("room"), config.signingKey);
   if (!id) return notFound();
   if (!isUpgrade) return new Response("Expected WebSocket upgrade", { status: 426 });
-  return env.ROOM.get(env.ROOM.idFromName(id)).fetch(request);
+  // The room learns its id from the Worker (for claimHost), never from the client: any header of
+  // that name the client sent is replaced.
+  const forwarded = new Request(request);
+  forwarded.headers.set(ROOM_ID_HEADER, id);
+  return env.ROOM.get(env.ROOM.idFromName(id)).fetch(forwarded);
 }
 
 export default {

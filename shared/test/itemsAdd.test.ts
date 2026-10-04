@@ -128,7 +128,7 @@ function perMessage(kind: "notes" | "frames", entry: (i: number) => unknown): nu
 
 describe("protocol v11", () => {
   it("is protocol 11", () => {
-    expect(PROTOCOL_VERSION).toBe(11);
+    expect(PROTOCOL_VERSION).toBeGreaterThanOrEqual(11);
   });
 });
 

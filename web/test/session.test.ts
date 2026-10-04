@@ -30,8 +30,8 @@ class FakeSocket {
   }
 }
 
-const alex: Participant = { id: "AAAAAAAAAAAAAAAA", name: "Alex", colourIndex: 0 };
-const sam: Participant = { id: "BBBBBBBBBBBBBBBB", name: "Sam", colourIndex: 1 };
+const alex: Participant = { id: "AAAAAAAAAAAAAAAA", name: "Alex", colourIndex: 0, host: false };
+const sam: Participant = { id: "BBBBBBBBBBBBBBBB", name: "Sam", colourIndex: 1, host: false };
 
 function setup(check: CodeCheck = "valid") {
   const sockets: FakeSocket[] = [];
@@ -67,7 +67,7 @@ function joined() {
   t.session.join("Alex");
   t.sock().open();
   t.sock().receive({ type: "welcome", protocolVersion: PROTOCOL_VERSION });
-  t.sock().receive({ type: "joined", you: alex, participants: [sam, alex] });
+  t.sock().receive({ type: "joined", you: alex, participants: [sam, alex], locked: false, timer: null });
   return t;
 }
 
@@ -171,7 +171,7 @@ describe("joining", () => {
 describe("in the room", () => {
   it("adds and removes participants, and announces them (one batched toast since 0.13)", () => {
     const t = joined();
-    const kai: Participant = { id: "CCCCCCCCCCCCCCCC", name: "Kai", colourIndex: 2 };
+    const kai: Participant = { id: "CCCCCCCCCCCCCCCC", name: "Kai", colourIndex: 2, host: false };
     t.sock().receive({ type: "participant_joined", participant: kai });
     expect(t.view().participants).toEqual([sam, alex, kai]);
     t.sock().receive({ type: "participant_left", id: sam.id });

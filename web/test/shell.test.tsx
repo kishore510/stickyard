@@ -201,7 +201,7 @@ describe("What's new", () => {
   it("shows the current version with the This version badge", async () => {
     await mount("#/changelog");
     const current = dialog()?.querySelector('[aria-current="true"]');
-    expect(current?.querySelector("h3")?.textContent).toBe("0.14.0");
+    expect(current?.querySelector("h3")?.textContent).toBe("0.15.0");
     expect(current?.textContent).toContain("This version");
     expect(current?.textContent).toMatch(/Added|Changed|Fixed/);
   });
@@ -215,11 +215,11 @@ describe("What's new", () => {
     await openFromMenu("What’s new");
     await press("Escape");
     expect(document.querySelector('[data-testid="unseen-dot"]')).toBeNull();
-    expect(localStorage.getItem("stickyard:last-seen-version")).toBe("0.14.0");
+    expect(localStorage.getItem("stickyard:last-seen-version")).toBe("0.15.0");
   });
 
   it("no dot once this version has been seen", async () => {
-    localStorage.setItem("stickyard:last-seen-version", "0.14.0");
+    localStorage.setItem("stickyard:last-seen-version", "0.15.0");
     await mount();
     expect(document.querySelector('[data-testid="unseen-dot"]')).toBeNull();
   });
@@ -231,7 +231,7 @@ describe("About", () => {
 
   it("shows version, build, protocol and relay", async () => {
     await mount("#/about");
-    expect(detail("Version")).toBe("0.14.0");
+    expect(detail("Version")).toBe("0.15.0");
     expect(detail("Build")).toMatch(/^([0-9a-f]{4,40}|dev)$/);
     expect(detail("Built")).not.toBe("unknown");
     expect(detail("Protocol")).toBe(`v${PROTOCOL_VERSION}`);
@@ -241,9 +241,13 @@ describe("About", () => {
   it("Copy details copies only the allowed fields", async () => {
     const writeText = vi.fn(() => Promise.resolve());
     Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+    const token = "fakeHostToken".padEnd(43, "x");
+    localStorage.setItem("stickyard:host:aaaaaaaaaaaaaaaaaaaaaa", token);
     await mount("#/about");
     await click(button("Copy details"));
     const copied = writeText.mock.calls[0] as unknown as [string];
+    expect(copied[0]).not.toContain(token);
+    localStorage.removeItem("stickyard:host:aaaaaaaaaaaaaaaaaaaaaa");
     const lines = copied[0].split("\n");
     expect(lines.map((l) => l.split(/[ :]/)[0])).toEqual(["Stickyard", "Build", "Protocol", "Browser"]);
     expect(copied[0]).not.toMatch(/relay|workers\.dev|stickyard:/i);
@@ -278,6 +282,10 @@ describe("About", () => {
       "layout preferences only",
       "no session content and nothing about you",
       "stays on this device",
+      // Protocol v12: the host key, on the creator's device only.
+      "host key",
+      "only on the device that started the session",
+      "removed when the session ends or expires",
     ]) {
       expect(privacy, claim).toContain(claim);
     }

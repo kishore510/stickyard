@@ -36,6 +36,15 @@ export async function specRoomCode(key = TEST_SIGNING_KEY, id?: string): Promise
   return { code: `${roomId}.${b64url(mac.slice(0, 16))}`, id: roomId };
 }
 
+/**
+ * The host token straight from the spec, independently of src/hostToken.ts:
+ * base64url(HMAC-SHA256(key, "stickyard-host-v1:" + id)), all 32 bytes.
+ */
+export async function specHostToken(id: string, key = TEST_SIGNING_KEY): Promise<string> {
+  const hmacKey = await crypto.subtle.importKey("raw", new TextEncoder().encode(key), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  return b64url(new Uint8Array(await crypto.subtle.sign("HMAC", hmacKey, new TextEncoder().encode(`stickyard-host-v1:${id}`))));
+}
+
 /** Calls the Worker's fetch handler directly, with an optional env override. */
 export async function callWorker(request: Request, overrides: Partial<WorkerEnv> = {}): Promise<Response> {
   const ctx = createExecutionContext();
