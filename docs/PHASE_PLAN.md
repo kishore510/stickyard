@@ -26,6 +26,7 @@ Draft roadmap. When a slice starts, rewrite its prompt against the real code (se
 | Templates | Retro, Start Stop Continue, 2x2 Impact and Effort, Sprint planning, built from frames (web only, no protocol change) | Done (v0.10.0) |
 | Delete polish | Delete key on a selection (after Ctrl+A or a marquee), one confirm with the count, a report of how a multi-note delete went (web only) | Done (v0.10.1) |
 | Selection fixes | Frame + Delete works (a click on the title selects the frame; double-click or Enter edits it); clearer multi-select: thicker outline, a tick per note, a dashed box round the selection (web only) | Done (v0.10.2) |
+| Arrange grid | Arrange > Grid in the selection bar: lay a selection out in rows and columns in reading order, with a Columns stepper and Auto (web only) | Done (v0.10.3) |
 | 6 (part) Timer and lock board | Cut-down slice 6: shared timer and lock board only | Not started |
 | 4 Reconnect | Resync after drops, offline queue | Not started |
 | 3a Presence: avatars and toasts | Avatar stack in the top bar, join/leave toasts. Probably no protocol change (uses `participant_joined`/`participant_left`) | Not started |
@@ -180,6 +181,11 @@ Draft roadmap. When a slice starts, rewrite its prompt against the real code (se
 - A frame's title takes presses only while it's being edited: a click selects the frame (and drags it); double-click, Enter on the selected frame, or Tab edits the title.
 - Fixed a 0.10.1 regression found in a real browser: a click on the canvas focuses the app's `<main>`, which the Delete rule didn't count as the board's.
 - Selection: thicker accent outline; with several notes, a tick badge on each and a dashed box round them all.
+
+### Arrange grid (web only) — done, v0.10.3
+- Arrange > Grid in the selection bar (md and up, 2+ notes): reading order (top row first, left to right), each column as wide as its widest note and each row as tall as its tallest, a 24-unit gap, sizes unchanged, anchored at the selection's top-left and kept on the board. Running it again changes nothing.
+- Columns stepper (1 to the count) or Auto (picked from the selection's shape); the choice lasts for the session. Off, with the reason shown, below 2 notes, offline, while a selected note is being moved or resized, or before new notes are saved.
+- A grid larger than the board moves nothing and the board says why (too wide, too tall, too big). Uses the existing batch moves; no protocol change. Frames are not used as grid containers.
 
 ### 7a Text box and basic shapes
 - Text box, and a small fixed set of shapes: rectangle, oval, diamond. Reuses the sizing and colour work from 2.7.
