@@ -5,6 +5,7 @@ import {
   NOTE_TILES,
   PALETTE_CATEGORIES,
   PALETTE_TABS,
+  facilitationTiles,
   noteTile,
   paletteSections,
   roomNoteTiles,
@@ -21,8 +22,8 @@ import {
  * functions return, so a new category, tile or tab is one registry entry.
  */
 
-const state: PaletteRoomState = { live: true, noteCount: 0 };
-const actions = (): PaletteActions => ({ addNote: vi.fn(), addFrame: vi.fn(), applyTemplate: vi.fn() });
+const state: PaletteRoomState = { live: true, noteCount: 0, isHost: false };
+const actions = (): PaletteActions => ({ addNote: vi.fn(), addFrame: vi.fn(), applyTemplate: vi.fn(), openTimer: vi.fn() });
 const ids = (items: readonly PaletteItem[]) => items.map((i) => i.id);
 
 describe("palette registry", () => {
@@ -56,8 +57,8 @@ describe("palette registry", () => {
 
   it("tiles are disabled with a reason when the board is full or disconnected", () => {
     const tile = NOTE_TILES[0];
-    expect(tile?.disabled({ noteReason: null, frameReason: null, templateReason: null })).toBeNull();
-    expect(tile?.disabled({ noteReason: "Reconnect to add or change notes.", frameReason: null, templateReason: null })).toBe("Reconnect to add or change notes.");
+    expect(tile?.disabled({ noteReason: null, frameReason: null, templateReason: null, timerReason: null })).toBeNull();
+    expect(tile?.disabled({ noteReason: "Reconnect to add or change notes.", frameReason: null, templateReason: null, timerReason: null })).toBe("Reconnect to add or change notes.");
   });
 
   it("categories render in order from the registry, and a second category needs no panel code", () => {
@@ -147,5 +148,27 @@ describe("palette tabs", () => {
       ["stencils", "Stencils"],
     ]);
     expect(paletteSections([...PALETTE_CATEGORIES, stencils], "stencils", state, "").map((s) => s.category.id)).toEqual(["test-stencils"]);
+  });
+});
+
+describe("Facilitation (host only, md and up)", () => {
+  it("a Timer tile for the host only; no section at all for a guest", () => {
+    const panel = (isHost: boolean) => paletteSections(PALETTE_CATEGORIES, "add", { ...state, isHost }, "", "panel");
+    expect(panel(true).find((s) => s.category.id === "facilitation")?.items.map((i) => i.label)).toEqual(["Timer"]);
+    expect(panel(false).some((s) => s.category.id === "facilitation")).toBe(false);
+  });
+
+  it("not in the phone drawer (phones: the Participants sheet)", () => {
+    const drawer = paletteSections(PALETTE_CATEGORIES, "add", { ...state, isHost: true }, "", "drawer");
+    expect(drawer.some((s) => s.category.id === "facilitation")).toBe(false);
+  });
+
+  it("the tile opens the picker (a drop too) and is off with the reason while disconnected", () => {
+    const tile = facilitationTiles({ ...state, isHost: true })[0]!;
+    const openTimer = vi.fn();
+    tile.create({ addNote: vi.fn(), addFrame: vi.fn(), applyTemplate: vi.fn(), openTimer });
+    tile.create({ addNote: vi.fn(), addFrame: vi.fn(), applyTemplate: vi.fn(), openTimer }, { x: 10, y: 10 });
+    expect(openTimer).toHaveBeenCalledTimes(2);
+    expect(tile.disabled({ noteReason: null, frameReason: null, templateReason: null, timerReason: "Not connected." })).toBe("Not connected.");
   });
 });

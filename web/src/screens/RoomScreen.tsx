@@ -47,6 +47,8 @@ function PublishRoom({ code, view, room }: { code: string; view: RoomView; room:
       isHost,
       locked,
       timer,
+      startTimer: (durationMs) => latest.current.startRoomTimer(durationMs),
+      stopTimer: () => latest.current.stopRoomTimer(),
       say: (text) => latest.current.say(text),
       leave: () => latest.current.leave(),
     });

@@ -11,6 +11,7 @@ import { Menu } from "./Menu";
 import { openSheet } from "./nav";
 import { ThemeToggle } from "./ThemeToggle";
 import { useTopBarSlot } from "./topBarSlot";
+import { TimerChip } from "../timer/TimerChip";
 
 /**
  * In a session: Participants (all widths; from md up an avatar stack, on phones a count) and, on
@@ -93,6 +94,7 @@ export function TopBar() {
         </a>
         <div ref={setSlot} data-topbar-slot="" className="flex min-w-0 flex-1 justify-center" />
         <nav aria-label="App" className="flex items-center gap-toolbar">
+          <TimerChip />
           <SessionButtons />
           <Menu />
           <ThemeToggle />

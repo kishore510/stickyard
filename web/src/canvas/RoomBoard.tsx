@@ -31,6 +31,8 @@ import { cn } from "../lib/utils";
 import type { useRoom } from "../rooms/useRoom";
 import { MEDIA } from "../styles/breakpoints";
 import { useTopBarSlot } from "../shell/topBarSlot";
+import { TIMER_HINTS } from "../timer/controls";
+import { TimerPicker } from "../timer/TimerPicker";
 import { createPortal } from "react-dom";
 import type { Placed } from "./arrange";
 import { BoardCanvas, deleteFrameAsking, deleteSelected, type BoardRoom } from "./BoardCanvas";
@@ -237,6 +239,9 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
   const minimap = wide && (minimapPref ?? true);
   const noteCount = view.board.notes.length;
   const noteReason = noteToolReason({ live, count: noteCount });
+  // Facilitation (host only): the timer needs a connection.
+  const isHost = view.isHost;
+  const timerReason = live ? null : TIMER_HINTS.offline;
   const frameCount = view.board.frames.length;
   const frameReason = frameToolReason({ live, count: frameCount });
   const templateReason = templateToolReason({ live, applying: view.template?.state === "applying", adding: view.adding });
@@ -356,15 +361,15 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
 
   const paletteHost = useMemo<PaletteHost>(
     () => ({
-      ctx: { noteReason, frameReason, templateReason },
-      state: { live, noteCount },
+      ctx: { noteReason, frameReason, templateReason, timerReason },
+      state: { live, noteCount, isHost },
       activate: (item, at) => {
         useBoardUi.getState().setAddSheetOpen(false);
-        item.create({ addNote, addFrame, applyTemplate }, at);
+        item.create({ addNote, addFrame, applyTemplate, openTimer: () => useBoardUi.getState().setTimerPickerOpen(true) }, at);
       },
       dropAt: canvas.dropAt,
     }),
-    [noteReason, frameReason, templateReason, live, noteCount, addNote, addFrame, applyTemplate, canvas],
+    [noteReason, frameReason, templateReason, timerReason, live, noteCount, isHost, addNote, addFrame, applyTemplate, canvas],
   );
 
   const rejoinRef = useRef(onRejoin);
@@ -594,6 +599,7 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
           )}
         </SidePanel>
       )}
+      {wide && <TimerPicker />}
       {!wide && <AddDrawer host={paletteHost} open={addSheetOpen} onClose={() => useBoardUi.getState().setAddSheetOpen(false)} />}
     </div>
   );

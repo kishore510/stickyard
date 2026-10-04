@@ -1,4 +1,4 @@
-import { Check, Copy, LogOut } from "lucide-react";
+import { Check, Copy, LogOut, RotateCcw, Square } from "lucide-react";
 import { useState } from "react";
 import { MAX_NAME_LENGTH, MAX_PARTICIPANTS } from "@stickyard/shared";
 import { Button } from "../components/ui/button";
@@ -6,6 +6,10 @@ import { cn } from "../lib/utils";
 import { participantColourClass } from "./colours";
 import { roomLink } from "./link";
 import { useRoomUi } from "./roomStore";
+import { useMediaQuery } from "../lib/useMediaQuery";
+import { MEDIA } from "../styles/breakpoints";
+import { useTimerControls } from "../timer/controls";
+import { TimerForm } from "../timer/TimerForm";
 
 /*
  * The Participants sheet (#/participants): who's in the session now, the unverified-names
@@ -37,8 +41,43 @@ function CopyLink({ code }: { code: string }) {
   );
 }
 
+/**
+ * The host's Session section (phones; from md up these controls are in the palette, the board
+ * bar and Properties). Today: the timer (Restart and Stop while one exists, and the same presets
+ * and minutes field as the picker, inline, so no second sheet opens over this one).
+ */
+function SessionSection() {
+  const room = useRoomUi((s) => s.room);
+  const controls = useTimerControls();
+  if (!room) return null;
+  const off = controls.reason !== null;
+  return (
+    <section aria-labelledby="session-heading" className="flex flex-col gap-sm">
+      <h3 id="session-heading" className="text-base font-semibold">
+        Session
+      </h3>
+      <p className="text-sm text-fg-muted">You’re the host: only you see these.</p>
+      <h4 className="text-sm font-semibold">Timer</h4>
+      {room.timer && (
+        <div className="flex flex-wrap gap-sm">
+          <Button aria-disabled={off || undefined} onClick={() => !off && controls.restart()}>
+            <RotateCcw />
+            Restart timer
+          </Button>
+          <Button aria-disabled={off || undefined} onClick={() => !off && controls.stop()}>
+            <Square />
+            Stop timer
+          </Button>
+        </div>
+      )}
+      <TimerForm running={room.timer !== null} reason={controls.reason} onStart={(ms) => void controls.start(ms)} />
+    </section>
+  );
+}
+
 export function ParticipantsPage() {
   const room = useRoomUi((s) => s.room);
+  const wide = useMediaQuery(MEDIA.tablet);
   if (!room) return <p className="pb-md">You’re not in a session. Join one from the start page.</p>;
   const people = room.live ? room.participants : [];
 
@@ -63,6 +102,8 @@ export function ParticipantsPage() {
           characters).
         </p>
       </section>
+
+      {room.isHost && !wide && <SessionSection />}
 
       <section aria-labelledby="invite-heading" className="flex flex-col gap-sm">
         <h3 id="invite-heading" className="text-base font-semibold">

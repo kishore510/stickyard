@@ -108,6 +108,7 @@ import { DUPLICATE_HINTS, duplicateFrameInput, duplicateNoteInputs } from "../ca
 import { HISTORY_TEXT, History, type Fields, type ItemKind, type Lookup, type Plan } from "../history/history";
 import type { CodeCheck } from "./api";
 import { packItems, type ItemDraft, type ItemsAddMessage } from "./items";
+import { validDuration } from "../timer/timer";
 import { LEAVE_GRACE_MS, RESYNC_QUIET_MS, TOAST_BATCH_MS, TOAST_GAP_MS, TOAST_SHOW_MS, summarizePresence, type PresenceEvent } from "../presence/toasts";
 import { discardUnconfirmed, resyncFrames, resyncNotes, unsavedKeys, type OrphanDraft } from "./resync";
 
@@ -2659,14 +2660,23 @@ export class RoomSession {
     });
   }
 
-  /** Stub: tests first. */
-  startRoomTimer(_durationMs: number): boolean {
-    return false;
+  /** Host commands (facilitation UI) go out only from a live host; the relay checks again (not_host). */
+  private canHost(): boolean {
+    return !this.stopped && this.view.status === "joined" && this.view.isHost;
   }
 
-  /** Stub: tests first. */
+  /** Host: starts (or replaces) the room's timer. False (nothing sent) outside the relay's bounds, for a guest or while disconnected. */
+  startRoomTimer(durationMs: number): boolean {
+    if (!this.canHost() || !validDuration(durationMs)) return false;
+    this.send({ type: "timerStart", durationMs });
+    return true;
+  }
+
+  /** Host: stops the room's timer. */
   stopRoomTimer(): boolean {
-    return false;
+    if (!this.canHost()) return false;
+    this.send({ type: "timerStop" });
+    return true;
   }
 
   /** Protocol v12: claims host powers with this room's token, if this device has one. Never shown or logged. */

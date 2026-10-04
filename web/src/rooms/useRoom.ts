@@ -94,6 +94,8 @@ export function useRoom(code: string) {
     duplicateNotes: (ids: readonly string[]) => session.current?.duplicateNotes(ids) ?? null,
     duplicateFrame: (id: string) => session.current?.duplicateFrame(id) ?? null,
     applyTemplate: (frames: readonly TemplateFramePlan[]) => session.current?.applyTemplate(frames) ?? false,
+    startRoomTimer: (durationMs: number) => session.current?.startRoomTimer(durationMs) ?? false,
+    stopRoomTimer: () => session.current?.stopRoomTimer() ?? false,
     leave: () => session.current?.close(),
   };
 }

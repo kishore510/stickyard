@@ -23,6 +23,9 @@ export interface PublishedRoom {
   isHost: boolean;
   locked: boolean;
   timer: RoomTimer | null;
+  /** Host commands (facilitation UI); the session refuses them for guests and while disconnected. */
+  startTimer(durationMs: number): boolean;
+  stopTimer(): boolean;
   say(text: string): boolean;
   leave(): void;
 }

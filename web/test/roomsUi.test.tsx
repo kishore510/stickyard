@@ -1385,7 +1385,7 @@ describe("phone: add sheet and editor sheet", () => {
     expect(drawer?.getAttribute("aria-modal")).toBeNull();
     expect(drawer?.querySelector('input[type="search"]')).not.toBeNull();
     const labels = [...(drawer?.querySelectorAll<HTMLElement>("[data-palette-item]") ?? [])].map((t) => t.getAttribute("aria-label"));
-    const expected = paletteSections(PALETTE_CATEGORIES, "add", { live: true, noteCount: 0 }, "", "drawer").flatMap((s) => s.items.map((i) => i.label));
+    const expected = paletteSections(PALETTE_CATEGORIES, "add", { live: true, noteCount: 0, isHost: false }, "", "drawer").flatMap((s) => s.items.map((i) => i.label));
     expect(labels).toEqual(expected);
     // One sideways-scrolling row per category.
     expect(drawer?.querySelector("[data-palette-item]")?.parentElement?.className).toContain("overflow-x-auto");
