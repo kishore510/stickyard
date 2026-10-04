@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { FRAME_DEFAULTS, MAX_NOTES_PER_ROOM, MAX_NOTE_TEXT, PROTOCOL_VERSION, type Frame, type Note, NOTE_DEFAULTS, NOTE_MAX_H, type Participant } from "@stickyard/shared";
+import { FRAME_DEFAULTS, MAX_NOTES_PER_ROOM, MAX_NOTE_TEXT, PROTOCOL_VERSION, type Frame, type Note, NOTE_DEFAULTS, NOTE_MAX_H, NOTE_MAX_W, type Participant } from "@stickyard/shared";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -1658,6 +1658,53 @@ describe("multi-select and arrange (slice 2.8, md up)", () => {
     confirm.mockReturnValue(true);
     await key("Delete", notes()[1] as HTMLElement);
     expect(batches(socket).at(-1)).toMatchObject({ ops: [{ op: "delete", id: N1 }, { op: "delete", id: N2 }] });
+  });
+
+  const gridButton = () => [...(bar()?.querySelectorAll<HTMLButtonElement>("button") ?? [])].find((b) => b.textContent === "Grid");
+  const stepper = (label: string) => bar()?.querySelector<HTMLButtonElement>(`[aria-label="${label}"]`) ?? undefined;
+
+  it("Grid lays the selection out in reading order with auto columns: moves only, unchanged notes left out", async () => {
+    const socket = await withNotes(one, two, three);
+    await key("a", document.body, { ctrlKey: true });
+    expect(gridButton()?.disabled).toBe(false);
+    expect(bar()?.querySelector('[data-grid-columns]')?.textContent).toContain("Auto");
+    await click(gridButton());
+    // Reading order: one, three (same band), two. Three columns from the spread, anchored at one.
+    const ops = batches(socket).at(-1)?.ops as unknown[];
+    expect(ops).toHaveLength(2);
+    expect(ops).toEqual(expect.arrayContaining([{ op: "move", id: N3, x: 224, y: 60 }, { op: "move", id: N2, x: 408, y: 60 }]));
+    const before = batches(socket).length;
+    await click(gridButton());
+    expect(batches(socket)).toHaveLength(before);
+  });
+
+  it("the Columns stepper sets the column count (1 to the count), kept for the session", async () => {
+    const socket = await withNotes(one, two, three);
+    await key("a", document.body, { ctrlKey: true });
+    await click(stepper("Fewer columns"));
+    expect(bar()?.querySelector('[data-grid-columns]')?.textContent).toBe("2");
+    await click(gridButton());
+    expect(batches(socket).at(-1)?.ops).toEqual(expect.arrayContaining([{ op: "move", id: N2, x: 40, y: 244 }, { op: "move", id: N3, x: 224, y: 60 }]));
+    await click(stepper("Fewer columns"));
+    expect(stepper("Fewer columns")?.disabled).toBe(true);
+    for (let i = 0; i < 3; i++) await click(stepper("More columns"));
+    expect(bar()?.querySelector('[data-grid-columns]')?.textContent).toBe("3");
+    expect(stepper("More columns")?.disabled).toBe(true);
+    await key("Escape", document.body);
+    await key("a", document.body, { ctrlKey: true });
+    expect(bar()?.querySelector('[data-grid-columns]')?.textContent).toBe("3");
+    await click(bar()?.querySelector<HTMLElement>('[aria-label="Automatic columns"]') ?? undefined);
+    expect(bar()?.querySelector('[data-grid-columns]')?.textContent).toContain("Auto");
+  });
+
+  it("a grid that doesn't fit the board sends nothing and says why", async () => {
+    const big = (n: number): Note => ({ ...one, id: `NNNNNNNNNNNNNNB${n}`, x: 0, y: 0, w: NOTE_MAX_W, h: NOTE_MAX_H });
+    const socket = await withNotes(big(1), big(2), big(3), big(4), big(5));
+    await key("a", document.body, { ctrlKey: true });
+    while (stepper("Fewer columns")?.disabled === false) await click(stepper("Fewer columns"));
+    await click(gridButton());
+    expect(batches(socket)).toEqual([]);
+    expect(document.body.textContent).toContain("too tall for the board");
   });
 
   it("selection is pruned when someone else deletes a selected note", async () => {
