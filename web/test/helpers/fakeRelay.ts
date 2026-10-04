@@ -20,8 +20,8 @@ import { RoomSession, type RoomView, type SessionOptions } from "../../src/rooms
  * Refusals can be switched on per batch or per frame.
  */
 
-export const alex: Participant = { id: "AAAAAAAAAAAAAAAA", name: "Alex", colourIndex: 0 };
-export const sam: Participant = { id: "BBBBBBBBBBBBBBBB", name: "Sam", colourIndex: 1 };
+export const alex: Participant = { id: "AAAAAAAAAAAAAAAA", name: "Alex", colourIndex: 0, host: false };
+export const sam: Participant = { id: "BBBBBBBBBBBBBBBB", name: "Sam", colourIndex: 1, host: false };
 export const nid = (i: number) => `note${String(i).padStart(12, "0")}`;
 export const fid = (i: number) => `frme${String(i).padStart(12, "0")}`;
 export const note = (i: number, extra: Partial<Note> = {}): Note => ({ id: nid(i), x: 10 * i, y: 20, ...NOTE_DEFAULTS, text: `Note ${i}`, color: "yellow", z: i, rev: 1, authorId: sam.id, ...extra });
@@ -136,7 +136,7 @@ export class Relay {
       case "join": {
         if (this.joinError) return this.out({ type: "error", code: this.joinError, message: "No." });
         const you = { ...this.you, name: m.name as string };
-        this.out({ type: "joined", you, participants: [you, ...this.others] });
+        this.out({ type: "joined", you, participants: [you, ...this.others], locked: false, timer: null });
         this.out({ type: "snapshot", notes: [...this.notes.values()] });
         if (this.holdFrames) return;
         return this.out({ type: "framesSnapshot", frames: [...this.frames.values()] });

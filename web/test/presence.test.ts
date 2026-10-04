@@ -9,7 +9,7 @@ import { alex, room, sam } from "./helpers/fakeRelay";
  * existing joined, participant_joined and participant_left messages.
  */
 
-const person = (i: number, name = `P${i}`): Participant => ({ id: `PPPPPPPPPPPPP${String(i).padStart(3, "0")}`, name, colourIndex: i });
+const person = (i: number, name = `P${i}`): Participant => ({ id: `PPPPPPPPPPPPP${String(i).padStart(3, "0")}`, name, colourIndex: i, host: false });
 
 describe("avatar stack (pure)", () => {
   it(`shows you first, then others in arrival order, in ${AVATAR_MAX} places: the last is +N when there are more`, () => {

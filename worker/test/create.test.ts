@@ -238,17 +238,21 @@ describe("the passcode never leaks", () => {
     for (const spy of spies) expect(JSON.stringify(spy.mock.calls)).not.toContain(CANARY);
   });
 
-  it("the correct passcode and the created code are not logged or echoed", async () => {
+  it("the correct passcode, the created code and the host token are not logged or echoed", async () => {
     const spies = spyConsole();
     const res = await callWorker(createRequest({ passcode: TEST_PASSCODE }, { ip: freshIp() }));
     const text = await res.text();
-    const { code } = createRoomResponseSchema.parse(JSON.parse(text));
+    const { code, hostToken } = createRoomResponseSchema.parse(JSON.parse(text));
     expect(text).not.toContain(TEST_PASSCODE);
-    for (const [, v] of res.headers) expect(v).not.toContain(TEST_PASSCODE);
+    for (const [, v] of res.headers) {
+      expect(v).not.toContain(TEST_PASSCODE);
+      expect(v).not.toContain(hostToken);
+    }
     for (const spy of spies) {
       const calls = JSON.stringify(spy.mock.calls);
       expect(calls).not.toContain(TEST_PASSCODE);
       expect(calls).not.toContain(code);
+      expect(calls).not.toContain(hostToken);
     }
   });
 });

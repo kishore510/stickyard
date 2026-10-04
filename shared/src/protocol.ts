@@ -20,8 +20,12 @@ import { NOTE_Z_LIMIT, ORDER_ACTIONS } from "./stack";
  *   titleTextColor and titleAlign (the note key sets), also optional frameEdit fields.
  * v11 (slice create with content): itemsAdd (notes and frames with their full content in one
  *   message) and itemsAdded; errors may carry `refused` (which items, and why).
+ * v12 (slice host): a host token from room creation (claimHost/hostGranted, participants carry
+ *   `host`, participantUpdated), the board lock (lockSet/lockChanged, board_locked refusals), a
+ *   timer (timerStart/timerStop/timerChanged), End session (endSession/sessionEnded, close code
+ *   4411); `joined` carries `locked` and `timer`.
  */
-export const PROTOCOL_VERSION = 11;
+export const PROTOCOL_VERSION = 12;
 
 /**
  * Hard cap on a single client-to-server WebSocket message, in UTF-8 bytes. Checked before JSON.parse.
@@ -42,6 +46,16 @@ export const MAX_SERVER_MESSAGE_BYTES = 512 * 1024;
  */
 export const ROOM_IDLE_EXPIRY_DAYS = 7;
 export const ROOM_EXPIRED_CLOSE_CODE = 4410;
+/**
+ * A host ended the session (protocol v12): every socket is closed with this code (reason
+ * "ended"), the room's data is deleted, and later joins are accepted and closed with it at once.
+ * Final for the web, like 4410.
+ */
+export const ROOM_ENDED_CLOSE_CODE = 4411;
+
+/** Timer durations a host may start (protocol v12): 1 second to 3 hours. Outside: refused (bad_message). */
+export const TIMER_MIN_MS = 1000;
+export const TIMER_MAX_MS = 3 * 60 * 60 * 1000;
 
 /** Display name length after cleaning, in characters. */
 export const MAX_NAME_LENGTH = 24;
@@ -634,6 +648,36 @@ export function checkItems(notes: readonly unknown[] = [], frames: readonly unkn
   return result;
 }
 
+/* ── Host, lock, timer, End session (protocol v12) ──────────────────────────────────── */
+
+/** A host token: base64url of a full HMAC-SHA256 (32 bytes, 43 characters). */
+export const HOST_TOKEN_LENGTH = 43;
+export const hostTokenSchema = z.string().regex(/^[A-Za-z0-9_-]{43}$/);
+
+/** Claim host powers with the token from room creation. Sent after `joined`. */
+export const claimHostSchema = z.strictObject({
+  type: z.literal("claimHost"),
+  token: hostTokenSchema,
+});
+
+/** Host only: lock or unlock the board for everyone else. */
+export const lockSetSchema = z.strictObject({
+  type: z.literal("lockSet"),
+  locked: z.boolean(),
+});
+
+/** Host only: start (or replace) the room's timer. */
+export const timerStartSchema = z.strictObject({
+  type: z.literal("timerStart"),
+  durationMs: z.number().int().min(TIMER_MIN_MS).max(TIMER_MAX_MS),
+});
+
+/** Host only: stop the timer. */
+export const timerStopSchema = z.strictObject({ type: z.literal("timerStop") });
+
+/** Host only: end the session for everyone and delete it. */
+export const endSessionSchema = z.strictObject({ type: z.literal("endSession") });
+
 export const clientMessageSchema = z.discriminatedUnion("type", [
   helloSchema,
   joinSchema,
@@ -651,8 +695,46 @@ export const clientMessageSchema = z.discriminatedUnion("type", [
   frameResizeSchema,
   frameDeleteSchema,
   itemsAddSchema,
+  claimHostSchema,
+  lockSetSchema,
+  timerStartSchema,
+  timerStopSchema,
+  endSessionSchema,
 ]);
 export type ClientMessage = z.infer<typeof clientMessageSchema>;
+export type ClientMessageType = ClientMessage["type"];
+
+/**
+ * Every client message type, and whether it changes the board (protocol v12). While the board is
+ * locked, a non-host's board-changing messages are refused with board_locked. A Record, so a new
+ * message type can't be added without deciding (the compiler and a test check every type).
+ */
+export const BOARD_WRITES: Readonly<Record<ClientMessageType, boolean>> = {
+  hello: false,
+  join: false,
+  say: false,
+  noteAdd: true,
+  noteEdit: true,
+  noteMove: true,
+  noteResize: true,
+  noteDelete: true,
+  noteBatch: true,
+  notesOrder: true,
+  frameAdd: true,
+  frameEdit: true,
+  frameMove: true,
+  frameResize: true,
+  frameDelete: true,
+  itemsAdd: true,
+  claimHost: false,
+  lockSet: false,
+  timerStart: false,
+  timerStop: false,
+  endSession: false,
+};
+
+/** Host-only messages: anyone else gets not_host. */
+export const HOST_ONLY: readonly ClientMessageType[] = ["lockSet", "timerStart", "timerStop", "endSession"];
 
 export const errorCodeSchema = z.enum([
   "version_mismatch",
@@ -665,6 +747,9 @@ export const errorCodeSchema = z.enum([
   "invalid_name",
   "notes_full",
   "frames_full",
+  "bad_host_token",
+  "not_host",
+  "board_locked",
 ]);
 export type ErrorCode = z.infer<typeof errorCodeSchema>;
 
@@ -676,6 +761,8 @@ export const participantSchema = z.object({
   id: participantIdSchema,
   name: z.string().refine((name) => cleanName(name) === name),
   colourIndex: z.number().int().min(0).max(MAX_PARTICIPANTS - 1),
+  /** Claimed host powers with the room's host token (protocol v12). Set by the server only. */
+  host: z.boolean(),
 });
 export type Participant = z.infer<typeof participantSchema>;
 
@@ -737,10 +824,27 @@ export type Note = z.infer<typeof noteSchema>;
 /** The style fields of a note (what noteEdit can change besides text). */
 export type NoteStyle = Pick<Note, NoteStyleField>;
 
+/**
+ * The room's timer as the server sends it: `startedAt` by the server's clock, and `serverNow`
+ * (the server's clock when it sent this) so a page can work out its own clock's offset.
+ */
+export const timerSchema = z.strictObject({
+  startedAt: z.number().int().nonnegative(),
+  durationMs: z.number().int().min(TIMER_MIN_MS).max(TIMER_MAX_MS),
+  serverNow: z.number().int().nonnegative(),
+});
+export type TimerState = z.infer<typeof timerSchema>;
+
+/**
+ * Sent first after a join. Since v12 it also carries the lock and the timer, so a page knows them
+ * before the snapshots (same handler step: nothing can land in between).
+ */
 export const joinedSchema = z.object({
   type: z.literal("joined"),
   you: participantSchema,
   participants: z.array(participantSchema).max(MAX_PARTICIPANTS),
+  locked: z.boolean(),
+  timer: timerSchema.nullable(),
 });
 
 export const participantJoinedSchema = z.object({
@@ -933,6 +1037,28 @@ export const itemsAddedSchema = z
   })
   .refine((m) => itemCount(m) >= 1 && itemCount(m) + m.refused.length <= MAX_BATCH_ENTRIES);
 
+/** The claim worked: this socket now has host powers (others get participantUpdated). */
+export const hostGrantedSchema = z.strictObject({ type: z.literal("hostGranted") });
+
+/** A participant changed (today: became host). Carries the whole participant. */
+export const participantUpdatedSchema = z.strictObject({
+  type: z.literal("participantUpdated"),
+  participant: participantSchema,
+});
+
+export const lockChangedSchema = z.strictObject({
+  type: z.literal("lockChanged"),
+  locked: z.boolean(),
+});
+
+export const timerChangedSchema = z.strictObject({
+  type: z.literal("timerChanged"),
+  timer: timerSchema.nullable(),
+});
+
+/** A host ended the session. Every socket is then closed with ROOM_ENDED_CLOSE_CODE. */
+export const sessionEndedSchema = z.strictObject({ type: z.literal("sessionEnded") });
+
 export const serverMessageSchema = z.discriminatedUnion("type", [
   welcomeSchema,
   errorMessageSchema,
@@ -955,5 +1081,10 @@ export const serverMessageSchema = z.discriminatedUnion("type", [
   frameResizedSchema,
   frameDeletedSchema,
   itemsAddedSchema,
+  hostGrantedSchema,
+  participantUpdatedSchema,
+  lockChangedSchema,
+  timerChangedSchema,
+  sessionEndedSchema,
 ]);
 export type ServerMessage = z.infer<typeof serverMessageSchema>;

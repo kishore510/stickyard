@@ -13,6 +13,8 @@ import { ALARM_RESET_SLACK_MS, ROOM_IDLE_EXPIRY_MS } from "./limits";
 
 /** The close reason that goes with ROOM_EXPIRED_CLOSE_CODE. */
 export const EXPIRED_REASON = "expired";
+/** Stub: tests first. */
+export const ENDED_REASON = "";
 
 /**
  * When to set the alarm after the last socket closes at `now`, or null to leave `existing`

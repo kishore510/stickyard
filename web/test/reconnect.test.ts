@@ -139,7 +139,7 @@ describe("what the connection status says", () => {
 });
 
 describe("a new participant id after a reconnect", () => {
-  const me = { id: "NEWNEWNEWNEWNEW1", name: "Alex", colourIndex: 3 };
+  const me = { id: "NEWNEWNEWNEWNEW1", name: "Alex", colourIndex: 3, host: false };
   const old = "OLDOLDOLDOLDOLD1";
   it("your notes from before are still yours", () => {
     const room = { you: me, participants: [me], people: new Map([[old, { ...me, id: old }], [me.id, me]]), yourIds: new Set([old, me.id]) };

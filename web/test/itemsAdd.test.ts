@@ -23,7 +23,7 @@ import { DROP_TEXT, ITEMS_MESSAGES_PER_SECOND, ITEMS_STEP_MS, NOTICES, RoomSessi
 
 /* Protocol v11 (slice create with content), web side: packing and RoomSession.addItems. Generic fixtures. */
 
-const alex: Participant = { id: "AAAAAAAAAAAAAAAA", name: "Alex", colourIndex: 0 };
+const alex: Participant = { id: "AAAAAAAAAAAAAAAA", name: "Alex", colourIndex: 0, host: false };
 const sid = (i: number) => `item${String(i).padStart(12, "0")}`;
 
 const noteInput = (extra: Partial<Omit<NoteItem, "ref">> = {}): ItemInput => ({
@@ -143,7 +143,7 @@ function session() {
   const sock = () => socket!;
   sock().handlers.onOpen();
   sock().receive({ type: "welcome", protocolVersion: PROTOCOL_VERSION });
-  sock().receive({ type: "joined", you: alex, participants: [alex] });
+  sock().receive({ type: "joined", you: alex, participants: [alex], locked: false, timer: null });
   sock().receive({ type: "snapshot", notes: [] });
   sock().receive({ type: "framesSnapshot", frames: [] });
   const start = sock().sent.length;

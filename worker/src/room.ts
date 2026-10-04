@@ -364,11 +364,11 @@ export class Room extends DurableObject<Env> {
         const used = new Set(others.map(({ participant }) => participant.colourIndex));
         let colourIndex = 0;
         while (used.has(colourIndex)) colourIndex++;
-        const you: Participant = { id: randomBase64url(12), name, colourIndex };
+        const you: Participant = { id: randomBase64url(12), name, colourIndex, host: false };
         state.participant = you;
         ws.serializeAttachment(state);
 
-        send(ws, { type: "joined", you, participants: this.participants().map(({ participant }) => participant) });
+        send(ws, { type: "joined", you, participants: this.participants().map(({ participant }) => participant), locked: false, timer: null });
         // Notes, then frames, in this same step: nothing else can be sent to this socket between them.
         send(ws, { type: "snapshot", notes: this.notes.all() });
         send(ws, { type: "framesSnapshot", frames: this.notes.allFrames() });

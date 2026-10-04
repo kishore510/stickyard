@@ -13,8 +13,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const CODE = `${"a".repeat(22)}.${"B".repeat(22)}`;
 const PASSCODE = "test-passcode-in-the-ui";
-const alex: Participant = { id: "AAAAAAAAAAAAAAAA", name: "Alex", colourIndex: 0 };
-const sam: Participant = { id: "BBBBBBBBBBBBBBBB", name: "Sam", colourIndex: 9 };
+const alex: Participant = { id: "AAAAAAAAAAAAAAAA", name: "Alex", colourIndex: 0, host: false };
+const sam: Participant = { id: "BBBBBBBBBBBBBBBB", name: "Sam", colourIndex: 9, host: false };
 
 class FakeWebSocket {
   static instances: FakeWebSocket[] = [];
@@ -323,7 +323,7 @@ describe("the name sheet", () => {
       { type: "hello", protocolVersion: PROTOCOL_VERSION },
       { type: "join", name: "Alex" },
     ]);
-    await server(socket, { data: { type: "joined", you: alex, participants: [alex] } });
+    await server(socket, { data: { type: "joined", you: alex, participants: [alex], locked: false, timer: null } });
     expect(dialog()).toBeNull();
     expect(localStorage.getItem("stickyard:name")).toBe("Alex");
   });
@@ -354,7 +354,7 @@ describe("the name sheet", () => {
 async function inRoom() {
   await mount(`#/room/${CODE}`);
   const socket = await joinAs("Alex");
-  await server(socket, { data: { type: "joined", you: alex, participants: [alex, sam] } });
+  await server(socket, { data: { type: "joined", you: alex, participants: [alex, sam], locked: false, timer: null } });
   return socket;
 }
 
@@ -410,7 +410,7 @@ describe("the room", () => {
 
   it("renders participant names as plain text, never HTML", async () => {
     const socket = await inRoom();
-    await server(socket, { data: { type: "participant_joined", participant: { id: "CCCCCCCCCCCCCCCC", name: "<i>Kai</i>", colourIndex: 2 } } });
+    await server(socket, { data: { type: "participant_joined", participant: { id: "CCCCCCCCCCCCCCCC", name: "<i>Kai</i>", colourIndex: 2, host: false } } });
     await openFromTopBar("Participants");
     expect(dialog()?.textContent).toContain("<i>Kai</i>");
     expect(dialog()?.querySelector("i")).toBeNull();
@@ -420,7 +420,7 @@ describe("the room", () => {
     const socket = await inRoom();
     await server(socket, { data: { type: "snapshot", notes: [] } });
     const live = () => [...document.querySelectorAll('[aria-live="polite"]')].map((e) => e.textContent).join(" ");
-    await server(socket, { data: { type: "participant_joined", participant: { id: "CCCCCCCCCCCCCCCC", name: "Kai", colourIndex: 2 } } });
+    await server(socket, { data: { type: "participant_joined", participant: { id: "CCCCCCCCCCCCCCCC", name: "Kai", colourIndex: 2, host: false } } });
     await server(socket, { data: { type: "participant_left", id: sam.id } });
     expect(live()).not.toContain("Kai joined");
     // A leave waits a short grace (a quick reconnect cancels it), so the toast comes after it.
@@ -539,7 +539,7 @@ describe("chat", () => {
   it("renders chat text and names as plain text, never HTML", async () => {
     const socket = await inRoom();
     const evil = '<img src=x onerror="alert(1)"><b>bold</b>';
-    await server(socket, { data: { type: "participant_joined", participant: { id: "CCCCCCCCCCCCCCCC", name: "<i>Kai</i>", colourIndex: 2 } } });
+    await server(socket, { data: { type: "participant_joined", participant: { id: "CCCCCCCCCCCCCCCC", name: "<i>Kai</i>", colourIndex: 2, host: false } } });
     await server(socket, { data: { type: "echo", from: "CCCCCCCCCCCCCCCC", text: evil } });
     await openFromTopBar("Chat");
     expect(messages()?.textContent).toContain(evil);
@@ -2890,7 +2890,7 @@ describe("reconnecting (UI)", () => {
   const notes = () => [...document.querySelectorAll<HTMLElement>('[aria-roledescription="note"]')];
   const properties = () => document.querySelector<HTMLElement>('aside[aria-label="Properties"]');
   const titleArea = () => document.querySelector<HTMLTextAreaElement>('textarea[data-inline="title"]');
-  const newMe: Participant = { id: "CCCCCCCCCCCCCCCC", name: "Alex", colourIndex: 4 };
+  const newMe: Participant = { id: "CCCCCCCCCCCCCCCC", name: "Alex", colourIndex: 4, host: false };
 
   async function withNotes(isWide: boolean, ...list: Note[]) {
     setWide(isWide);
@@ -2910,7 +2910,7 @@ describe("reconnecting (UI)", () => {
   async function answer(socket: FakeWebSocket, list: Note[], you: Participant = newMe) {
     await server(socket, "open");
     await server(socket, { data: { type: "welcome", protocolVersion: PROTOCOL_VERSION } });
-    await server(socket, { data: { type: "joined", you, participants: [you, sam] } });
+    await server(socket, { data: { type: "joined", you, participants: [you, sam], locked: false, timer: null } });
     await server(socket, { data: { type: "snapshot", notes: list } });
     await server(socket, { data: { type: "framesSnapshot", frames: [] } });
   }
@@ -3029,13 +3029,13 @@ describe("reconnecting (UI)", () => {
 });
 
 describe("presence (UI)", () => {
-  const people = (n: number): Participant[] => Array.from({ length: n }, (_, i) => ({ id: `PPPPPPPPPPPPP${String(i).padStart(3, "0")}`, name: `Person ${i}`, colourIndex: i }));
+  const people = (n: number): Participant[] => Array.from({ length: n }, (_, i) => ({ id: `PPPPPPPPPPPPP${String(i).padStart(3, "0")}`, name: `Person ${i}`, colourIndex: i, host: false }));
   const participantsButton = () => document.querySelector<HTMLElement>('header [aria-label^="Participants"]');
   async function roomWith(list: Participant[], isWide: boolean) {
     setWide(isWide);
     await mount(`#/room/${CODE}`);
     const socket = await joinAs("Alex");
-    await server(socket, { data: { type: "joined", you: alex, participants: list } });
+    await server(socket, { data: { type: "joined", you: alex, participants: list, locked: false, timer: null } });
     await server(socket, { data: { type: "snapshot", notes: [] } });
     return socket;
   }
@@ -3068,7 +3068,7 @@ describe("presence (UI)", () => {
   it("toasts are plain text, polite, don't take focus, and leave the ribbon and the top bar alone", async () => {
     const socket = await roomWith([alex, sam], false);
     const before = document.activeElement;
-    await server(socket, { data: { type: "participant_joined", participant: { id: "CCCCCCCCCCCCCCCC", name: "<i>Kai</i>", colourIndex: 2 } } });
+    await server(socket, { data: { type: "participant_joined", participant: { id: "CCCCCCCCCCCCCCCC", name: "<i>Kai</i>", colourIndex: 2, host: false } } });
     await act(() => new Promise((resolve) => setTimeout(resolve, 1100)));
     const region = document.querySelector<HTMLElement>("[data-presence-toasts]");
     expect(region?.getAttribute("aria-live")).toBe("polite");

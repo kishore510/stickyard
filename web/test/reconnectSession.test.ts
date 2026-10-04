@@ -405,7 +405,7 @@ describe("rejoining", () => {
 
   it("copes with a new participant id and colour: you, participants, people and every id you had", async () => {
     const t = setup();
-    const newMe: Participant = { id: "CCCCCCCCCCCCCCCC", name: "Alex", colourIndex: 5 };
+    const newMe: Participant = { id: "CCCCCCCCCCCCCCCC", name: "Alex", colourIndex: 5, host: false };
     t.relay.drop();
     t.relay.you = newMe;
     await t.reconnect();

@@ -42,8 +42,8 @@ class FakeSocket {
   }
 }
 
-const alex: Participant = { id: "AAAAAAAAAAAAAAAA", name: "Alex", colourIndex: 0 };
-const sam: Participant = { id: "BBBBBBBBBBBBBBBB", name: "Sam", colourIndex: 1 };
+const alex: Participant = { id: "AAAAAAAAAAAAAAAA", name: "Alex", colourIndex: 0, host: false };
+const sam: Participant = { id: "BBBBBBBBBBBBBBBB", name: "Sam", colourIndex: 1, host: false };
 const noteId = (i: number) => `note${String(i).padStart(12, "0")}`;
 const frameId = (i: number) => `frame${String(i).padStart(11, "0")}`;
 const note = (i: number, x: number, y: number, extra: Partial<Note> = {}): Note => ({
@@ -91,7 +91,7 @@ function session({ frames = [] as Frame[] | null, notes = [] as Note[] } = {}) {
   };
   sock().handlers.onOpen();
   sock().receive({ type: "welcome", protocolVersion: PROTOCOL_VERSION });
-  sock().receive({ type: "joined", you: alex, participants: [alex, sam] });
+  sock().receive({ type: "joined", you: alex, participants: [alex, sam], locked: false, timer: null });
   sock().receive({ type: "snapshot", notes });
   if (frames) sock().receive({ type: "framesSnapshot", frames });
   const view = () => {

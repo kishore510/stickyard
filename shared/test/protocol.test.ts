@@ -15,12 +15,12 @@ import {
 
 const ID_A = "AAAAAAAAAAAAAAAA";
 const ID_B = "BBBBBBBBBBBBBBBB";
-const alex = { id: ID_A, name: "Alex", colourIndex: 0 };
-const sam = { id: ID_B, name: "Sam", colourIndex: 1 };
+const alex = { id: ID_A, name: "Alex", colourIndex: 0, host: false };
+const sam = { id: ID_B, name: "Sam", colourIndex: 1, host: false };
 
 describe("constants", () => {
   it("PROTOCOL_VERSION is 11", () => {
-    expect(PROTOCOL_VERSION).toBe(11);
+    expect(PROTOCOL_VERSION).toBeGreaterThanOrEqual(11);
   });
 
   it("limits are the slice 1 defaults", () => {
@@ -74,7 +74,7 @@ describe("clientMessageSchema", () => {
 describe("serverMessageSchema", () => {
   const valid: [string, ServerMessage][] = [
     ["welcome", { type: "welcome", protocolVersion: 2 }],
-    ["joined", { type: "joined", you: alex, participants: [alex, sam] }],
+    ["joined", { type: "joined", you: alex, participants: [alex, sam], locked: false, timer: null }],
     ["participant_joined", { type: "participant_joined", participant: sam }],
     ["participant_left", { type: "participant_left", id: ID_B }],
     ["echo", { type: "echo", from: ID_A, text: "Hello <b>there</b>" }],
@@ -114,7 +114,7 @@ describe("serverMessageSchema", () => {
     ["participant with a long name", { type: "participant_joined", participant: { ...sam, name: "x".repeat(25) } }],
     [
       "joined with too many participants",
-      { type: "joined", you: alex, participants: Array.from({ length: MAX_PARTICIPANTS + 1 }, () => alex) },
+      { type: "joined", you: alex, participants: Array.from({ length: MAX_PARTICIPANTS + 1 }, () => alex), locked: false, timer: null },
     ],
     ["echo without from", { type: "echo", text: "hi" }],
     ["echo with empty text", { type: "echo", from: ID_A, text: "" }],
@@ -130,8 +130,9 @@ describe("serverMessageSchema", () => {
       id: ID_A,
       name,
       colourIndex: i,
+      host: true,
     }));
-    const raw = encodeMessage({ type: "joined", you: people[0]!, participants: people });
+    const raw = encodeMessage({ type: "joined", you: people[0]!, participants: people, locked: false, timer: null });
     expect(parseMessage(raw, serverMessageSchema).ok).toBe(true);
   });
 

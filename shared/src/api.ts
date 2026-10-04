@@ -25,7 +25,11 @@ export const createRoomRequestSchema = z.strictObject({
   passcode: z.string().min(1).max(MAX_PASSCODE_LENGTH),
 });
 
-export const createRoomResponseSchema = z.object({ code: roomCodeSchema });
+/**
+ * POST /rooms answer. `hostToken` (protocol v12) proves its holder created the room: the web keeps
+ * it on the creator's device and sends it only in claimHost. Never in a URL.
+ */
+export const createRoomResponseSchema = z.object({ code: roomCodeSchema, hostToken: z.string().regex(/^[A-Za-z0-9_-]{43}$/) });
 
 export const apiErrorCodeSchema = z.enum([
   "invalid_passcode",
