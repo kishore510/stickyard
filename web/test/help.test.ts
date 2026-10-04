@@ -5,7 +5,7 @@ import { buildTopics, parseFrontMatter, searchTopics } from "../src/help/topics"
 
 describe("help topics", () => {
   it("loads the topics, quick start first", () => {
-    expect(HELP_TOPICS.map((t) => t.id)).toEqual(["quick-start", "sessions", "notes", "participants", "chat", "names", "connection", "touch-and-keyboard"]);
+    expect(HELP_TOPICS.map((t) => t.id)).toEqual(["quick-start", "sessions", "notes", "participants", "chat", "names", "connection", "touch-and-keyboard", "hosting"]);
     expect(topicById("sessions")?.title).toBe("Starting and joining a session");
     expect(topicById(QUICK_START_ID)?.title).toBe("Quick start");
   });
@@ -84,9 +84,28 @@ describe("help topics", () => {
     expect(sessions).not.toMatch(/end session button|lock button|timer tile/);
   });
 
-  it("help topics only claim what exists: no cursors, QR codes, timers or votes yet", () => {
+  it("help topics only claim what exists: no cursors, QR codes or votes yet (the timer exists since v0.16.0)", () => {
     const all = HELP_TOPICS.map((t) => t.text).join("\n");
-    expect(all).not.toMatch(/qr code|cursor|timer|vote|voting/);
+    expect(all).not.toMatch(/qr code|cursor|vote|voting/);
+  });
+
+  it("Running a session covers the host, the timer, the lock, End session and a changed device", () => {
+    const hosting = HELP_TOPICS.find((t) => t.id === "hosting")?.text ?? "";
+    for (const claim of [
+      "whoever starts a session is its host",
+      "can't move to another device",
+      "last minute",
+      "time's up",
+      "1 second to 3 hours",
+      "the board is locked by the host.",
+      "you can still chat and look around",
+      "end session",
+      "can't be restored",
+      "session ended",
+    ]) {
+      expect(hosting, claim).toContain(claim);
+    }
+    expect(searchTopics(HELP_TOPICS, "timer").map((r) => r.topic.id)[0]).toBe("hosting");
   });
 
   it("rejects a file without valid front matter", () => {

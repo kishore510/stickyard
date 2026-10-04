@@ -32,6 +32,7 @@ A **session** is one shared room with its own link. Its address looks like `#/ro
 - Whoever starts a session is its host. Stickyard remembers that on the device you started it from, so you're host again whenever you rejoin from there.
 - The session's link and code let people join, but the link alone can't lock or end a session.
 - If you open the session on another device, or clear this browser's site data, you join as an ordinary participant: that device isn't a host.
+- What a host can do (a timer, locking the board, ending the session): see [Running a session](help:hosting).
 
 ## How long a session lasts
 

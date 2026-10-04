@@ -2,6 +2,19 @@
 
 All notable changes to Stickyard, newest first. The format follows Keep a Changelog. Versions are 0.x: a minor bump for each slice and a patch bump for each follow-up fix. This file is shown in the app under **What’s new**, so entries are written for the people using it.
 
+## [0.16.0] - 2026-10-04
+
+### Added
+- A timer everyone can see. While one runs, the top bar shows the time left, the same for everyone. It says **Last minute** near the end and **Time's up** when it's done. Screen readers hear when it starts, at 1 minute left and when time's up.
+- The session's host (whoever started it, on that device) can start a timer from **Timer** under **Facilitation** in the palette. Choose 1, 3, 5, 10, 15 or 30 minutes, or type any length up to 3 hours. The host can also restart or stop it. On a phone, the host's controls are in a **Session** section of the **Participants** panel.
+- The host can **Lock board**, so only hosts can change it. Everyone else sees a short message saying the board is locked and that they can still chat and look around.
+- The host can **End session** (in **Properties** with nothing selected, or **Session** on a phone). After one question, the board is deleted for everyone and they all see **Session ended**.
+- Hosts are marked: **Host** next to their name in **Participants**, and a small crown on their face in the top bar.
+- Help has a new topic, **Running a session**.
+
+### Changed
+- While the board is locked, buttons and tiles that would change it are greyed out for everyone but the host and say "The board is locked by the host."
+
 ## [0.15.1] - 2026-10-04
 
 ### Changed
