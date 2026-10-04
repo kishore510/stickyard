@@ -22,6 +22,11 @@ export function confirmDelete(text: string, confirm: (message: string) => boolea
   return !text.trim() || confirm("Delete this note? It’s removed for everyone in the session.");
 }
 
+/** Asks before deleting several notes, always (even empty ones), with the count. */
+export function confirmDeleteNotes(count: number, confirm: (message: string) => boolean = (m) => window.confirm(m)): boolean {
+  return confirm(`Delete ${count} notes? They’re removed for everyone in the session.`);
+}
+
 /**
  * Who added a note, from the relay's participant records (never from the note itself).
  * Ids are per visit, so someone who joined before you and has left, or your own earlier

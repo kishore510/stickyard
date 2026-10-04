@@ -112,12 +112,20 @@ export interface RoomView {
   board: Board;
   /** A short message about a refused note change, until the next note action. */
   noteNotice: string | null;
+  /** How the last delete of several notes went, until the next note action. */
+  deleteReport: DeleteReport | null;
   /** The board snapshot has arrived (the first view can be fitted to the notes). */
   synced: boolean;
   /** The template being applied here (template tiles are off meanwhile), or how the last one ended. */
   template: TemplateRun | null;
   /** Everyone seen in this visit (including people who have left), by id: note authors' names. */
   people: ReadonlyMap<string, Participant>;
+}
+
+/** A delete's outcome: `partial` when some notes weren't (or may not have been) deleted. */
+export interface DeleteReport {
+  text: string;
+  partial: boolean;
 }
 
 export const INITIAL_VIEW: RoomView = {
@@ -130,6 +138,7 @@ export const INITIAL_VIEW: RoomView = {
   announcement: "",
   board: EMPTY_BOARD,
   noteNotice: null,
+  deleteReport: null,
   synced: false,
   template: null,
   people: new Map(),
@@ -198,6 +207,38 @@ export const NOTICES = {
   templateNoRoom: (needs: number, free: number) => `This template needs ${needs} frames, but the board has room for ${free} more.`,
 } as const;
 
+const notesWord = (n: number) => (n === 1 ? "note" : "notes");
+
+/** The report for a delete of several notes, once every note in it is accounted for. */
+export function deleteReportFor({ total, refused, tooQuick, lost }: { total: number; refused: number; tooQuick: boolean; lost: number }): DeleteReport {
+  const deleted = total - refused - lost;
+  if (refused === 0 && lost === 0) return { text: `Deleted ${deleted} ${notesWord(deleted)}.`, partial: false };
+  const parts = [`Deleted ${deleted} of ${total} ${notesWord(total)}.`];
+  if (refused > 0) {
+    const one = refused === 1;
+    const why = tooQuick ? "that was too quick" : "the relay refused it";
+    parts.push(`${refused} ${one ? "wasn’t" : "weren’t"} deleted because ${why}; ${one ? "it’s" : "they’re"} back on the board. Try again.`);
+  }
+  if (lost > 0) {
+    const one = lost === 1;
+    parts.push(`The connection was lost before ${lost} ${one ? "was" : "were"} confirmed, so ${one ? "it" : "they"} may still be on the board.`);
+  }
+  return { text: parts.join(" "), partial: true };
+}
+
+export const DELETE_OFFLINE: DeleteReport = { text: "You’re not connected, so nothing was deleted.", partial: true };
+
+/** A delete of several notes in flight: what the relay hasn't answered for yet, and what it refused. */
+interface DeleteRun {
+  total: number;
+  /** Server ids waiting for the relay's delete. */
+  ids: Set<string>;
+  /** Adds deleted before they were confirmed: their clientRefs, until the id arrives (then in `ids`). */
+  refs: Set<string>;
+  refused: number;
+  tooQuick: boolean;
+}
+
 const randomRef = (): string => {
   const bytes = crypto.getRandomValues(new Uint8Array(9));
   return btoa(String.fromCharCode(...bytes)).replaceAll("+", "-").replaceAll("/", "_");
@@ -257,6 +298,8 @@ export class RoomSession {
   /** The template being applied, if any (one at a time). */
   private template: TemplateApply | null = null;
   private templateSeq = 0;
+  /** The delete of several notes being confirmed, if any (a new one joins it). */
+  private deleteRun: DeleteRun | null = null;
 
   constructor(private readonly options: SessionOptions) {}
 
@@ -488,22 +531,48 @@ export class RoomSession {
     return true;
   }
 
-  /** Deletes several notes here at once, sent as batches of deletes. */
+  /**
+   * Deletes several notes here at once, sent as batches of deletes. Once the relay has answered
+   * for every one, `deleteReport` says how many went (and why any didn't). Not connected: nothing
+   * is deleted, and the report says so.
+   */
   deleteNotes(ids: readonly string[]): void {
-    if (!this.live) return;
+    if (this.stopped) return;
+    if (!this.live) return this.update({ deleteReport: DELETE_OFFLINE });
     let board = this.view.board;
     const ops: NoteBatchEntry[] = [];
+    const run = this.deleteRun ?? { total: 0, ids: new Set<string>(), refs: new Set<string>(), refused: 0, tooQuick: false };
     for (const id of ids) {
       const entry = findNote(board, id);
       if (!entry) continue;
       this.stopMove(id);
       this.stopResize(id);
       board = deleteLocal(board, id);
-      if (entry.clientRef !== null) this.abandoned.add(entry.clientRef);
-      else ops.push({ op: "delete", id });
+      run.total++;
+      if (entry.clientRef !== null) {
+        this.abandoned.add(entry.clientRef);
+        run.refs.add(entry.clientRef);
+      } else {
+        ops.push({ op: "delete", id });
+        run.ids.add(id);
+      }
     }
+    if (run.total > 0) this.deleteRun = run;
     this.update({ board, noteNotice: null });
     this.sendBatch(ops, true);
+  }
+
+  /** The relay deleted a note (ours or someone else's): one fewer to hear about. */
+  private deleteDone(id: string): void {
+    this.deleteRun?.ids.delete(id);
+  }
+
+  /** Reports the delete once nothing in it is left to hear about. */
+  private deleteSettled(): Partial<RoomView> {
+    const run = this.deleteRun;
+    if (!run || run.ids.size > 0 || run.refs.size > 0) return {};
+    this.deleteRun = null;
+    return { deleteReport: deleteReportFor({ ...run, lost: 0 }) };
   }
 
   /**
@@ -872,7 +941,10 @@ export class RoomSession {
     this.stopAllMoves();
     this.socket = null;
     if (status === "joined") {
-      this.update({ status: "disconnected" });
+      const run = this.deleteRun;
+      this.deleteRun = null;
+      const lost = run ? run.ids.size + run.refs.size : 0;
+      this.update({ status: "disconnected", ...(run ? { deleteReport: deleteReportFor({ ...run, lost }) } : {}) });
       // Cut off part-way: what was made stays, and the notice says so.
       return this.endTemplate("partial");
     }
@@ -955,6 +1027,7 @@ export class RoomSession {
           // Deleted here before the server confirmed it.
           board = deleteLocal(board, note.id);
           this.send({ type: "noteDelete", id: note.id });
+          if (this.deleteRun?.refs.delete(clientRef)) this.deleteRun.ids.add(note.id);
         } else if (temp) {
           // Text, colour or style committed while the add was in flight: one edit with all of it.
           const edit = { ...(temp.note.text !== note.text ? { text: temp.note.text } : {}), ...styleChanges(note, temp.note) };
@@ -985,9 +1058,10 @@ export class RoomSession {
             this.stopResize(result.id);
             editingDeleted ||= findNote(board, result.id)?.draft != null;
             board = applyDeleted(board, result.id);
+            this.deleteDone(result.id);
           }
         }
-        return this.update({ board, ...(editingDeleted ? { noteNotice: NOTICES.deletedWhileEditing } : {}) });
+        return this.update({ board, ...(editingDeleted ? { noteNotice: NOTICES.deletedWhileEditing } : {}), ...this.deleteSettled() });
       }
 
       case "notesOrdered":
@@ -1038,9 +1112,11 @@ export class RoomSession {
         this.stopMove(message.id);
         this.stopResize(message.id);
         const editing = findNote(this.view.board, message.id)?.draft != null;
+        this.deleteDone(message.id);
         return this.update({
           board: applyDeleted(this.view.board, message.id),
           ...(editing ? { noteNotice: NOTICES.deletedWhileEditing } : {}),
+          ...this.deleteSettled(),
         });
       }
 
@@ -1078,6 +1154,22 @@ export class RoomSession {
   /** The server refused a note or frame change: roll it back and say why. */
   private noteRefused(message: Extract<ServerMessage, { type: "error" }>): void {
     let board = this.view.board;
+    const noteIds = [...(message.noteId !== undefined ? [message.noteId] : []), ...(message.noteIds ?? [])];
+    // Refusals that only touch a delete in flight are told in its report, not as a notice.
+    const run = this.deleteRun;
+    let ours = run !== null && message.frameId === undefined && (message.clientRef !== undefined || noteIds.length > 0);
+    if (run && message.clientRef !== undefined) {
+      // A refused add that was deleted here anyway: gone, as asked.
+      if (!run.refs.delete(message.clientRef)) ours = false;
+    }
+    if (run) {
+      for (const id of noteIds) {
+        if (run.ids.delete(id)) {
+          run.refused++;
+          run.tooQuick ||= message.code === "rate_limited";
+        } else ours = false;
+      }
+    }
     if (message.clientRef !== undefined) {
       // A clientRef belongs to one add, a note's or a frame's.
       this.abandoned.delete(message.clientRef);
@@ -1092,7 +1184,7 @@ export class RoomSession {
     }
     // One note, or the notes a refused batch named (the rest of the batch stands). Last first, so
     // notes deleted together go back in their old places.
-    for (const id of [...(message.noteId !== undefined ? [message.noteId] : []), ...(message.noteIds ?? [])].reverse()) {
+    for (const id of [...noteIds].reverse()) {
       this.stopMove(id);
       this.stopResize(id);
       board = rollback(board, id);
@@ -1105,7 +1197,12 @@ export class RoomSession {
           : message.code === "rate_limited"
             ? NOTICES.tooQuick
             : NOTICES.refused;
-    this.update({ board, noteNotice, ...(message.code === "rate_limited" ? { rateLimited: true } : {}) });
+    this.update({
+      board,
+      ...(ours ? {} : { noteNotice }),
+      ...(message.code === "rate_limited" ? { rateLimited: true } : {}),
+      ...this.deleteSettled(),
+    });
   }
 
   private startTimer(): void {
@@ -1132,6 +1229,8 @@ export class RoomSession {
   }
 
   private update(patch: Partial<RoomView>): void {
+    // A note action (it clears the notice) also clears the last delete's report.
+    if (patch.noteNotice === null && !("deleteReport" in patch)) patch = { ...patch, deleteReport: null };
     this.view = { ...this.view, ...patch };
     this.options.onChange(this.view);
   }

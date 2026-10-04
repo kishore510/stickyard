@@ -9,13 +9,14 @@ import { confirmFrameDelete } from "../frames/label";
 import { FrameActionsContext, FrameNode, type FrameActions } from "../frames/FrameNode";
 import { frameMinimapColour } from "../frames/style";
 import { findNote, type Board } from "../notes/board";
-import { confirmDelete } from "../notes/label";
+import { confirmDelete, confirmDeleteNotes } from "../notes/label";
 import { DEFAULT_NOTE_SIZE, noteSize } from "../notes/size";
 import { NoteActionsContext, NoteHelpContext, NoteNode, type EditorRequest, type NoteActions } from "../notes/NoteCard";
 import { groupOffset } from "./arrange";
 import { MAX_ZOOM, MIN_ZOOM, WHEEL_BEHAVIOUR, dragThreshold, panExtent } from "./geometry";
 import { FLOW_STACKING, createDragHandlers, createNoteNodeMapper, type CanvasNode } from "./nodes";
 import { framedNotes } from "../frames/board";
+import { deleteKeyTarget, inField } from "./deleteKey";
 import { dragSelection } from "./pointer";
 import { orderedIds } from "./selection";
 import { useBoardUi } from "./uiStore";
@@ -41,16 +42,14 @@ const minimapColour = (node: CanvasNode) =>
 /** After the last arrow key press on a selection, its position is committed (stored) this much later. */
 const KEY_COMMIT_MS = 400;
 
-/** Whether a key press belongs to a field (so Ctrl+A and Escape there are the field's). */
-const inField = (target: EventTarget | null) =>
-  target instanceof Element && target.closest('input, textarea, select, [contenteditable="true"]') !== null;
-
 /** Whether a key press belongs to a field or control (so Space there isn't a pan). */
 const ownsSpace = (target: EventTarget | null) =>
   target instanceof Element && target.closest('input, textarea, select, button, a, [role="button"], [contenteditable="true"]') !== null;
 
 export interface BoardRoom {
   board: Board;
+  /** Connected: changes can be sent. */
+  live: boolean;
   startDrag(id: string): boolean;
   moveNote(id: string, x: number, y: number, final: boolean): void;
   startResize(id: string): boolean;
@@ -72,6 +71,23 @@ export interface BoardRoom {
   deleteFrame(id: string): void;
 }
 
+/**
+ * Deletes these selected notes, asking once (one note: only if it has text) and clearing the
+ * selection. Not connected: asks nothing, and the room says nothing was deleted.
+ */
+function deleteSelected(room: BoardRoom, ids: readonly string[]): void {
+  const [only] = ids;
+  if (only === undefined) return;
+  if (!room.live) return room.deleteNotes(ids);
+  if (ids.length === 1) {
+    if (!confirmDelete(findNote(room.board, only)?.note.text ?? "")) return;
+    room.deleteNote(only);
+  } else {
+    if (!confirmDeleteNotes(ids.length)) return;
+    room.deleteNotes(ids);
+  }
+  useBoardUi.getState().clearSelection();
+}
 
 /**
  * The board canvas: React Flow, controlled. Notes come from the room's board as memoised nodes;
@@ -207,13 +223,11 @@ export function BoardCanvas({
           now.moveGroup(ids.flatMap((id) => findNote(now.board, id)?.note ?? []).map((n) => ({ id: n.id, x: n.x, y: n.y })), true);
         }, KEY_COMMIT_MS);
       },
-      deleteSelection: () => {
-        const room = latest.current;
-        const ids = orderedIds(useBoardUi.getState().selection);
-        const text = ids.map((id) => findNote(room.board, id)?.note.text ?? "").join("");
-        if (!confirmDelete(text)) return;
-        room.deleteNotes(ids);
-        useBoardUi.getState().clearSelection();
+      deleteFromKey: (id) => {
+        // A note outside the selection (focused before a marquee or Ctrl-click) deletes the selection, never itself.
+        const { selection } = useBoardUi.getState();
+        const own = selection.size === 0 || (selection.size === 1 && selection.has(id)) || !multi.current;
+        deleteSelected(latest.current, own ? [id] : orderedIds(selection));
       },
     }),
     [view],
@@ -269,8 +283,21 @@ export function BoardCanvas({
       }
       const ui = useBoardUi.getState();
       if (e.key === "Escape" && (ui.selection.size > 0 || ui.frameSelected !== null)) ui.clearSelection();
+      const target = deleteKeyTarget(e, {
+        multi: multi.current,
+        selection: ui.selection.size,
+        frameSelected: ui.frameSelected !== null,
+        modal: document.querySelector('[aria-modal="true"]') !== null,
+        board: sectionRef.current,
+      });
+      // Delete with the selection but no note focused (after Ctrl+A or a marquee): delete the selection.
+      if (target === "notes") {
+        e.preventDefault();
+        deleteSelected(latest.current, orderedIds(ui.selection));
+        return;
+      }
       // Delete (or Backspace) on a selected frame deletes it, asking first; its notes stay.
-      if ((e.key === "Delete" || e.key === "Backspace") && ui.frameSelected !== null && multi.current) {
+      if (target === "frame" && ui.frameSelected !== null) {
         const entry = findFrame(latest.current.board, ui.frameSelected);
         if (!entry) return;
         e.preventDefault();

@@ -200,10 +200,12 @@ describe("notesOrder", () => {
 
   it("last write wins in arrival order: the later Front ends on top", async () => {
     const { stub, a, b } = await room();
+    // notesOrdered goes to everyone, the sender too: take both copies of each, so the second
+    // wait is for b's order and not a's own earlier broadcast still queued.
     a.send({ type: "notesOrder", ids: [id(0)], action: "front" });
-    await nextOfType(b, "notesOrdered");
+    await Promise.all([nextOfType(a, "notesOrdered"), nextOfType(b, "notesOrdered")]);
     b.send({ type: "notesOrder", ids: [id(1)], action: "front" });
-    await nextOfType(a, "notesOrdered");
+    await Promise.all([nextOfType(a, "notesOrdered"), nextOfType(b, "notesOrdered")]);
     expect((await stacked(stub)).slice(-2)).toEqual([id(0), id(1)]);
     close(a, b);
   });
