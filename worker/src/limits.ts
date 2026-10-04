@@ -1,3 +1,5 @@
+import { ROOM_IDLE_EXPIRY_DAYS } from "@stickyard/shared";
+
 /*
  * Abuse limits for room creation and per-connection message rates, in one place.
  * These are the project owner's chosen defaults; change them here.
@@ -47,3 +49,12 @@ export const BATCH_LIMITS = {
   entriesPerSecond: 600,
   entriesBurst: 1000,
 } as const;
+
+/**
+ * Idle room expiry (worker/src/expiry.ts). When the last socket of a room closes, its alarm is
+ * set this far ahead; when it fires with nobody connected, the room's data is deleted and a
+ * tombstone kept. An existing alarm within ALARM_RESET_SLACK_MS of the new time is left alone,
+ * so a script opening and closing sockets writes the alarm at most about once an hour.
+ */
+export const ROOM_IDLE_EXPIRY_MS = ROOM_IDLE_EXPIRY_DAYS * DAY;
+export const ALARM_RESET_SLACK_MS = HOUR;

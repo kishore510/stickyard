@@ -162,6 +162,14 @@ export class Room extends DurableObject<Env> {
     return this.notes.rowsWritten;
   }
 
+  /** Stub: tests first. */
+  override async alarm(): Promise<void> {}
+
+  /** Expired (tombstoned). Stub: tests first. */
+  get expired(): boolean {
+    return false;
+  }
+
   /** Batch transactions committed by this instance (tests check a final batch is one). */
   get transactions(): number {
     return this.notes.transactions;
