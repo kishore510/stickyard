@@ -235,6 +235,8 @@
   --sy-content-max: 36rem;
   /* The welcome screen's column from md up (the two actions side by side). */
   --sy-welcome-max: 52rem;
+  /* The board bar's Arrange panel (opened from the top bar, v0.15.1): wraps its rows within this. */
+  --sy-arrange-max: 24rem;
   /* Menu popover, and the label column in About's details. */
   --sy-menu-width: 18rem;
   --sy-menu-max-h: 80dvh;
@@ -509,6 +511,7 @@
   --container-*: initial;
   --container-content: var(--sy-content-max);
   --container-welcome: var(--sy-welcome-max);
+  --container-arrange: var(--sy-arrange-max);
   --container-sheet: var(--sy-sheet-width);
 
   --radius-*: initial;

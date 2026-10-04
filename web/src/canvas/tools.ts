@@ -28,7 +28,7 @@ export interface ToolContext {
   zoom: number;
   /** Why notes can't be added right now, or null. */
   noteReason: string | null;
-  /** Undo and redo (the room's history); phones get them in the ribbon, md and up in the floating bar. */
+  /** Undo and redo (the room's history); phones get them in the ribbon, md and up in the board bar (in the top bar). */
   undo(): void;
   redo(): void;
   undoReason: string | null;
@@ -153,7 +153,7 @@ export const TOOLS: readonly Tool[] = [
     id: "undo",
     label: "Undo",
     icon: Undo2,
-    // Phones only: from md up Undo is in the floating bar (Ctrl+Z).
+    // Phones only: from md up Undo is in the board bar in the top bar (Ctrl+Z).
     slots: { ribbon: 5 },
     run: (c) => c.undo(),
     disabled: (c) => c.undoReason,

@@ -36,6 +36,13 @@ class FakeWebSocket {
     this.closed = true;
   }
 }
+/** A board-bar command that is off (since v0.15.1 it stays focusable: aria-disabled, never hidden). */
+const isOff = (el: Element | null | undefined) => el?.getAttribute("aria-disabled") === "true";
+/** The tooltip a command points at (aria-describedby): its name, or why it's off. */
+const tipOf = (el: Element | null | undefined) => {
+  const id = el?.getAttribute("aria-describedby");
+  return id ? document.getElementById(id) : null;
+};
 const lastSocket = () => {
   const s = FakeWebSocket.instances.at(-1);
   if (!s) throw new Error("no socket");
@@ -1727,17 +1734,17 @@ describe("multi-select and arrange (slice 2.8, md up)", () => {
     const socket = await withNotes(one, two, three);
     await noteClick(0);
     // The bar is always there from md up; with one note the arrange commands are off, and say why.
-    expect(bar()?.querySelector<HTMLButtonElement>('[aria-label="Align left edges"]')?.disabled).toBe(true);
+    expect(isOff(bar()?.querySelector<HTMLButtonElement>('[aria-label="Align left edges"]'))).toBe(true);
     expect(bar()?.textContent).toContain("Select 2 or more notes to arrange.");
     await noteClick(1, { shiftKey: true });
-    expect(bar()?.querySelector<HTMLButtonElement>('[aria-label="Align left edges"]')?.disabled).toBe(false);
+    expect(isOff(bar()?.querySelector<HTMLButtonElement>('[aria-label="Align left edges"]'))).toBe(false);
     const distribute = bar()?.querySelector<HTMLButtonElement>('[aria-label="Distribute horizontally (equal gaps)"]');
-    expect(distribute?.disabled).toBe(true);
+    expect(isOff(distribute)).toBe(true);
     await click(bar()?.querySelector<HTMLElement>('[aria-label="Align left edges"]') ?? undefined);
     expect(batches(socket).at(-1)).toEqual({ type: "noteBatch", final: true, ops: [{ op: "move", id: N2, x: 40, y: 300 }] });
     expect(notes()[1]?.closest(".react-flow__node")?.getAttribute("style")).toContain("translate(40px");
     await noteClick(2, { shiftKey: true });
-    expect(bar()?.querySelector<HTMLButtonElement>('[aria-label="Distribute horizontally (equal gaps)"]')?.disabled).toBe(false);
+    expect(isOff(bar()?.querySelector<HTMLButtonElement>('[aria-label="Distribute horizontally (equal gaps)"]'))).toBe(false);
     await click(bar()?.querySelector<HTMLElement>('[aria-label="Match width to the first selected"]') ?? undefined);
     for (const label of ["Align centres horizontally", "Align right edges", "Align top edges", "Align centres vertically", "Align bottom edges", "Distribute vertically (equal gaps)", "Match height to the first selected", "Match size to the first selected"]) {
       expect(bar()?.querySelector(`[aria-label="${label}"]`), label).not.toBeNull();
@@ -1782,7 +1789,7 @@ describe("multi-select and arrange (slice 2.8, md up)", () => {
   it("Grid lays the selection out in reading order with auto columns: moves only, unchanged notes left out", async () => {
     const socket = await withNotes(one, two, three);
     await key("a", document.body, { ctrlKey: true });
-    expect(gridButton()?.disabled).toBe(false);
+    expect(isOff(gridButton())).toBe(false);
     expect(bar()?.querySelector('[data-grid-columns]')?.textContent).toContain("Auto");
     await click(gridButton());
     // Reading order: one, three (same band), two. Three columns from the spread, anchored at one.
@@ -2004,7 +2011,9 @@ describe("selection and delete polish (md up)", () => {
   it("Delete from a control outside the board (the top bar) does nothing", async () => {
     const socket = await withNotes([make(0), make(1)]);
     await press("a", { ctrlKey: true });
-    const menu = document.querySelector<HTMLElement>("header button");
+    // The app nav's controls (menu, theme), not the board actions that share the top bar since v0.15.1.
+    const menu = document.querySelector<HTMLElement>('header nav[aria-label="App"] button');
+    expect(menu).not.toBeNull();
     await act(async () => menu?.focus());
     vi.stubGlobal("confirm", () => true);
     await press("Delete");
@@ -2640,8 +2649,9 @@ describe("the floating bar and Duplicate (md up)", () => {
   const selected = () => notes().filter((n) => n.getAttribute("aria-current") === "true").map((n) => n.dataset.noteId);
   const bar = () => document.querySelector<HTMLElement>('[role="toolbar"][aria-label="Board actions"]');
   const command = (label: string) => bar()?.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`) ?? undefined;
-  /** The bar's hint text for a group ("Edit: ..."), under the buttons. */
-  const hint = (label: string) => [...(bar()?.querySelectorAll<HTMLElement>("[data-bar-hint]") ?? [])].find((h) => h.textContent?.startsWith(`${label}:`));
+  /** Why a group's commands are off: the tooltip of the group's first command (since v0.15.1; no hint line). */
+  const FIRST: Record<string, string> = { History: "Undo", Edit: "Duplicate", Order: "Bring to front", Arrange: "Align left edges" };
+  const hint = (group: string) => tipOf(command(FIRST[group] ?? group));
   const sentOfType = (socket: FakeWebSocket, t: string) => (socket.sent as Record<string, unknown>[]).filter((m) => m.type === t);
   async function withBoard(list: Note[], frames: Frame[] = [], isWide = true) {
     setWide(isWide);
@@ -2678,26 +2688,98 @@ describe("the floating bar and Duplicate (md up)", () => {
     );
     for (const label of ["Duplicate", "Delete", "Bring to front", "Send to back", "Align left edges", "Match size to the first selected"]) {
       expect(command(label), label).toBeDefined();
-      expect(command(label)?.disabled, label).toBe(true);
+      expect(isOff(command(label)), label).toBe(true);
     }
-    // Every off command points at visible text saying why.
-    for (const button of bar()?.querySelectorAll<HTMLButtonElement>("button:disabled") ?? []) {
+    // Every off command points at a tooltip saying why.
+    for (const button of bar()?.querySelectorAll<HTMLButtonElement>('button[aria-disabled="true"]') ?? []) {
       const ids = button.getAttribute("aria-describedby")?.split(" ") ?? [];
       const text = ids.map((id) => document.getElementById(id)?.textContent ?? "").join(" ");
       expect(text.trim().length, button.getAttribute("aria-label") ?? button.textContent ?? "").toBeGreaterThan(0);
     }
-    expect(hint("Edit")?.textContent).toContain("Select notes or a frame first.");
+    expect(tipOf(command("Delete"))?.textContent).toContain("Select notes or a frame first.");
     expect(hint("Arrange")?.textContent).toContain("Select 2 or more notes to arrange.");
     // Edit and Order show their names as text too, not only icons.
     expect(command("Duplicate")?.textContent).toContain("Duplicate");
     expect(command("Bring to front")?.textContent).toContain("Bring to front");
   });
 
+  it("lives in the top bar, between the mark and the menu, with no line of hint text (v0.15.1)", async () => {
+    await withBoard([make(0)]);
+    const header = document.querySelector("header");
+    expect(header?.contains(bar())).toBe(true);
+    const slot = header?.querySelector("[data-topbar-slot]");
+    expect(slot?.contains(bar())).toBe(true);
+    // In document order: the mark's link, the bar, then the app nav (menu).
+    const link = header?.querySelector('a[aria-label="Stickyard, start page"]');
+    const nav = header?.querySelector('nav[aria-label="App"]');
+    expect(link!.compareDocumentPosition(bar()!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(bar()!.compareDocumentPosition(nav!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(bar()?.querySelector("[data-bar-hint]")).toBeNull();
+    // Nothing of the bar is left over the board.
+    expect(document.querySelector("main [role=toolbar][aria-label='Board actions']")).toBeNull();
+  });
+
+  it("an off command explains itself in a tooltip on hover and on keyboard focus; Escape hides it; clicking it does nothing", async () => {
+    const socket = await withBoard([make(0)]);
+    const del = command("Delete")!;
+    const tip = tipOf(del)!;
+    expect(tip.getAttribute("role")).toBe("tooltip");
+    expect(tip.hidden).toBe(true);
+    await act(async () => del.dispatchEvent(new MouseEvent("mouseover", { bubbles: true })));
+    expect(tip.hidden).toBe(false);
+    expect(tip.textContent).toContain("Select notes or a frame first.");
+    await act(async () => del.dispatchEvent(new MouseEvent("mouseout", { bubbles: true })));
+    expect(tip.hidden).toBe(true);
+    // Off, but still focusable, so a keyboard user hears and sees why.
+    expect(del.disabled).toBe(false);
+    await act(async () => del.focus());
+    expect(document.activeElement).toBe(del);
+    expect(tip.hidden).toBe(false);
+    await act(async () => del.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
+    expect(tip.hidden).toBe(true);
+    const sent = socket.sent.length;
+    await click(del);
+    expect(socket.sent.length).toBe(sent);
+    // A command that's on names itself the same way.
+    await select(0);
+    const on = command("Delete")!;
+    expect(isOff(on)).toBe(false);
+    await act(async () => on.dispatchEvent(new MouseEvent("mouseover", { bubbles: true })));
+    expect(tipOf(on)?.textContent).toBe("Delete");
+  });
+
+  it("Arrange is one button that opens its controls (Escape or a second press closes them)", async () => {
+    await withBoard([make(0), make(1)]);
+    const toggle = bar()?.querySelector<HTMLButtonElement>('button[aria-label="Arrange"]');
+    expect(toggle?.getAttribute("aria-expanded")).toBe("false");
+    const panel = document.getElementById(toggle?.getAttribute("aria-controls") ?? "");
+    expect(panel?.hidden).toBe(true);
+    await click(toggle ?? undefined);
+    expect(toggle?.getAttribute("aria-expanded")).toBe("true");
+    expect(panel?.hidden).toBe(false);
+    expect(panel?.querySelector('[aria-label="Align left edges"]')).not.toBeNull();
+    await act(async () => panel?.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
+    expect(panel?.hidden).toBe(true);
+    expect(document.activeElement).toBe(toggle);
+    await click(toggle ?? undefined);
+    await click(toggle ?? undefined);
+    expect(panel?.hidden).toBe(true);
+  });
+
+  it("after using the bar, Delete and Ctrl+Z still act on the board", async () => {
+    const socket = await withBoard([make(0), make(1)]);
+    await select(0);
+    await act(async () => command("Duplicate")?.focus());
+    vi.stubGlobal("confirm", vi.fn(() => true));
+    await press("Delete", command("Duplicate")!);
+    expect(sentOfType(socket, "noteDelete").map((m) => m.id)).toEqual([nid(0)]);
+  });
+
   it("has a History group first: Undo and Redo, off with the reason as text until there's something to undo", async () => {
     await withBoard([make(0)]);
     expect(bar()?.querySelector('[role="group"]')?.getAttribute("aria-label")).toBe("History");
-    expect(command("Undo")?.disabled).toBe(true);
-    expect(command("Redo")?.disabled).toBe(true);
+    expect(isOff(command("Undo"))).toBe(true);
+    expect(isOff(command("Redo"))).toBe(true);
     expect(hint("History")?.textContent).toContain("Nothing to undo.");
   });
 
@@ -2709,7 +2791,7 @@ describe("the floating bar and Duplicate (md up)", () => {
     await click(command("Delete"));
     await server(socket, { data: { type: "notesBatchApplied", final: true, results: [{ type: "noteDeleted", id: nid(0) }, { type: "noteDeleted", id: nid(1) }] } });
     expect(notes()).toHaveLength(0);
-    expect(command("Undo")?.disabled).toBe(false);
+    expect(isOff(command("Undo"))).toBe(false);
     await click(command("Undo"));
     const add = sentOfType(socket, "itemsAdd").at(-1)!;
     expect((add.notes as { text: string }[]).map((n) => n.text)).toEqual(["Idea 0", "Idea 1"]);
@@ -2720,7 +2802,7 @@ describe("the floating bar and Duplicate (md up)", () => {
       data: { type: "itemsAdded", clientRef: add.clientRef, notes: refs.map((ref, i) => ({ ref, note: { ...make(i), id: nid(20 + i), authorId: alex.id } })), frames: [], refused: [] },
     });
     expect([...document.querySelectorAll('[role="status"]')].map((el) => el.textContent).join(" ")).toContain("Restored 2 items.");
-    expect(command("Redo")?.disabled).toBe(false);
+    expect(isOff(command("Redo"))).toBe(false);
     await click(command("Redo"));
     expect(sentOfType(socket, "noteBatch").at(-1)).toMatchObject({ ops: [{ op: "delete", id: nid(20) }, { op: "delete", id: nid(21) }] });
   });
@@ -2745,7 +2827,7 @@ describe("the floating bar and Duplicate (md up)", () => {
     await withBoard([make(0), make(1)]);
     await select(0);
     await click(command("Send to back"));
-    expect(command("Undo")?.disabled).toBe(false);
+    expect(isOff(command("Undo"))).toBe(false);
     await click(command("Undo"));
     expect(document.body.textContent).toContain("Order changes can’t be undone.");
   });
@@ -2754,7 +2836,7 @@ describe("the floating bar and Duplicate (md up)", () => {
     const socket = await withBoard([make(0, { color: "pink", titleBold: true }), make(1, { text: "Two\nbody" }), make(2)]);
     await select(0);
     await select(1, { shiftKey: true });
-    expect(command("Duplicate")?.disabled).toBe(false);
+    expect(isOff(command("Duplicate"))).toBe(false);
     await click(command("Duplicate"));
     const adds = sentOfType(socket, "itemsAdd");
     expect(adds).toHaveLength(1);
@@ -2811,7 +2893,7 @@ describe("the floating bar and Duplicate (md up)", () => {
     const socket = await withBoard([make(0)]);
     await select(0);
     await server(socket, "close");
-    expect(command("Duplicate")?.disabled).toBe(true);
+    expect(isOff(command("Duplicate"))).toBe(true);
     expect(hint("Edit")?.textContent).toContain("Not connected.");
   });
 
@@ -2820,7 +2902,7 @@ describe("the floating bar and Duplicate (md up)", () => {
     await withBoard(full);
     await select(0);
     await select(1, { shiftKey: true });
-    expect(command("Duplicate")?.disabled).toBe(true);
+    expect(isOff(command("Duplicate"))).toBe(true);
     expect(hint("Edit")?.textContent).toContain("No room to duplicate 2 notes: the board has room for 1 more.");
   });
 

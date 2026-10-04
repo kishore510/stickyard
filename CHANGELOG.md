@@ -2,6 +2,13 @@
 
 All notable changes to Stickyard, newest first. The format follows Keep a Changelog. Versions are 0.x: a minor bump for each slice and a patch bump for each follow-up fix. This file is shown in the app under **What’s new**, so entries are written for the people using it.
 
+## [0.15.1] - 2026-10-04
+
+### Changed
+- On a wider screen, the board's buttons (Undo, Redo, Duplicate, Delete, Bring to front, Send to back) now sit in the top bar, between the Stickyard mark and the menu, instead of in a panel over the board. The board has more room, and nothing covers the top of it.
+- The arranging tools (align, distribute, grid, match size) are behind one **Arrange** button that opens them. **Esc** or choosing **Arrange** again closes them.
+- The line of text that said why buttons were greyed out is gone. Point at a greyed-out button, or move to it with **Tab**, and a small label says why. Every other button names itself the same way.
+
 ## [0.15.0] - 2026-10-04
 
 ### Changed

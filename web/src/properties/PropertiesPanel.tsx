@@ -69,7 +69,7 @@ function SelectionFields({ notes, live, onOrder }: { notes: Note[]; live: boolea
   return (
     <>
       <p className="rounded-md bg-surface-muted p-ms text-sm text-fg-muted">
-        Drag one to move them all, or use the bar at the top of the board to align, distribute or match their size. Colour and text style
+        Drag one to move them all, or use Arrange in the top bar to align, distribute or match their size. Colour and text style
         change one note at a time.
       </p>
       <ColourSection note={first} live={false} onStyle={noop} mixed={mixed} />

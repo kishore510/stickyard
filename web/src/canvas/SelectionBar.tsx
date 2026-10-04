@@ -1,4 +1,4 @@
-import { useId, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import {
   AlignCenterHorizontal,
   Copy,
@@ -9,6 +9,7 @@ import {
   AlignStartHorizontal,
   AlignStartVertical,
   AlignVerticalDistributeCenter,
+  ChevronDown,
   LayoutGrid,
   Minus,
   MoveHorizontal,
@@ -16,6 +17,7 @@ import {
   Plus,
   Redo2,
   Scaling,
+  SlidersHorizontal,
   Trash2,
   Undo2,
 } from "lucide-react";
@@ -28,91 +30,166 @@ import { GRID_GAP, align, autoColumns, distribute, grid, matchSize, type AlignMo
 import { useBoardUi } from "./uiStore";
 
 /*
- * The floating bar at the top of the canvas (md and up), always there, in labelled groups:
- * History (Undo, Redo), Edit (Duplicate, Delete), Order (Bring to front, Send to back) and Arrange (Align,
- * Distribute, Grid with its Columns stepper, Match size: Chalkline's ArrangeBar). A command that
- * doesn't apply now is disabled, never hidden, and its group says why as text (each disabled
- * button points at that text with aria-describedby). History, Edit and Order show their names from lg up.
+ * The board actions bar (md and up). Since v0.15.1 it sits in the top bar, between the mark and
+ * the menu (RoomBoard portals it into shell/topBarSlot.ts), in labelled groups: History (Undo,
+ * Redo), Edit (Duplicate, Delete), Order (Bring to front, Send to back) and Arrange (one button
+ * that opens Align, Distribute, Grid with its Columns stepper and Match size: Chalkline's
+ * ArrangeBar). A command that doesn't apply now is off but never hidden: it stays focusable
+ * (aria-disabled) and its tooltip, on hover and on keyboard focus, says why; when it's on, the
+ * tooltip names it. History, Edit and Order show their names as text from xl up.
  */
 
 export interface BarCommand {
   title: string;
   icon: ReactNode;
   disabled?: boolean;
-  /** Shown instead of the title while disabled. */
+  /** Why it's off: its tooltip while disabled (the title otherwise). */
   hint?: string;
-  /** Shows the title as text next to the icon from lg up (it's always the accessible name). */
+  /** Shows the title as text next to the icon from xl up (it's always the accessible name). */
   text?: boolean;
+  /** Shows the title as text at every width. */
+  label?: boolean;
   run: () => void;
 }
 
 export interface BarGroup {
   label: string;
   commands: BarCommand[];
-  /** Controls of the group's own, after its commands; given the id of the group's hint text. */
-  content?: (hintId: string | undefined) => ReactNode;
-  /** Why commands in this group are off, shown as text after them (repeats are shown once). */
-  hints?: (string | null)[];
+  /** Arrange-style group: one button opens the commands and `content` in a panel under it. */
+  collapsed?: { icon: ReactNode };
+  /** Controls of the group's own, after its commands. */
+  content?: ReactNode;
 }
 
-/** One group's buttons (its hint text is rendered by the bar, under all the groups). */
-function BarGroupView({ group, first, hintId, hints }: { group: BarGroup; first: boolean; hintId: string; hints: string[] }) {
+/**
+ * A bar button with its tooltip (role=tooltip, aria-describedby): shown on hover and on keyboard
+ * focus, hidden by Escape or leaving. Off = aria-disabled: still focusable, the press does nothing.
+ */
+export function CommandButton({ command, className }: { command: BarCommand; className?: string }) {
+  const tipId = useId();
+  const [open, setOpen] = useState(false);
+  const off = command.disabled === true;
+  const tip = off && command.hint ? command.hint : command.title;
   return (
-    <div className="flex shrink-0 items-center xl:max-w-full xl:shrink">
-      {!first && <div aria-hidden="true" className="mx-xs h-icon-lg w-px bg-border xl:hidden" />}
-      {/* The group's name is its accessible name, and starts its line in the hints. */}
-      <div role="group" aria-label={group.label} className="flex items-center gap-2xs xl:flex-wrap xl:justify-center">
-        {group.commands.map((c) => (
-          <Button
-            key={c.title}
-            variant="ghost"
-            size={c.text ? "default" : "icon"}
-            aria-label={c.title}
-            title={c.disabled && c.hint ? c.hint : c.title}
-            aria-describedby={c.disabled && hints.length > 0 ? hintId : undefined}
-            disabled={c.disabled}
-            onClick={c.run}
-            className={cn(c.text && "min-w-touch px-sm")}
-          >
-            {c.icon}
-            {c.text && <span className="hidden xl:inline">{c.title}</span>}
-          </Button>
-        ))}
-        {group.content?.(hints.length > 0 ? hintId : undefined)}
-      </div>
-    </div>
+    <span className="relative inline-flex" onMouseEnter={() => setOpen(true)} onMouseLeave={() => setOpen(false)}>
+      <Button
+        variant="ghost"
+        size={command.text || command.label ? "default" : "icon"}
+        aria-label={command.title}
+        aria-describedby={tipId}
+        aria-disabled={off || undefined}
+        onFocus={() => setOpen(true)}
+        onBlur={() => setOpen(false)}
+        onKeyDown={(e) => {
+          if (e.key === "Escape" && open) setOpen(false);
+        }}
+        onClick={(e) => {
+          if (off) {
+            e.preventDefault();
+            return;
+          }
+          command.run();
+        }}
+        className={cn((command.text || command.label) && "min-w-touch px-sm", className)}
+      >
+        {command.icon}
+        {command.label ? <span>{command.title}</span> : command.text && <span className="hidden xl:inline">{command.title}</span>}
+      </Button>
+      <span
+        role="tooltip"
+        id={tipId}
+        hidden={!open}
+        className="pointer-events-none absolute top-full left-1/2 z-50 mt-xs -translate-x-1/2 rounded-md border border-border bg-surface px-sm py-xs text-xs font-normal whitespace-nowrap text-fg shadow-md"
+      >
+        {tip}
+      </span>
+    </span>
   );
 }
 
 /**
- * A floating toolbar of labelled groups with dividers between them. The buttons sit in one row
- * that scrolls sideways when the canvas is narrow (and wraps from xl up); why anything is off is
- * one line of text under them, per group ("Edit: ..."), so the bar stays short.
+ * A collapsed group: one button (aria-expanded) that opens a panel under it with the group's
+ * commands and controls. Escape (focus back on the button), a second press or a press outside
+ * closes it. The panel stays in the page while closed (hidden), so its controls keep their state.
  */
-export function FloatingBar({ label, groups }: { label: string; groups: BarGroup[] }) {
-  const baseId = useId();
-  const hintsOf = (group: BarGroup) => [...new Set((group.hints ?? []).filter((h): h is string => h !== null))];
+function CollapsedGroup({ group }: { group: BarGroup }) {
+  const panelId = useId();
+  const [open, setOpen] = useState(false);
+  const root = useRef<HTMLDivElement>(null);
+  const toggle = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const away = (e: PointerEvent) => {
+      if (e.target instanceof Node && !root.current?.contains(e.target)) setOpen(false);
+    };
+    document.addEventListener("pointerdown", away);
+    return () => document.removeEventListener("pointerdown", away);
+  }, [open]);
   return (
-    <Panel role="toolbar" aria-label={label} className="pointer-events-auto flex max-w-full flex-col gap-2xs p-xs shadow-lg">
-      <div className="flex max-w-full items-center overflow-x-auto xl:flex-wrap xl:justify-center xl:gap-x-md xl:overflow-visible">
-        {groups.map((group, i) => (
-          <BarGroupView key={group.label} group={group} first={i === 0} hintId={`${baseId}-${i}`} hints={hintsOf(group)} />
+    <div ref={root} className="relative flex items-center">
+      <Button
+        ref={toggle}
+        variant="ghost"
+        aria-label={group.label}
+        title={group.label}
+        aria-expanded={open}
+        aria-controls={panelId}
+        onClick={() => setOpen((o) => !o)}
+        className={cn("min-w-touch px-sm", open && "bg-surface-muted")}
+      >
+        {group.collapsed?.icon}
+        <span className="hidden lg:inline">{group.label}</span>
+        <ChevronDown />
+      </Button>
+      <Panel
+        id={panelId}
+        role="group"
+        aria-label={group.label}
+        hidden={!open}
+        onKeyDown={(e) => {
+          if (e.key !== "Escape" || e.defaultPrevented) return;
+          e.preventDefault();
+          setOpen(false);
+          toggle.current?.focus();
+        }}
+        className="absolute top-full right-0 z-50 mt-xs flex w-max max-w-arrange flex-wrap items-center gap-2xs p-xs shadow-lg"
+      >
+        {group.commands.map((c) => (
+          <CommandButton key={c.title} command={c} />
         ))}
-      </div>
-      {groups.some((g) => hintsOf(g).length > 0) && (
-        <p className="px-xs text-xs text-fg-muted">
-          {groups.map((group, i) => {
-            const hints = hintsOf(group);
-            if (hints.length === 0) return null;
-            return (
-              <span key={group.label} id={`${baseId}-${i}`} data-bar-hint="" className="mr-sm inline-block">
-                <span className="font-medium">{group.label}:</span> {hints.join(" ")}
-              </span>
-            );
-          })}
-        </p>
+        {group.content}
+      </Panel>
+    </div>
+  );
+}
+
+/** One group: its commands in a row, or (collapsed) one button that opens them. */
+function BarGroupView({ group, first }: { group: BarGroup; first: boolean }) {
+  return (
+    <div className="flex shrink-0 items-center">
+      {!first && <div aria-hidden="true" className="mx-xs h-icon-lg w-px bg-border" />}
+      {group.collapsed ? (
+        <CollapsedGroup group={group} />
+      ) : (
+        <div role="group" aria-label={group.label} className="flex items-center gap-2xs">
+          {group.commands.map((c) => (
+            <CommandButton key={c.title} command={c} />
+          ))}
+          {group.content}
+        </div>
       )}
-    </Panel>
+    </div>
+  );
+}
+
+/** A toolbar of labelled groups with dividers between them, in one row. `data-board-bar`: keys pressed here still act on the board. */
+export function FloatingBar({ label, groups }: { label: string; groups: BarGroup[] }) {
+  return (
+    <div role="toolbar" aria-label={label} data-board-bar="" className="flex min-w-0 items-center">
+      {groups.map((group, i) => (
+        <BarGroupView key={group.label} group={group} first={i === 0} />
+      ))}
+    </div>
   );
 }
 
@@ -164,10 +241,10 @@ export function gridDisabledReason({ count, live, held, unsaved }: { count: numb
 
 /**
  * Grid and its Columns stepper (1 to the count; Auto = autoColumns). The chosen count lives in
- * uiStore for the session, and is kept within the count of the current selection. Why Grid is
- * off is the Arrange group's hint (`hintId`).
+ * uiStore for the session, and is kept within the count of the current selection. Grid explains
+ * why it's off in its tooltip.
  */
-function GridControls({ notes, reason, hintId, onGrid }: { notes: Placed[]; reason: string | null; hintId: string | undefined; onGrid: (columns: number) => void }) {
+function GridControls({ notes, reason, onGrid }: { notes: Placed[]; reason: string | null; onGrid: (columns: number) => void }) {
   const chosen = useBoardUi((s) => s.gridColumns);
   const setColumns = useBoardUi((s) => s.setGridColumns);
   const count = Math.max(1, notes.length);
@@ -175,19 +252,18 @@ function GridControls({ notes, reason, hintId, onGrid }: { notes: Placed[]; reas
   const columns = chosen === null ? auto : Math.min(Math.max(1, chosen), count);
   return (
     <>
-      <Button variant="ghost" title="Lay out in a grid" aria-describedby={reason ? hintId : undefined} disabled={reason !== null} onClick={() => onGrid(columns)} className="px-sm">
-        <LayoutGrid />
-        Grid
-      </Button>
+      <CommandButton
+        command={{ title: "Grid", icon: <LayoutGrid />, label: true, disabled: reason !== null, ...(reason ? { hint: reason } : {}), run: () => onGrid(columns) }}
+      />
       <div role="group" aria-label="Columns" className="flex items-center">
         <span className="px-xs text-xs text-fg-muted">Columns</span>
-        <Button variant="ghost" size="icon" aria-label="Fewer columns" title="Fewer columns" aria-describedby={columns <= 1 ? hintId : undefined} disabled={columns <= 1} onClick={() => setColumns(columns - 1)}>
+        <Button variant="ghost" size="icon" aria-label="Fewer columns" title="Fewer columns" disabled={columns <= 1} onClick={() => setColumns(columns - 1)}>
           <Minus />
         </Button>
         <output data-grid-columns="" aria-live="polite" className="min-w-touch text-center text-sm tabular-nums">
           {chosen === null ? `Auto (${columns})` : columns}
         </output>
-        <Button variant="ghost" size="icon" aria-label="More columns" title="More columns" aria-describedby={columns >= count ? hintId : undefined} disabled={columns >= count} onClick={() => setColumns(columns + 1)}>
+        <Button variant="ghost" size="icon" aria-label="More columns" title="More columns" disabled={columns >= count} onClick={() => setColumns(columns + 1)}>
           <Plus />
         </Button>
         <Button
@@ -252,8 +328,6 @@ export interface BoardBarProps {
 export function BoardBar({ notes, frame, live, held, unsaved, duplicateReason, duplicate, undoReason, redoReason, undo, redo, remove, apply, order, notice }: BoardBarProps) {
   const send = (changes: Map<string, NoteRect>) => apply([...changes].map(([id, rect]) => ({ id, ...rect })));
   const count = notes.length;
-  const canArrange = live && count >= 2;
-  const canDistribute = canArrange && count >= 3;
   const gridReason = gridDisabledReason({ count, live, held, unsaved });
   const runGrid = (columns: number) => {
     const result = grid(notes, columns, GRID_GAP);
@@ -262,7 +336,10 @@ export function BoardBar({ notes, frame, live, held, unsaved, duplicateReason, d
   };
   const deleteReason = count === 0 && !frame ? DELETE_HINTS.none : !live ? DELETE_HINTS.offline : null;
   const orderReason = count === 0 ? (frame ? ORDER_HINTS.frame : ORDER_HINTS.none) : !live ? ORDER_HINTS.offline : null;
-  const arrangeHints = [gridReason, count === 2 && live ? DISTRIBUTE_HINT : null];
+  // Align and Match size need 2+ notes and a connection; Distribute needs 3.
+  const arrangeReason = count < 2 ? GRID_HINTS.few : !live ? GRID_HINTS.offline : null;
+  const distributeReason = arrangeReason ?? (count < 3 ? DISTRIBUTE_HINT : null);
+  const off = (reason: string | null) => ({ disabled: reason !== null, ...(reason ? { hint: reason } : {}) });
   return (
     <FloatingBar
       label="Board actions"
@@ -270,33 +347,30 @@ export function BoardBar({ notes, frame, live, held, unsaved, duplicateReason, d
         {
           label: "History",
           commands: [
-            { title: "Undo", icon: <Undo2 />, text: true, disabled: undoReason !== null, ...(undoReason ? { hint: undoReason } : {}), run: undo },
-            { title: "Redo", icon: <Redo2 />, text: true, disabled: redoReason !== null, ...(redoReason ? { hint: redoReason } : {}), run: redo },
+            { title: "Undo", icon: <Undo2 />, text: true, ...off(undoReason), run: undo },
+            { title: "Redo", icon: <Redo2 />, text: true, ...off(redoReason), run: redo },
           ],
-          hints: [undoReason, redoReason],
         },
         {
           label: "Edit",
           commands: [
-            { title: "Duplicate", icon: <Copy />, text: true, disabled: duplicateReason !== null, ...(duplicateReason ? { hint: duplicateReason } : {}), run: duplicate },
-            { title: "Delete", icon: <Trash2 />, text: true, disabled: deleteReason !== null, ...(deleteReason ? { hint: deleteReason } : {}), run: remove },
+            { title: "Duplicate", icon: <Copy />, text: true, ...off(duplicateReason), run: duplicate },
+            { title: "Delete", icon: <Trash2 />, text: true, ...off(deleteReason), run: remove },
           ],
-          hints: [duplicateReason, deleteReason],
         },
         {
           label: "Order",
-          commands: ORDER_COMMANDS.map((c) => ({ title: c.label, icon: c.icon, text: true, disabled: orderReason !== null, run: () => order(c.action) })),
-          hints: [orderReason],
+          commands: ORDER_COMMANDS.map((c) => ({ title: c.label, icon: c.icon, text: true, ...off(orderReason), run: () => order(c.action) })),
         },
         {
           label: "Arrange",
+          collapsed: { icon: <SlidersHorizontal /> },
           commands: [
-            ...ALIGN.map((a) => ({ ...a, disabled: !canArrange, run: () => send(align(notes, a.mode)) })),
-            ...DISTRIBUTE.map((d) => ({ ...d, disabled: !canDistribute, ...(count === 2 ? { hint: DISTRIBUTE_HINT } : {}), run: () => send(distribute(notes, d.axis)) })),
-            ...MATCH.map((m) => ({ ...m, disabled: !canArrange, run: () => send(matchSize(notes, m.mode)) })),
+            ...ALIGN.map((a) => ({ ...a, ...off(arrangeReason), run: () => send(align(notes, a.mode)) })),
+            ...DISTRIBUTE.map((d) => ({ ...d, ...off(distributeReason), run: () => send(distribute(notes, d.axis)) })),
+            ...MATCH.map((m) => ({ ...m, ...off(arrangeReason), run: () => send(matchSize(notes, m.mode)) })),
           ],
-          content: (hintId) => <GridControls notes={notes} reason={gridReason} hintId={hintId} onGrid={runGrid} />,
-          hints: arrangeHints,
+          content: <GridControls notes={notes} reason={gridReason} onGrid={runGrid} />,
         },
       ]}
     />
