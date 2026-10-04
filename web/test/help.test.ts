@@ -66,6 +66,16 @@ describe("help topics", () => {
     for (const claim of ["when it arrived", "grip", "arrow keys", "remembers the size"]) expect(chat, claim).toContain(claim);
   });
 
+  it("the Sessions and Connection topics explain expiry", () => {
+    const sessions = HELP_TOPICS.find((t) => t.id === "sessions")?.text ?? "";
+    for (const claim of ["nobody has been in it for 7 days", "deleted for good", "link stops working", "session expired"]) {
+      expect(sessions, claim).toContain(claim);
+    }
+    const connection = HELP_TOPICS.find((t) => t.id === "connection")?.text ?? "";
+    for (const claim of ["session expired", "stops trying", "go to the start page"]) expect(connection, claim).toContain(claim);
+    expect(searchTopics(HELP_TOPICS, "expired").map((r) => r.topic.id)).toEqual(expect.arrayContaining(["sessions", "connection"]));
+  });
+
   it("help topics only claim what exists: no cursors, QR codes, timers or votes yet", () => {
     const all = HELP_TOPICS.map((t) => t.text).join("\n");
     expect(all).not.toMatch(/qr code|cursor|timer|vote|voting/);

@@ -264,7 +264,10 @@ describe("About", () => {
       "the last name you joined with",
       "Notes are stored by the relay",
       "random id the relay gave the visit that added it (not your name)",
-      "sessions don’t expire yet",
+      // Idle room expiry (v0.14.0).
+      "a session’s notes and frames are deleted automatically once nobody has been in it for 7 days",
+      "keeps only the time it expired",
+      "link stops working",
       // Slice z-order: stacking order is stored with each note.
       "stacking order (which notes are in front)",
       // Slice frames: frames are stored with the room.
@@ -282,6 +285,7 @@ describe("About", () => {
     expect(privacy).not.toContain("only checks that the relay is reachable");
     expect(privacy).not.toContain("When joining sessions arrives");
     expect(privacy).not.toContain("Nothing is saved");
+    expect(privacy).not.toContain("don’t expire");
   });
 
   it("has Privacy and Credits sections", async () => {

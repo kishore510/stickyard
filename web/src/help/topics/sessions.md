@@ -2,7 +2,7 @@
 title: Starting and joining a session
 order: 2
 summary: Start a session with the create passcode, share its link, and join by link or code.
-keywords: start, create, new, session, room, passcode, join, link, code, copy, share, leave, full, invalid, limit
+keywords: start, create, new, session, room, passcode, join, link, code, copy, share, leave, full, invalid, limit, expire, expired, expiry, idle, delete, deleted, days, last
 ---
 A **session** is one shared room with its own link. Its address looks like `#/room/` followed by a long code.
 
@@ -26,3 +26,10 @@ A **session** is one shared room with its own link. Its address looks like `#/ro
 - **Participants** lists who's here and has **Copy link** and **Leave session**. See [Participants](help:participants).
 - **Chat** sends short messages to everyone in the session; they aren't saved. See [Chat](help:chat).
 - **Leave session** takes you back to the start page. Your notes stay on the board. If your connection drops, choose **Rejoin**.
+
+## How long a session lasts
+
+- A session stays as long as people use it. Once **nobody has been in it for 7 days**, it expires.
+- When it expires, its notes and frames are deleted for good. Nothing can bring them back, and undo can't either.
+- Its link stops working. Opening it says **Session expired**: start a new session from the start page and share the new link.
+- Anyone being in the session counts, even someone who only has the page open. The 7 days start again each time the last person leaves.

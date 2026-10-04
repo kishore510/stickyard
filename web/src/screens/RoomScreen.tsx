@@ -1,5 +1,5 @@
 import { Suspense, lazy, useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from "react";
-import { RefreshCw, UserRound } from "lucide-react";
+import { Home, RefreshCw, UserRound } from "lucide-react";
 import { MAX_NAME_LENGTH, MAX_PARTICIPANTS, cleanName, isRoomCodeShape } from "@stickyard/shared";
 import { Button } from "../components/ui/button";
 import { FieldError, Label } from "../components/ui/field";
@@ -9,7 +9,7 @@ import { cn } from "../lib/utils";
 import { authorName } from "../notes/label";
 import { NoteEditor } from "../notes/NoteEditor";
 import { useRoomUi } from "../rooms/roomStore";
-import type { RoomView } from "../rooms/session";
+import { EXPIRED_TEXT, type RoomView } from "../rooms/session";
 import { useRoom } from "../rooms/useRoom";
 import { Sheet } from "../shell/Sheet";
 import { STORAGE_KEYS, readKey } from "../storage";
@@ -63,6 +63,25 @@ function Message({ title, children }: { title: string; children: ReactNode }) {
     <div className={cn(PAGE, "justify-center")}>
       <h1 className="text-2xl font-semibold">{title}</h1>
       {children}
+    </div>
+  );
+}
+
+/**
+ * The relay closed the socket with 4410: the session expired (rooms/session.ts). Its board is
+ * gone, so none is shown; the sentence is announced politely, and there is no Rejoin.
+ */
+function Expired() {
+  return (
+    <div className={cn(PAGE, "justify-center")} data-session-expired>
+      <h1 className="text-2xl font-semibold">{EXPIRED_TEXT.title}</h1>
+      <p role="status" aria-live="polite" aria-atomic="true">
+        {EXPIRED_TEXT.body}
+      </p>
+      <Button variant="primary" className="self-start" onClick={goHome}>
+        <Home />
+        {EXPIRED_TEXT.home}
+      </Button>
     </div>
   );
 }
@@ -150,6 +169,7 @@ export function RoomScreen({ code }: { code: string }) {
   if (view.status === "joined" && !everJoined) setEverJoined(true);
 
   if (!valid || view.status === "invalid") return <InvalidLink />;
+  if (view.status === "expired") return <Expired />;
   if (view.status === "full") {
     return (
       <Message title="This session is full">

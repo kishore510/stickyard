@@ -20,7 +20,7 @@ export const browserSocketFactory: SocketFactory = (url, handlers) => {
   const ws = new WebSocket(url);
   ws.onopen = () => handlers.onOpen();
   ws.onmessage = (event: MessageEvent<unknown>) => handlers.onMessage(event.data);
-  ws.onclose = () => handlers.onClose();
+  ws.onclose = (event: CloseEvent) => handlers.onClose(event.code);
   ws.onerror = () => handlers.onError();
   return { send: (data) => ws.send(data), close: () => ws.close() };
 };
