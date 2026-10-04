@@ -1,10 +1,14 @@
 import {
+  FRAME_DEFAULTS,
+  FRAME_STYLE_FIELDS,
   MAX_BATCH_ENTRIES,
   MAX_FRAMES_PER_ROOM,
   MAX_NOTES_PER_ROOM,
   MAX_SERVER_MESSAGE_BYTES,
   PROTOCOL_VERSION,
   clampFramePosition,
+  clampFrameRect,
+  clampNoteRect,
   cleanFrameTitle,
   cleanName,
   cleanNoteText,
@@ -15,8 +19,13 @@ import {
   serverMessageSchema,
   stackOrder,
   type ClientMessage,
+  type Frame,
   type FrameColor,
+  type FrameItem,
+  type ItemRefusalReason,
+  type Note,
   type NoteBatchEntry,
+  type NoteItem,
   type NoteColor,
   type NoteRect,
   type OrderAction,
@@ -25,6 +34,7 @@ import {
 } from "@stickyard/shared";
 import type { SocketFactory, SocketLike } from "../connection/socket";
 import {
+  addFrameItemLocal,
   addFrameLocal,
   applyFrameAdded,
   applyFrameDeleted,
@@ -48,6 +58,7 @@ import {
 } from "../frames/board";
 import {
   EMPTY_BOARD,
+  addItemLocal,
   addLocal,
   applyAdded,
   applyDeleted,
@@ -75,6 +86,7 @@ import {
   type StylePatch,
 } from "../notes/board";
 import type { CodeCheck } from "./api";
+import { packItems, type ItemDraft, type ItemsAddMessage } from "./items";
 
 /*
  * One visit to a room: connect, hello, join, then follow participants, echoes and notes.
@@ -158,12 +170,14 @@ export const RESIZE_INTERVAL_MS = 50;
 export const GROUP_MOVE_INTERVAL_MS = 100;
 
 /**
- * A template is sent at most this many messages a second: a third of the relay's SOCKET_LIMITS
- * (30 a second, burst 40), so typing or dragging at the same time still fits.
+ * itemsAdd messages (addItems, templates) go out at most this many a second: a third of the
+ * relay's SOCKET_LIMITS (30 a second, burst 40), so typing or dragging at the same time still
+ * fits. At most MAX_BATCH_ENTRIES items each, so at most 500 entries a second, inside BATCH_LIMITS
+ * (600 a second).
  */
-export const TEMPLATE_MESSAGES_PER_SECOND = 10;
-/** The gap between a template's messages. */
-export const TEMPLATE_STEP_MS = 1000 / TEMPLATE_MESSAGES_PER_SECOND;
+export const ITEMS_MESSAGES_PER_SECOND = 10;
+/** The gap between itemsAdd messages. */
+export const ITEMS_STEP_MS = 1000 / ITEMS_MESSAGES_PER_SECOND;
 
 /** A template run: `frameIds` are the frames it made (server ids, in template order) once it ends. */
 export interface TemplateRun {
@@ -180,20 +194,44 @@ export interface TemplateFramePlan {
   h: number;
   title: string;
   color: FrameColor;
-  style: FrameEdit;
+  style: Pick<Frame, (typeof FRAME_STYLE_FIELDS)[number]>;
 }
 
-/** A template being applied: its steps (one message each, paced) and each frame's id so far. */
+/** Plain data for addItems: a note or a frame with its full content (no id, ref, rev, z or author). */
+export type ItemInput = ({ kind: "note" } & Omit<NoteItem, "ref">) | ({ kind: "frame" } & Omit<FrameItem, "ref">);
+
+/** Items that weren't added, by why. */
+export interface ItemsRefused {
+  notesFull: number;
+  framesFull: number;
+  invalid: number;
+  tooQuick: number;
+}
+
+/** One addItems call: its items by ref, until the relay has answered for each. */
+interface ItemsRun {
+  /** Each input's ref, in input order (null: not added here, its text too long after cleaning). */
+  refs: (string | null)[];
+  /** Refs still waiting for the relay. */
+  pending: Set<string>;
+  /** Server id once confirmed; null if refused, or deleted here before that. */
+  ids: Map<string, string | null>;
+  refused: ItemsRefused;
+  /** The template it applies, if any (its seq). */
+  template: number | null;
+}
+
+/** One itemsAdd message of a run: queued, then in flight until the relay answers. */
+interface ItemsBatch {
+  run: ItemsRun;
+  message: ItemsAddMessage;
+  sent: boolean;
+}
+
+/** A template being applied: its items run. */
 interface TemplateApply {
   seq: number;
-  plans: readonly TemplateFramePlan[];
-  /** Local id once added, server id once confirmed; null before it's added or if it was deleted meanwhile. */
-  ids: (string | null)[];
-  confirmed: boolean[];
-  steps: (() => boolean)[];
-  timer: ReturnType<typeof setTimeout> | undefined;
-  /** When the next message may go. */
-  nextAt: number;
+  run: ItemsRun;
 }
 
 export const NOTICES = {
@@ -205,9 +243,30 @@ export const NOTICES = {
   frameTooFull: `This frame holds more than ${MAX_BATCH_ENTRIES} notes, so it moved on its own.`,
   templatePartial: "The template was only partly added. The frames that were added stay on the board; delete any you don’t want.",
   templateNoRoom: (needs: number, free: number) => `This template needs ${needs} frames, but the board has room for ${free} more.`,
+  itemsNotAdded: (refused: ItemsRefused) => itemsNotice(refused),
 } as const;
 
 const notesWord = (n: number) => (n === 1 ? "note" : "notes");
+const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"} ${n === 1 ? "wasn’t" : "weren’t"} added`;
+
+/** What a notice says about items an addItems couldn't add, by reason. */
+function itemsNotice({ notesFull, framesFull, invalid, tooQuick }: ItemsRefused): string {
+  const parts: string[] = [];
+  if (notesFull > 0) parts.push(`${plural(notesFull, "note")} because the board is full (${MAX_NOTES_PER_ROOM} notes).`);
+  if (framesFull > 0) parts.push(`${plural(framesFull, "frame")} because the board has the maximum of ${MAX_FRAMES_PER_ROOM} frames.`);
+  if (tooQuick > 0) parts.push(`${plural(tooQuick, "item")} because that was too quick. Try again.`);
+  if (invalid > 0) parts.push(`${plural(invalid, "item")} because the relay refused ${invalid === 1 ? "it" : "them"}.`);
+  return parts.join(" ");
+}
+
+const refusedTotal = (r: ItemsRefused) => r.notesFull + r.framesFull + r.invalid + r.tooQuick;
+
+/** Which ItemsRefused count a refusal adds to. */
+function refusalKey(reason: ItemRefusalReason | "rate_limited"): keyof ItemsRefused {
+  if (reason === "notes_full") return "notesFull";
+  if (reason === "frames_full") return "framesFull";
+  return reason === "rate_limited" ? "tooQuick" : "invalid";
+}
 
 /** The report for a delete of several notes, once every note in it is accounted for. */
 export function deleteReportFor({ total, refused, tooQuick, lost }: { total: number; refused: number; tooQuick: boolean; lost: number }): DeleteReport {
@@ -297,6 +356,10 @@ export class RoomSession {
   private frameDrag: FrameDrag | null = null;
   /** The template being applied, if any (one at a time). */
   private template: TemplateApply | null = null;
+  /** itemsAdd messages queued or in flight, by their clientRef; the queue (clientRefs) and its pacing timer. */
+  private readonly itemBatches = new Map<string, ItemsBatch>();
+  private itemQueue: string[] = [];
+  private itemTimer: ReturnType<typeof setTimeout> | undefined;
   private templateSeq = 0;
   /** The delete of several notes being confirmed, if any (a new one joins it). */
   private deleteRun: DeleteRun | null = null;
@@ -732,14 +795,196 @@ export class RoomSession {
     return true;
   }
 
+  /* ── Items with content (protocol v11) ──────────────────────────── */
+
+  /**
+   * Adds notes and frames with their full content (plain data), shown at once. They're packed
+   * into itemsAdd messages by size (rooms/items.ts) and sent one every ITEMS_STEP_MS at most. Each
+   * item gets its server id when the relay confirms it (onNoteConfirmed / onFrameConfirmed); a
+   * refused item rolls back on its own, and once the relay has answered for every item a notice
+   * says how many weren't added and why. Notes stack in the order given (last on top). Their local
+   * ids in input order (null for one whose text is too long), or null if not connected.
+   */
+  addItems(inputs: readonly ItemInput[]): (string | null)[] | null {
+    const run = this.startItems(inputs, null);
+    if (!run) return null;
+    if (run.pending.size === 0) this.update(this.itemsDone(run, this.view.board));
+    return run.refs.map((ref) => (ref === null ? null : localId(ref)));
+  }
+
+  private startItems(inputs: readonly ItemInput[], template: number | null): ItemsRun | null {
+    if (!this.live || !this.view.you || inputs.length === 0) return null;
+    const authorId = this.view.you.id;
+    const run: ItemsRun = { refs: [], pending: new Set(), ids: new Map(), refused: { notesFull: 0, framesFull: 0, invalid: 0, tooQuick: 0 }, template };
+    let board = this.view.board;
+    const drafts: ItemDraft[] = [];
+    for (const input of inputs) {
+      const ref = randomRef();
+      if (input.kind === "note") {
+        const { kind: _, x, y, w, h, text, ...style } = input;
+        const clean = cleanNoteText(text);
+        if (clean === null) {
+          run.refs.push(null);
+          run.refused.invalid++;
+          continue;
+        }
+        // Sent as shown: whole units, clamped as the server will.
+        const item: NoteItem = { ref, ...clampNoteRect({ x, y, w, h }), text: clean, ...style };
+        board = addItemLocal(board, item, authorId);
+        drafts.push({ kind: "note", item });
+      } else {
+        const { kind: _, x, y, w, h, title, ...style } = input;
+        const clean = cleanFrameTitle(title);
+        if (clean === null) {
+          run.refs.push(null);
+          run.refused.invalid++;
+          continue;
+        }
+        const item: FrameItem = { ref, ...clampFrameRect({ x, y, w, h }), title: clean, ...style };
+        board = addFrameItemLocal(board, item, authorId);
+        drafts.push({ kind: "frame", item });
+      }
+      run.refs.push(ref);
+      run.pending.add(ref);
+    }
+    const { messages, tooLarge } = packItems(drafts, randomRef);
+    for (const { kind, item } of tooLarge) board = this.itemRefused(board, run, item.ref, kind, "invalid");
+    for (const message of messages) {
+      this.itemBatches.set(message.clientRef, { run, message, sent: false });
+      this.itemQueue.push(message.clientRef);
+    }
+    this.update({ board, noteNotice: null });
+    this.pumpItems();
+    return run;
+  }
+
+  /** Sends the next queued itemsAdd, then waits ITEMS_STEP_MS before the one after. */
+  private pumpItems(): void {
+    if (this.itemTimer !== undefined || !this.live) return;
+    for (;;) {
+      const clientRef = this.itemQueue.shift();
+      if (clientRef === undefined) return;
+      const batch = this.itemBatches.get(clientRef);
+      // A batch cancelled meanwhile (its template ended) is skipped.
+      if (!batch) continue;
+      batch.sent = true;
+      this.send(batch.message);
+      this.itemTimer = setTimeout(() => {
+        this.itemTimer = undefined;
+        this.pumpItems();
+      }, ITEMS_STEP_MS);
+      return;
+    }
+  }
+
+  /** The relay added a whole itemsAdd (ours: confirmed by ref and refused by index; anyone else's: just added), in one view update. */
+  private itemsAdded(message: Extract<ServerMessage, { type: "itemsAdded" }>): void {
+    let board = this.view.board;
+    const batch = message.clientRef === undefined ? undefined : this.itemBatches.get(message.clientRef);
+    if (!batch || message.clientRef === undefined) {
+      for (const { note } of message.notes) board = applyAdded(board, note);
+      for (const { frame } of message.frames) board = applyFrameAdded(board, frame);
+      return this.update({ board });
+    }
+    this.itemBatches.delete(message.clientRef);
+    const { run } = batch;
+    for (const { ref, note } of message.notes) {
+      if (ref === undefined) continue;
+      board = this.confirmNote(board, note, ref);
+      this.itemSettled(run, ref, findNote(board, note.id) ? note.id : null);
+    }
+    for (const { ref, frame } of message.frames) {
+      if (ref === undefined) continue;
+      board = this.confirmFrame(board, frame, ref);
+      this.itemSettled(run, ref, findFrame(board, frame.id) ? frame.id : null);
+    }
+    for (const r of message.refused) {
+      const ref = (r.kind === "note" ? batch.message.notes : batch.message.frames)?.[r.index]?.ref;
+      if (ref !== undefined) board = this.itemRefused(board, run, ref, r.kind, r.reason);
+    }
+    // Anything the relay didn't account for can't be confirmed any more: rolled back.
+    board = this.refuseUnanswered(board, batch, "invalid");
+    this.update({ rateLimited: false, ...this.itemsDone(run, board) });
+  }
+
+  /** The relay refused a whole itemsAdd (nothing added, too quick, not joined): roll back each of its items. */
+  private itemsErrored(message: Extract<ServerMessage, { type: "error" }>, batch: ItemsBatch): void {
+    if (message.clientRef !== undefined) this.itemBatches.delete(message.clientRef);
+    let board = this.view.board;
+    for (const r of message.refused ?? []) {
+      const ref = (r.kind === "note" ? batch.message.notes : batch.message.frames)?.[r.index]?.ref;
+      if (ref !== undefined) board = this.itemRefused(board, batch.run, ref, r.kind, r.reason);
+    }
+    const reason = message.code === "notes_full" || message.code === "frames_full" || message.code === "rate_limited" ? message.code : "invalid";
+    board = this.refuseUnanswered(board, batch, reason);
+    this.update({ ...(message.code === "rate_limited" ? { rateLimited: true } : {}), ...this.itemsDone(batch.run, board) });
+  }
+
+  /** Rolls back the batch's items still pending, counting them under `reason`. */
+  private refuseUnanswered(board: Board, batch: ItemsBatch, reason: ItemRefusalReason | "rate_limited"): Board {
+    let next = board;
+    for (const { ref } of batch.message.notes ?? []) if (batch.run.pending.has(ref)) next = this.itemRefused(next, batch.run, ref, "note", reason);
+    for (const { ref } of batch.message.frames ?? []) if (batch.run.pending.has(ref)) next = this.itemRefused(next, batch.run, ref, "frame", reason);
+    return next;
+  }
+
+  private itemSettled(run: ItemsRun, ref: string, id: string | null): void {
+    run.pending.delete(ref);
+    run.ids.set(ref, id);
+  }
+
+  /** One item wasn't added: it goes (unless it was deleted here meanwhile, which needs no notice). */
+  private itemRefused(board: Board, run: ItemsRun, ref: string, kind: "note" | "frame", reason: ItemRefusalReason | "rate_limited"): Board {
+    this.itemSettled(run, ref, null);
+    const deletedHere = kind === "note" ? this.abandoned.delete(ref) : this.abandonedFrames.delete(ref);
+    if (deletedHere) this.deleteRun?.refs.delete(ref);
+    else run.refused[refusalKey(reason)]++;
+    return kind === "note" ? rejectAdd(board, ref) : rejectFrameAdd(board, ref);
+  }
+
+  /**
+   * How a run ended, once the relay has answered for everything in it: a template ends (done, or
+   * partial with what was made kept); otherwise a notice counts what wasn't added. A refusal in a
+   * template ends it at once, and its batches not sent yet are dropped. A template that has ended
+   * already says nothing more. The patch includes `board` (the one given, or with items dropped).
+   */
+  private itemsDone(run: ItemsRun, board: Board): Partial<RoomView> {
+    const refused = refusedTotal(run.refused) > 0;
+    if (run.template !== null) {
+      if (this.template?.run !== run) return { board };
+      if (refused) return { board: this.cancelQueued(run, board), ...this.templateEnd("partial") };
+      return { board, ...(run.pending.size === 0 ? this.templateEnd("done") : {}) };
+    }
+    if (run.pending.size > 0 || !refused) return { board };
+    return { board, noteNotice: NOTICES.itemsNotAdded(run.refused) };
+  }
+
+  /** Drops the batches of `run` (or of every run) that haven't been sent, and their items here. */
+  private cancelQueued(run: ItemsRun | null, from: Board): Board {
+    let board = from;
+    for (const [clientRef, batch] of [...this.itemBatches]) {
+      if (batch.sent || (run !== null && batch.run !== run)) continue;
+      this.itemBatches.delete(clientRef);
+      for (const { ref } of batch.message.notes ?? []) {
+        this.itemSettled(batch.run, ref, null);
+        board = rejectAdd(board, ref);
+      }
+      for (const { ref } of batch.message.frames ?? []) {
+        this.itemSettled(batch.run, ref, null);
+        board = rejectFrameAdd(board, ref);
+      }
+    }
+    return board;
+  }
+
   /* ── Templates ──────────────────────────────────────────────────── */
 
   /**
-   * Applies a template: for each frame, frameAdd (position, colour, title); once the relay
-   * confirms it, one final resize to its size and one edit for its title style. One message
-   * every TEMPLATE_STEP_MS at most. Existing frames and notes are never touched. Refused (and
-   * nothing sent) while disconnected, while another template is being applied, or when the
-   * board hasn't enough free frame slots (a notice says how many it needs and has). A refusal
+   * Applies a template: its frames, each at its place and size with its title, colour and title
+   * style, through addItems (one message for every template there is today, so they appear at
+   * once). Existing frames and notes are never touched. Refused (and nothing sent) while
+   * disconnected, while another template is being applied, or when the board hasn't enough free
+   * frame slots (a notice says how many it needs and has). A refusal or a lost connection
    * part-way ends it: what was made stays, one notice says so, nothing is retried.
    */
   applyTemplate(frames: readonly TemplateFramePlan[]): boolean {
@@ -749,77 +994,27 @@ export class RoomSession {
       this.update({ noteNotice: NOTICES.templateNoRoom(frames.length, free) });
       return false;
     }
-    const run: TemplateApply = {
-      seq: ++this.templateSeq,
-      plans: frames,
-      ids: frames.map(() => null),
-      confirmed: frames.map(() => false),
-      steps: [],
-      timer: undefined,
-      nextAt: 0,
-    };
-    frames.forEach((plan, i) =>
-      run.steps.push(() => {
-        const id = this.addFrame({ x: plan.x, y: plan.y, color: plan.color, title: plan.title });
-        run.ids[i] = id;
-        return id !== null;
-      }),
+    const seq = ++this.templateSeq;
+    const run = this.startItems(
+      frames.map((plan) => ({ kind: "frame" as const, x: plan.x, y: plan.y, w: plan.w, h: plan.h, title: plan.title, color: plan.color, ...FRAME_DEFAULTS, ...plan.style })),
+      seq,
     );
-    this.template = run;
-    this.update({ template: { seq: run.seq, state: "applying", frameIds: [] }, noteNotice: null });
-    this.templateStep();
+    if (!run) return false;
+    this.template = { seq, run };
+    this.update({ template: { seq, state: "applying", frameIds: [] }, ...(run.pending.size === 0 ? this.itemsDone(run, this.view.board) : {}) });
     return true;
   }
 
-  /** Sends the template's next step, if any, then waits TEMPLATE_STEP_MS; done once every frame is confirmed and nothing is left. */
-  private templateStep(): void {
-    const run = this.template;
-    if (!run) return;
-    run.timer = undefined;
-    const step = run.steps.shift();
-    if (!step) {
-      if (run.confirmed.every(Boolean)) this.endTemplate("done");
-      return;
-    }
-    if (!step()) return this.endTemplate("partial");
-    run.nextAt = Date.now() + TEMPLATE_STEP_MS;
-    run.timer = setTimeout(() => this.templateStep(), TEMPLATE_STEP_MS);
-  }
-
-  /** A template frame got its server id (or was deleted here before that): queue its resize and style edit. */
-  private templateConfirmed(local: string, id: string, gone: boolean): void {
-    const run = this.template;
-    const i = run ? run.ids.indexOf(local) : -1;
-    if (!run || i < 0) return;
-    run.confirmed[i] = true;
-    run.ids[i] = gone ? null : id;
-    const plan = run.plans[i];
-    if (!gone && plan) {
-      run.steps.push(() => {
-        this.setFrameRect(id, plan);
-        return this.live;
-      });
-      run.steps.push(() => {
-        this.editFrame(id, plan.style);
-        return this.live;
-      });
-    }
-    if (run.timer === undefined) run.timer = setTimeout(() => this.templateStep(), Math.max(0, run.nextAt - Date.now()));
-  }
-
-  /** Does this refusal belong to the template being applied? */
-  private templateOwns(message: Extract<ServerMessage, { type: "error" }>): boolean {
-    const ids = this.template?.ids ?? [];
-    return (message.clientRef !== undefined && ids.includes(localId(message.clientRef))) || (message.frameId !== undefined && ids.includes(message.frameId));
-  }
-
-  private endTemplate(state: "done" | "partial"): void {
-    const run = this.template;
-    if (!run) return;
-    clearTimeout(run.timer);
+  /** Ends the template being applied: its frames that were made (server ids, in template order). */
+  private templateEnd(state: "done" | "partial"): Partial<RoomView> {
+    const apply = this.template;
+    if (!apply) return {};
     this.template = null;
-    const frameIds = run.ids.filter((id, i): id is string => id !== null && run.confirmed[i] === true);
-    this.update({ template: { seq: run.seq, state, frameIds }, ...(state === "partial" ? { noteNotice: NOTICES.templatePartial } : {}) });
+    const frameIds = apply.run.refs.flatMap((ref) => {
+      const id = ref === null ? null : apply.run.ids.get(ref);
+      return id ? [id] : [];
+    });
+    return { template: { seq: apply.seq, state, frameIds }, ...(state === "partial" ? { noteNotice: NOTICES.templatePartial } : {}) };
   }
 
   /** Deletes a frame here at once. Never its notes. */
@@ -927,7 +1122,7 @@ export class RoomSession {
   close(): void {
     this.stopped = true;
     clearTimeout(this.timer);
-    clearTimeout(this.template?.timer);
+    clearTimeout(this.itemTimer);
     this.template = null;
     this.stopAllMoves();
     this.socket?.close();
@@ -950,9 +1145,20 @@ export class RoomSession {
       const run = this.deleteRun;
       this.deleteRun = null;
       const lost = run ? run.ids.size + run.refs.size : 0;
-      this.update({ status: "disconnected", ...(run ? { deleteReport: deleteReportFor({ ...run, lost }) } : {}) });
-      // Cut off part-way: what was made stays, and the notice says so.
-      return this.endTemplate("partial");
+      // Items not sent yet never will be: they go. Those in flight stay, like any add in flight.
+      clearTimeout(this.itemTimer);
+      this.itemTimer = undefined;
+      this.itemQueue = [];
+      const board = this.cancelQueued(null, this.view.board);
+      this.itemBatches.clear();
+      // A template cut off part-way: what was made stays, and the notice says so.
+      this.update({
+        status: "disconnected",
+        board,
+        ...(run ? { deleteReport: deleteReportFor({ ...run, lost }) } : {}),
+        ...this.templateEnd("partial"),
+      });
+      return;
     }
     if (this.opened) return this.update({ status: "unreachable" });
     // Never opened: the relay refused the upgrade. Find out whether the code is the reason.
@@ -1027,21 +1233,11 @@ export class RoomSession {
 
       case "noteAdded": {
         const { note, clientRef } = message;
-        const temp = clientRef === undefined ? undefined : findNote(this.view.board, localId(clientRef));
-        let board = applyAdded(this.view.board, note, clientRef);
-        if (clientRef !== undefined && this.abandoned.delete(clientRef)) {
-          // Deleted here before the server confirmed it.
-          board = deleteLocal(board, note.id);
-          this.send({ type: "noteDelete", id: note.id });
-          if (this.deleteRun?.refs.delete(clientRef)) this.deleteRun.ids.add(note.id);
-        } else if (temp) {
-          // Text, colour or style committed while the add was in flight: one edit with all of it.
-          const edit = { ...(temp.note.text !== note.text ? { text: temp.note.text } : {}), ...styleChanges(note, temp.note) };
-          if (Object.keys(edit).length > 0) this.send({ type: "noteEdit", id: note.id, ...edit });
-        }
-        if (temp) this.options.onNoteConfirmed?.(temp.note.id, note.id);
-        return this.update({ board, ...(clientRef !== undefined ? { rateLimited: false } : {}) });
+        return this.update({ board: this.confirmNote(this.view.board, note, clientRef), ...(clientRef !== undefined ? { rateLimited: false } : {}) });
       }
+
+      case "itemsAdded":
+        return this.itemsAdded(message);
 
       case "noteUpdated":
         return this.update({ board: applyUpdated(this.view.board, message.note) });
@@ -1080,20 +1276,7 @@ export class RoomSession {
 
       case "frameAdded": {
         const { frame, clientRef } = message;
-        const temp = clientRef === undefined ? undefined : findFrame(this.view.board, localId(clientRef));
-        let board = applyFrameAdded(this.view.board, frame, clientRef);
-        if (clientRef !== undefined && this.abandonedFrames.delete(clientRef)) {
-          board = deleteFrameLocal(board, frame.id);
-          this.send({ type: "frameDelete", id: frame.id });
-        } else if (temp) {
-          // A title, colour or title style set while the add was in flight: one edit with all of it.
-          const edit = frameChanges(frame, temp.frame);
-          if (Object.keys(edit).length > 0) this.send({ type: "frameEdit", id: frame.id, ...edit });
-        }
-        if (temp) this.options.onFrameConfirmed?.(temp.frame.id, frame.id);
-        this.update({ board, ...(clientRef !== undefined ? { rateLimited: false } : {}) });
-        if (temp) this.templateConfirmed(temp.frame.id, frame.id, findFrame(board, frame.id) === undefined);
-        return;
+        return this.update({ board: this.confirmFrame(this.view.board, frame, clientRef), ...(clientRef !== undefined ? { rateLimited: false } : {}) });
       }
 
       case "frameUpdated":
@@ -1126,13 +1309,11 @@ export class RoomSession {
         });
       }
 
-      case "error":
+      case "error": {
+        const batch = message.clientRef === undefined ? undefined : this.itemBatches.get(message.clientRef);
+        if (batch) return this.itemsErrored(message, batch);
         if (message.clientRef !== undefined || message.noteId !== undefined || message.noteIds !== undefined || message.frameId !== undefined) {
-          const template = this.templateOwns(message);
-          this.noteRefused(message);
-          // A refused part of a template ends it; what it made stays (no rollback, no retry).
-          if (template) this.endTemplate("partial");
-          return;
+          return this.noteRefused(message);
         }
         switch (message.code) {
           case "version_mismatch":
@@ -1154,7 +1335,45 @@ export class RoomSession {
           case "already_joined":
             return;
         }
+      }
     }
+  }
+
+  /**
+   * A note add confirmed (a noteAdd's, or an itemsAdd entry's by its ref): the temporary note takes
+   * its server id. Deleted here meanwhile: deleted now. Text or style committed meanwhile: one edit.
+   */
+  private confirmNote(board: Board, note: Note, clientRef: string | undefined): Board {
+    const temp = clientRef === undefined ? undefined : findNote(board, localId(clientRef));
+    let next = applyAdded(board, note, clientRef);
+    if (clientRef !== undefined && this.abandoned.delete(clientRef)) {
+      // Deleted here before the server confirmed it.
+      next = deleteLocal(next, note.id);
+      this.send({ type: "noteDelete", id: note.id });
+      if (this.deleteRun?.refs.delete(clientRef)) this.deleteRun.ids.add(note.id);
+    } else if (temp) {
+      // Text, colour or style committed while the add was in flight: one edit with all of it.
+      const edit = { ...(temp.note.text !== note.text ? { text: temp.note.text } : {}), ...styleChanges(note, temp.note) };
+      if (Object.keys(edit).length > 0) this.send({ type: "noteEdit", id: note.id, ...edit });
+    }
+    if (temp) this.options.onNoteConfirmed?.(temp.note.id, note.id);
+    return next;
+  }
+
+  /** A frame add confirmed (a frameAdd's, or an itemsAdd entry's by its ref), likewise. */
+  private confirmFrame(board: Board, frame: Frame, clientRef: string | undefined): Board {
+    const temp = clientRef === undefined ? undefined : findFrame(board, localId(clientRef));
+    let next = applyFrameAdded(board, frame, clientRef);
+    if (clientRef !== undefined && this.abandonedFrames.delete(clientRef)) {
+      next = deleteFrameLocal(next, frame.id);
+      this.send({ type: "frameDelete", id: frame.id });
+    } else if (temp) {
+      // A title, colour or title style set while the add was in flight: one edit with all of it.
+      const edit = frameChanges(frame, temp.frame);
+      if (Object.keys(edit).length > 0) this.send({ type: "frameEdit", id: frame.id, ...edit });
+    }
+    if (temp) this.options.onFrameConfirmed?.(temp.frame.id, frame.id);
+    return next;
   }
 
   /** The server refused a note or frame change: roll it back and say why. */

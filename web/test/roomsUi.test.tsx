@@ -2442,17 +2442,21 @@ describe("templates (slice templates)", () => {
     return socket;
   }
   /** Confirms adds as they go out, until `done` or a time limit. */
-  async function serve(socket: FakeWebSocket, done: () => boolean) {
+  /** Answers every itemsAdd sent so far: each frame added as sent, with a server id. */
+  async function serve(socket: FakeWebSocket) {
     const seen = new Set<string>();
-    for (let i = 0; i < 150 && !done(); i++) {
-      for (const add of sentOfType(socket, "frameAdd")) {
-        const ref = add.clientRef as string;
-        if (seen.has(ref)) continue;
-        seen.add(ref);
-        await server(socket, { data: { type: "frameAdded", frame: frameAt(seen.size, add), clientRef: ref } });
-      }
-      await settle();
+    let n = 0;
+    for (const add of sentOfType(socket, "itemsAdd")) {
+      const clientRef = add.clientRef as string;
+      if (seen.has(clientRef)) continue;
+      seen.add(clientRef);
+      const frames = (add.frames as (Record<string, unknown> & { ref: string })[]).map(({ ref, ...f }) => ({
+        ref,
+        frame: { ...frameAt(++n, f), ...f, rev: 1, authorId: alex.id } as Frame,
+      }));
+      await server(socket, { data: { type: "itemsAdded", clientRef, notes: [], frames, refused: [] } });
     }
+    await settle();
   }
 
   it("from md up, the palette has a Templates section with one labelled tile per template, previews drawn from tokens", async () => {
@@ -2479,13 +2483,16 @@ describe("templates (slice templates)", () => {
     const socket = await withBoard();
     const before = viewport();
     await click(tile("Retro") ?? undefined);
-    expect(sentOfType(socket, "frameAdd")[0]).toMatchObject({ title: "Went well" });
+    // Every frame at once, in one message, with its size and title style.
+    expect(sentOfType(socket, "itemsAdd")).toHaveLength(1);
+    expect((sentOfType(socket, "itemsAdd")[0]?.frames as unknown[])[0]).toMatchObject({ title: "Went well", titleAlign: "center", titleBold: true });
     expect(tile("Retro")?.disabled).toBe(true);
     expect(tile("Sprint planning")?.disabled).toBe(true);
-    await serve(socket, () => sentOfType(socket, "frameEdit").length >= 3);
+    await serve(socket);
     for (let i = 0; i < 20 && tile("Retro")?.disabled; i++) await settle();
-    expect(sentOfType(socket, "frameAdd")).toHaveLength(3);
-    expect(sentOfType(socket, "frameResize")).toHaveLength(3);
+    expect(sentOfType(socket, "frameAdd")).toEqual([]);
+    expect(sentOfType(socket, "frameResize")).toEqual([]);
+    expect(sentOfType(socket, "frameEdit")).toEqual([]);
     expect(tile("Retro")?.disabled).toBe(false);
     expect(properties()?.querySelector("h3")?.textContent).toBe("Frame");
     expect(properties()?.querySelector<HTMLInputElement>('input[name="frameTitle"]')?.value).toBe("Went well");
@@ -2496,7 +2503,7 @@ describe("templates (slice templates)", () => {
     const full = Array.from({ length: 29 }, (_, i) => frameAt(500 + i, { x: 0, y: 0, title: "", color: "neutral" }));
     const socket = await withBoard(true, full);
     await click(tile("Retro") ?? undefined);
-    expect(sentOfType(socket, "frameAdd")).toEqual([]);
+    expect(sentOfType(socket, "itemsAdd")).toEqual([]);
     expect(document.body.textContent).toContain("This template needs 3 frames, but the board has room for 1 more.");
   });
 
