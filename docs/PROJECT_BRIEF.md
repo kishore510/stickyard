@@ -99,7 +99,8 @@ Keep tsc, tests and build green. Stop for review with a summary of what was buil
 | Create with content | Add notes and frames with full content in one `itemsAdd`, packed by size; templates in one step | Done (v0.11.0, protocol v11, PR #25) |
 | Bar, Duplicate, Undo/Redo, Clear board | Permanent floating bar, Duplicate, per-user undo/redo, Clear board (four parts, one branch) | Done (v0.12.0, web only, PR #26) |
 | Reconnect and presence | Automatic reconnect with backoff, full resync, "relay may be over its daily limit" state, unsaved-change notice; avatar stack and join/leave toasts | Done (v0.13.0, web only, PR #28) |
-| Next | Idle expiry, timer and lock board, dot voting, export, trimmed hardening, then silent brainstorm | Not started; see PHASE_PLAN.md |
+| Idle expiry | Rooms nobody has been in for 7 days are deleted by their own alarm; a tombstone makes old links say "Session expired" (close code 4410) | Done (v0.14.0, PR #30, no protocol bump) |
+| Next | Timer and lock board, dot voting, export, trimmed hardening, then silent brainstorm | Not started; see PHASE_PLAN.md |
 | 3 onwards | See PHASE_PLAN.md | See PHASE_PLAN.md |
 
 ## 7. Open decisions
@@ -113,7 +114,7 @@ Keep tsc, tests and build green. Stop for review with a summary of what was buil
 - ~~Real-world comparison~~: done 3 October 2026, against Miro (not Microsoft Whiteboard). See the positioning note in section 1
 - ~~Host token for timer and lock~~: decided 4 October 2026. A minimal host token is issued at creation in the timer and lock slice
 - ~~Create with content message size~~: decided 4 October 2026. `MAX_MESSAGE_BYTES` stays 4 KiB; the web packs items by actual size
-- Cloudflare alarm billing and limits: check before the idle-expiry slice
+- ~~Cloudflare alarm billing and limits~~: checked 4 October 2026 for the idle-expiry slice; see LIMITS.md
 - ~~Shapes and arrows (slices 7a and 7b) before or after facilitation (slice 6)~~: decided 3 October 2026 (thread 6). Order: Z-order, Frames, Templates, Timer and lock board (cut-down 6), Reconnect (4), 3a avatars and toasts, Persistence and expiry (5), remaining facilitation, 3b live cursors, 7a, 7b, 7c, 8, 9, 10. See PHASE_PLAN.md
 
 ## 8. Thread habits
@@ -135,6 +136,7 @@ Start a thread with the slice and what I want (for example "Slice 1, write the C
 - Thread 8 (4 October 2026): Arrange grid built tests-first (v0.10.3, web only): Arrange > Grid in the selection bar lays a selection out in rows and columns in reading order, with a Columns stepper and Auto; a grid too big for the board moves nothing and says why. The editor crashed after the PR was opened; picked up from git and the open PR, then merged and deployed. Next: timer and lock board.
 - Thread 9 (4 October 2026): Grid merged (v0.10.3). Create with content built (protocol v11, v0.11.0): `itemsAdd` adds notes and frames with full content, packed under the 4 KiB cap; templates apply in one step. Floating bar, Duplicate, undo/redo and Clear board built on one branch as four parts (v0.12.0, web only, PR #26), merged and deployed. Idle-room cost reviewed and a trimmed expiry slice pulled forward. Order to a demo-able retro tool agreed: reconnect, expiry, timer and lock board, presence, voting, export, trimmed hardening. Next: reconnect prompt.
 - Thread 9, later (4 October 2026): Reconnect and Presence 3a built on one branch in three parts, tests first (v0.13.0, web only, no protocol or schema change, PR #28): automatic reconnect with backoff and a cap, full resync, a conservative "relay may be over its daily limit" state, one notice for unsaved changes, drafts kept; avatar stack and batched join/leave toasts; the 0.12.0 stale-undo-button bug fixed. Checked in headless Chromium against a local relay (relay killed and restarted, offline/online, 360/768/1280, light and dark), which found and fixed toasts for other people's quick reconnects. Merged and deployed. Next: idle expiry prompt.
+- Thread 9, later still (4 October 2026): Idle room expiry built on one branch in three parts, tests first (v0.14.0, PR #30, no protocol or schema-version bump): the last close sets a 7-day Durable Object alarm (with a 1-hour slack so come-and-go barely writes), the alarm deletes an empty room and leaves a one-row tombstone, and old links get close code 4410 and a "Session expired" page with no retries. Help, Privacy, LIMITS.md and CLAUDE.md updated. Checked in headless Chromium against a local relay. Merged and deployed. Next: timer and lock board prompt.
 
 ## 10. One-time manual setup
 

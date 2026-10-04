@@ -31,7 +31,7 @@ Draft roadmap. When a slice starts, rewrite its prompt against the real code (se
 | Floating bar, Duplicate, Undo/Redo, Clear board | One branch (`phase-bar-undo`), four parts: permanent floating bar, Duplicate, per-user undo/redo, Clear board. Web only, no protocol change | Done (v0.12.0, PR #26) |
 | 4 Reconnect | Backoff, full resync applying both snapshots, "relay over its daily limit" state, clears undo history; no offline edit queue | Done (v0.13.0, PR #28, web only) |
 | 3a Presence: avatars and toasts | Avatar stack in the top bar, join/leave toasts. No protocol change (uses `joined`, `participant_joined`, `participant_left`) | Done (v0.13.0, PR #28, with Reconnect, web only) |
-| 5 (trimmed) Idle expiry | Durable Object alarm deletes an idle room's storage and leaves a tombstone, so an old link says the session has expired. Stored-schema change | Not started |
+| 5 (trimmed) Idle expiry | Durable Object alarm deletes an idle room's storage and leaves a tombstone, so an old link says the session has expired. Additive stored data (one meta key), no protocol or schema-version bump | Done (v0.14.0, PR #30) |
 | 6 (part) Timer and lock board | Two sessions: (a) protocol v12 + stored schema (minimal host token, lock flag, timer, End session); (b) UI | Not started |
 | 6 (part) Dot voting | Two sessions: vote budget per person enforced by the server, host start/stop, results display | Not started |
 | Export PNG/Markdown | One session, so a retro leaves something behind | Not started |
@@ -54,8 +54,8 @@ Draft roadmap. When a slice starts, rewrite its prompt against the real code (se
 - Every new object type (frame, timer, text box, group box) needs its own protocol/schema change with a version bump, caps and tests. The palette gets its tile with one registry entry; no placeholder tiles for things that don't exist.
 - Each protocol or stored-schema change is its own slice and branch (2.7, 2.7.1, 2.7.2, 2.8, z-order, frames, 3b are separate for that reason).
 - Protocol numbers are assigned when each slice starts, not in advance (v11 is the current one, since create with content; the bar, undo and clear work in v0.12.0 was web only).
-- Order from here (decided 4 October 2026; Reconnect and Presence 3a were built together in one session, v0.13.0): Idle expiry (trimmed 5), Timer and lock board (two sessions), Dot voting (two sessions), Export PNG/Markdown, Hardening (trimmed 9), then Silent brainstorm with reveal, then 3b cursors, 7a, 7b, 7c (remaining), 8, 10. Slice numbers are kept as names; the table above is in build order.
-- Estimate to a demo-able retro tool (through trimmed hardening): about 7 to 9 more Claude Code sessions, one per prompt, plus about 20% for reruns (it was 11 to 13 before Reconnect and Presence).
+- Order from here (decided 4 October 2026; Reconnect and Presence 3a were built together in one session, v0.13.0; Idle expiry done in v0.14.0): Timer and lock board (two sessions), Dot voting (two sessions), Export PNG/Markdown, Hardening (trimmed 9), then Silent brainstorm with reveal, then 3b cursors, 7a, 7b, 7c (remaining), 8, 10. Slice numbers are kept as names; the table above is in build order.
+- Estimate to a demo-able retro tool (through trimmed hardening): about 6 to 8 more Claude Code sessions, one per prompt, plus about 20% for reruns (it was 7 to 9 before Idle expiry, 11 to 13 before Reconnect and Presence).
 
 ## Slice notes
 
@@ -83,7 +83,7 @@ Draft roadmap. When a slice starts, rewrite its prompt against the real code (se
 ### 2 Shared stickies
 - Server is the source of truth; clients send intents. Optimistic local update with rollback, rev-based stale rejection, throttled drag batches.
 - Caps: 200 notes per room, 280 characters, message size, per-socket message rate.
-- Notes persisted in the Durable Object's SQLite on commits only (add, edit, final move, delete). No expiry yet.
+- Notes persisted in the Durable Object's SQLite on commits only (add, edit, final move, delete). Idle rooms expire since v0.14.0 (slice 5, trimmed).
 - Known gaps, closed in slice 2.7: colour change after adding, and per-note size.
 
 ### 2.5 Board UX
@@ -152,7 +152,12 @@ Draft roadmap. When a slice starts, rewrite its prompt against the real code (se
 - Decided: no offline edit queue. Editing stays blocked while disconnected.
 - Payload: keep the existing figure, about 412.6 KiB per person on a full board with a full set of frames (422,535 bytes, two messages; see LIMITS.md); note the request budget impact.
 
-### 5 (trimmed) Idle expiry
+### 5 (trimmed) Idle expiry — done, v0.14.0
+- Built (PR #30; no protocol bump, no `SCHEMA_VERSION` bump): when the last socket closes, the room sets its alarm 7 days ahead (`ROOM_IDLE_EXPIRY_MS`), writing only when there's no alarm or it is more than 1 hour (`ALARM_RESET_SLACK_MS`) earlier, so come-and-go costs at most about one row an hour. Joining never touches the alarm (the alarm checks for open sockets instead of being cancelled). When it fires with nobody connected: `deleteAll()`, then one tombstone (`meta.expired_at`). A tombstoned room never re-initialises; every socket is accepted and closed with 4410 "expired". The web treats 4410 (only) as final on a first join or a reconnect: a "Session expired" page with a button to the start page, no retries or probes. Help and About > Privacy updated.
+- Decided in the slice: the tombstone is one meta row with the expiry time, kept forever (tens of bytes per room). Rooms created before v0.14.0 get their first alarm at their next last-close; ones nobody visits again aren't swept.
+- Checked in headless Chromium against a local relay: a real last-close set the alarm 7 days ahead; the expired page at 360/768/1280 in light and dark (expiry itself simulated in local storage, since a local alarm can't be fired early).
+- The live Cloudflare alarm docs couldn't be re-read from the build environment (network blocked); LIMITS.md uses the figures checked by hand on 4 October 2026.
+- Original notes:
 - When the last socket leaves, the room sets a Durable Object alarm N days ahead; a join cancels it. When it fires, the room deletes its own storage and leaves a small tombstone, so a validly signed old link says "this session has expired" instead of showing an empty board.
 - Why now: idle rooms cost almost nothing in compute (hibernation), but their data and links never die, and there is no way to list or sweep rooms.
 - Open: check current Cloudflare alarm billing and limits before writing the prompt; decide the tombstone's design. Own branch; stored-schema change.
@@ -263,8 +268,8 @@ Draft roadmap. When a slice starts, rewrite its prompt against the real code (se
 - Canvas: decided, React Flow (slice 2.5). Revisit only if performance with many movers is poor.
 - Visual identity: settled in slice 0.5 (Chalkline-derived)
 - ~~Timer/lock host token~~: decided 4 October 2026. A minimal host token is issued at creation in the timer and lock slice, because a lock anyone can undo is not a lock.
-- Cloudflare alarm billing and limits: check before writing the idle-expiry prompt.
-- Tombstone design for expired rooms: what it stores, how long it stays, and what an old link shows.
+- ~~Cloudflare alarm billing and limits~~: checked 4 October 2026 for the idle-expiry slice (setAlarm = 1 row written, a firing = 1 DO request; see LIMITS.md).
+- ~~Tombstone design for expired rooms~~: decided in v0.14.0. One meta row (`expired_at`), kept forever; an old link gets close code 4410 and a "Session expired" page.
 
 ## Backlog (no slot yet)
 
@@ -282,3 +287,4 @@ Draft roadmap. When a slice starts, rewrite its prompt against the real code (se
 - Bar height tidy-up (possible 0.12.1)
 - Facilitator-defined note palette (host-only; from the old slice 6 notes)
 - Faster recovery after a relay restart or deploy: the "may be over its daily limit" state starts after 3 failed opens (about 10 s); raising the threshold to 5 (about 30 s) would let a deploy recover on the normal backoff
+- Sweep rooms that were idle before v0.14.0 (they only get an expiry alarm at their next last-close)
