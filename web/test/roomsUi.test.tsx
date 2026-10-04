@@ -935,6 +935,8 @@ describe("the palette (md up)", () => {
       "Purple note",
       // Slice frames: the Frames category follows Notes.
       "Frame",
+      // Slice templates: then Templates.
+      "Retro", "Start Stop Continue", "2x2 Impact and Effort", "Sprint planning",
     ]);
     expect(tiles()[1]?.querySelector('[data-preview]')?.className).toContain("bg-note-pink");
     expect(tiles()[1]?.textContent).toContain("Pink");
@@ -976,7 +978,7 @@ describe("the palette (md up)", () => {
     expect(palette()?.querySelector("h3")).toBeNull();
     expect(palette()?.textContent).toContain("No matches");
     await type(search() as HTMLInputElement, "");
-    expect(tiles()).toHaveLength(7);
+    expect(tiles()).toHaveLength(11);
   });
 
   it("collapses to a strip with an expand button and compact tiles (as in Chalkline), from the header or with [, and remembers it", async () => {
@@ -985,7 +987,7 @@ describe("the palette (md up)", () => {
     expect(search()).toBeNull();
     expect(palette()?.querySelector("h3")).toBeNull();
     // Collapsing never takes adding away: the strip keeps one compact tile per colour.
-    expect(tiles().map((t) => t.getAttribute("aria-label"))).toEqual(["Yellow note", "Pink note", "Blue note", "Green note", "Orange note", "Purple note", "Frame"]);
+    expect(tiles().map((t) => t.getAttribute("aria-label"))).toEqual(["Yellow note", "Pink note", "Blue note", "Green note", "Orange note", "Purple note", "Frame", "Retro", "Start Stop Continue", "2x2 Impact and Effort", "Sprint planning"]);
     await click(tiles()[2]);
     expect(sentOfType(socket, "noteAdd")[0]).toMatchObject({ color: "blue" });
     expect(palette()?.querySelector('[aria-label="Expand palette"]')?.getAttribute("aria-expanded")).toBe("false");
@@ -993,7 +995,7 @@ describe("the palette (md up)", () => {
     await act(async () => (document.activeElement as HTMLElement | null)?.blur());
     await press("[");
     expect(search()).not.toBeNull();
-    expect(tiles()).toHaveLength(7);
+    expect(tiles()).toHaveLength(11);
     expect(saved("stickyard:palette-panel")).toEqual({ width: null, collapsed: false });
   });
 
@@ -2124,5 +2126,98 @@ describe("frames (slice frames, protocol v9)", () => {
       expect(controls.every((c) => c.disabled)).toBe(true);
       expect(controls.every((c) => c.className.includes("disabled:opacity-50"))).toBe(true);
     });
+  });
+});
+
+describe("templates (slice templates)", () => {
+  const properties = () => document.querySelector<HTMLElement>('aside[aria-label="Properties"]');
+  const palette = () => document.querySelector<HTMLElement>('aside[aria-label="Palette"]');
+  const sentOfType = (socket: FakeWebSocket, t: string) => (socket.sent as Record<string, unknown>[]).filter((m) => m.type === t);
+  const tile = (label: string) => palette()?.querySelector<HTMLButtonElement>(`[aria-label="${label}"]`) ?? null;
+  const viewport = () => document.querySelector(".react-flow__viewport")?.getAttribute("style") ?? "";
+  const frameAt = (i: number, add: Record<string, unknown>): Frame => ({
+    id: `FFFFFFFFFFFFF${String(i).padStart(3, "0")}`,
+    x: add.x as number,
+    y: add.y as number,
+    w: 640,
+    h: 400,
+    title: add.title as string,
+    color: add.color as Frame["color"],
+    ...FRAME_DEFAULTS,
+    rev: 1,
+    authorId: alex.id,
+  });
+  async function withBoard(wide = true, frames: Frame[] = []) {
+    setWide(wide);
+    const socket = await inRoom();
+    await server(socket, { data: { type: "snapshot", notes: [] } });
+    await server(socket, { data: { type: "framesSnapshot", frames } });
+    await settle();
+    return socket;
+  }
+  /** Confirms adds as they go out, until `done` or a time limit. */
+  async function serve(socket: FakeWebSocket, done: () => boolean) {
+    const seen = new Set<string>();
+    for (let i = 0; i < 150 && !done(); i++) {
+      for (const add of sentOfType(socket, "frameAdd")) {
+        const ref = add.clientRef as string;
+        if (seen.has(ref)) continue;
+        seen.add(ref);
+        await server(socket, { data: { type: "frameAdded", frame: frameAt(seen.size, add), clientRef: ref } });
+      }
+      await settle();
+    }
+  }
+
+  it("from md up, the palette has a Templates section with one labelled tile per template, previews drawn from tokens", async () => {
+    await withBoard();
+    const heading = [...(palette()?.querySelectorAll("h3, h2, [role=heading]") ?? [])].map((h) => h.textContent);
+    expect(heading).toContain("Templates");
+    for (const label of ["Retro", "Start Stop Continue", "2x2 Impact and Effort", "Sprint planning"]) {
+      const t = tile(label);
+      expect(t, label).not.toBeNull();
+      expect(t?.textContent).toContain(label === "2x2 Impact and Effort" ? "2x2" : label.split(" ")[0]);
+      const parts = [...(t?.querySelectorAll<HTMLElement>("[data-preview='template'] [data-preview-frame]") ?? [])];
+      expect(parts.length).toBeGreaterThanOrEqual(3);
+      for (const p of parts) expect(p.style.backgroundColor).toMatch(/^var\(--sy-frame-[a-z]+-header\)$/);
+    }
+  });
+
+  it("phones have no Templates in the add drawer", async () => {
+    await withBoard(false);
+    await click(document.querySelector<HTMLElement>('[aria-label="Add note"]') ?? undefined);
+    expect(document.querySelector('[role="dialog"] [aria-label="Retro"]')).toBeNull();
+  });
+
+  it("a click applies the template: tiles are off while it runs, then the view fits the new frames and the first is selected", async () => {
+    const socket = await withBoard();
+    const before = viewport();
+    await click(tile("Retro") ?? undefined);
+    expect(sentOfType(socket, "frameAdd")[0]).toMatchObject({ title: "Went well" });
+    expect(tile("Retro")?.disabled).toBe(true);
+    expect(tile("Sprint planning")?.disabled).toBe(true);
+    await serve(socket, () => sentOfType(socket, "frameEdit").length >= 3);
+    for (let i = 0; i < 20 && tile("Retro")?.disabled; i++) await settle();
+    expect(sentOfType(socket, "frameAdd")).toHaveLength(3);
+    expect(sentOfType(socket, "frameResize")).toHaveLength(3);
+    expect(tile("Retro")?.disabled).toBe(false);
+    expect(properties()?.querySelector("h3")?.textContent).toBe("Frame");
+    expect(properties()?.querySelector<HTMLInputElement>('input[name="frameTitle"]')?.value).toBe("Went well");
+    expect(viewport()).not.toBe(before);
+  });
+
+  it("with too few free frame slots, nothing is sent and the board says how many it needs and has", async () => {
+    const full = Array.from({ length: 29 }, (_, i) => frameAt(500 + i, { x: 0, y: 0, title: "", color: "neutral" }));
+    const socket = await withBoard(true, full);
+    await click(tile("Retro") ?? undefined);
+    expect(sentOfType(socket, "frameAdd")).toEqual([]);
+    expect(document.body.textContent).toContain("This template needs 3 frames, but the board has room for 1 more.");
+  });
+
+  it("disconnected: the template tiles are off like the others", async () => {
+    const socket = await withBoard();
+    await server(socket, "close");
+    expect(tile("Retro")?.disabled).toBe(true);
+    expect(tile("Yellow note")?.disabled).toBe(true);
   });
 });

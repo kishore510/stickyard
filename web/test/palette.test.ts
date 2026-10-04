@@ -56,8 +56,8 @@ describe("palette registry", () => {
 
   it("tiles are disabled with a reason when the board is full or disconnected", () => {
     const tile = NOTE_TILES[0];
-    expect(tile?.disabled({ noteReason: null, frameReason: null })).toBeNull();
-    expect(tile?.disabled({ noteReason: "Reconnect to add or change notes.", frameReason: null })).toBe("Reconnect to add or change notes.");
+    expect(tile?.disabled({ noteReason: null, frameReason: null, templateReason: null })).toBeNull();
+    expect(tile?.disabled({ noteReason: "Reconnect to add or change notes.", frameReason: null, templateReason: null })).toBe("Reconnect to add or change notes.");
   });
 
   it("categories render in order from the registry, and a second category needs no panel code", () => {
@@ -79,12 +79,12 @@ describe("palette registry", () => {
       ],
     };
     const sections = paletteSections([...PALETTE_CATEGORIES, shapes], "add", state, "");
-    expect(sections.map((s) => s.category.label)).toEqual(["Test shapes", "Notes", "Frames"]);
+    expect(sections.map((s) => s.category.label)).toEqual(["Test shapes", "Notes", "Frames", "Templates"]);
   });
 
   it("a category with no items (static or from the room) is hidden", () => {
     const empty: PaletteCategory = { id: "empty", label: "Empty", order: 5, tab: "add", items: [] };
-    expect(paletteSections([...PALETTE_CATEGORIES, empty], "add", state, "").map((s) => s.category.id)).toEqual(["notes", "frames"]);
+    expect(paletteSections([...PALETTE_CATEGORIES, empty], "add", state, "").map((s) => s.category.id)).toEqual(["notes", "frames", "templates"]);
   });
 
   it("a room-state selector adds tiles to the Notes category (none today)", () => {
