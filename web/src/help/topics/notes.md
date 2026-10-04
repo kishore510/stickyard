@@ -34,16 +34,16 @@ On a wider screen, with a mouse:
 - Others see the notes move as you drag (for big selections, the first 50 move live and the rest catch up when you let go).
 - On a phone (or with a finger or pen), you select one note at a time, and dragging an empty part of the board moves around it.
 
-## The bar at the top of the board
+## The board buttons at the top
 
-On a wider screen a bar sits at the top of the board all the time. Its buttons are grouped: **History** (**Undo**, **Redo**), **Edit** (**Duplicate**, **Delete**), **Order** (**Bring to front**, **Send to back**) and **Arrange** (below). A button that can't be used right now is greyed out, and the bar says why next to it (for example "Select notes or a frame first."). On a phone, **Undo** and **Redo** are in the bar at the bottom instead.
+On a wider screen the board's buttons sit in the top bar, between the Stickyard mark and the menu. They're grouped: **History** (**Undo**, **Redo**), **Edit** (**Duplicate**, **Delete**), **Order** (**Bring to front**, **Send to back**) and **Arrange**, one button that opens the arranging tools (below). A button that can't be used right now is greyed out; point at it, or move to it with **Tab**, and a small label says why (for example "Select notes or a frame first."). **Esc** hides the label. On a phone, **Undo** and **Redo** are in the bar at the bottom instead.
 
 ## Duplicate
 
 - Select notes (or one frame) and choose **Duplicate** in the bar, or press **Ctrl+D** (**Cmd+D** on a Mac) on the board.
 - The copies have everything the originals have: text, colour, text style and size. They land a little to the right of and below the originals, keep their arrangement and the order of which is in front, and go in front of everything else. The copies are selected afterwards.
 - Duplicating a frame copies the frame alone (its title, colour, title style and size), not the notes inside it.
-- If the board hasn't room for every copy (200 notes, 30 frames), nothing is copied and the bar says how many are needed and how many are free. Duplicate is also off while you're not connected, while a selected note is being moved or hasn't been saved yet, and while other items are still being added.
+- If the board hasn't room for every copy (200 notes, 30 frames), nothing is copied and Duplicate's label says how many are needed and how many are free. Duplicate is also off while you're not connected, while a selected note is being moved or hasn't been saved yet, and while other items are still being added.
 - **Ctrl+D** never does anything while you type in a note or a field. Duplicate isn't on phones.
 
 ## Undo and redo
@@ -57,7 +57,7 @@ On a wider screen a bar sits at the top of the board all the time. Its buttons a
 
 ## Arranging notes
 
-With two or more notes selected, use the **Arrange** group in the bar at the top of the board:
+With two or more notes selected, choose **Arrange** in the top bar. It opens these tools (**Esc**, or choosing **Arrange** again, closes them):
 
 - **Align**: line them up on their left edges, centres or right edges, or their top edges, middles or bottom edges.
 - **Distribute**: space three or more evenly across or down, with equal gaps between them. The outermost two stay where they are.
@@ -97,7 +97,7 @@ With two or more notes selected, use the **Arrange** group in the bar at the top
 
 - Where notes overlap, the one in front covers the others. A new note goes in front of everything.
 - Under **Order** in **Properties** (on a phone, in the note's editor), choose **Bring to front** to put the selected note in front of all the others, or **Send to back** to put it behind them.
-- With several notes selected, the same two buttons are in Properties and in the bar at the top of the board. They move together and keep their order among themselves.
+- With several notes selected, the same two buttons are in Properties and in the top bar. They move together and keep their order among themselves.
 - Moving, resizing, editing or selecting a note never changes which note is in front: everyone sees the same order. A selected note can sit partly behind another; bring it to the front to see all of it.
 - If two people change the order at the same time, the change that reaches the relay last wins.
 

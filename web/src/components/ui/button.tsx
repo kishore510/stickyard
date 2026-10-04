@@ -8,6 +8,8 @@ export const buttonVariants = cva(
     "inline-flex shrink-0 cursor-pointer items-center justify-center gap-sm rounded-md text-sm font-medium whitespace-nowrap select-none",
     "transition-colors",
     "disabled:pointer-events-none disabled:opacity-50",
+    // Off but still focusable (it explains itself in a tooltip): looks off, does nothing.
+    "aria-disabled:cursor-not-allowed aria-disabled:opacity-50 aria-disabled:hover:bg-transparent",
     "[&_svg]:pointer-events-none [&_svg]:size-icon [&_svg]:shrink-0",
   ],
   {

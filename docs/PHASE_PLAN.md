@@ -32,7 +32,8 @@ Draft roadmap. When a slice starts, rewrite its prompt against the real code (se
 | 4 Reconnect | Backoff, full resync applying both snapshots, "relay over its daily limit" state, clears undo history; no offline edit queue | Done (v0.13.0, PR #28, web only) |
 | 3a Presence: avatars and toasts | Avatar stack in the top bar, join/leave toasts. No protocol change (uses `joined`, `participant_joined`, `participant_left`) | Done (v0.13.0, PR #28, with Reconnect, web only) |
 | 5 (trimmed) Idle expiry | Durable Object alarm deletes an idle room's storage and leaves a tombstone, so an old link says the session has expired. Additive stored data (one meta key), no protocol or schema-version bump | Done (v0.14.0, PR #30) |
-| 6 (part) Timer and lock board | Two sessions: (a) protocol v12 + stored schema (minimal host token, lock flag, timer, End session); (b) UI | Not started |
+| 6 (part) Timer and lock board | Two sessions: (a) protocol v12 (minimal host token, lock flag, timer, End session); (b) UI | (a) Done (v0.15.0, PR #31, relay and plumbing); (b) not started |
+| Board bar in the top bar | Board actions moved into the top bar, reasons as hover/focus tooltips, Arrange behind one button (user feedback). Web only | Done (v0.15.1) |
 | 6 (part) Dot voting | Two sessions: vote budget per person enforced by the server, host start/stop, results display | Not started |
 | Export PNG/Markdown | One session, so a retro leaves something behind | Not started |
 | 9 (trimmed) Hardening | Load test and accessibility pass (message-rate limits already exist since slice 2) | Not started |
@@ -53,9 +54,9 @@ Draft roadmap. When a slice starts, rewrite its prompt against the real code (se
 - Test on the live deployment; merge and deploy each slice, roll back if needed (single user).
 - Every new object type (frame, timer, text box, group box) needs its own protocol/schema change with a version bump, caps and tests. The palette gets its tile with one registry entry; no placeholder tiles for things that don't exist.
 - Each protocol or stored-schema change is its own slice and branch (2.7, 2.7.1, 2.7.2, 2.8, z-order, frames, 3b are separate for that reason).
-- Protocol numbers are assigned when each slice starts, not in advance (v11 is the current one, since create with content; the bar, undo and clear work in v0.12.0 was web only).
-- Order from here (decided 4 October 2026; Reconnect and Presence 3a were built together in one session, v0.13.0; Idle expiry done in v0.14.0): Timer and lock board (two sessions), Dot voting (two sessions), Export PNG/Markdown, Hardening (trimmed 9), then Silent brainstorm with reveal, then 3b cursors, 7a, 7b, 7c (remaining), 8, 10. Slice numbers are kept as names; the table above is in build order.
-- Estimate to a demo-able retro tool (through trimmed hardening): about 6 to 8 more Claude Code sessions, one per prompt, plus about 20% for reruns (it was 7 to 9 before Idle expiry, 11 to 13 before Reconnect and Presence).
+- Protocol numbers are assigned when each slice starts, not in advance (v12 is the current one, since the host slice 6a; expiry (v0.14.0) and the top-bar move (v0.15.1) changed no protocol).
+- Order from here (decided 4 October 2026; Reconnect and Presence 3a were built together in one session, v0.13.0; Idle expiry done in v0.14.0; Timer and lock board (a) in v0.15.0): Timer and lock board (b) UI, Dot voting (two sessions), Export PNG/Markdown, Hardening (trimmed 9), then Silent brainstorm with reveal, then 3b cursors, 7a, 7b, 7c (remaining), 8, 10. Slice numbers are kept as names; the table above is in build order.
+- Estimate to a demo-able retro tool (through trimmed hardening): about 5 to 7 more Claude Code sessions, one per prompt, plus about 20% for reruns (it was 6 to 8 before the host groundwork, 7 to 9 before Idle expiry, 11 to 13 before Reconnect and Presence).
 
 ## Slice notes
 
@@ -163,6 +164,7 @@ Draft roadmap. When a slice starts, rewrite its prompt against the real code (se
 - Open: check current Cloudflare alarm billing and limits before writing the prompt; decide the tombstone's design. Own branch; stored-schema change.
 
 ### 6 Facilitation (split)
+- (a) done, v0.15.0 (PR #31, protocol v12, no stored-schema version change): stateless host token (HMAC of the room id, returned only by POST /rooms, kept per room on the creator's device), claimHost per socket, lock (non-hosts' board changes refused with board_locked; every message type classified), timer (start + duration by the server's clock, serverNow for the offset), End session (4411, ended_at tombstone through the same burial path as expiry: drop + tombstone in one transaction, then deleteAll and the tombstone again). Lock and timer are meta keys and ride on joined. The web stores the token, claims host on every join, keeps isHost/locked/timer in state, rolls back board_locked, and shows "Session ended". No visible host UI yet. The health probe threshold went from 3 to 5 in the same release.
 - Timer and lock board, two sessions:
   - (a) Protocol v12 + stored schema, tests first: a minimal host token issued at creation, a lock flag, the timer as start time + duration (each client counts down locally), and End session (broadcast, close sockets, delete storage, tombstone).
   - (b) UI: a Timer tile under a Facilitation palette category, a lock control, banners, host-only gating, Help.
@@ -284,7 +286,7 @@ Draft roadmap. When a slice starts, rewrite its prompt against the real code (se
 - Frame multi-select: marquee picks up frames, delete them together. Bigger than it looks: arrange, Properties and batches assume notes only
 - Frame-aware Grid (frames as grid containers)
 - Undoable order changes (needs a new message; the server owns z)
-- Bar height tidy-up (possible 0.12.1)
+- ~~Bar height tidy-up (possible 0.12.1)~~: done differently in v0.15.1 (the bar moved into the top bar)
 - Facilitator-defined note palette (host-only; from the old slice 6 notes)
-- Faster recovery after a relay restart or deploy: the "may be over its daily limit" state starts after 3 failed opens (about 10 s); raising the threshold to 5 (about 30 s) would let a deploy recover on the normal backoff
+- ~~Faster recovery after a relay restart or deploy~~: done in v0.15.0 (the probe waits for 5 failed opens, about 30 s)
 - Sweep rooms that were idle before v0.14.0 (they only get an expiry alarm at their next last-close)

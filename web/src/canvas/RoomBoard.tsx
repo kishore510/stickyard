@@ -30,6 +30,8 @@ import type { DeleteReport, ReconnectView, RoomView } from "../rooms/session";
 import { cn } from "../lib/utils";
 import type { useRoom } from "../rooms/useRoom";
 import { MEDIA } from "../styles/breakpoints";
+import { useTopBarSlot } from "../shell/topBarSlot";
+import { createPortal } from "react-dom";
 import type { Placed } from "./arrange";
 import { BoardCanvas, deleteFrameAsking, deleteSelected, type BoardRoom } from "./BoardCanvas";
 import { duplicateDisabledReason } from "./duplicate";
@@ -121,7 +123,6 @@ const Notices = memo(function Notices({
   onRejoin,
   onRestoreDraft,
   onDismissDraft,
-  bar,
 }: {
   status: RoomView["status"];
   reconnect: ReconnectView | null;
@@ -138,14 +139,11 @@ const Notices = memo(function Notices({
   onRejoin: () => void;
   onRestoreDraft: () => void;
   onDismissDraft: () => void;
-  /** The selection bar, first in the stack (md and up). */
-  bar?: ReactNode;
 }) {
   const live = status === "joined";
   return (
     <div className="pointer-events-none absolute inset-x-0 top-sm z-20 flex flex-col items-center gap-xs px-gutter">
       {!live && <ConnectionBar reconnect={reconnect} onRejoin={onRejoin} />}
-      {bar}
       {dropReport && (
         <p role="status" data-drop-report="" className="pointer-events-auto rounded-md bg-surface px-ms py-xs text-sm text-status-warn shadow-md">
           {dropReport}
@@ -461,6 +459,7 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
   commands.current = { duplicate, undo, redo };
   const onShortcut = useCallback((command: BoardCommand) => commands.current[command](), []);
 
+  const barSlot = useTopBarSlot((s) => s.el);
   const bar = wide ? (
     <BoardBar
       notes={selectedNotes}
@@ -538,8 +537,9 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
           onRejoin={rejoin}
           onRestoreDraft={restoreDraft}
           onDismissDraft={dismissDraft}
-          bar={bar}
         />
+        {/* The board actions live in the top bar (v0.15.1), between the mark and the menu. */}
+        {bar && barSlot && createPortal(bar, barSlot)}
         {wide ? (
           <>
             <ViewBar ctx={ctx} barRef={barRef} />

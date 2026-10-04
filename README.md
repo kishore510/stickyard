@@ -6,7 +6,7 @@ Personal learning project. Front end on GitHub Pages, relay on a Cloudflare Work
 
 See [docs/PROJECT_BRIEF.md](docs/PROJECT_BRIEF.md), [docs/PHASE_PLAN.md](docs/PHASE_PLAN.md) and [docs/LIMITS.md](docs/LIMITS.md).
 
-**Status:** v0.14.0 (protocol v11). Start a session with the create passcode, share its link, and join by link and name. On the board: sticky notes with size, colour and text style, frames, templates, multi-select and arrange, z-order, duplicate, undo/redo, chat, automatic reconnect, and presence (avatars, join/leave messages). Sessions expire after 7 days with nobody in them. See [CHANGELOG.md](CHANGELOG.md) for what each version added.
+**Status:** v0.15.1 (protocol v12). Start a session with the create passcode, share its link, and join by link and name. On the board: sticky notes with size, colour and text style, frames, templates, multi-select and arrange, z-order, duplicate, undo/redo, chat, automatic reconnect, and presence (avatars, join/leave messages). Sessions expire after 7 days with nobody in them. The relay already supports a session host (lock, timer, End session); the host controls arrive in a later release. See [CHANGELOG.md](CHANGELOG.md) for what each version added.
 
 ## Layout
 

@@ -42,9 +42,12 @@ export const onBoard = (target: EventTarget | null, board: Element | null) =>
   (typeof document !== "undefined" && (target === document.body || target === document.documentElement)) ||
   (target instanceof Node && board !== null && (board.contains(target) || target.contains(board)));
 
+/** Focus in the board actions bar (it sits in the top bar since v0.15.1): keys there still act on the board. */
+export const onBoardBar = (target: EventTarget | null) => target instanceof Element && target.closest("[data-board-bar]") !== null;
+
 export function deleteKeyTarget(e: DeleteKeyEvent, state: DeleteKeyState): DeleteKeyTarget {
   if (!isDeleteKey(e.key) || e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey) return null;
-  if (inField(e.target) || state.modal || !state.multi || !onBoard(e.target, state.board)) return null;
+  if (inField(e.target) || state.modal || !state.multi || !(onBoard(e.target, state.board) || onBoardBar(e.target))) return null;
   if (state.frameSelected) return "frame";
   return state.selection > 0 ? "notes" : null;
 }

@@ -412,7 +412,7 @@ export function SizeSection({
       <p className="text-xs text-fg-muted">
         {mixed === NONE
           ? `${NOTE_MIN_W} to ${NOTE_MAX_W}. Or drag a corner of the selected note; Alt and arrow keys resize it from the keyboard.`
-          : "To give several notes the same size, use Match size in the bar at the top of the board."}
+          : "To give several notes the same size, use Match size under Arrange in the top bar."}
       </p>
     </Section>
   );

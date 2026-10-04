@@ -2011,7 +2011,9 @@ describe("selection and delete polish (md up)", () => {
   it("Delete from a control outside the board (the top bar) does nothing", async () => {
     const socket = await withNotes([make(0), make(1)]);
     await press("a", { ctrlKey: true });
-    const menu = document.querySelector<HTMLElement>("header button");
+    // The app nav's controls (menu, theme), not the board actions that share the top bar since v0.15.1.
+    const menu = document.querySelector<HTMLElement>('header nav[aria-label="App"] button');
+    expect(menu).not.toBeNull();
     await act(async () => menu?.focus());
     vi.stubGlobal("confirm", () => true);
     await press("Delete");

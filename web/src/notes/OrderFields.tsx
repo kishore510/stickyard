@@ -6,7 +6,7 @@ import { Section } from "./StyleFields";
 
 /*
  * Stacking order (protocol v8): Bring to front and Send to back for the selected note or notes.
- * The Properties panel (one or several notes), the phone editor sheet and the selection bar
+ * The Properties panel (one or several notes), the phone editor sheet and the board bar
  * share these commands. Disabled while disconnected.
  */
 
