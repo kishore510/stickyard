@@ -139,8 +139,8 @@ describe(`schema migration 6 -> ${SCHEMA_VERSION}`, () => {
       const sql = state.storage.sql;
       loadSchemaV6(sql);
       const store = new NoteStore(sql);
-      expect(SCHEMA_VERSION).toBe(7);
-      expect(version(sql)).toBe(7);
+      expect(SCHEMA_VERSION).toBeGreaterThanOrEqual(7);
+      expect(version(sql)).toBe(SCHEMA_VERSION);
       expect(store.allFrames()).toEqual(V6_FRAMES.map((f) => ({ ...f, ...FRAME_DEFAULTS, authorId: "AAAAAAAAAAAAAAAA" })));
       expect(store.all().map((n) => [n.id, n.x, n.y, n.z, n.rev, n.text])).toEqual(V5_NOTES.map((n) => [n.id, n.x, n.y, n.z, n.rev, n.text]));
       const columns = sql.exec<{ name: string; dflt_value: string | null; notnull: number }>("SELECT name, dflt_value, \"notnull\" FROM pragma_table_info('frames')").toArray();
