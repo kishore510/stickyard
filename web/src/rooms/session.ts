@@ -123,6 +123,9 @@ import { discardUnconfirmed, resyncFrames, resyncNotes, unsavedKeys, type Orphan
  * relay's snapshots replace it (rooms/resync.ts). Drafts being typed are kept.
  */
 
+/** Stub: tests first. */
+export const EXPIRED_TEXT = { title: "", body: "" };
+
 export type RoomStatus = "idle" | "connecting" | "joined" | "invalid" | "full" | "reload" | "unreachable" | "disconnected";
 
 /**

@@ -20,7 +20,7 @@ class FakeWebSocket {
   static instances: FakeWebSocket[] = [];
   onopen: (() => void) | null = null;
   onmessage: ((e: { data: unknown }) => void) | null = null;
-  onclose: (() => void) | null = null;
+  onclose: ((e: { code: number }) => void) | null = null;
   onerror: (() => void) | null = null;
   sent: unknown[] = [];
   closed = false;
@@ -39,10 +39,11 @@ const lastSocket = () => {
   if (!s) throw new Error("no socket");
   return s;
 };
-async function server(socket: FakeWebSocket, event: "open" | "close" | { data: unknown }) {
+async function server(socket: FakeWebSocket, event: "open" | "close" | { close: number } | { data: unknown }) {
   await act(async () => {
     if (event === "open") socket.onopen?.();
-    else if (event === "close") socket.onclose?.();
+    else if (event === "close") socket.onclose?.({ code: 1006 });
+    else if ("close" in event) socket.onclose?.({ code: event.close });
     else socket.onmessage?.({ data: JSON.stringify(event.data) });
   });
 }
@@ -1464,6 +1465,62 @@ describe("room error screens", () => {
     await server(socket, "open");
     await server(socket, { data: { type: "error", code: "version_mismatch", message: "x" } });
     expect(document.querySelector("main h1")?.textContent).toBe("Please reload");
+  });
+});
+
+describe("an expired session (4410)", () => {
+  const expiredPage = () => document.querySelector<HTMLElement>("[data-session-expired]");
+  const EXPIRED = "This session has expired because nobody used it for 7 days. Start a new session from the start page.";
+
+  it.each([
+    ["phone", false],
+    ["wide", true],
+  ])("%s: on joining, a page says so politely, with a button to the start page, and no board", async (_label, isWide) => {
+    setWide(isWide);
+    await mount(`#/room/${CODE}`);
+    await type(input("Your name"), "Alex");
+    await submit(button("Join"));
+    const socket = lastSocket();
+    const opened = FakeWebSocket.instances.length;
+    await server(socket, "open");
+    await server(socket, { close: 4410 });
+    await settle();
+    const page = expiredPage();
+    expect(page).not.toBeNull();
+    expect(document.querySelector("main h1")?.textContent).toBe("Session expired");
+    const status = page?.querySelector('[role="status"]');
+    expect(status?.getAttribute("aria-live")).toBe("polite");
+    expect(status?.textContent).toBe(EXPIRED);
+    const home = button("Go to the start page");
+    expect(home?.className).toContain("h-touch");
+    expect(document.querySelector('[aria-roledescription="note"]')).toBeNull();
+    expect(document.querySelector(".react-flow")).toBeNull();
+    expect(button("Rejoin")).toBeUndefined();
+    // No health probe, no room check, no new socket.
+    const calls = fetchCalls.length;
+    await act(() => new Promise((r) => setTimeout(r, 1500)));
+    expect(FakeWebSocket.instances.length).toBe(opened);
+    expect(fetchCalls.slice(calls).filter(([url]) => url.includes("/health") || url.includes("/rooms/check"))).toEqual([]);
+    await click(home);
+    expect(window.location.hash).toBe("#/");
+  });
+
+  it("on a reconnect, the board goes and the same page shows", async () => {
+    setWide(true);
+    const socket = await inRoom();
+    await server(socket, { data: { type: "snapshot", notes: [] } });
+    await server(socket, { data: { type: "framesSnapshot", frames: [] } });
+    await server(socket, "close");
+    await act(async () => window.dispatchEvent(new Event("offline")));
+    await settle();
+    await click(button("Rejoin"));
+    const next = lastSocket();
+    await server(next, "open");
+    await server(next, { close: 4410 });
+    await settle();
+    expect(expiredPage()?.textContent).toContain(EXPIRED);
+    expect(document.querySelector("[data-connection-status]")).toBeNull();
+    expect(button("Rejoin")).toBeUndefined();
   });
 });
 

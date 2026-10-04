@@ -3,7 +3,8 @@
 export interface SocketHandlers {
   onOpen(): void;
   onMessage(data: unknown): void;
-  onClose(): void;
+  /** `code`: the close code, when the socket says (4410: the room has expired). */
+  onClose(code?: number): void;
   onError(): void;
 }
 
