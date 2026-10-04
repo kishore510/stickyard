@@ -88,6 +88,7 @@ Keep tsc, tests and build green. Stop for review with a summary of what was buil
 | Welcome | Welcome screen with the new logo mark | Done (v0.8.1, web only) |
 | Frames | Named areas behind notes that carry their notes | Done (v0.9.0, protocol v9, stored schema 6) |
 | Frame title styling | Size, bold, italic, alignment and ink for frame titles | Done (v0.9.1, protocol v10, stored schema 7) |
+| Templates | Retro, Start Stop Continue, 2x2 Impact and Effort, Sprint planning, from frames | Done (v0.10.0, web only) |
 | 3 onwards | See PHASE_PLAN.md | See PHASE_PLAN.md |
 
 ## 7. Open decisions
@@ -114,7 +115,8 @@ Start a thread with the slice and what I want (for example "Slice 1, write the C
 - Thread 5 (3 October 2026): Slices 2.7 (v0.6.0, protocol v4) and 2.7.1 title alignment (v0.6.1, protocol v5, stored schema 3) merged; Miro comparison done; scope now allows a small set of shapes and connectors (slice 7 split into 7a/7b/7c, z-order required before or with 7a). Next: slice 2.8 prompt.
 - Thread 6 (3 October 2026): Slices 2.7.2 title styling (v0.6.2, protocol v6, stored schema 4), 2.8 multi-select and arrange (v0.7.0, protocol v7) and 2.9 inline editing (v0.7.1, web only) merged. Re-ordered the plan: slice 3 split into 3a (avatars, toasts) and 3b (live cursors, deferred); new Frames and Templates slices after z-order; slice 6 split, with timer and lock board early; shapes-versus-facilitation question closed. Docs-only tidy of CLAUDE.md and the changelog. Next: z-order slice prompt.
 - Thread 6, later (3 October 2026): Z-order merged and deployed (v0.8.0, protocol v8, stored schema 5). Frames stopped before building: with 30 frames and 60-character titles the worst-case snapshot (419,360 bytes) would breach the 400 KiB tripwire, so it needs a decision first. Welcome screen with the new logo mark built (v0.8.1, web only). Next: decide how frames fit the snapshot budget, then the frames prompt.
-- Thread 6, later (4 October 2026): Frames merged and deployed (v0.9.0, protocol v9, schema 6). Frame title styling built (v0.9.1, protocol v10, schema 7): it stopped first because the framesSnapshot worst case (18,306 bytes) broke the 16 KiB test cap; decided to raise that cap to 20 KiB with a 10% rule. Frame-only dark-theme inks added. Next: templates.
+- Thread 6, later (4 October 2026): Frames merged and deployed (v0.9.0, protocol v9, schema 6). Frame title styling built (v0.9.1, protocol v10, schema 7): it stopped first because the framesSnapshot worst case (18,306 bytes) broke the 16 KiB test cap; decided to raise that cap to 20 KiB with a 10% rule. Frame-only dark-theme inks added. Merged and deployed.
+- Thread 6, later (4 October 2026): Templates built (v0.10.0, web only): four templates in a Templates palette category, applied as paced frame adds, then a resize and a style edit per frame once confirmed. Merged and deployed. Next: timer and lock board.
 
 ## 10. One-time manual setup
 

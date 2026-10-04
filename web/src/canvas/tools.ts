@@ -70,6 +70,12 @@ export function frameToolReason({ live, count }: { live: boolean; count: number 
   return count >= MAX_FRAMES_PER_ROOM ? `The board has the maximum of ${MAX_FRAMES_PER_ROOM} frames.` : null;
 }
 
+/** Why the palette's template tiles are off right now, or null. Too few free frames is a notice when one is tried. */
+export function templateToolReason({ live, applying }: { live: boolean; applying: boolean }): string | null {
+  if (!live) return NOTE_TOOL_REASONS.disconnected;
+  return applying ? "A template is being added. Wait for it to finish." : null;
+}
+
 export const TOOLS: readonly Tool[] = [
   {
     id: "select",

@@ -7,6 +7,9 @@ import { readPxToken } from "../lib/cssVar";
 import { cn } from "../lib/utils";
 import { NOTE_COLOR_CLASSES } from "../notes/colours";
 import { tileColumns } from "../panels/layout";
+import { frameSwatchStyle } from "../frames/style";
+import { templateBounds } from "../templates/place";
+import type { Template } from "../templates/registry";
 import {
   PALETTE_CATEGORIES,
   PALETTE_TABS,
@@ -43,7 +46,37 @@ export interface PaletteHost {
 /** Pointer travel (CSS px) before a press on a tile becomes a drag. */
 const DRAG_THRESHOLD = 6;
 
+const percent = (n: number) => `${Math.round(n * 1000) / 10}%`;
+
+/**
+ * A template in miniature: each frame as a small block in its header colour with its border
+ * (tokens only), placed as in the template and scaled to fit the preview box, keeping its shape.
+ */
+function TemplatePreview({ template }: { template: Template }) {
+  const { width, height } = templateBounds(template);
+  const longest = Math.max(width, height);
+  const box = { width: width / longest, height: height / longest };
+  return (
+    <span aria-hidden="true" data-preview="template" className="relative block size-tile-preview">
+      <span
+        className="absolute"
+        style={{ left: percent((1 - box.width) / 2), top: percent((1 - box.height) / 2), width: percent(box.width), height: percent(box.height) }}
+      >
+        {template.frames.map((f) => (
+          <span
+            key={f.title}
+            data-preview-frame
+            className="absolute rounded-sm border"
+            style={{ left: percent(f.x / width), top: percent(f.y / height), width: percent(f.w / width), height: percent(f.h / height), ...frameSwatchStyle(f.color) }}
+          />
+        ))}
+      </span>
+    </span>
+  );
+}
+
 function Preview({ preview, size }: { preview: PalettePreview; size: "tile" | "ghost" }) {
+  if (preview.kind === "template") return <TemplatePreview template={preview.template} />;
   if (preview.kind === "icon") {
     const Icon = preview.icon;
     return <Icon aria-hidden="true" className="size-icon-lg text-fg-muted" />;

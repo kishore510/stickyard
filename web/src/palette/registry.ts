@@ -2,6 +2,8 @@ import { Frame as FrameIcon, type LucideIcon } from "lucide-react";
 import { FRAME_DEFAULT_H, FRAME_DEFAULT_W, NOTE_COLORS, type FrameColor, type NoteColor } from "@stickyard/shared";
 import type { Size, XY } from "../canvas/geometry";
 import { NOTE_COLOR_NAMES } from "../notes/colours";
+import { templateBounds } from "../templates/place";
+import { TEMPLATES, type Template } from "../templates/registry";
 
 /*
  * The palette: everything you can add to the board, in one registry. The desktop palette
@@ -14,19 +16,20 @@ import { NOTE_COLOR_NAMES } from "../notes/colours";
  * its own slice; its tile then arrives as one entry here.
  */
 
-/** What the tile shows: a small note in a palette colour, or an icon. */
-export type PalettePreview = { kind: "note"; color: NoteColor } | { kind: "icon"; icon: LucideIcon };
+/** What the tile shows: a small note in a palette colour, an icon, or a template's frames in miniature. */
+export type PalettePreview = { kind: "note"; color: NoteColor } | { kind: "icon"; icon: LucideIcon } | { kind: "template"; template: Template };
 
 /** What a drag carries (shown under the pointer while dragging). */
-export type PalettePayload = { kind: "note"; color: NoteColor } | { kind: "frame"; color: FrameColor };
+export type PalettePayload = { kind: "note"; color: NoteColor } | { kind: "frame"; color: FrameColor } | { kind: "template"; id: string };
 
 /**
- * What tiles can do, with plain data. `at` is a board position (a drop); without it, the
- * viewport centre. A tile may call several of these (a template, later, adds frames and notes).
+ * What tiles can do, with plain data. `at` is a board position (a drop: the top-left of the
+ * thing, `dropSize` big, centred on the pointer); without it, the viewport centre.
  */
 export interface PaletteActions {
   addNote(color: NoteColor, at?: XY): void;
   addFrame(color: FrameColor, at?: XY): void;
+  applyTemplate(template: Template, at?: XY): void;
 }
 
 /** What tiles need to know to be enabled. */
@@ -35,6 +38,8 @@ export interface PaletteContext {
   noteReason: string | null;
   /** Why frames can't be added right now (disconnected, the board has its frames), or null. */
   frameReason: string | null;
+  /** Why templates can't be applied right now (disconnected, one is being applied), or null. Too few free frames is a notice instead, with the numbers. */
+  templateReason: string | null;
 }
 
 /** Where tiles are listed: the palette panel (md and up, also its collapsed strip) or the phone add drawer. */
@@ -113,6 +118,18 @@ export const FRAME_TILES: readonly PaletteItem[] = [
   },
 ];
 
+/** One tile per template (templates/registry.ts): a drop centres the whole template on the pointer. */
+export const TEMPLATE_TILES: readonly PaletteItem[] = TEMPLATES.map((template) => ({
+  id: `template-${template.id}`,
+  label: template.label,
+  keywords: ["template", ...template.keywords],
+  preview: { kind: "template", template },
+  payload: { kind: "template", id: template.id },
+  create: (actions, at) => actions.applyTemplate(template, at),
+  dropSize: templateBounds(template),
+  disabled: (ctx) => ctx.templateReason,
+}));
+
 /** Note tiles defined by the room. None yet (facilitator palettes are slice 6). */
 export function roomNoteTiles(_state: PaletteRoomState): readonly PaletteItem[] {
   return [];
@@ -128,6 +145,8 @@ export const PALETTE_CATEGORIES: readonly PaletteCategory[] = [
   { id: "notes", label: "Notes", order: 1, tab: "add", items: NOTE_TILES, fromRoom: roomNoteTiles },
   // Frames can only be added from md up (phones show them but don't change them).
   { id: "frames", label: "Frames", order: 2, tab: "add", items: FRAME_TILES, surfaces: ["panel"] },
+  // Templates are frames, so md and up only too.
+  { id: "templates", label: "Templates", order: 3, tab: "add", items: TEMPLATE_TILES, surfaces: ["panel"] },
 ];
 
 export interface PaletteSection {
