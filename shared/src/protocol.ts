@@ -24,8 +24,11 @@ import { NOTE_Z_LIMIT, ORDER_ACTIONS } from "./stack";
  *   `host`, participantUpdated), the board lock (lockSet/lockChanged, board_locked refusals), a
  *   timer (timerStart/timerStop/timerChanged), End session (endSession/sessionEnded, close code
  *   4411); `joined` carries `locked` and `timer`.
+ * v13 (dot voting): claimVoter/voterGranted (an anonymous voter from a client-made random key),
+ *   voteStart/voteStop/voteClear (host only) and votingChanged, voteSet/voteConfirmed (to the
+ *   voter's own sockets only), votesRevealed (totals, once closed); `joined` carries `voting`.
  */
-export const PROTOCOL_VERSION = 12;
+export const PROTOCOL_VERSION = 13;
 
 /**
  * Hard cap on a single client-to-server WebSocket message, in UTF-8 bytes. Checked before JSON.parse.
@@ -56,6 +59,23 @@ export const ROOM_ENDED_CLOSE_CODE = 4411;
 /** Timer durations a host may start (protocol v12): 1 second to 3 hours. Outside: refused (bad_message). */
 export const TIMER_MIN_MS = 1000;
 export const TIMER_MAX_MS = 3 * 60 * 60 * 1000;
+
+/**
+ * Dot voting (protocol v13). Each voter has `budget` dots a round (VOTE_BUDGET_MIN to
+ * VOTE_BUDGET_MAX; outside is refused, not clamped) to spread over notes, several on one note and
+ * on their own notes allowed. A voter is a client-made random key (VOTER_KEY_MIN_LENGTH to
+ * VOTER_KEY_MAX_LENGTH base64url characters, 128 random bits from the web); the relay keeps only
+ * an HMAC of it. At most MAX_VOTERS_PER_ROUND voters a round (beyond: voters_full).
+ */
+export const VOTE_BUDGET_MIN = 1;
+export const VOTE_BUDGET_MAX = 20;
+export const VOTE_BUDGET_DEFAULT = 5;
+export const MAX_VOTERS_PER_ROUND = 40;
+export const VOTER_KEY_MIN_LENGTH = 22;
+export const VOTER_KEY_MAX_LENGTH = 64;
+/** off: no round (no votes); open: voting (anonymous, no live totals); closed: totals revealed. */
+export const VOTING_STATES = ["off", "open", "closed"] as const;
+export type VotingStateName = (typeof VOTING_STATES)[number];
 
 /** Display name length after cleaning, in characters. */
 export const MAX_NAME_LENGTH = 24;
@@ -678,6 +698,38 @@ export const timerStopSchema = z.strictObject({ type: z.literal("timerStop") });
 /** Host only: end the session for everyone and delete it. */
 export const endSessionSchema = z.strictObject({ type: z.literal("endSession") });
 
+/* ── Dot voting (protocol v13) ──────────────────────────────────────────── */
+
+export const voterKeySchema = z.string().regex(new RegExp(`^[A-Za-z0-9_-]{${VOTER_KEY_MIN_LENGTH},${VOTER_KEY_MAX_LENGTH}}$`));
+const voteBudget = z.number().int().min(VOTE_BUDGET_MIN).max(VOTE_BUDGET_MAX);
+/** Dots on one note from one voter (the budget is checked by the relay). */
+const voteCount = z.number().int().min(0).max(VOTE_BUDGET_MAX);
+
+/** Become a voter with this device's key for the room. Sent after `joined` (every join and reconnect). */
+export const claimVoterSchema = z.strictObject({
+  type: z.literal("claimVoter"),
+  key: voterKeySchema,
+});
+
+/** Put `count` of my dots on a note (0 takes them all off). Only while open, after claimVoter. */
+export const voteSetSchema = z.strictObject({
+  type: z.literal("voteSet"),
+  noteId: noteIdSchema,
+  count: voteCount,
+});
+
+/** Host only: start a new round (every earlier vote is deleted). */
+export const voteStartSchema = z.strictObject({
+  type: z.literal("voteStart"),
+  budget: voteBudget,
+});
+
+/** Host only: close the round and reveal the totals to everyone. */
+export const voteStopSchema = z.strictObject({ type: z.literal("voteStop") });
+
+/** Host only: delete every vote and turn voting off. */
+export const voteClearSchema = z.strictObject({ type: z.literal("voteClear") });
+
 export const clientMessageSchema = z.discriminatedUnion("type", [
   helloSchema,
   joinSchema,
@@ -700,6 +752,11 @@ export const clientMessageSchema = z.discriminatedUnion("type", [
   timerStartSchema,
   timerStopSchema,
   endSessionSchema,
+  claimVoterSchema,
+  voteSetSchema,
+  voteStartSchema,
+  voteStopSchema,
+  voteClearSchema,
 ]);
 export type ClientMessage = z.infer<typeof clientMessageSchema>;
 export type ClientMessageType = ClientMessage["type"];
@@ -731,10 +788,16 @@ export const BOARD_WRITES: Readonly<Record<ClientMessageType, boolean>> = {
   timerStart: false,
   timerStop: false,
   endSession: false,
+  // Dot voting (v13) never changes the board: a locked board still takes votes.
+  claimVoter: false,
+  voteSet: false,
+  voteStart: false,
+  voteStop: false,
+  voteClear: false,
 };
 
 /** Host-only messages: anyone else gets not_host. */
-export const HOST_ONLY: readonly ClientMessageType[] = ["lockSet", "timerStart", "timerStop", "endSession"];
+export const HOST_ONLY: readonly ClientMessageType[] = ["lockSet", "timerStart", "timerStop", "endSession", "voteStart", "voteStop", "voteClear"];
 
 export const errorCodeSchema = z.enum([
   "version_mismatch",
@@ -750,6 +813,10 @@ export const errorCodeSchema = z.enum([
   "bad_host_token",
   "not_host",
   "board_locked",
+  "voters_full",
+  "over_budget",
+  "voting_closed",
+  "no_voter",
 ]);
 export type ErrorCode = z.infer<typeof errorCodeSchema>;
 
@@ -835,6 +902,14 @@ export const timerSchema = z.strictObject({
 });
 export type TimerState = z.infer<typeof timerSchema>;
 
+/** The room's voting state (protocol v13). `round` counts rounds started (0: none yet). */
+export const votingSchema = z.strictObject({
+  state: z.enum(VOTING_STATES),
+  budget: voteBudget,
+  round: z.number().int().nonnegative(),
+});
+export type VotingState = z.infer<typeof votingSchema>;
+
 /**
  * Sent first after a join. Since v12 it also carries the lock and the timer, so a page knows them
  * before the snapshots (same handler step: nothing can land in between).
@@ -845,6 +920,8 @@ export const joinedSchema = z.object({
   participants: z.array(participantSchema).max(MAX_PARTICIPANTS),
   locked: z.boolean(),
   timer: timerSchema.nullable(),
+  /** Since v13: the voting state (if closed, votesRevealed follows the snapshots). */
+  voting: votingSchema,
 });
 
 export const participantJoinedSchema = z.object({
@@ -1059,6 +1136,44 @@ export const timerChangedSchema = z.strictObject({
 /** A host ended the session. Every socket is then closed with ROOM_ENDED_CLOSE_CODE. */
 export const sessionEndedSchema = z.strictObject({ type: z.literal("sessionEnded") });
 
+/** One note's dots: a voter's own (voterGranted), or everyone's (votesRevealed). Never says who. */
+export const noteVotesSchema = z.strictObject({
+  noteId: noteIdSchema,
+  count: z.number().int().min(1).max(MAX_VOTERS_PER_ROUND * VOTE_BUDGET_MAX),
+});
+const remainingSchema = z.number().int().min(0).max(VOTE_BUDGET_MAX);
+
+/** The claim worked: this socket votes as that voter. Its own votes this round, and dots left. */
+export const voterGrantedSchema = z.strictObject({
+  type: z.literal("voterGranted"),
+  remaining: remainingSchema,
+  mine: z.array(noteVotesSchema.extend({ count: voteCount.min(1) })).max(VOTE_BUDGET_MAX),
+});
+
+/** Voting started, stopped or cleared. To everyone. */
+export const votingChangedSchema = z.strictObject({
+  type: z.literal("votingChanged"),
+  voting: votingSchema,
+});
+
+/** A voteSet stored (or already so). Only to the voter's own sockets. */
+export const voteConfirmedSchema = z.strictObject({
+  type: z.literal("voteConfirmed"),
+  noteId: noteIdSchema,
+  count: voteCount,
+  remaining: remainingSchema,
+});
+
+/**
+ * The round's totals, non-zero only, in note creation order: to everyone when a host stops
+ * voting, and to a joiner while closed. Totals only: never who voted for what.
+ */
+export const votesRevealedSchema = z.strictObject({
+  type: z.literal("votesRevealed"),
+  round: z.number().int().nonnegative(),
+  totals: z.array(noteVotesSchema).max(MAX_NOTES_PER_ROOM),
+});
+
 export const serverMessageSchema = z.discriminatedUnion("type", [
   welcomeSchema,
   errorMessageSchema,
@@ -1086,5 +1201,9 @@ export const serverMessageSchema = z.discriminatedUnion("type", [
   lockChangedSchema,
   timerChangedSchema,
   sessionEndedSchema,
+  voterGrantedSchema,
+  votingChangedSchema,
+  voteConfirmedSchema,
+  votesRevealedSchema,
 ]);
 export type ServerMessage = z.infer<typeof serverMessageSchema>;

@@ -74,7 +74,7 @@ describe("clientMessageSchema", () => {
 describe("serverMessageSchema", () => {
   const valid: [string, ServerMessage][] = [
     ["welcome", { type: "welcome", protocolVersion: 2 }],
-    ["joined", { type: "joined", you: alex, participants: [alex, sam], locked: false, timer: null }],
+    ["joined", { type: "joined", you: alex, participants: [alex, sam], locked: false, timer: null, voting: { state: "off", budget: 5, round: 0 } }],
     ["participant_joined", { type: "participant_joined", participant: sam }],
     ["participant_left", { type: "participant_left", id: ID_B }],
     ["echo", { type: "echo", from: ID_A, text: "Hello <b>there</b>" }],
@@ -132,7 +132,7 @@ describe("serverMessageSchema", () => {
       colourIndex: i,
       host: true,
     }));
-    const raw = encodeMessage({ type: "joined", you: people[0]!, participants: people, locked: false, timer: null });
+    const raw = encodeMessage({ type: "joined", you: people[0]!, participants: people, locked: false, timer: null, voting: { state: "closed", budget: 20, round: 1 } });
     expect(parseMessage(raw, serverMessageSchema).ok).toBe(true);
   });
 

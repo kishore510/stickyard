@@ -1,4 +1,17 @@
-import { FRAME_DEFAULTS, FRAME_DEFAULT_H, FRAME_DEFAULT_W, NOTE_DEFAULTS, clampFrameRect, clampNoteRect, clampZ, frameSchema, noteSchema, type Frame, type Note } from "@stickyard/shared";
+import {
+  FRAME_DEFAULTS,
+  FRAME_DEFAULT_H,
+  FRAME_DEFAULT_W,
+  NOTE_DEFAULTS,
+  VOTE_BUDGET_MAX,
+  clampFrameRect,
+  clampNoteRect,
+  clampZ,
+  frameSchema,
+  noteSchema,
+  type Frame,
+  type Note,
+} from "@stickyard/shared";
 
 /**
  * A room's notes, in its Durable Object's SQLite. Written only on commits (add, edit, final
@@ -25,8 +38,13 @@ import { FRAME_DEFAULTS, FRAME_DEFAULT_H, FRAME_DEFAULT_W, NOTE_DEFAULTS, clampF
  *     title_text_color, title_align (NOT NULL, defaults from FRAME_DEFAULTS, which look like the
  *     v9 header). Nothing to copy, so existing frames look unchanged; version 6 code still inserts
  *     and updates frames without them.
+ *   8 (dot voting): a new votes table (voter_id, note_id, count; key voter_id + note_id), every
+ *     column with a DEFAULT. Additive: version 7 code never reads it. Rows are only ever written
+ *     with a count of 1 to VOTE_BUDGET_MAX; a note's rows go with it (same transaction). Votes
+ *     that version 7 code leaves behind on a note it deletes are ignored on load (note ids are
+ *     random, so the note never comes back). The voting state lives in meta (no version needed).
  */
-export const SCHEMA_VERSION = 7;
+export const SCHEMA_VERSION = 8;
 
 /** Columns added by version 2, with their SQL definitions. Defaults come from NOTE_DEFAULTS. */
 const V2_COLUMNS: [name: string, definition: string][] = [
@@ -111,6 +129,8 @@ export class NoteStore {
   transactions = 0;
   private cache: Map<string, Note> | null = null;
   private frameCache: Map<string, Frame> | null = null;
+  /** Votes by voter id, then note id (counts 1 to VOTE_BUDGET_MAX). */
+  private voteCache: Map<string, Map<string, number>> | null = null;
 
   constructor(
     private readonly sql: SqlStorage,
@@ -190,6 +210,16 @@ export class NoteStore {
         if (!existing.has(name)) this.sql.exec(`ALTER TABLE frames ADD COLUMN ${name} ${definition}`);
       }
     }
+    if (version < 8) {
+      this.sql.exec(
+        `CREATE TABLE IF NOT EXISTS votes (
+          voter_id TEXT NOT NULL DEFAULT '',
+          note_id TEXT NOT NULL DEFAULT '',
+          count INTEGER NOT NULL DEFAULT 0,
+          PRIMARY KEY (voter_id, note_id)
+        )`,
+      );
+    }
     this.write("INSERT OR REPLACE INTO meta (key, value) VALUES ('schema_version', ?)", SCHEMA_VERSION);
   }
 
@@ -264,12 +294,15 @@ export class NoteStore {
     if (updates.length === 0 && deletes.length === 0) return;
     this.transact(() => {
       for (const note of updates) this.writeUpdate(note);
-      for (const id of deletes) this.write("DELETE FROM notes WHERE id = ?", id);
+      for (const id of deletes) this.writeNoteDelete(id);
     });
     this.transactions += 1;
     const cache = this.notes();
     for (const note of updates) cache.set(note.id, note);
-    for (const id of deletes) cache.delete(id);
+    for (const id of deletes) {
+      cache.delete(id);
+      this.forgetVotesOn(id);
+    }
   }
 
   /**
@@ -301,9 +334,16 @@ export class NoteStore {
     );
   }
 
+  /** Deletes a note and its votes (the dots go back to their voters) in one transaction. */
   delete(id: string): void {
-    this.write("DELETE FROM notes WHERE id = ?", id);
+    this.transact(() => this.writeNoteDelete(id));
     this.notes().delete(id);
+    this.forgetVotesOn(id);
+  }
+
+  private writeNoteDelete(id: string): void {
+    this.write("DELETE FROM notes WHERE id = ?", id);
+    this.write("DELETE FROM votes WHERE note_id = ?", id);
   }
 
   /* ── Frames (schema 6; title style since 7) ──────────────────────────────────────────── */
@@ -400,12 +440,106 @@ export class NoteStore {
 
   /** Sets meta keys (and deletes those given null) in one transaction. Callers write only when something changed. */
   setMeta(values: Record<string, number | null>): void {
-    this.transact(() => {
-      for (const [key, value] of Object.entries(values)) {
-        if (value === null) this.write("DELETE FROM meta WHERE key = ?", key);
-        else this.write("INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value", key, value);
-      }
+    this.transact(() => this.writeMeta(values));
+  }
+
+  private writeMeta(values: Record<string, number | null>): void {
+    for (const [key, value] of Object.entries(values)) {
+      if (value === null) this.write("DELETE FROM meta WHERE key = ?", key);
+      else this.write("INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value", key, value);
+    }
+  }
+
+  /* ── Votes (schema 8, protocol v13) ──────────────────────────────────────────────────── */
+
+  /**
+   * Every vote, by voter then note. Rows for notes that aren't here (left by older code) or with
+   * a count outside 1..VOTE_BUDGET_MAX are skipped, never fatal.
+   */
+  private votes(): Map<string, Map<string, number>> {
+    if (this.voteCache) return this.voteCache;
+    const notes = this.notes();
+    const cache = new Map<string, Map<string, number>>();
+    for (const row of this.sql.exec<{ voter_id: string; note_id: string; count: number }>("SELECT voter_id, note_id, count FROM votes ORDER BY rowid")) {
+      if (!notes.has(row.note_id) || !Number.isInteger(row.count) || row.count < 1 || row.count > VOTE_BUDGET_MAX) continue;
+      const mine = cache.get(row.voter_id) ?? new Map<string, number>();
+      mine.set(row.note_id, row.count);
+      cache.set(row.voter_id, mine);
+    }
+    this.voteCache = cache;
+    return cache;
+  }
+
+  /** A voter's votes, in note creation order. */
+  votesOf(voterId: string): { noteId: string; count: number }[] {
+    const mine = this.votes().get(voterId);
+    if (!mine) return [];
+    return [...this.notes().keys()].flatMap((noteId) => {
+      const count = mine.get(noteId);
+      return count ? [{ noteId, count }] : [];
     });
+  }
+
+  /** Dots a voter has placed. */
+  usedBy(voterId: string): number {
+    let used = 0;
+    for (const count of this.votes().get(voterId)?.values() ?? []) used += count;
+    return used;
+  }
+
+  /** Voters with at least one vote. */
+  voterIds(): Set<string> {
+    return new Set(this.votes().keys());
+  }
+
+  /** Sets one voter's dots on a note (0 deletes the row). Writes only when it changes; returns whether it did. */
+  setVote(voterId: string, noteId: string, count: number): boolean {
+    const votes = this.votes();
+    const mine = votes.get(voterId);
+    if ((mine?.get(noteId) ?? 0) === count) return false;
+    if (count === 0) {
+      this.write("DELETE FROM votes WHERE voter_id = ? AND note_id = ?", voterId, noteId);
+      mine?.delete(noteId);
+      if (mine?.size === 0) votes.delete(voterId);
+    } else {
+      this.write(
+        "INSERT INTO votes (voter_id, note_id, count) VALUES (?, ?, ?) ON CONFLICT(voter_id, note_id) DO UPDATE SET count = excluded.count",
+        voterId,
+        noteId,
+        count,
+      );
+      votes.set(voterId, (mine ?? new Map<string, number>()).set(noteId, count));
+    }
+    return true;
+  }
+
+  /** Every note's total, non-zero only, in note creation order. Totals only: never who. */
+  totals(): { noteId: string; count: number }[] {
+    const sums = new Map<string, number>();
+    for (const mine of this.votes().values()) for (const [noteId, count] of mine) sums.set(noteId, (sums.get(noteId) ?? 0) + count);
+    return [...this.notes().keys()].flatMap((noteId) => {
+      const count = sums.get(noteId) ?? 0;
+      return count > 0 ? [{ noteId, count }] : [];
+    });
+  }
+
+  /**
+   * Voting state changes: meta keys (null deletes) and, with `clearVotes`, every vote deleted, in
+   * one transaction. Callers pass only what changed.
+   */
+  setVoting(values: Record<string, number | null>, clearVotes: boolean): void {
+    this.transact(() => {
+      if (clearVotes) this.write("DELETE FROM votes");
+      this.writeMeta(values);
+    });
+    if (clearVotes) this.voteCache = new Map();
+  }
+
+  private forgetVotesOn(noteId: string): void {
+    for (const [voterId, mine] of this.votes()) {
+      mine.delete(noteId);
+      if (mine.size === 0) this.votes().delete(voterId);
+    }
   }
 
   private write(query: string, ...bindings: SqlStorageValue[]): void {

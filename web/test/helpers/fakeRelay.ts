@@ -54,6 +54,8 @@ export class Relay {
   hostToken = "fakeHostToken".padEnd(43, "x");
   locked = false;
   timer: { startedAt: number; durationMs: number; serverNow: number } | null = null;
+  /** Protocol v13: the voting state joined reports. */
+  voting: { state: "off" | "open" | "closed"; budget: number; round: number } = { state: "off", budget: 5, round: 0 };
   /** Sockets opened so far, and how many of them this page closed. */
   sockets = 0;
   closes = 0;
@@ -144,7 +146,7 @@ export class Relay {
       case "join": {
         if (this.joinError) return this.out({ type: "error", code: this.joinError, message: "No." });
         const you = { ...this.you, name: m.name as string };
-        this.out({ type: "joined", you, participants: [you, ...this.others], locked: this.locked, timer: this.timer });
+        this.out({ type: "joined", you, participants: [you, ...this.others], locked: this.locked, timer: this.timer, voting: this.voting });
         this.out({ type: "snapshot", notes: [...this.notes.values()] });
         if (this.holdFrames) return;
         return this.out({ type: "framesSnapshot", frames: [...this.frames.values()] });

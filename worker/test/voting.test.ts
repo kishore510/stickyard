@@ -52,6 +52,10 @@ const meta = async (stub: DurableObjectStub<Room>) => Object.fromEntries(((await
 const attachments = (stub: DurableObjectStub<Room>) => runInDurableObject(stub, (_r, state) => state.getWebSockets().map((ws) => ws.deserializeAttachment() as unknown));
 const closeAll = (...cs: TestClient[]) => cs.forEach((c) => c.close());
 const settle = () => new Promise((r) => setTimeout(r, 50));
+/** Reads and drops whatever a client has been sent (joins and leaves of other sockets) until it is quiet. */
+async function drain(...cs: TestClient[]) {
+  for (const c of cs) while (!(await c.quiet(60))) await c.next(1).catch(() => undefined);
+}
 
 /** Every raw message a client receives, from the moment it opens. */
 function recorded(c: TestClient): string[] {
@@ -89,6 +93,7 @@ async function start(host: TestClient, others: TestClient[], budget = VOTE_BUDGE
 }
 
 async function claim(c: TestClient, key: string) {
+  await drain(c);
   const granted = await c.request({ type: "claimVoter", key });
   expect(granted.type).toBe("voterGranted");
   return granted as Extract<ServerMessage, { type: "voterGranted" }>;
@@ -280,8 +285,9 @@ describe("voting state", () => {
     expect(await voteRows(stub)).toHaveLength(2);
     const before = await rowsWritten(stub);
     expect(await start(host, [guest], 3)).toEqual({ state: "open", budget: 3, round: 2 });
-    // Two vote rows deleted (each with its index entry), budget and round changed; the state stays open.
-    expect((await rowsWritten(stub)) - before).toBe(2 * 2 + 2);
+    // Two vote rows deleted (1 each), the budget stored for the first time (5 was the default: row
+    // and index), the round changed (1); the state stays open (nothing).
+    expect((await rowsWritten(stub)) - before).toBe(2 + 2 + 1);
     expect(await voteRows(stub)).toEqual([]);
     expect(await guest.request({ type: "claimVoter", key })).toEqual({ type: "voterGranted", remaining: 3, mine: [] });
     closeAll(host, guest);
@@ -381,7 +387,7 @@ describe("voteSet", () => {
     closeAll(host, guest);
   });
 
-  it("row writes: a new vote 2 (row and index), a changed count 1, the same count 0 (still confirmed), back to 0 deletes (2)", async () => {
+  it("row writes: a new vote 2 (row and index), a changed count 1, the same count 0 (still confirmed), back to 0 deletes (1)", async () => {
     const { host, guest, stub, notes } = await votingRoom();
     await start(host, [guest]);
     await claim(guest, newKey());
@@ -394,7 +400,7 @@ describe("voteSet", () => {
     expect(await cost(1)).toBe(2);
     expect(await cost(3)).toBe(1);
     expect(await cost(3)).toBe(0);
-    expect(await cost(0)).toBe(2);
+    expect(await cost(0)).toBe(1);
     expect(await cost(0)).toBe(0);
     expect(await voteRows(stub)).toEqual([]);
     closeAll(host, guest);
@@ -526,6 +532,9 @@ describe("results", () => {
     await off.enter("Priya");
     expect(await off.quiet()).toBe(true);
     off.close();
+    await off.waitClose();
+    await settle();
+    await drain(host, guest);
     await start(host, [guest]);
     await claim(guest, newKey());
     await guest.request({ type: "voteSet", noteId: notes[1]!.id, count: 2 });
@@ -533,6 +542,8 @@ describe("results", () => {
     expect((await open.enter("Priya")).voting.state).toBe("open");
     expect(await open.quiet()).toBe(true);
     open.close();
+    await open.waitClose();
+    await settle();
     host.send({ type: "voteStop" });
     await nextOfType(guest, "votesRevealed");
     const late = await TestClient.open(code);
@@ -556,6 +567,7 @@ describe("voters cap", () => {
       c.close();
       await c.waitClose();
     }
+    await drain(host, guest);
     expect(await guest.request({ type: "claimVoter", key: newKey() })).toMatchObject({ type: "error", code: "voters_full" });
     expect(await claim(guest, keys[7]!)).toEqual({ type: "voterGranted", remaining: 0, mine: [{ noteId: notes[0]!.id, count: 1 }] });
     await start(host, [guest]);

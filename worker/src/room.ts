@@ -9,12 +9,17 @@ import {
   MAX_FRAMES_PER_ROOM,
   MAX_NOTES_PER_ROOM,
   MAX_PARTICIPANTS,
+  MAX_VOTERS_PER_ROUND,
   NOTE_DEFAULTS,
   NOTE_EDIT_FIELDS,
   BOARD_WRITES,
   PROTOCOL_VERSION,
   ROOM_ENDED_CLOSE_CODE,
   ROOM_EXPIRED_CLOSE_CODE,
+  VOTE_BUDGET_DEFAULT,
+  VOTE_BUDGET_MAX,
+  VOTE_BUDGET_MIN,
+  VOTING_STATES,
   clampFramePosition,
   clampFrameRect,
   clampNotePosition,
@@ -43,6 +48,7 @@ import {
   type ServerMessage,
   type Stacked,
   type TimerState,
+  type VotingState,
 } from "@stickyard/shared";
 import { z } from "zod";
 import { randomBase64url } from "./crypto";
@@ -51,6 +57,7 @@ import { ENDED_REASON, EXPIRED_REASON, clearToTombstone, nextExpiryAlarm, readTo
 import { verifyHostToken } from "./hostToken";
 import { BATCH_LIMITS, SOCKET_LIMITS } from "./limits";
 import { NoteStore } from "./noteStore";
+import { voterIdFor } from "./voterId";
 
 /**
  * Per-socket state, kept in the WebSocket attachment so it survives hibernation.
@@ -78,6 +85,11 @@ const socketStateSchema = z.object({
   /** Over-limit messages since `strikeAt` (the start of the current violation window). */
   strikes: z.number().int(),
   strikeAt: z.number(),
+  /**
+   * The voter this socket votes as (protocol v13): an HMAC of the key it claimed with, set only by
+   * claimVoter. Never the key itself, and never sent anywhere.
+   */
+  voterId: z.string().nullable().default(null),
   /** Batch entries token bucket (BATCH_LIMITS). Defaults keep sockets from before v7 readable. */
   entryTokens: z.number().default(BATCH_LIMITS.entriesBurst),
   entryAt: z.number().default(0),
@@ -121,6 +133,8 @@ function refOf(message: ClientMessage): ErrorRef {
     case "frameResize":
     case "frameDelete":
       return { frameId: message.id };
+    case "voteSet":
+      return { noteId: message.noteId };
     case "frameMove":
       // The notes it was carrying roll back with it.
       return message.noteIds && message.noteIds.length > 0 ? { frameId: message.id, noteIds: message.noteIds } : { frameId: message.id };
@@ -134,6 +148,23 @@ type BatchMessage = Extract<ClientMessage, { type: "noteBatch" }>;
 type OrderMessage = Extract<ClientMessage, { type: "notesOrder" }>;
 type FrameMessage = Extract<ClientMessage, { type: "frameAdd" | "frameEdit" | "frameMove" | "frameResize" | "frameDelete" }>;
 type ItemsMessage = Extract<ClientMessage, { type: "itemsAdd" }>;
+type VotingHostMessage = Extract<ClientMessage, { type: "voteStart" | "voteStop" | "voteClear" }>;
+
+/** The voting state's meta keys and their stored values (state as its index in VOTING_STATES). */
+const VOTING_KEYS = { state: "voting_state", budget: "voting_budget", round: "voting_round" } as const;
+const VOTING_OFF: VotingState = { state: "off", budget: VOTE_BUDGET_DEFAULT, round: 0 };
+
+/** The voting state from meta values; anything missing or out of range takes its default. */
+function readVoting(get: (key: string) => number | null): VotingState {
+  const state = VOTING_STATES[get(VOTING_KEYS.state) ?? 0] ?? "off";
+  const budget = get(VOTING_KEYS.budget);
+  const round = get(VOTING_KEYS.round);
+  return {
+    state,
+    budget: budget !== null && Number.isInteger(budget) && budget >= VOTE_BUDGET_MIN && budget <= VOTE_BUDGET_MAX ? budget : VOTE_BUDGET_DEFAULT,
+    round: round !== null && Number.isSafeInteger(round) && round >= 0 ? round : 0,
+  };
+}
 
 /** Drags and resizes in progress (a note, a group or a frame): relayed (coalesced), never stored. */
 const isPreview = (message: ClientMessage) =>
@@ -172,6 +203,8 @@ export class Room extends DurableObject<Env> {
   private locked = false;
   /** The timer (protocol v12), from meta: start by the server's clock, and length. */
   private timer: { startedAt: number; durationMs: number } | null = null;
+  /** Dot voting (protocol v13), from meta. */
+  private voting: VotingState = VOTING_OFF;
   /** Rows written outside the current store: alarm sets, tombstones, and a store dropped at burial. */
   private otherRows = 0;
   /** Non-final moves and resizes waiting to be relayed, latest per note and kind. Never stored. */
@@ -190,6 +223,7 @@ export class Room extends DurableObject<Env> {
       const startedAt = this.store.getMeta("timer_started_at");
       const durationMs = this.store.getMeta("timer_duration_ms");
       this.timer = startedAt !== null && durationMs !== null ? { startedAt, durationMs } : null;
+      this.voting = readVoting((key) => this.store?.getMeta(key) ?? null);
     }
   }
 
@@ -239,6 +273,7 @@ export class Room extends DurableObject<Env> {
       hello: false,
       participant: null,
       roomId: request.headers.get(ROOM_ID_HEADER) ?? "",
+      voterId: null,
       tokens: SOCKET_LIMITS.burst,
       at: Date.now(),
       strikes: 0,
@@ -392,6 +427,7 @@ export class Room extends DurableObject<Env> {
     this.tombstone = tombstone;
     this.locked = false;
     this.timer = null;
+    this.voting = VOTING_OFF;
     this.pendingMoves.clear();
     this.pendingFrames.clear();
     return tombstone;
@@ -445,10 +481,19 @@ export class Room extends DurableObject<Env> {
         ws.serializeAttachment(state);
 
         // Lock and timer ride on joined, in this same step as the snapshots: nothing can land between them.
-        send(ws, { type: "joined", you, participants: this.participants().map(({ participant }) => participant), locked: this.locked, timer: this.timerView() });
+        send(ws, {
+          type: "joined",
+          you,
+          participants: this.participants().map(({ participant }) => participant),
+          locked: this.locked,
+          timer: this.timerView(),
+          voting: this.voting,
+        });
         // Notes, then frames, in this same step: nothing else can be sent to this socket between them.
         send(ws, { type: "snapshot", notes: this.notes.all() });
         send(ws, { type: "framesSnapshot", frames: this.notes.allFrames() });
+        // A closed round's totals, so a late joiner sees the results. While open, nothing about anyone's votes.
+        if (this.voting.state === "closed") send(ws, this.revealed());
         this.broadcast({ type: "participant_joined", participant: you }, ws);
         return;
       }
@@ -509,6 +554,24 @@ export class Room extends DurableObject<Env> {
       case "claimHost":
         return this.claimHost(ws, state, message.token);
 
+      case "claimVoter":
+        return this.claimVoter(ws, state, message.key);
+
+      case "voteSet": {
+        ws.serializeAttachment(state);
+        if (!state.participant) return send(ws, error("not_joined", "Join the room first.", refOf(message)));
+        return this.voteSet(ws, state, message.noteId, message.count);
+      }
+
+      case "voteStart":
+      case "voteStop":
+      case "voteClear": {
+        ws.serializeAttachment(state);
+        if (!state.participant) return send(ws, error("not_joined", "Join the room first."));
+        if (!state.participant.host) return send(ws, error("not_host", "Only the host can do that."));
+        return this.handleVoting(ws, message);
+      }
+
       case "lockSet":
       case "timerStart":
       case "timerStop":
@@ -543,6 +606,113 @@ export class Room extends DurableObject<Env> {
     ws.serializeAttachment(latest);
     send(ws, { type: "hostGranted" });
     if (!already) this.broadcast({ type: "participantUpdated", participant }, ws);
+  }
+
+  /**
+   * claimVoter (protocol v13): the socket votes as HMAC(room id, key) from now on (kept in its
+   * attachment, so it survives hibernation). The same key from another socket is the same voter.
+   * At most MAX_VOTERS_PER_ROUND voters (with votes this round, or claimed on an open socket):
+   * a new one beyond that gets voters_full. Writes nothing. The key is never stored, echoed or logged.
+   */
+  private async claimVoter(ws: WebSocket, state: SocketState, key: string): Promise<void> {
+    if (!state.participant) {
+      ws.serializeAttachment(state);
+      return send(ws, error("not_joined", "Join the room first."));
+    }
+    ws.serializeAttachment(state);
+    const voterId = await voterIdFor(state.roomId, key, (this.env as Env & Secrets).ROOM_SIGNING_KEY ?? "");
+    // Other messages from this socket may have been handled while that was worked out: start from its latest state.
+    const latest = readState(ws) ?? state;
+    if (this.tombstone !== null || !latest.participant) return;
+    if (voterId === null) return send(ws, error("bad_message", "Voting isn't available in this session."));
+    const known = this.knownVoters(ws);
+    if (!known.has(voterId) && known.size >= MAX_VOTERS_PER_ROUND) {
+      return send(ws, error("voters_full", `This round has the maximum of ${MAX_VOTERS_PER_ROUND} voters.`));
+    }
+    latest.voterId = voterId;
+    ws.serializeAttachment(latest);
+    send(ws, { type: "voterGranted", remaining: this.remaining(voterId), mine: this.notes.votesOf(voterId) });
+  }
+
+  /** Voters this round: those with votes, and those claimed on other open sockets. */
+  private knownVoters(except?: WebSocket): Set<string> {
+    const known = this.notes.voterIds();
+    for (const ws of this.ctx.getWebSockets()) {
+      if (ws === except || ws.readyState !== WebSocket.OPEN) continue;
+      const voterId = readState(ws)?.voterId;
+      if (voterId) known.add(voterId);
+    }
+    return known;
+  }
+
+  /** Dots a voter has left this round. */
+  private remaining(voterId: string): number {
+    return Math.max(0, this.voting.budget - this.notes.usedBy(voterId));
+  }
+
+  /**
+   * voteSet (protocol v13): only while open and after claimVoter. Unknown or deleted notes are
+   * ignored silently. The voter's total must stay within the budget (over_budget otherwise).
+   * Stored only when it changes; confirmed to the voter's own sockets either way, and to nobody
+   * else (votes are anonymous and there are no live totals).
+   */
+  private voteSet(ws: WebSocket, state: SocketState, noteId: string, count: number): void {
+    if (this.voting.state !== "open") return send(ws, error("voting_closed", "Voting isn't open.", { noteId }));
+    const voterId = state.voterId;
+    if (!voterId) return send(ws, error("no_voter", "Claim a voter first.", { noteId }));
+    if (!this.notes.get(noteId)) return;
+    const mine = this.notes.votesOf(voterId);
+    const others = mine.reduce((sum, v) => sum + (v.noteId === noteId ? 0 : v.count), 0);
+    if (others + count > this.voting.budget) return send(ws, error("over_budget", "That's more dots than you have.", { noteId }));
+    // A voter new to this round's votes (a backstop: claimVoter already counts them).
+    if (count > 0 && mine.length === 0 && !this.notes.voterIds().has(voterId) && this.notes.voterIds().size >= MAX_VOTERS_PER_ROUND) {
+      return send(ws, error("voters_full", `This round has the maximum of ${MAX_VOTERS_PER_ROUND} voters.`, { noteId }));
+    }
+    this.notes.setVote(voterId, noteId, count);
+    const confirmed: ServerMessage = { type: "voteConfirmed", noteId, count, remaining: this.remaining(voterId) };
+    for (const socket of this.ctx.getWebSockets()) {
+      if (socket.readyState === WebSocket.OPEN && readState(socket)?.voterId === voterId) send(socket, confirmed);
+    }
+  }
+
+  /** The round's totals, as sent. */
+  private revealed(): ServerMessage {
+    return { type: "votesRevealed", round: this.voting.round, totals: this.notes.totals() };
+  }
+
+  /**
+   * Host-only voting messages (protocol v13). voteStart: a new round (every earlier vote deleted,
+   * round + 1). voteStop: closed, then the totals to everyone. voteClear: every vote deleted, off.
+   * Each writes only what changes; with nothing to change only the sender is answered.
+   */
+  private handleVoting(ws: WebSocket, message: VotingHostMessage): void {
+    const current = this.voting;
+    let next: VotingState;
+    switch (message.type) {
+      case "voteStart":
+        next = { state: "open", budget: message.budget, round: current.round + 1 };
+        break;
+      case "voteStop":
+        if (current.state !== "open") {
+          send(ws, { type: "votingChanged", voting: current });
+          if (current.state === "closed") send(ws, this.revealed());
+          return;
+        }
+        next = { ...current, state: "closed" };
+        break;
+      case "voteClear":
+        if (current.state === "off" && this.notes.voterIds().size === 0) return send(ws, { type: "votingChanged", voting: current });
+        next = { ...current, state: "off" };
+        break;
+    }
+    const changed: Record<string, number> = {};
+    if (next.state !== current.state) changed[VOTING_KEYS.state] = VOTING_STATES.indexOf(next.state);
+    if (next.budget !== current.budget) changed[VOTING_KEYS.budget] = next.budget;
+    if (next.round !== current.round) changed[VOTING_KEYS.round] = next.round;
+    this.notes.setVoting(changed, message.type !== "voteStop");
+    this.voting = next;
+    this.broadcast({ type: "votingChanged", voting: next });
+    if (next.state === "closed") this.broadcast(this.revealed());
   }
 
   /** Host-only messages (protocol v12), from a host. Each writes only when something changes. */
