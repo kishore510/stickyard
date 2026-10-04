@@ -441,10 +441,16 @@ describe("the room", () => {
     expect(window.location.hash).toBe("#/");
   });
 
-  it("a dropped connection says so and offers to rejoin", async () => {
+  it("a dropped connection says so politely and reconnects by itself; offline, it offers Rejoin", async () => {
     const socket = await inRoom();
     await server(socket, "close");
-    expect(alertText()).toMatch(/connection lost/i);
+    const status = document.querySelector<HTMLElement>("[data-connection-status]");
+    expect(status?.getAttribute("role")).toBe("status");
+    expect(status?.textContent).toMatch(/Reconnecting…/);
+    expect(alertText()).not.toMatch(/connection lost/i);
+    await act(async () => window.dispatchEvent(new Event("offline")));
+    await settle();
+    expect(document.querySelector("[data-connection-status]")?.textContent).toMatch(/You’re offline/);
     await click(button("Rejoin"));
     expect(FakeWebSocket.instances).toHaveLength(2);
   });
@@ -2812,5 +2818,152 @@ describe("Clear board (Properties, md up)", () => {
     });
     await settle();
     expect(clear()).toBeUndefined();
+  });
+});
+
+describe("reconnecting (UI)", () => {
+  const N1 = "NNNNNNNNNNNNNNN1";
+  const N2 = "NNNNNNNNNNNNNNN2";
+  const one: Note = { id: N1, x: 40, y: 60, ...NOTE_DEFAULTS, text: "Idea one", color: "pink", z: 0, rev: 1, authorId: alex.id };
+  const two: Note = { id: N2, x: 400, y: 300, ...NOTE_DEFAULTS, text: "Idea two", color: "blue", z: 1, rev: 1, authorId: sam.id };
+  const statusBar = () => document.querySelector<HTMLElement>("[data-connection-status]");
+  const notes = () => [...document.querySelectorAll<HTMLElement>('[aria-roledescription="note"]')];
+  const properties = () => document.querySelector<HTMLElement>('aside[aria-label="Properties"]');
+  const titleArea = () => document.querySelector<HTMLTextAreaElement>('textarea[data-inline="title"]');
+  const newMe: Participant = { id: "CCCCCCCCCCCCCCCC", name: "Alex", colourIndex: 4 };
+
+  async function withNotes(isWide: boolean, ...list: Note[]) {
+    setWide(isWide);
+    const socket = await inRoom();
+    await server(socket, { data: { type: "snapshot", notes: list } });
+    await server(socket, { data: { type: "framesSnapshot", frames: [] } });
+    return socket;
+  }
+  /** Drops the socket, makes the browser say offline, then Rejoin: the new socket, not yet answered. */
+  async function dropAndRejoin(socket: FakeWebSocket) {
+    await server(socket, "close");
+    await act(async () => window.dispatchEvent(new Event("offline")));
+    await settle();
+    await click(button("Rejoin"));
+    return lastSocket();
+  }
+  async function answer(socket: FakeWebSocket, list: Note[], you: Participant = newMe) {
+    await server(socket, "open");
+    await server(socket, { data: { type: "welcome", protocolVersion: PROTOCOL_VERSION } });
+    await server(socket, { data: { type: "joined", you, participants: [you, sam] } });
+    await server(socket, { data: { type: "snapshot", notes: list } });
+    await server(socket, { data: { type: "framesSnapshot", frames: [] } });
+  }
+  async function selectNote(i: number) {
+    await act(async () => {
+      notes()[i]?.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, pointerType: "mouse", button: 0 }));
+    });
+    await click(notes()[i]);
+  }
+  async function dblclick(el: Element | null | undefined) {
+    if (!el) throw new Error("nothing to double-click");
+    await act(async () => {
+      el.dispatchEvent(new MouseEvent("dblclick", { bubbles: true, detail: 2 }));
+    });
+    await settle();
+  }
+  async function typeInto(el: HTMLTextAreaElement | null, value: string) {
+    if (!el) throw new Error("no field");
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set?.call(el, value);
+      el.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+  }
+
+  it("rejoins with the stored name, with no prompt; the bar goes once the board is back", async () => {
+    const socket = await withNotes(false, one, two);
+    const next = await dropAndRejoin(socket);
+    expect(dialog()).toBeNull();
+    await answer(next, [one, two]);
+    expect(next.sent).toContainEqual({ type: "join", name: "Alex" });
+    expect(statusBar()).toBeNull();
+    expect(notes()).toHaveLength(2);
+  });
+
+  it("the board stays visible but read-only while reconnecting", async () => {
+    const socket = await withNotes(false, one, two);
+    await server(socket, "close");
+    expect(notes()).toHaveLength(2);
+    expect(notes()[0]?.getAttribute("aria-disabled")).toBe("true");
+  });
+
+  it("the resync replaces the board; a selected note that vanished leaves the selection with no error", async () => {
+    const socket = await withNotes(true, one, two);
+    await selectNote(1);
+    expect(properties()?.querySelector('input[name="title"]')).not.toBeNull();
+    const next = await dropAndRejoin(socket);
+    await answer(next, [{ ...one, text: "Changed elsewhere", rev: 1 }]);
+    expect(notes()).toHaveLength(1);
+    expect(notes()[0]?.textContent).toContain("Changed elsewhere");
+    expect(properties()?.querySelector('input[name="title"]')).toBeNull();
+    expect(alertText()).toBe("");
+  });
+
+  it("changes that weren't confirmed are reported in one polite status", async () => {
+    const socket = await withNotes(true, one, two);
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    await selectNote(0);
+    await act(async () => {
+      notes()[0]?.dispatchEvent(new KeyboardEvent("keydown", { key: "Delete", bubbles: true, cancelable: true }));
+    });
+    await settle();
+    expect(socket.sent).toContainEqual({ type: "noteDelete", id: N1 });
+    // No answer from the relay before the drop.
+    await server(socket, "close");
+    const report = document.querySelector<HTMLElement>("[data-drop-report]");
+    expect(report?.getAttribute("role")).toBe("status");
+    expect(report?.textContent).toMatch(/may not have been saved because the connection dropped/);
+  });
+
+  it("a note being typed into keeps its draft through the drop and the resync, then commits", async () => {
+    const socket = await withNotes(true, one, two);
+    await dblclick(notes()[0]?.querySelector("[data-note-title]"));
+    await typeInto(titleArea(), "Typing");
+    await server(socket, "close");
+    // Still there, read-only, with what was typed.
+    expect(titleArea()?.value).toBe("Typing");
+    expect(titleArea()?.readOnly).toBe(true);
+    const next = await dropAndRejoin(socket);
+    await answer(next, [one, two]);
+    expect(titleArea()?.readOnly).toBe(false);
+    expect(titleArea()?.value).toBe("Typing");
+  });
+
+  it("a draft whose note vanished is offered back as a new note", async () => {
+    const socket = await withNotes(true, one, two);
+    await dblclick(notes()[0]?.querySelector("[data-note-title]"));
+    await typeInto(titleArea(), "Keep me");
+    const next = await dropAndRejoin(socket);
+    await answer(next, [two]);
+    expect(titleArea()).toBeNull();
+    const offer = document.querySelector<HTMLElement>("[data-orphan-draft]");
+    expect(offer?.textContent).toContain("Keep me");
+    await click(button("Add as a new note"));
+    expect(next.sent).toContainEqual(expect.objectContaining({ type: "noteAdd", text: "Keep me" }));
+    expect(document.querySelector("[data-orphan-draft]")).toBeNull();
+  });
+
+  it("your notes from before the drop are still yours (a new participant id)", async () => {
+    const socket = await withNotes(true, one);
+    const next = await dropAndRejoin(socket);
+    await answer(next, [one]);
+    await selectNote(0);
+    expect(properties()?.textContent).toContain("Alex (you)");
+  });
+
+  it("room full on a reconnect says so and offers Rejoin", async () => {
+    const socket = await withNotes(false, one);
+    const next = await dropAndRejoin(socket);
+    await server(next, "open");
+    await server(next, { data: { type: "welcome", protocolVersion: PROTOCOL_VERSION } });
+    await server(next, { data: { type: "error", code: "room_full", message: "Full" } });
+    expect(statusBar()?.textContent).toMatch(/session is full/);
+    expect(button("Rejoin")).toBeDefined();
+    expect(notes()).toHaveLength(1);
   });
 });
