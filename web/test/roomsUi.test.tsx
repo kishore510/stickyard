@@ -382,7 +382,7 @@ describe("the room", () => {
 
   it("Participants (top bar) lists people with a colour dot from the token palette, and always the name", async () => {
     await inRoom();
-    expect(document.querySelector('header [aria-label^="Participants"]')?.getAttribute("aria-label")).toBe("Participants (2)");
+    expect(document.querySelector('header [aria-label^="Participants"]')?.getAttribute("aria-label")).toBe("Participants: 2 people in this session");
     await openFromTopBar("Participants");
     expect(window.location.hash).toBe("#/participants");
     expect(dialog()?.querySelector("h2")?.textContent).toBe("Participants");
@@ -415,13 +415,15 @@ describe("the room", () => {
     expect(dialog()?.querySelector("i")).toBeNull();
   });
 
-  it("announces joins and leaves in a live region", async () => {
+  it("announces joins and leaves in a polite live region, batched into one toast", async () => {
     const socket = await inRoom();
+    await server(socket, { data: { type: "snapshot", notes: [] } });
     const live = () => [...document.querySelectorAll('[aria-live="polite"]')].map((e) => e.textContent).join(" ");
     await server(socket, { data: { type: "participant_joined", participant: { id: "CCCCCCCCCCCCCCCC", name: "Kai", colourIndex: 2 } } });
-    expect(live()).toContain("Kai joined");
     await server(socket, { data: { type: "participant_left", id: sam.id } });
-    expect(live()).toContain("Sam left");
+    expect(live()).not.toContain("Kai joined");
+    await act(() => new Promise((resolve) => setTimeout(resolve, 1100)));
+    expect(live()).toContain("Kai joined, Sam left");
   });
 
   it("Copy link (in Participants) copies the page's own room link", async () => {
@@ -2965,5 +2967,59 @@ describe("reconnecting (UI)", () => {
     expect(statusBar()?.textContent).toMatch(/session is full/);
     expect(button("Rejoin")).toBeDefined();
     expect(notes()).toHaveLength(1);
+  });
+});
+
+describe("presence (UI)", () => {
+  const people = (n: number): Participant[] => Array.from({ length: n }, (_, i) => ({ id: `PPPPPPPPPPPPP${String(i).padStart(3, "0")}`, name: `Person ${i}`, colourIndex: i }));
+  const participantsButton = () => document.querySelector<HTMLElement>('header [aria-label^="Participants"]');
+  async function roomWith(list: Participant[], isWide: boolean) {
+    setWide(isWide);
+    await mount(`#/room/${CODE}`);
+    const socket = await joinAs("Alex");
+    await server(socket, { data: { type: "joined", you: alex, participants: list } });
+    await server(socket, { data: { type: "snapshot", notes: [] } });
+    return socket;
+  }
+
+  it("md and up: an avatar stack, you first, up to 3 faces then +N, naming the number of people", async () => {
+    await roomWith([...people(2), alex, ...people(5).slice(2)], true);
+    const button = participantsButton();
+    expect(button?.getAttribute("aria-label")).toBe("Participants: 6 people in this session");
+    const avatars = [...(button?.querySelectorAll<HTMLElement>("[data-avatar]") ?? [])];
+    expect(avatars).toHaveLength(3);
+    expect(avatars[0]?.hasAttribute("data-you")).toBe(true);
+    expect(avatars.map((a) => a.textContent)).toEqual(["A", "P0", "P1"]);
+    expect(button?.querySelector("[data-avatar-more]")?.textContent).toBe("+3");
+    expect(button?.querySelector("[data-avatar-stack]")?.getAttribute("aria-hidden")).toBe("true");
+    expect(avatars[1]?.className).toContain("border-participant-1");
+    await click(button ?? undefined);
+    expect(window.location.hash).toBe("#/participants");
+  });
+
+  it("phones: a compact count button that opens the same sheet", async () => {
+    await roomWith([alex, sam], false);
+    const button = participantsButton();
+    expect(button?.getAttribute("aria-label")).toBe("Participants: 2 people in this session");
+    expect(button?.querySelector("[data-avatar]")).toBeNull();
+    expect(button?.textContent).toContain("2");
+    await click(button ?? undefined);
+    expect(dialog()?.querySelector("h2")?.textContent).toBe("Participants");
+  });
+
+  it("toasts are plain text, polite, don't take focus, and leave the ribbon and the top bar alone", async () => {
+    const socket = await roomWith([alex, sam], false);
+    const before = document.activeElement;
+    await server(socket, { data: { type: "participant_joined", participant: { id: "CCCCCCCCCCCCCCCC", name: "<i>Kai</i>", colourIndex: 2 } } });
+    await act(() => new Promise((resolve) => setTimeout(resolve, 1100)));
+    const region = document.querySelector<HTMLElement>("[data-presence-toasts]");
+    expect(region?.getAttribute("aria-live")).toBe("polite");
+    expect(region?.textContent).toContain("<i>Kai</i> joined");
+    expect(region?.querySelector("i")).toBeNull();
+    expect(document.activeElement).toBe(before);
+    // In the board's notice stack (under the top bar, above nothing at the bottom), never in the header.
+    expect(region?.closest("header")).toBeNull();
+    expect(region?.closest('[role="toolbar"]')).toBeNull();
+    expect(region?.querySelector("button")).toBeNull();
   });
 });
