@@ -29,10 +29,10 @@ Draft roadmap. When a slice starts, rewrite its prompt against the real code (se
 | Arrange grid | Arrange > Grid in the selection bar: lay a selection out in rows and columns in reading order, with a Columns stepper and Auto (web only) | Done (v0.10.3) |
 | Create with content | One `itemsAdd` message adds notes and frames with full content (size, text, colour, every style field), packed under the 4 KiB cap by actual size; templates now appear in one step. Protocol v11, web + worker, no stored-schema change | Done (v0.11.0, PR #25) |
 | Floating bar, Duplicate, Undo/Redo, Clear board | One branch (`phase-bar-undo`), four parts: permanent floating bar, Duplicate, per-user undo/redo, Clear board. Web only, no protocol change | Done (v0.12.0, PR #26) |
-| 4 Reconnect | Backoff, full resync applying both snapshots, "relay over its daily limit" state, clears undo history; no offline edit queue | Not started |
+| 4 Reconnect | Backoff, full resync applying both snapshots, "relay over its daily limit" state, clears undo history; no offline edit queue | Done (v0.13.0, PR #28, web only) |
+| 3a Presence: avatars and toasts | Avatar stack in the top bar, join/leave toasts. No protocol change (uses `joined`, `participant_joined`, `participant_left`) | Done (v0.13.0, PR #28, with Reconnect, web only) |
 | 5 (trimmed) Idle expiry | Durable Object alarm deletes an idle room's storage and leaves a tombstone, so an old link says the session has expired. Stored-schema change | Not started |
 | 6 (part) Timer and lock board | Two sessions: (a) protocol v12 + stored schema (minimal host token, lock flag, timer, End session); (b) UI | Not started |
-| 3a Presence: avatars and toasts | Avatar stack in the top bar, join/leave toasts. Probably no protocol change (uses `participant_joined`/`participant_left`) | Not started |
 | 6 (part) Dot voting | Two sessions: vote budget per person enforced by the server, host start/stop, results display | Not started |
 | Export PNG/Markdown | One session, so a retro leaves something behind | Not started |
 | 9 (trimmed) Hardening | Load test and accessibility pass (message-rate limits already exist since slice 2) | Not started |
@@ -54,8 +54,8 @@ Draft roadmap. When a slice starts, rewrite its prompt against the real code (se
 - Every new object type (frame, timer, text box, group box) needs its own protocol/schema change with a version bump, caps and tests. The palette gets its tile with one registry entry; no placeholder tiles for things that don't exist.
 - Each protocol or stored-schema change is its own slice and branch (2.7, 2.7.1, 2.7.2, 2.8, z-order, frames, 3b are separate for that reason).
 - Protocol numbers are assigned when each slice starts, not in advance (v11 is the current one, since create with content; the bar, undo and clear work in v0.12.0 was web only).
-- Order from here (decided 4 October 2026): Reconnect (4), Idle expiry (trimmed 5), Timer and lock board (two sessions), Presence 3a, Dot voting (two sessions), Export PNG/Markdown, Hardening (trimmed 9), then Silent brainstorm with reveal, then 3b cursors, 7a, 7b, 7c (remaining), 8, 10. Slice numbers are kept as names; the table above is in build order.
-- Estimate to a demo-able retro tool (through trimmed hardening): about 11 to 13 Claude Code sessions, one per prompt, plus about 20% for reruns.
+- Order from here (decided 4 October 2026; Reconnect and Presence 3a were built together in one session, v0.13.0): Idle expiry (trimmed 5), Timer and lock board (two sessions), Dot voting (two sessions), Export PNG/Markdown, Hardening (trimmed 9), then Silent brainstorm with reveal, then 3b cursors, 7a, 7b, 7c (remaining), 8, 10. Slice numbers are kept as names; the table above is in build order.
+- Estimate to a demo-able retro tool (through trimmed hardening): about 7 to 9 more Claude Code sessions, one per prompt, plus about 20% for reruns (it was 11 to 13 before Reconnect and Presence).
 
 ## Slice notes
 
@@ -130,9 +130,9 @@ Draft roadmap. When a slice starts, rewrite its prompt against the real code (se
 ### 2.9 Inline note editing (web only) — done, v0.7.1
 - From md up (mouse, pen, keyboard) a note's text is edited on the note: two plain textareas styled like the note, placeholders "Type a title" / "Type body", the existing draft mechanism, noteEdit on commit. New notes, double-click (title or body) and Enter start it; Properties stays in sync and is used for off-screen notes and finger taps. Phones keep the sheet.
 
-### 3a Presence: avatars and toasts
+### 3a Presence: avatars and toasts — done, v0.13.0
 - Split from slice 3. Avatar stack in the top bar (participant colours, overflow count) opens the Participants sheet; join/leave toasts.
-- Probably no protocol change: `joined`, `participant_joined` and `participant_left` already carry what is needed. Confirm against the code when the slice starts.
+- Built with Reconnect on one branch (PR #28). No protocol change, confirmed. From md up the Participants button is an avatar stack (you first, three faces, then +N); phones keep a count button; the accessible name gives the number of people. Toasts are batched (a burst is one summary), polite and plain text; none for yourself, the list on joining, your own reconnect's churn, or someone else's quick reconnect (a leave waits 3 s; found in a real-browser run). Trade-off: a second person with the same name as someone present gets no join toast.
 
 ### 3b Presence: live cursors (protocol change, deferred)
 - Split from slice 3. Comes after the remaining facilitation work.
@@ -142,7 +142,10 @@ Draft roadmap. When a slice starts, rewrite its prompt against the real code (se
 - LIMITS.md: record measured request cost per active user; confirm idle rooms still hibernate.
 - Phone sending its own touch position: possible later option, not in this slice.
 
-### 4 Reconnect
+### 4 Reconnect — done, v0.13.0
+- Built (PR #28, web only, no protocol or stored-schema change): automatic reconnect in the same session (backoff about 1, 2, 4 ... 30 s with ±20% jitter, 8 tries, then Offline with Rejoin; tries at once on `online` or the tab becoming visible; none while hidden for more than a minute). After 3 failed opens with a failing `/health`, a "may be unreachable or over its daily limit" state with one probe a minute (at most an hour). Fatal outcomes don't retry; room full on a reconnect offers Rejoin. At the drop the board goes back to what's confirmed and one notice counts what may not have been saved; drafts survive. Snapshots replace the board on resync. The 0.12.0 stale-undo-button bug is fixed. Costs and what a browser can see at the limit: LIMITS.md.
+- Observed in a real browser: a relay restart enters the limit state after about 10 s of downtime, so recovery then waits up to a minute for the next probe (or Rejoin). Possible tweak in the backlog.
+- Original notes:
 - Detect a drop, show it, reconnect with backoff, full resync on rejoin. Resync applies both snapshots: the notes `snapshot`, then `framesSnapshot` (up to 18,306 bytes since v10); the board counts as joined after the first.
 - Show a clear "relay is over its daily limit" state instead of reconnecting in a loop.
 - A reconnect clears undo history (ids and revs can't be trusted). Also fix the known v0.12.0 bug: when a waiting undo entry is dropped after 10 s, the bar's Undo/Redo buttons don't refresh.
@@ -222,7 +225,7 @@ Draft roadmap. When a slice starts, rewrite its prompt against the real code (se
   - An action is recorded straight away, but its Undo stays disabled until the relay confirms it ("Wait until your last change is saved."); unanswered waits are dropped after 10 s.
   - A note being dragged, resized or typed into blocks undo. Final moves/resizes of the same notes within 500 ms merge into one step.
   - Bring to front / Send to back are not undoable in v1 (the server owns z; fixing it needs a new message, backlog). When the last action was an order change, the first Undo only shows "Order changes can't be undone." and the next press undoes the action before it. A change that only touches z, by someone else, does not block your undo.
-- Known small bug, to fix in the Reconnect session: when a waiting undo entry is dropped after 10 s, the bar buttons don't refresh.
+- Known small bug, fixed in v0.13.0 (Reconnect): when a waiting undo entry was dropped after 10 s, the bar buttons didn't refresh.
 - Clear board: in Properties when nothing is selected. One confirm with counts. Notes first in batches of 50, then frames (one `frameDelete` every 50 ms). One history entry, so a single undo restores it, through a paced restore with a visible "Restoring N of M…" status. A full-board restore at the 4 KiB cap is 105 messages (about 10.5 s).
 
 ### 7a Text box and basic shapes
@@ -278,3 +281,4 @@ Draft roadmap. When a slice starts, rewrite its prompt against the real code (se
 - Undoable order changes (needs a new message; the server owns z)
 - Bar height tidy-up (possible 0.12.1)
 - Facilitator-defined note palette (host-only; from the old slice 6 notes)
+- Faster recovery after a relay restart or deploy: the "may be over its daily limit" state starts after 3 failed opens (about 10 s); raising the threshold to 5 (about 30 s) would let a deploy recover on the normal backoff

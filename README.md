@@ -6,7 +6,7 @@ Personal learning project. Front end on GitHub Pages, relay on a Cloudflare Work
 
 See [docs/PROJECT_BRIEF.md](docs/PROJECT_BRIEF.md), [docs/PHASE_PLAN.md](docs/PHASE_PLAN.md) and [docs/LIMITS.md](docs/LIMITS.md).
 
-**Status:** slice 1 (echo rooms, v0.3.0, protocol v2). Start a session with the create passcode, share its link, join by link and name, and see each other's messages echoed. No sticky notes yet.
+**Status:** v0.13.0 (protocol v11). Start a session with the create passcode, share its link, and join by link and name. On the board: sticky notes with size, colour and text style, frames, templates, multi-select and arrange, z-order, duplicate, undo/redo, chat, automatic reconnect, and presence (avatars, join/leave messages). See [CHANGELOG.md](CHANGELOG.md) for what each version added.
 
 ## Layout
 
