@@ -2525,8 +2525,9 @@ describe("the floating bar and Duplicate (md up)", () => {
   const notes = () => [...document.querySelectorAll<HTMLElement>('[aria-roledescription="note"]')];
   const selected = () => notes().filter((n) => n.getAttribute("aria-current") === "true").map((n) => n.dataset.noteId);
   const bar = () => document.querySelector<HTMLElement>('[role="toolbar"][aria-label="Board actions"]');
-  const group = (label: string) => bar()?.querySelector<HTMLElement>(`[role="group"][aria-label="${label}"]`) ?? null;
   const command = (label: string) => bar()?.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`) ?? undefined;
+  /** The bar's hint text for a group ("Edit: ..."), under the buttons. */
+  const hint = (label: string) => [...(bar()?.querySelectorAll<HTMLElement>("[data-bar-hint]") ?? [])].find((h) => h.textContent?.startsWith(`${label}:`));
   const sentOfType = (socket: FakeWebSocket, t: string) => (socket.sent as Record<string, unknown>[]).filter((m) => m.type === t);
   async function withBoard(list: Note[], frames: Frame[] = [], isWide = true) {
     setWide(isWide);
@@ -2571,8 +2572,8 @@ describe("the floating bar and Duplicate (md up)", () => {
       const text = ids.map((id) => document.getElementById(id)?.textContent ?? "").join(" ");
       expect(text.trim().length, button.getAttribute("aria-label") ?? button.textContent ?? "").toBeGreaterThan(0);
     }
-    expect(group("Edit")?.textContent).toContain("Select notes or a frame first.");
-    expect(group("Arrange")?.textContent).toContain("Select 2 or more notes to arrange.");
+    expect(hint("Edit")?.textContent).toContain("Select notes or a frame first.");
+    expect(hint("Arrange")?.textContent).toContain("Select 2 or more notes to arrange.");
     // Edit and Order show their names as text too, not only icons.
     expect(command("Duplicate")?.textContent).toContain("Duplicate");
     expect(command("Bring to front")?.textContent).toContain("Bring to front");
@@ -2583,7 +2584,7 @@ describe("the floating bar and Duplicate (md up)", () => {
     expect(bar()?.querySelector('[role="group"]')?.getAttribute("aria-label")).toBe("History");
     expect(command("Undo")?.disabled).toBe(true);
     expect(command("Redo")?.disabled).toBe(true);
-    expect(group("History")?.textContent).toContain("Nothing to undo.");
+    expect(hint("History")?.textContent).toContain("Nothing to undo.");
   });
 
   it("Undo after a delete adds the notes back (itemsAdd), shows how it went, and Redo deletes them again", async () => {
@@ -2697,7 +2698,7 @@ describe("the floating bar and Duplicate (md up)", () => {
     await select(0);
     await server(socket, "close");
     expect(command("Duplicate")?.disabled).toBe(true);
-    expect(group("Edit")?.textContent).toContain("Not connected.");
+    expect(hint("Edit")?.textContent).toContain("Not connected.");
   });
 
   it("not enough room: Duplicate is off and says how many are needed and free", async () => {
@@ -2706,7 +2707,7 @@ describe("the floating bar and Duplicate (md up)", () => {
     await select(0);
     await select(1, { shiftKey: true });
     expect(command("Duplicate")?.disabled).toBe(true);
-    expect(group("Edit")?.textContent).toContain("No room to duplicate 2 notes: the board has room for 1 more.");
+    expect(hint("Edit")?.textContent).toContain("No room to duplicate 2 notes: the board has room for 1 more.");
   });
 
   it("Delete in the bar uses the selection's delete (asks first, then reports)", async () => {

@@ -55,14 +55,13 @@ export interface BarGroup {
   hints?: (string | null)[];
 }
 
-function BarGroupView({ group, first }: { group: BarGroup; first: boolean }) {
-  const hintId = useId();
-  const hints = [...new Set((group.hints ?? []).filter((h): h is string => h !== null))];
+/** One group's buttons (its hint text is rendered by the bar, under all the groups). */
+function BarGroupView({ group, first, hintId, hints }: { group: BarGroup; first: boolean; hintId: string; hints: string[] }) {
   return (
-    <div className="flex max-w-full items-center">
-      {!first && <div aria-hidden="true" className="mx-xs h-icon-lg w-px bg-border" />}
-      <div role="group" aria-label={group.label} className="flex min-w-0 flex-wrap items-center gap-2xs">
-        <span className="px-xs text-xs font-medium text-fg-muted">{group.label}</span>
+    <div className="flex shrink-0 items-center xl:max-w-full xl:shrink">
+      {!first && <div aria-hidden="true" className="mx-xs h-icon-lg w-px bg-border xl:hidden" />}
+      {/* The group's name is its accessible name, and starts its line in the hints. */}
+      <div role="group" aria-label={group.label} className="flex items-center gap-2xs xl:flex-wrap xl:justify-center">
         {group.commands.map((c) => (
           <Button
             key={c.title}
@@ -76,27 +75,43 @@ function BarGroupView({ group, first }: { group: BarGroup; first: boolean }) {
             className={cn(c.text && "min-w-touch px-sm")}
           >
             {c.icon}
-            {c.text && <span className="hidden lg:inline">{c.title}</span>}
+            {c.text && <span className="hidden xl:inline">{c.title}</span>}
           </Button>
         ))}
         {group.content?.(hints.length > 0 ? hintId : undefined)}
-        {hints.length > 0 && (
-          <span id={hintId} data-bar-hint="" className="px-xs text-xs text-fg-muted">
-            {hints.join(" ")}
-          </span>
-        )}
       </div>
     </div>
   );
 }
 
-/** A floating toolbar of labelled groups with dividers between them; it wraps when narrow. */
+/**
+ * A floating toolbar of labelled groups with dividers between them. The buttons sit in one row
+ * that scrolls sideways when the canvas is narrow (and wraps from xl up); why anything is off is
+ * one line of text under them, per group ("Edit: ..."), so the bar stays short.
+ */
 export function FloatingBar({ label, groups }: { label: string; groups: BarGroup[] }) {
+  const baseId = useId();
+  const hintsOf = (group: BarGroup) => [...new Set((group.hints ?? []).filter((h): h is string => h !== null))];
   return (
-    <Panel role="toolbar" aria-label={label} className="pointer-events-auto flex max-w-full flex-wrap items-center justify-center gap-x-xs p-xs shadow-lg">
-      {groups.map((group, i) => (
-        <BarGroupView key={group.label} group={group} first={i === 0} />
-      ))}
+    <Panel role="toolbar" aria-label={label} className="pointer-events-auto flex max-w-full flex-col gap-2xs p-xs shadow-lg">
+      <div className="flex max-w-full items-center overflow-x-auto xl:flex-wrap xl:justify-center xl:gap-x-md xl:overflow-visible">
+        {groups.map((group, i) => (
+          <BarGroupView key={group.label} group={group} first={i === 0} hintId={`${baseId}-${i}`} hints={hintsOf(group)} />
+        ))}
+      </div>
+      {groups.some((g) => hintsOf(g).length > 0) && (
+        <p className="px-xs text-xs text-fg-muted">
+          {groups.map((group, i) => {
+            const hints = hintsOf(group);
+            if (hints.length === 0) return null;
+            return (
+              <span key={group.label} id={`${baseId}-${i}`} data-bar-hint="" className="mr-sm inline-block">
+                <span className="font-medium">{group.label}:</span> {hints.join(" ")}
+              </span>
+            );
+          })}
+        </p>
+      )}
     </Panel>
   );
 }
