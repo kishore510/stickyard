@@ -1,6 +1,6 @@
 # Project Brief: Stickyard
 
-Last updated: 4 October 2026 (thread 8). Update the status table and session log at the end of every thread, then re-upload.
+Last updated: 4 October 2026 (thread 9). Update the status table and session log at the end of every thread, then re-upload.
 
 ## 1. Purpose
 
@@ -31,7 +31,9 @@ Positioning hypothesis: the retro and workshop board you can start in 10 seconds
 | Identity | Room code + typed name. Names are unverified and the UI says so. Server assigns colour and ids; never trust client-claimed name/colour/id |
 | Room creation | Joining is open with the link; creating is gated by a create passcode held as a Worker secret (constant-time compare, rate-limited failures, never logged). Room codes are long, random and HMAC-signed; the Worker verifies the signature before addressing any Durable Object |
 | Abuse control | Per-IP and global daily room-creation caps; `CREATION_ENABLED` kill switch (Worker secret, flipped by a workflow) stops new rooms without a redeploy; per-room caps on size, notes, message size and message rate |
-| Host | Creator receives a separate host token for lock, timer and end session (slice 6). The link alone can't do that |
+| Host | Creator receives a separate host token for lock, timer and end session (slice 6). The link alone can't do that. Decided 4 October 2026: a minimal token, in the timer and lock slice |
+| Room lifetime | Rooms expire after a set idle time, cleared by the room's own alarm, with a tombstone and a clear message for old links; the host can end a session |
+| Undo | Per user, in memory only, skips other people's changes, cleared on reconnect. About > Privacy says undo history is memory-only and restored items are recorded as added by the restorer's visit |
 | Secrets | `CREATE_PASSCODE` and `ROOM_SIGNING_KEY` only as GitHub secrets pushed to Worker secrets by the deploy job, and `.dev.vars` (gitignored). Tests use fake values. GitHub secret scanning and push protection on |
 | Security | Worker checks `Origin` (Pages origin + localhost dev; stops other websites, not scripts); Zod-validates every message; long unguessable room codes; no secrets in the repo |
 | Storage keys | Prefixed with the app name (shared `github.io` origin); nothing sensitive in browser storage |
@@ -51,6 +53,8 @@ Positioning hypothesis: the retro and workshop board you can start in 10 seconds
 - Definition of done: `tsc`, tests and build pass; every message validates against the shared schema; works at 360, 768 and 1280px in light and dark; primary actions reachable by touch; no hard-coded colours or sizes outside the token file; CHANGELOG.md updated and version bumped; short summary of what was built, what differed from assumptions, and what was left out.
 - Claude Code may build more than asked; always review against the slice scope.
 - After the one-time credential setup, Claude Code handles repo, CI, secrets and deploys itself (see section 10).
+- Big multi-part prompts may run on a GitHub runner instead of the Pi: no Chalkline source there, the full test suites run normally, a PR is opened and never merged by Claude Code.
+- On the Pi, worker tests run file by file when memory is short, and a browser can't always be run.
 
 ## 5. Claude Code prompt skeleton
 
@@ -92,6 +96,9 @@ Keep tsc, tests and build green. Stop for review with a summary of what was buil
 | Delete polish | Delete key on a selection, one confirm with the count, multi-delete report | Done (v0.10.1, web only) |
 | Selection fixes | Frame + Delete, clearer multi-select (outline, ticks, selection box) | Done (v0.10.2, web only) |
 | Arrange grid | Lay out a selection in rows and columns (Columns stepper, Auto) | Done (v0.10.3, web only) |
+| Create with content | Add notes and frames with full content in one `itemsAdd`, packed by size; templates in one step | Done (v0.11.0, protocol v11, PR #25) |
+| Bar, Duplicate, Undo/Redo, Clear board | Permanent floating bar, Duplicate, per-user undo/redo, Clear board (four parts, one branch) | Done (v0.12.0, web only, PR #26) |
+| Next | Reconnect, idle expiry, timer and lock board, presence 3a, dot voting, export, trimmed hardening, then silent brainstorm | Not started; see PHASE_PLAN.md |
 | 3 onwards | See PHASE_PLAN.md | See PHASE_PLAN.md |
 
 ## 7. Open decisions
@@ -103,6 +110,9 @@ Keep tsc, tests and build green. Stop for review with a summary of what was buil
 - Visual identity: decided in slice 0.5 (Chalkline's warm neutral + blue accent, Inter, sticky-note mark); revisit only if it needs its own identity
 - Per-friend invite codes (revocable) vs one shared create passcode
 - ~~Real-world comparison~~: done 3 October 2026, against Miro (not Microsoft Whiteboard). See the positioning note in section 1
+- ~~Host token for timer and lock~~: decided 4 October 2026. A minimal host token is issued at creation in the timer and lock slice
+- ~~Create with content message size~~: decided 4 October 2026. `MAX_MESSAGE_BYTES` stays 4 KiB; the web packs items by actual size
+- Cloudflare alarm billing and limits: check before the idle-expiry slice
 - ~~Shapes and arrows (slices 7a and 7b) before or after facilitation (slice 6)~~: decided 3 October 2026 (thread 6). Order: Z-order, Frames, Templates, Timer and lock board (cut-down 6), Reconnect (4), 3a avatars and toasts, Persistence and expiry (5), remaining facilitation, 3b live cursors, 7a, 7b, 7c, 8, 9, 10. See PHASE_PLAN.md
 
 ## 8. Thread habits
@@ -122,6 +132,7 @@ Start a thread with the slice and what I want (for example "Slice 1, write the C
 - Thread 6, later (4 October 2026): Templates built (v0.10.0, web only): four templates in a Templates palette category, applied as paced frame adds, then a resize and a style edit per frame once confirmed. Merged and deployed. Next: timer and lock board.
 - Thread 7 (4 October 2026): Delete polish finished after an editor crash mid-build (v0.10.1, web only): Delete on a selection, one confirm with the count, a report of how a multi-note delete went. A racy worker z-order test fixed (CI only). Then, from user feedback, selection fixes (v0.10.2, web only): frame + Delete works (the title no longer takes the selecting click), a 0.10.1 regression where a click on the canvas focused `<main>` and Delete was ignored (found by checking in Chromium; happy-dom hid it), and a clearer multi-select. Both merged and deployed. Next: timer and lock board.
 - Thread 8 (4 October 2026): Arrange grid built tests-first (v0.10.3, web only): Arrange > Grid in the selection bar lays a selection out in rows and columns in reading order, with a Columns stepper and Auto; a grid too big for the board moves nothing and says why. The editor crashed after the PR was opened; picked up from git and the open PR, then merged and deployed. Next: timer and lock board.
+- Thread 9 (4 October 2026): Grid merged (v0.10.3). Create with content built (protocol v11, v0.11.0): `itemsAdd` adds notes and frames with full content, packed under the 4 KiB cap; templates apply in one step. Floating bar, Duplicate, undo/redo and Clear board built on one branch as four parts (v0.12.0, web only, PR #26), merged and deployed. Idle-room cost reviewed and a trimmed expiry slice pulled forward. Order to a demo-able retro tool agreed: reconnect, expiry, timer and lock board, presence, voting, export, trimmed hardening. Next: reconnect prompt.
 
 ## 10. One-time manual setup
 

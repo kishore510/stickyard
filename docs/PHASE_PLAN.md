@@ -27,17 +27,21 @@ Draft roadmap. When a slice starts, rewrite its prompt against the real code (se
 | Delete polish | Delete key on a selection (after Ctrl+A or a marquee), one confirm with the count, a report of how a multi-note delete went (web only) | Done (v0.10.1) |
 | Selection fixes | Frame + Delete works (a click on the title selects the frame; double-click or Enter edits it); clearer multi-select: thicker outline, a tick per note, a dashed box round the selection (web only) | Done (v0.10.2) |
 | Arrange grid | Arrange > Grid in the selection bar: lay a selection out in rows and columns in reading order, with a Columns stepper and Auto (web only) | Done (v0.10.3) |
-| 6 (part) Timer and lock board | Cut-down slice 6: shared timer and lock board only | Not started |
-| 4 Reconnect | Resync after drops, offline queue | Not started |
+| Create with content | One `itemsAdd` message adds notes and frames with full content (size, text, colour, every style field), packed under the 4 KiB cap by actual size; templates now appear in one step. Protocol v11, web + worker, no stored-schema change | Done (v0.11.0, PR #25) |
+| Floating bar, Duplicate, Undo/Redo, Clear board | One branch (`phase-bar-undo`), four parts: permanent floating bar, Duplicate, per-user undo/redo, Clear board. Web only, no protocol change | Done (v0.12.0, PR #26) |
+| 4 Reconnect | Backoff, full resync applying both snapshots, "relay over its daily limit" state, clears undo history; no offline edit queue | Not started |
+| 5 (trimmed) Idle expiry | Durable Object alarm deletes an idle room's storage and leaves a tombstone, so an old link says the session has expired. Stored-schema change | Not started |
+| 6 (part) Timer and lock board | Two sessions: (a) protocol v12 + stored schema (minimal host token, lock flag, timer, End session); (b) UI | Not started |
 | 3a Presence: avatars and toasts | Avatar stack in the top bar, join/leave toasts. Probably no protocol change (uses `participant_joined`/`participant_left`) | Not started |
-| 5 Persistence | Room expiry and clear messaging (basic note persistence exists since slice 2) | Not started |
-| 6 (rest) Facilitation | Silent brainstorm + reveal, dot voting, host token, facilitator-defined note palette | Not started |
+| 6 (part) Dot voting | Two sessions: vote budget per person enforced by the server, host start/stop, results display | Not started |
+| Export PNG/Markdown | One session, so a retro leaves something behind | Not started |
+| 9 (trimmed) Hardening | Load test and accessibility pass (message-rate limits already exist since slice 2) | Not started |
+| 6 (part) Silent brainstorm with reveal | The server withholds other people's note text until the host reveals it (snapshot and broadcast paths change). Riskiest slice | Not started |
 | 3b Presence: live cursors | Live cursors (throttled, never stored). Protocol change | Deferred |
 | 7a Text box and shapes | Text box and basic shapes (rectangle, oval, diamond), reusing 2.7's sizing and colour work | Not started |
 | 7b Arrows | (i) Free endpoints and a line style; (ii) endpoints bound to notes and shapes, re-routed when a bound object moves, with a rule for deleting a bound object | Not started |
-| 7c Structure (remaining) | Group boxes, affinity grouping, Stencils tab and Save as stencil, export (PNG/Markdown). Frames and templates moved to their own slices | Not started |
+| 7c Structure (remaining) | Group boxes, affinity grouping, Stencils tab and Save as stencil. Frames, templates and export moved to their own slices | Not started |
 | 8 Phone view | Phone participant view, QR join | Not started |
-| 9 Hardening | Message-rate limits, load test, accessibility pass | Not started |
 | 10 AI | Summary and sentiment analysis, explicit buttons, add-only | Optional, last |
 | Later | Yjs migration, anonymous mode, PWA | Parked |
 
@@ -49,8 +53,9 @@ Draft roadmap. When a slice starts, rewrite its prompt against the real code (se
 - Test on the live deployment; merge and deploy each slice, roll back if needed (single user).
 - Every new object type (frame, timer, text box, group box) needs its own protocol/schema change with a version bump, caps and tests. The palette gets its tile with one registry entry; no placeholder tiles for things that don't exist.
 - Each protocol or stored-schema change is its own slice and branch (2.7, 2.7.1, 2.7.2, 2.8, z-order, frames, 3b are separate for that reason).
-- Protocol numbers are assigned when each slice starts, not in advance (v10 is the current one, since frame title styling; templates were web only).
-- Order after 2.9 (decided 3 October 2026): Z-order, Frames, Templates, Timer and lock board (cut-down 6), Reconnect (4), 3a, Persistence and expiry (5), remaining facilitation (6), 3b cursors, 7a, 7b, 7c (remaining), 8, 9, 10. Slice numbers are kept as names; the table above is in build order.
+- Protocol numbers are assigned when each slice starts, not in advance (v11 is the current one, since create with content; the bar, undo and clear work in v0.12.0 was web only).
+- Order from here (decided 4 October 2026): Reconnect (4), Idle expiry (trimmed 5), Timer and lock board (two sessions), Presence 3a, Dot voting (two sessions), Export PNG/Markdown, Hardening (trimmed 9), then Silent brainstorm with reveal, then 3b cursors, 7a, 7b, 7c (remaining), 8, 10. Slice numbers are kept as names; the table above is in build order.
+- Estimate to a demo-able retro tool (through trimmed hardening): about 11 to 13 Claude Code sessions, one per prompt, plus about 20% for reruns.
 
 ## Slice notes
 
@@ -138,19 +143,31 @@ Draft roadmap. When a slice starts, rewrite its prompt against the real code (se
 - Phone sending its own touch position: possible later option, not in this slice.
 
 ### 4 Reconnect
-- Detect drop, show state, reconnect with backoff, full resync on rejoin, queue changes made offline and reconcile.
+- Detect a drop, show it, reconnect with backoff, full resync on rejoin. Resync applies both snapshots: the notes `snapshot`, then `framesSnapshot` (up to 18,306 bytes since v10); the board counts as joined after the first.
 - Show a clear "relay is over its daily limit" state instead of reconnecting in a loop.
-- A full snapshot is up to about 395 KiB (404,229 bytes, worst case for 200 notes since protocol v8; see LIMITS.md) per reconnect; note the request budget impact.
-- A reconnect sends two messages: the notes `snapshot`, then `framesSnapshot` (up to 18,306 bytes since v10); resync must apply both, and treat the board as joined after the first.
+- A reconnect clears undo history (ids and revs can't be trusted). Also fix the known v0.12.0 bug: when a waiting undo entry is dropped after 10 s, the bar's Undo/Redo buttons don't refresh.
+- Decided: no offline edit queue. Editing stays blocked while disconnected.
+- Payload: keep the existing figure, about 412.6 KiB per person on a full board with a full set of frames (422,535 bytes, two messages; see LIMITS.md); note the request budget impact.
 
-### 5 Persistence and expiry
-- Rooms expire after a set idle time; clear messaging about it. (Basic note persistence already exists.)
+### 5 (trimmed) Idle expiry
+- When the last socket leaves, the room sets a Durable Object alarm N days ahead; a join cancels it. When it fires, the room deletes its own storage and leaves a small tombstone, so a validly signed old link says "this session has expired" instead of showing an empty board.
+- Why now: idle rooms cost almost nothing in compute (hibernation), but their data and links never die, and there is no way to list or sweep rooms.
+- Open: check current Cloudflare alarm billing and limits before writing the prompt; decide the tombstone's design. Own branch; stored-schema change.
 
-### 6 Facilitation
-- Split in two. A cut-down slice comes early (after templates): shared timer (start time + duration, local countdown) and lock board. The rest comes after persistence: silent brainstorm with reveal, dot voting with a vote budget.
-- Host token issued at creation; facilitator role and what happens if the host leaves; "end session".
-- Facilitator-defined note palette: host-only, a small list of { id, colorKey, label } stored in the room, chosen from a larger fixed set of token colours (12 to 16), not arbitrary hex. Caps on entries and label length; labels are untrusted plain text. Stored-schema change in its own branch.
-- Timer tile appears in the palette under a Facilitation category.
+### 6 Facilitation (split)
+- Timer and lock board, two sessions:
+  - (a) Protocol v12 + stored schema, tests first: a minimal host token issued at creation, a lock flag, the timer as start time + duration (each client counts down locally), and End session (broadcast, close sockets, delete storage, tombstone).
+  - (b) UI: a Timer tile under a Facilitation palette category, a lock control, banners, host-only gating, Help.
+  - Decided: a minimal host token is included, because a lock anyone can undo is not a lock.
+- Dot voting, two sessions: a vote budget per person enforced by the server, host start/stop, a results display.
+- Silent brainstorm with reveal: after export. The server must withhold other people's note text until the host reveals it, which changes the snapshot and broadcast paths. Riskiest slice; own branch.
+- Facilitator-defined note palette (host-only, a small list of { id, colorKey, label } from a fixed set of token colours, caps on entries and label length, labels untrusted plain text): no slot yet; see the backlog.
+
+### Export PNG/Markdown
+- One session, so a retro leaves something behind. Moved out of 7c.
+
+### 9 (trimmed) Hardening
+- Load test and accessibility pass only. Message-rate limits and malformed-message tests already exist; keyboard support and reduced motion are handled slice by slice.
 
 ### Z-order (protocol v8) — done, v0.8.0
 - Bring to front / send to back, because frames and shapes will overlap notes. Notes gain a server-assigned `z` (bounded ±100,000; renumbered at the bound); stored schema 4 -> 5 backfills z from creation order, so nothing looks different. One `notesOrder` message (front | back, up to 50 ids, chunked in stacking order beyond that), one transaction, one `notesOrdered` broadcast; only notes whose z changes are written. Selecting, dragging and resizing no longer raise a note (React Flow's elevate-on-select off). Order buttons in Properties, the phone editor and the selection bar; no shortcut. See CLAUDE.md "Z-order, protocol v8".
@@ -169,7 +186,7 @@ Draft roadmap. When a slice starts, rewrite its prompt against the real code (se
 ### Templates (web only) — done, v0.10.0
 - Retro, Start Stop Continue, 2x2 Impact and Effort, Sprint planning, as plain data (`web/src/templates/registry.ts`), frames only (no starter notes). A Templates palette category (md and up). Applied anywhere on the board, centred on the view or the drop point and clamped; nothing existing is touched; needs enough free frame slots up front.
 - Each frame is a `frameAdd`, then after the relay confirms it a final `frameResize` and one `frameEdit` for the title style, paced at 10 messages a second. A refusal part-way leaves what was made and says so; no retry. Others see each frame appear at the default size, then settle.
-- Possible later change: one message that adds a template's frames at their size and style in one step (a protocol change), so others see no settling and it can't be partly applied.
+- Since v0.11.0 a template is one `itemsAdd` (see Create with content): its frames appear at their size and style in one step.
 
 ### Delete polish (web only) — done, v0.10.1
 - Delete (or Backspace) with notes selected and nothing else focused deletes them all; a focused note outside the selection deletes the selection, never itself. Never from a field, a sheet, the top bar or chat, or on phones.
@@ -187,6 +204,27 @@ Draft roadmap. When a slice starts, rewrite its prompt against the real code (se
 - Columns stepper (1 to the count) or Auto (picked from the selection's shape); the choice lasts for the session. Off, with the reason shown, below 2 notes, offline, while a selected note is being moved or resized, or before new notes are saved.
 - A grid larger than the board moves nothing and the board says why (too wide, too tall, too big). Uses the existing batch moves; no protocol change. Frames are not used as grid containers.
 
+### Create with content (protocol v11) — done, v0.11.0
+- Client `itemsAdd { clientRef, notes?, frames? }`: 1 to 50 items in total, each entry with a `ref` and every content field (no id, rev, z or author), the whole message within 4 KiB. Server `itemsAdded { clientRef?, notes, frames, refused }` (refs and refusals only in the sender's copy). Refusal reasons: `invalid`, `notes_full`, `frames_full`. Nothing added: an error to the sender only.
+- Decided: `MAX_MESSAGE_BYTES` stays 4 KiB; the web packs items by actual serialised size. Items per message are decided by bytes, not the 50-item limit: 2 notes at their largest, 6 frames with the longest titles; 15 notes or 21 frames with short content.
+- New notes get z one at a time; a renumbering at the bound is written in the same transaction (and broadcast first). 2 rows written per item.
+- Fan-out worst case (50 maximum notes) is 103,653 bytes, about 20% of the 512 KiB server cap. Templates now apply in one step. No stored-schema change.
+
+### Floating bar, Duplicate, Undo/Redo, Clear board (web only) — done, v0.12.0
+- One branch (`phase-bar-undo`, PR #26), four parts, web only, no protocol change.
+- Floating bar: permanent from md up. Groups History (Undo, Redo), Edit (Duplicate, Delete), Order (Bring to front, Send to back), Arrange (Align, Distribute, Grid, Match size). A command that can't be used is disabled with the reason shown as text, never hidden. Phones get only Undo and Redo, on the ribbon. Bar height at 1280 with both panels open is about 178px; a possible 0.12.1 tidy-up is in the backlog.
+- Duplicate (button and Ctrl/Cmd+D): copies selected notes with full content, offset by one token and clamped as a group, on top in the originals' order; a selected frame is copied alone. Sent with `itemsAdd`; refused up front when there isn't room for every copy.
+- Undo/redo rules:
+  - Your own actions only. Items someone else changed since are skipped and reported.
+  - Restored items get new ids and the restorer as author; ids in older history entries are remapped to them.
+  - Reconnecting or leaving clears history. Depth 50 plus a size cap (about 2 MB).
+  - Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y on the board only, never in text fields.
+  - An action is recorded straight away, but its Undo stays disabled until the relay confirms it ("Wait until your last change is saved."); unanswered waits are dropped after 10 s.
+  - A note being dragged, resized or typed into blocks undo. Final moves/resizes of the same notes within 500 ms merge into one step.
+  - Bring to front / Send to back are not undoable in v1 (the server owns z; fixing it needs a new message, backlog). When the last action was an order change, the first Undo only shows "Order changes can't be undone." and the next press undoes the action before it. A change that only touches z, by someone else, does not block your undo.
+- Known small bug, to fix in the Reconnect session: when a waiting undo entry is dropped after 10 s, the bar buttons don't refresh.
+- Clear board: in Properties when nothing is selected. One confirm with counts. Notes first in batches of 50, then frames (one `frameDelete` every 50 ms). One history entry, so a single undo restores it, through a paced restore with a visible "Restoring N of M…" status. A full-board restore at the 4 KiB cap is 105 messages (about 10.5 s).
+
 ### 7a Text box and basic shapes
 - Text box, and a small fixed set of shapes: rectangle, oval, diamond. Reuses the sizing and colour work from 2.7.
 - Each object type is its own protocol change with a version bump, caps and tests. Its palette tile is one registry entry in a new category; no placeholder tiles before the object exists.
@@ -197,15 +235,11 @@ Draft roadmap. When a slice starts, rewrite its prompt against the real code (se
 - Connectors get their own palette category, again one entry per tile.
 
 ### 7c Structure
-- Group box objects (their own protocol change), affinity grouping. (Templates and frames moved to their own slices before reconnect.)
+- Group box objects (their own protocol change), affinity grouping. (Templates, frames and export moved to their own slices.)
 - Stencils tab in the left panel with packaged areas (sprint planning, brainstorming area and similar), and Save as stencil from a selection.
-- Export to Markdown and PNG.
 
 ### 8 Phone view
 - Add a note, vote, see the timer. Big canvas is for the shared screen. QR join.
-
-### 9 Hardening
-- Load test, message-rate limits, malformed-message tests, accessibility pass, keyboard support, reduced motion.
 
 ### 10 AI (optional)
 - Summary and sentiment of board content. Explicit buttons, confirmation with size estimate, add-only output, content treated as data. Key handling decided then.
@@ -225,6 +259,9 @@ Draft roadmap. When a slice starts, rewrite its prompt against the real code (se
   - Stronger note colours: check the `--sy-note-*` tokens in light and dark; notes and palette tiles look pale next to Miro. The fix would be token-only, possibly a patch release.
 - Canvas: decided, React Flow (slice 2.5). Revisit only if performance with many movers is poor.
 - Visual identity: settled in slice 0.5 (Chalkline-derived)
+- ~~Timer/lock host token~~: decided 4 October 2026. A minimal host token is issued at creation in the timer and lock slice, because a lock anyone can undo is not a lock.
+- Cloudflare alarm billing and limits: check before writing the idle-expiry prompt.
+- Tombstone design for expired rooms: what it stores, how long it stays, and what an old link shows.
 
 ## Backlog (no slot yet)
 
@@ -235,4 +272,9 @@ Draft roadmap. When a slice starts, rewrite its prompt against the real code (se
 - Revocable invite codes per friend
 - Spin-offs reusing the relay (planning poker, vote room)
 - Phone sends its touch position as a cursor while a finger is down
-- Layers panel
+- Layers panel, and forward/backward one step
+- Frame multi-select: marquee picks up frames, delete them together. Bigger than it looks: arrange, Properties and batches assume notes only
+- Frame-aware Grid (frames as grid containers)
+- Undoable order changes (needs a new message; the server owns z)
+- Bar height tidy-up (possible 0.12.1)
+- Facilitator-defined note palette (host-only; from the old slice 6 notes)
