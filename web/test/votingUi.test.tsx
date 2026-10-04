@@ -1,6 +1,5 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { useRoomUi } from "../src/rooms/roomStore";
 import { voterKeyKey } from "../src/storage";
 import { ROOM_ID, cleanupUi, inRoom, installUi, noteAt, server } from "./helpers/ui";
 
@@ -29,6 +28,8 @@ describe("the voter key in the page", () => {
 
   it("publishes the voting state, my votes, dots left and results to roomStore", async () => {
     const socket = await inRoom({ notes: [noteAt(1)] });
+    // mount() resets modules: the page's own store instance.
+    const { useRoomUi } = await import("../src/rooms/roomStore");
     await server(socket, { data: { type: "voterGranted", remaining: 4, mine: [{ noteId: noteAt(1).id, count: 1 }] } });
     await server(socket, { data: { type: "votingChanged", voting: { state: "open", budget: 5, round: 1 } } });
     expect(useRoomUi.getState().room).toMatchObject({ voting: { state: "open", budget: 5, round: 1 }, remaining: 5, results: null, isVoter: true });

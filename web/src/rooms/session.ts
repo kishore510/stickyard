@@ -9,6 +9,10 @@ import {
   ROOM_ENDED_CLOSE_CODE,
   ROOM_EXPIRED_CLOSE_CODE,
   ROOM_IDLE_EXPIRY_DAYS,
+  MAX_VOTERS_PER_ROUND,
+  VOTE_BUDGET_DEFAULT,
+  VOTE_BUDGET_MAX,
+  VOTE_BUDGET_MIN,
   clampFramePosition,
   clampFrameRect,
   clampNoteRect,
@@ -35,6 +39,7 @@ import {
   type Participant,
   type ServerMessage,
   type TimerState,
+  type VotingState,
 } from "@stickyard/shared";
 import {
   LIMIT_MAX_PROBES,
@@ -235,7 +240,25 @@ export interface RoomView {
   timer: RoomTimer | null;
   /** The lock the host asked for, until the relay answers (null: not waiting). Not optimistic. */
   lockPending: boolean | null;
+  /** Protocol v13: the room's dot voting state. */
+  voting: VotingState;
+  /** Protocol v13: the relay granted this visit a voter (claimVoter with this device's key). */
+  isVoter: boolean;
+  /** My dots this round, by note id (votes waiting for the relay shown already; the relay confirms or rolls them back). */
+  myVotes: ReadonlyMap<string, number>;
+  /** Dots I have left this round. */
+  remaining: number;
+  /** The round's totals (non-zero, in note creation order), only while voting is closed. Never who voted. */
+  results: readonly VoteTotal[] | null;
 }
+
+/** One note's dots in a closed round's results. */
+export interface VoteTotal {
+  noteId: string;
+  count: number;
+}
+
+export const VOTING_OFF: VotingState = { state: "off", budget: VOTE_BUDGET_DEFAULT, round: 0 };
 
 /** A delete's outcome: `partial` when some notes weren't (or may not have been) deleted. */
 export interface DeleteReport {
@@ -269,6 +292,11 @@ export const INITIAL_VIEW: RoomView = {
   locked: false,
   timer: null,
   lockPending: null,
+  voting: VOTING_OFF,
+  isVoter: false,
+  myVotes: new Map(),
+  remaining: VOTE_BUDGET_DEFAULT,
+  results: null,
 };
 
 /** What a dropped connection says about changes it may have lost. */
@@ -380,6 +408,11 @@ export const NOTICES = {
   deletedWhileEditing: "Someone else deleted the note you were editing.",
   locked: "The host has locked the board.",
   notHost: "Only the host can do that.",
+  overBudget: "You’ve placed all your dots. Take one off another note first.",
+  votingClosed: "Voting isn’t open right now.",
+  noVoter: "Your vote couldn’t be counted. Leave and rejoin the session to vote.",
+  votersFull: `This round already has the maximum of ${MAX_VOTERS_PER_ROUND} voters.`,
+  voteOffline: "You’re not connected, so your vote wasn’t counted.",
   framesFull: `The board has the maximum of ${MAX_FRAMES_PER_ROOM} frames. Delete a frame to add another.`,
   frameTooFull: `This frame holds more than ${MAX_BATCH_ENTRIES} notes, so it moved on its own.`,
   templatePartial: "The template was only partly added. The frames that were added stay on the board; delete any you don’t want.",
@@ -523,7 +556,15 @@ export interface SessionOptions {
   hostToken?(): string | null;
   /** Protocol v12: forget the stored host token (refused, or the session ended or expired). */
   forgetHostToken?(): void;
+  /** Protocol v13: this device's voter key for the room (made on first use; sent only in claimVoter). */
+  voterKey?(): string | null;
+  /** Protocol v13: forget the voter key (the session ended or expired). */
+  forgetVoterKey?(): void;
 }
+
+/** Refusals of a voteSet that roll the vote back. */
+const VOTE_REFUSALS = new Set(["over_budget", "voting_closed", "no_voter", "voters_full"]);
+const sumVotes = (votes: ReadonlyMap<string, number>) => [...votes.values()].reduce((a, b) => a + b, 0);
 
 /** Reconnecting: which try, why it waits, and its timer. */
 interface Retry {
@@ -558,6 +599,13 @@ export class RoomSession {
   private opened = false;
   private welcomed = false;
   private stopped = false;
+  /** Protocol v13: my votes as the relay last confirmed them, and dots left then. */
+  private readonly votesConfirmed = new Map<string, number>();
+  private votesLeft = VOTE_BUDGET_DEFAULT;
+  /** Votes sent and not answered yet, per note, in send order. */
+  private readonly votesPending = new Map<string, number[]>();
+  /** The relay refused this visit as a voter (voters_full on claimVoter). */
+  private votersFull = false;
   private pendingName: string | null = null;
   private timer: ReturnType<typeof setTimeout> | undefined;
   private nextKey = 0;
@@ -960,9 +1008,13 @@ export class RoomSession {
     this.history.clear();
     const { board, orphans } = discardUnconfirmed(this.view.board);
     this.retry = { phase: this.env.online() ? "reconnecting" : "network", attempt: 1, failedOpens: 0, probes: 0, timer: undefined, trying: false, due: false, lastTryAt: -Infinity, gen: ++this.retryGen };
+    // Votes still waiting go too: the next claim's voterGranted says what the relay has.
+    this.votesPending.clear();
     this.update({
       status: "disconnected",
       lockPending: null,
+      isVoter: false,
+      ...this.voteView(),
       board,
       dropReport: unsaved > 0 ? DROP_TEXT.unsaved(unsaved) : null,
       ...(orphans.length > 0 ? { orphanDraft: orphans.at(-1) ?? null } : {}),
@@ -2222,6 +2274,7 @@ export class RoomSession {
     if (!parsed.ok) return this.finish("reload");
     const before = this.view.board;
     this.handle(parsed.value);
+    this.pruneVotes();
     this.observe(before, this.view.board);
     this.settleClear();
   }
@@ -2241,7 +2294,7 @@ export class RoomSession {
         this.joinedName = message.you.name;
         // Protocol v12: the room's lock and timer come with joined; host powers are claimed again
         // on every join and reconnect (a new participant), with the token kept on this device.
-        const roomState = { locked: message.locked, timer: roomTimer(message.timer), isHost: message.you.host, lockPending: null };
+        const roomState = { locked: message.locked, timer: roomTimer(message.timer), isHost: message.you.host, lockPending: null, ...this.votingFrom(message.voting), isVoter: false };
         if (this.retry) {
           // A reconnect: live once the snapshot has replaced the board (the join timer runs till then).
           this.resyncing = true;
@@ -2291,6 +2344,35 @@ export class RoomSession {
       case "sessionEnded":
         // A host ended the session: final. The relay closes the socket with 4411 next.
         return this.roomGone("ended");
+
+      case "voterGranted": {
+        // The relay's word on my votes (a reconnect or another tab may have changed them).
+        this.votesConfirmed.clear();
+        for (const v of message.mine) this.votesConfirmed.set(v.noteId, v.count);
+        this.votesPending.clear();
+        this.votesLeft = message.remaining;
+        this.votersFull = false;
+        return this.update({ isVoter: true, ...this.voteView() });
+      }
+
+      case "votingChanged":
+        return this.update(this.votingFrom(message.voting));
+
+      case "voteConfirmed": {
+        if (message.count > 0) this.votesConfirmed.set(message.noteId, message.count);
+        else this.votesConfirmed.delete(message.noteId);
+        this.votesLeft = message.remaining;
+        // Mine, answered in order; a confirmation from my other tab leaves this page's waiting votes alone.
+        const pending = this.votesPending.get(message.noteId);
+        if (pending?.[0] === message.count) this.shiftPendingVote(message.noteId);
+        return this.update(this.voteView());
+      }
+
+      case "votesRevealed": {
+        const { voting } = this.view;
+        if (voting.state !== "closed" || message.round !== voting.round) return;
+        return this.update({ results: message.totals.map(({ noteId, count }) => ({ noteId, count })) });
+      }
 
       case "participant_joined": {
         const p = message.participant;
@@ -2434,6 +2516,14 @@ export class RoomSession {
       }
 
       case "error": {
+        if (message.noteId !== undefined && this.votesPending.has(message.noteId) && (VOTE_REFUSALS.has(message.code) || message.code === "rate_limited")) {
+          return this.voteRefused(message.noteId, message.code);
+        }
+        if (message.code === "voters_full" && message.noteId === undefined) {
+          // claimVoter refused: this round has its voters. Said when a vote is tried.
+          this.votersFull = true;
+          return this.update({ isVoter: false });
+        }
         const batch = message.clientRef === undefined ? undefined : this.itemBatches.get(message.clientRef);
         if (batch) return this.itemsErrored(message, batch);
         if (message.clientRef !== undefined || message.noteId !== undefined || message.noteIds !== undefined || message.frameId !== undefined) {
@@ -2464,6 +2554,10 @@ export class RoomSession {
             // The stored token doesn't open this room: forget it, quietly (nothing visible depends on it yet).
             this.options.forgetHostToken?.();
             return this.update({ isHost: false });
+          case "over_budget":
+          case "voting_closed":
+          case "no_voter":
+          case "voters_full":
           case "bad_message":
           case "too_large":
           case "not_joined":
@@ -2630,6 +2724,10 @@ export class RoomSession {
    */
   private roomGone(status: "expired" | "ended"): void {
     this.options.forgetHostToken?.();
+    this.options.forgetVoterKey?.();
+    this.votesConfirmed.clear();
+    this.votesPending.clear();
+    this.votesLeft = VOTE_BUDGET_DEFAULT;
     clearTimeout(this.timer);
     this.stopRetry();
     this.unlisten?.();
@@ -2657,6 +2755,11 @@ export class RoomSession {
       locked: false,
       timer: null,
       lockPending: null,
+      voting: VOTING_OFF,
+      isVoter: false,
+      myVotes: new Map(),
+      remaining: VOTE_BUDGET_DEFAULT,
+      results: null,
       board: EMPTY_BOARD,
       synced: false,
       presenceToast: null,
@@ -2712,6 +2815,145 @@ export class RoomSession {
   private claimHost(): void {
     const token = this.options.hostToken?.();
     if (token) this.send({ type: "claimHost", token });
+    this.claimVoter();
+  }
+
+  /* ── Dot voting (protocol v13): plumbing, no UI yet ─────────────── */
+
+  /** Claims this device's voter for the room, after every join and reconnect. The key is never shown or logged. */
+  private claimVoter(): void {
+    const key = this.options.voterKey?.();
+    if (key) this.send({ type: "claimVoter", key });
+  }
+
+  /**
+   * The voting state from the relay (joined, votingChanged). A new round, or voting cleared,
+   * empties my votes and the results; results are kept only while closed.
+   */
+  private votingFrom(voting: VotingState): Pick<RoomView, "voting" | "results" | "myVotes" | "remaining"> {
+    const previous = this.view.voting;
+    if (voting.round !== previous.round || voting.state === "off") {
+      this.votesConfirmed.clear();
+      this.votesPending.clear();
+      this.votesLeft = voting.budget;
+    }
+    const results = voting.state === "closed" && voting.round === previous.round && previous.state === "closed" ? this.view.results : null;
+    // Set first so voteView counts against the new budget.
+    this.view = { ...this.view, voting };
+    return { voting, results, ...this.voteView() };
+  }
+
+  /** My votes as shown (the relay's, with mine still waiting on top) and dots left. */
+  private voteView(): Pick<RoomView, "myVotes" | "remaining"> {
+    const shown = new Map(this.votesConfirmed);
+    for (const [noteId, counts] of this.votesPending) {
+      const count = counts.at(-1) ?? 0;
+      if (count > 0) shown.set(noteId, count);
+      else shown.delete(noteId);
+    }
+    const remaining = Math.max(0, Math.min(this.view.voting.budget, this.votesLeft - (sumVotes(shown) - sumVotes(this.votesConfirmed))));
+    return { myVotes: shown, remaining };
+  }
+
+  private shiftPendingVote(noteId: string): void {
+    const pending = this.votesPending.get(noteId);
+    pending?.shift();
+    if (pending?.length === 0) this.votesPending.delete(noteId);
+  }
+
+  /** A vote refused by the relay: rolled back (the oldest waiting one on that note), with one notice. */
+  private voteRefused(noteId: string, code: string): void {
+    this.shiftPendingVote(noteId);
+    const noteNotice =
+      code === "over_budget"
+        ? NOTICES.overBudget
+        : code === "voting_closed"
+          ? NOTICES.votingClosed
+          : code === "voters_full"
+            ? NOTICES.votersFull
+            : code === "rate_limited"
+              ? NOTICES.tooQuick
+              : NOTICES.noVoter;
+    this.update({ ...this.voteView(), noteNotice, ...(code === "rate_limited" ? { rateLimited: true } : {}) });
+  }
+
+  /**
+   * Notes that are gone drop out of my votes (the relay refunds the dots) and of the results.
+   * Only once the board is live: before the snapshot (or a reconnect's resync) it isn't the room's.
+   */
+  private pruneVotes(): void {
+    if (!this.view.synced || this.resyncing || this.view.status !== "joined") return;
+    const board = this.view.board;
+    const here = (id: string) => findNote(board, id) !== undefined || board.removed.some((n) => n.note.id === id);
+    let changed = false;
+    for (const [id, count] of this.votesConfirmed) {
+      if (here(id)) continue;
+      this.votesConfirmed.delete(id);
+      this.votesLeft += count;
+      changed = true;
+    }
+    for (const id of this.votesPending.keys()) {
+      if (here(id)) continue;
+      this.votesPending.delete(id);
+      changed = true;
+    }
+    const results = this.view.results?.filter((r) => here(r.noteId)) ?? null;
+    if (results && results.length !== this.view.results?.length) changed = true;
+    if (changed) this.update({ ...this.voteView(), results });
+  }
+
+  /**
+   * Puts `count` of my dots on a note (0 takes them off). Optimistic: shown at once, rolled back
+   * if the relay refuses (one notice). Refused here, with a notice and nothing sent, while
+   * disconnected, when voting isn't open, without a voter, or over my dots. Not recorded by undo.
+   */
+  voteSet(noteId: string, count: number): boolean {
+    if (!Number.isInteger(count) || count < 0 || count > VOTE_BUDGET_MAX) return false;
+    if (!this.live) {
+      this.update({ noteNotice: NOTICES.voteOffline });
+      return false;
+    }
+    if (this.view.voting.state !== "open") {
+      this.update({ noteNotice: NOTICES.votingClosed });
+      return false;
+    }
+    if (!this.view.isVoter) {
+      this.update({ noteNotice: this.votersFull ? NOTICES.votersFull : NOTICES.noVoter });
+      return false;
+    }
+    if (!findNote(this.view.board, noteId)?.confirmed) return false;
+    const shown = this.view.myVotes;
+    if ((shown.get(noteId) ?? 0) === count) return true;
+    if (sumVotes(shown) - (shown.get(noteId) ?? 0) + count > this.view.voting.budget) {
+      this.update({ noteNotice: NOTICES.overBudget });
+      return false;
+    }
+    this.votesPending.set(noteId, [...(this.votesPending.get(noteId) ?? []), count]);
+    // Shown first: a refusal can only come after.
+    this.update({ ...this.voteView(), noteNotice: null });
+    this.send({ type: "voteSet", noteId, count });
+    return true;
+  }
+
+  /** Host: starts a new round (every earlier vote goes). False (nothing sent) for a bad budget, a guest or while disconnected. */
+  startVote(budget: number): boolean {
+    if (!this.canHost() || !Number.isInteger(budget) || budget < VOTE_BUDGET_MIN || budget > VOTE_BUDGET_MAX) return false;
+    this.send({ type: "voteStart", budget });
+    return true;
+  }
+
+  /** Host: closes the round; everyone gets the totals. */
+  stopVote(): boolean {
+    if (!this.canHost()) return false;
+    this.send({ type: "voteStop" });
+    return true;
+  }
+
+  /** Host: deletes every vote and turns voting off. */
+  clearVotes(): boolean {
+    if (!this.canHost()) return false;
+    this.send({ type: "voteClear" });
+    return true;
   }
 
   /** A final state: report it and close the socket. */

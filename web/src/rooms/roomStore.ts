@@ -1,7 +1,7 @@
-import type { Participant } from "@stickyard/shared";
+import type { Participant, VotingState } from "@stickyard/shared";
 import { create } from "zustand";
 import { countUnread } from "../chat/unread";
-import type { EchoEntry, RoomTimer } from "./session";
+import type { EchoEntry, RoomTimer, VoteTotal } from "./session";
 
 /*
  * The room the page is in, published by RoomScreen for things outside it: the top bar
@@ -32,6 +32,17 @@ export interface PublishedRoom {
   /** Why End session is off (disconnected, a run in progress), or null. */
   endReason: string | null;
   endSession(): boolean;
+  /** Dot voting (protocol v13; no visible UI yet): the state, my dots and the results (closed only). */
+  voting: VotingState;
+  isVoter: boolean;
+  myVotes: ReadonlyMap<string, number>;
+  remaining: number;
+  results: readonly VoteTotal[] | null;
+  voteSet(noteId: string, count: number): boolean;
+  /** Host only (the session refuses them for guests and while disconnected). */
+  startVote(budget: number): boolean;
+  stopVote(): boolean;
+  clearVotes(): boolean;
   say(text: string): boolean;
   leave(): void;
 }

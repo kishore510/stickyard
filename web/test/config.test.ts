@@ -39,6 +39,8 @@ describe("storage keys", () => {
       chatPanel: "stickyard:chat-panel",
       // Protocol v12: one host token per room, stickyard:host:<room id> (never the passcode).
       hostTokenPrefix: "stickyard:host:",
+      // Protocol v13: one random voter key per room, stickyard:voter:<room id>.
+      voterKeyPrefix: "stickyard:voter:",
     });
   });
 });
