@@ -1,6 +1,6 @@
 # Phase plan: Stickyard
 
-Last updated: 3 October 2026
+Last updated: 4 October 2026
 
 Draft roadmap. When a slice starts, rewrite its prompt against the real code (see the skeleton in PROJECT_BRIEF.md). Do not treat these notes as final prompts.
 
@@ -24,6 +24,8 @@ Draft roadmap. When a slice starts, rewrite its prompt against the real code (se
 | Frames | Named, resizable, coloured areas behind notes; dragging one carries the notes inside. Protocol v9 + stored schema 6 (new frames table) | Done (v0.9.0) |
 | Frame title styling | Title size, bold, italic, alignment and ink for frames, in Properties. Protocol v10 + stored schema 7 (five columns with defaults); framesSnapshot test cap 16 -> 20 KiB | Done (v0.9.1) |
 | Templates | Retro, Start Stop Continue, 2x2 Impact and Effort, Sprint planning, built from frames (web only, no protocol change) | Done (v0.10.0) |
+| Delete polish | Delete key on a selection (after Ctrl+A or a marquee), one confirm with the count, a report of how a multi-note delete went (web only) | Done (v0.10.1) |
+| Selection fixes | Frame + Delete works (a click on the title selects the frame; double-click or Enter edits it); clearer multi-select: thicker outline, a tick per note, a dashed box round the selection (web only) | Done (v0.10.2) |
 | 6 (part) Timer and lock board | Cut-down slice 6: shared timer and lock board only | Not started |
 | 4 Reconnect | Resync after drops, offline queue | Not started |
 | 3a Presence: avatars and toasts | Avatar stack in the top bar, join/leave toasts. Probably no protocol change (uses `participant_joined`/`participant_left`) | Not started |
@@ -167,6 +169,17 @@ Draft roadmap. When a slice starts, rewrite its prompt against the real code (se
 - Retro, Start Stop Continue, 2x2 Impact and Effort, Sprint planning, as plain data (`web/src/templates/registry.ts`), frames only (no starter notes). A Templates palette category (md and up). Applied anywhere on the board, centred on the view or the drop point and clamped; nothing existing is touched; needs enough free frame slots up front.
 - Each frame is a `frameAdd`, then after the relay confirms it a final `frameResize` and one `frameEdit` for the title style, paced at 10 messages a second. A refusal part-way leaves what was made and says so; no retry. Others see each frame appear at the default size, then settle.
 - Possible later change: one message that adds a template's frames at their size and style in one step (a protocol change), so others see no settling and it can't be partly applied.
+
+### Delete polish (web only) — done, v0.10.1
+- Delete (or Backspace) with notes selected and nothing else focused deletes them all; a focused note outside the selection deletes the selection, never itself. Never from a field, a sheet, the top bar or chat, or on phones.
+- Several notes always ask once, with the count. Not connected: no confirm, and the board says nothing was deleted.
+- The board reports how a multi-note delete went once the relay has answered for every note: all deleted, or how many weren't and why (too quick, refused, connection lost). Chunks of 50 as before; no protocol change.
+
+### Selection fixes (web only) — done, v0.10.2
+- User report: selecting a frame and pressing Delete did nothing (the click focused the title input that filled the header), and a multi-selection was hard to see.
+- A frame's title takes presses only while it's being edited: a click selects the frame (and drags it); double-click, Enter on the selected frame, or Tab edits the title.
+- Fixed a 0.10.1 regression found in a real browser: a click on the canvas focuses the app's `<main>`, which the Delete rule didn't count as the board's.
+- Selection: thicker accent outline; with several notes, a tick badge on each and a dashed box round them all.
 
 ### 7a Text box and basic shapes
 - Text box, and a small fixed set of shapes: rectangle, oval, diamond. Reuses the sizing and colour work from 2.7.
