@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { FRAME_DEFAULTS, MAX_FRAMES_PER_ROOM, PROTOCOL_VERSION, type Participant } from "@stickyard/shared";
 import { EXPECT_TIMEOUT_MS, HISTORY_TEXT } from "../src/history/history";
-import { LIMIT_MAX_PROBES, LIMIT_RETRY_MS, RECONNECT_MAX_ATTEMPTS, type ConnectionEnv, type ProbeResult } from "../src/connection/reconnect";
+import { LIMIT_MAX_PROBES, LIMIT_RETRY_MS, PROBE_AFTER_FAILED_OPENS, RECONNECT_MAX_ATTEMPTS, type ConnectionEnv, type ProbeResult } from "../src/connection/reconnect";
 import { findFrame } from "../src/frames/board";
 import { findNote } from "../src/notes/board";
 import { CLEAR_FRAME_STEP_MS, DROP_TEXT, ITEMS_STEP_MS, JOIN_TIMEOUT_MS, NOTICES, UNDO_TEXT, type SessionOptions } from "../src/rooms/session";
@@ -275,41 +275,40 @@ describe("fatal outcomes don't retry", () => {
     const t = setup();
     t.code.mockResolvedValue("invalid" as never);
     t.relay.drop();
-    for (const d of [1000, 2000, 4000]) {
+    for (const d of [1000, 2000, 4000, 8000, 16000]) {
       await vi.advanceTimersByTimeAsync(d);
       t.relay.failOpen();
     }
     await vi.advanceTimersByTimeAsync(0);
     expect(t.view().status).toBe("invalid");
     await vi.advanceTimersByTimeAsync(3600_000);
-    expect(t.relay.sockets).toBe(4);
+    expect(t.relay.sockets).toBe(6);
   });
 });
 
 describe("relay unreachable or over its daily limit", () => {
-  it("doesn't probe for the first two failed opens", async () => {
+  it(`doesn't probe for the first ${PROBE_AFTER_FAILED_OPENS - 1} failed opens`, async () => {
     const t = setup();
     t.relay.drop();
-    await vi.advanceTimersByTimeAsync(1000);
-    t.relay.failOpen();
-    await vi.advanceTimersByTimeAsync(2000);
-    t.relay.failOpen();
+    for (const d of [1000, 2000, 4000, 8000]) {
+      await vi.advanceTimersByTimeAsync(d);
+      t.relay.failOpen();
+    }
+    await vi.advanceTimersByTimeAsync(0);
     expect(t.health).not.toHaveBeenCalled();
   });
 
-  it("after three failed opens with a failing health probe: says it may be over its limit and slows to one probe a minute", async () => {
+  it(`after ${PROBE_AFTER_FAILED_OPENS} failed opens with a failing health probe: says it may be over its limit and slows to one probe a minute`, async () => {
     const t = setup();
     t.health.mockResolvedValue("down");
     t.relay.drop();
-    await vi.advanceTimersByTimeAsync(1000);
-    t.relay.failOpen();
-    await vi.advanceTimersByTimeAsync(2000);
-    t.relay.failOpen();
-    await vi.advanceTimersByTimeAsync(4000);
-    t.relay.failOpen();
+    for (const d of [1000, 2000, 4000, 8000, 16000]) {
+      await vi.advanceTimersByTimeAsync(d);
+      t.relay.failOpen();
+    }
     await vi.advanceTimersByTimeAsync(0);
     expect(t.health).toHaveBeenCalledTimes(1);
-    expect(t.view().reconnect).toEqual({ phase: "limit", attempt: 3, max: 8 });
+    expect(t.view().reconnect).toEqual({ phase: "limit", attempt: 5, max: 8 });
     // While it's down only the cheap probe runs, once a minute; no sockets.
     await vi.advanceTimersByTimeAsync(LIMIT_RETRY_MS - 1);
     expect(t.health).toHaveBeenCalledTimes(1);
@@ -317,11 +316,11 @@ describe("relay unreachable or over its daily limit", () => {
     expect(t.health).toHaveBeenCalledTimes(2);
     await vi.advanceTimersByTimeAsync(LIMIT_RETRY_MS * 3);
     expect(t.health).toHaveBeenCalledTimes(5);
-    expect(t.relay.sockets).toBe(4);
+    expect(t.relay.sockets).toBe(6);
     // The relay is back: the next probe opens a socket at once.
     t.health.mockResolvedValue("ok");
     await vi.advanceTimersByTimeAsync(LIMIT_RETRY_MS);
-    expect(t.relay.sockets).toBe(5);
+    expect(t.relay.sockets).toBe(7);
     t.relay.open();
     expect(t.view().status).toBe("joined");
     expect(t.view().reconnect).toBeNull();
@@ -331,7 +330,7 @@ describe("relay unreachable or over its daily limit", () => {
     const t = setup();
     t.health.mockResolvedValue("down");
     t.relay.drop();
-    for (const d of [1000, 2000, 4000]) {
+    for (const d of [1000, 2000, 4000, 8000, 16000]) {
       await vi.advanceTimersByTimeAsync(d);
       t.relay.failOpen();
     }
@@ -339,14 +338,14 @@ describe("relay unreachable or over its daily limit", () => {
     expect(t.health).toHaveBeenCalledTimes(LIMIT_MAX_PROBES);
     expect(t.view().reconnect?.phase).toBe("offline");
     t.session.rejoin();
-    expect(t.relay.sockets).toBe(5);
+    expect(t.relay.sockets).toBe(7);
   });
 
   it("no probes while the tab is hidden; one as soon as it's visible", async () => {
     const t = setup();
     t.health.mockResolvedValue("down");
     t.relay.drop();
-    for (const d of [1000, 2000, 4000]) {
+    for (const d of [1000, 2000, 4000, 8000, 16000]) {
       await vi.advanceTimersByTimeAsync(d);
       t.relay.failOpen();
     }
@@ -362,23 +361,23 @@ describe("relay unreachable or over its daily limit", () => {
   it("a healthy relay keeps the normal backoff (the link is checked too)", async () => {
     const t = setup();
     t.relay.drop();
-    for (const d of [1000, 2000, 4000]) {
+    for (const d of [1000, 2000, 4000, 8000, 16000]) {
       await vi.advanceTimersByTimeAsync(d);
       t.relay.failOpen();
     }
     await vi.advanceTimersByTimeAsync(0);
     expect(t.health).toHaveBeenCalledTimes(1);
     expect(t.code).toHaveBeenCalledTimes(1);
-    expect(t.view().reconnect).toEqual({ phase: "reconnecting", attempt: 4, max: 8 });
-    await vi.advanceTimersByTimeAsync(8000);
-    expect(t.relay.sockets).toBe(5);
+    expect(t.view().reconnect).toEqual({ phase: "reconnecting", attempt: 6, max: 8 });
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(t.relay.sockets).toBe(7);
   });
 
   it("a health probe from a newer relay: please reload", async () => {
     const t = setup();
     t.health.mockResolvedValue("reload");
     t.relay.drop();
-    for (const d of [1000, 2000, 4000]) {
+    for (const d of [1000, 2000, 4000, 8000, 16000]) {
       await vi.advanceTimersByTimeAsync(d);
       t.relay.failOpen();
     }

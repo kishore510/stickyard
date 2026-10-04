@@ -129,7 +129,22 @@ import { discardUnconfirmed, resyncFrames, resyncNotes, unsavedKeys, type Orphan
  * `expired`: the relay closed the socket with ROOM_EXPIRED_CLOSE_CODE (4410): nobody was in the
  * room for ROOM_IDLE_EXPIRY_DAYS, so it was deleted. Final: no retries, no probes, no Rejoin.
  */
-export type RoomStatus = "idle" | "connecting" | "joined" | "invalid" | "full" | "reload" | "unreachable" | "disconnected" | "expired";
+export type RoomStatus = "idle" | "connecting" | "joined" | "invalid" | "full" | "reload" | "unreachable" | "disconnected" | "expired" | "ended";
+
+/** Stub: tests first. */
+export const ENDED_TEXT = { title: "", body: "", home: "" };
+
+/** The room's timer here: the relay's start and length, and the relay's clock minus this device's. */
+export interface RoomTimer {
+  startedAt: number;
+  durationMs: number;
+  offsetMs: number;
+}
+
+/** Stub: tests first. */
+export function timerRemainingMs(_timer: RoomTimer, _now: number): number {
+  return -1;
+}
 
 /** What the page says about an expired session. */
 export const EXPIRED_TEXT = {
@@ -199,6 +214,12 @@ export interface RoomView {
   orphanDraft: OrphanDraft | null;
   /** Every participant id you've had in this visit (a reconnect gives a new one): your notes stay yours. */
   yourIds: ReadonlySet<string>;
+  /** Protocol v12: this visit has host powers (the relay granted claimHost). */
+  isHost: boolean;
+  /** Protocol v12: the host has locked the board (only hosts can change it). */
+  locked: boolean;
+  /** Protocol v12: the room's timer, or null. */
+  timer: RoomTimer | null;
 }
 
 /** A delete's outcome: `partial` when some notes weren't (or may not have been) deleted. */
@@ -229,6 +250,9 @@ export const INITIAL_VIEW: RoomView = {
   dropReport: null,
   orphanDraft: null,
   yourIds: new Set(),
+  isHost: false,
+  locked: false,
+  timer: null,
 };
 
 /** What a dropped connection says about changes it may have lost. */
@@ -338,6 +362,8 @@ export const NOTICES = {
   tooQuick: "That change was too quick and wasn’t saved. Try again.",
   refused: "That change wasn’t saved. Try again.",
   deletedWhileEditing: "Someone else deleted the note you were editing.",
+  locked: "",
+  notHost: "",
   framesFull: `The board has the maximum of ${MAX_FRAMES_PER_ROOM} frames. Delete a frame to add another.`,
   frameTooFull: `This frame holds more than ${MAX_BATCH_ENTRIES} notes, so it moved on its own.`,
   templatePartial: "The template was only partly added. The frames that were added stay on the board; delete any you don’t want.",
@@ -477,6 +503,10 @@ export interface SessionOptions {
   storedName?(): string | null;
   /** For the backoff's jitter (0..1). */
   random?(): number;
+  /** Protocol v12: this room's host token on this device, if it started the session (sent only in claimHost). */
+  hostToken?(): string | null;
+  /** Protocol v12: forget the stored host token (refused, or the session ended or expired). */
+  forgetHostToken?(): void;
 }
 
 /** Reconnecting: which try, why it waits, and its timer. */

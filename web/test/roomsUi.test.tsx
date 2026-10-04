@@ -221,7 +221,7 @@ describe("home", () => {
 });
 
 describe("start a session", () => {
-  it("creates a room, goes to it, clears the passcode, and stores nothing", async () => {
+  it("creates a room, goes to it, clears the passcode, and stores only the room's host token", async () => {
     routes = (url, init) =>
       url.endsWith("/rooms") && init?.method === "POST" ? jsonResponse(200, { code: CODE, hostToken: HOST_TOKEN }) : healthy(url, init);
     const setItem = vi.spyOn(Storage.prototype, "setItem");
@@ -236,9 +236,14 @@ describe("start a session", () => {
     expect(post?.[0]).not.toContain(PASSCODE);
     expect(window.location.hash).toBe(`#/room/${CODE}`);
 
+    // The one new key: this room's host token (protocol v12), under stickyard:host:<room id>.
+    expect(localStorage.getItem(`stickyard:host:${CODE.split(".")[0]}`)).toBe(HOST_TOKEN);
+    localStorage.removeItem(`stickyard:host:${CODE.split(".")[0]}`);
     expect(storageSnapshot()).toBe(before);
     expect(storageSnapshot()).not.toContain(PASSCODE);
     for (const call of setItem.mock.calls) expect(JSON.stringify(call)).not.toContain(PASSCODE);
+    // The token is never in the address.
+    expect(window.location.href).not.toContain(HOST_TOKEN);
   });
 
   it.each([
@@ -1467,6 +1472,47 @@ describe("room error screens", () => {
     await server(socket, "open");
     await server(socket, { data: { type: "error", code: "version_mismatch", message: "x" } });
     expect(document.querySelector("main h1")?.textContent).toBe("Please reload");
+  });
+});
+
+describe("a session the host ended (4411)", () => {
+  const ENDED = "This session was ended by the host.";
+
+  it.each([
+    ["phone", false],
+    ["wide", true],
+  ])("%s: on sessionEnded, a page says so politely with a button to the start page; no board, no Rejoin; the token goes", async (_label, isWide) => {
+    setWide(isWide);
+    localStorage.setItem(`stickyard:host:${CODE.split(".")[0]}`, HOST_TOKEN);
+    const socket = await inRoom();
+    expect(socket.sent).toContainEqual({ type: "claimHost", token: HOST_TOKEN });
+    await server(socket, { data: { type: "hostGranted" } });
+    await server(socket, { data: { type: "snapshot", notes: [] } });
+    await server(socket, { data: { type: "framesSnapshot", frames: [] } });
+    const opened = FakeWebSocket.instances.length;
+    await server(socket, { data: { type: "sessionEnded" } });
+    await server(socket, { close: 4411 });
+    await settle();
+    const page = document.querySelector<HTMLElement>("[data-session-ended]");
+    expect(page).not.toBeNull();
+    expect(document.querySelector("main h1")?.textContent).toBe("Session ended");
+    const status = page?.querySelector('[role="status"]');
+    expect(status?.getAttribute("aria-live")).toBe("polite");
+    expect(status?.textContent).toBe(ENDED);
+    expect(button("Go to the start page")?.className).toContain("h-touch");
+    expect(document.querySelector(".react-flow")).toBeNull();
+    expect(button("Rejoin")).toBeUndefined();
+    expect(localStorage.getItem(`stickyard:host:${CODE.split(".")[0]}`)).toBeNull();
+    await act(() => new Promise((r) => setTimeout(r, 1500)));
+    expect(FakeWebSocket.instances.length).toBe(opened);
+  });
+
+  it("no claimHost without a stored token, and the token is never in the page", async () => {
+    const socket = await inRoom();
+    expect(socket.sent.some((m) => (m as { type?: string }).type === "claimHost")).toBe(false);
+    localStorage.setItem(`stickyard:host:${CODE.split(".")[0]}`, HOST_TOKEN);
+    await server(socket, { data: { type: "snapshot", notes: [] } });
+    expect(document.body.innerHTML).not.toContain(HOST_TOKEN);
   });
 });
 

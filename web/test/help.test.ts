@@ -76,6 +76,14 @@ describe("help topics", () => {
     expect(searchTopics(HELP_TOPICS, "expired").map((r) => r.topic.id)).toEqual(expect.arrayContaining(["sessions", "connection"]));
   });
 
+  it("a Hosts note says who the host is and what the link can't do, and no buttons yet", () => {
+    const sessions = HELP_TOPICS.find((t) => t.id === "sessions")?.text ?? "";
+    for (const claim of ["whoever starts a session is its host", "the link alone can't lock or end", "another device", "isn't a host"]) {
+      expect(sessions, claim).toContain(claim);
+    }
+    expect(sessions).not.toMatch(/end session button|lock button|timer tile/);
+  });
+
   it("help topics only claim what exists: no cursors, QR codes, timers or votes yet", () => {
     const all = HELP_TOPICS.map((t) => t.text).join("\n");
     expect(all).not.toMatch(/qr code|cursor|timer|vote|voting/);

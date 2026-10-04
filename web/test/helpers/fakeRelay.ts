@@ -50,6 +50,10 @@ export class Relay {
   welcomeVersion = PROTOCOL_VERSION;
   /** Hold the framesSnapshot until sendFrames() (a late frames message). */
   holdFrames = false;
+  /** Protocol v12: the room's host token (a fake value), lock and timer as joined reports them. */
+  hostToken = "fakeHostToken".padEnd(43, "x");
+  locked = false;
+  timer: { startedAt: number; durationMs: number; serverNow: number } | null = null;
   /** Sockets opened so far, and how many of them this page closed. */
   sockets = 0;
   closes = 0;
@@ -91,6 +95,10 @@ export class Relay {
     const h = this.handlers;
     this.handlers = null;
     h?.onClose();
+  }
+  /** Sends any server message to the page (validated by the page like everything else). */
+  emit(message: unknown) {
+    this.out(message);
   }
   /** The relay closes the socket with a close code (4410: the room has expired). */
   closeWith(code: number) {
@@ -136,11 +144,14 @@ export class Relay {
       case "join": {
         if (this.joinError) return this.out({ type: "error", code: this.joinError, message: "No." });
         const you = { ...this.you, name: m.name as string };
-        this.out({ type: "joined", you, participants: [you, ...this.others], locked: false, timer: null });
+        this.out({ type: "joined", you, participants: [you, ...this.others], locked: this.locked, timer: this.timer });
         this.out({ type: "snapshot", notes: [...this.notes.values()] });
         if (this.holdFrames) return;
         return this.out({ type: "framesSnapshot", frames: [...this.frames.values()] });
       }
+      case "claimHost":
+        if (m.token !== this.hostToken) return this.out({ type: "error", code: "bad_host_token", message: "No." });
+        return this.out({ type: "hostGranted" });
       case "say":
         return this.out({ type: "echo", from: this.you.id, text: m.text });
       case "noteMove": {

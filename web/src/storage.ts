@@ -21,10 +21,21 @@ export const STORAGE_KEYS = {
   propertiesPanel: storageKey("properties-panel"),
   /** The floating chat panel's size (md and up), once resized. Layout only. */
   chatPanel: storageKey("chat-panel"),
+  /**
+   * Host tokens (protocol v12), one key per room: `stickyard:host:<room id>`, via hostTokenKey.
+   * Kept only on the device that started the session, sent only in claimHost, removed when the
+   * relay says the session ended or expired (or refuses the token).
+   */
+  hostTokenPrefix: storageKey("host:"),
 } as const;
+
+/** The key holding a room's host token on this device. */
+export function hostTokenKey(roomId: string): string {
+  return `${STORAGE_KEYS.hostTokenPrefix}${roomId}`;
+}
 // The create passcode is never stored: it lives only in the form's state until it is sent.
 
-export type KeyValueStore = Pick<Storage, "getItem" | "setItem">;
+export type KeyValueStore = Pick<Storage, "getItem" | "setItem"> & Partial<Pick<Storage, "removeItem">>;
 
 /** localStorage, or undefined where it's missing or blocked (private modes, sandboxed frames). */
 export function appStorage(): KeyValueStore | undefined {
@@ -49,6 +60,17 @@ export function writeKey(key: string, value: string, store: KeyValueStore | unde
   try {
     if (!store) return false;
     store.setItem(key, value);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Never throws. Returns false when the key couldn't be removed. */
+export function removeKey(key: string, store: KeyValueStore | undefined = appStorage()): boolean {
+  try {
+    if (!store?.removeItem) return false;
+    store.removeItem(key);
     return true;
   } catch {
     return false;
