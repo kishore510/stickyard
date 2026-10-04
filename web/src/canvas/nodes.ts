@@ -1,6 +1,7 @@
 import type { CSSProperties } from "react";
 import type { Node, NodeChange } from "@xyflow/react";
 import { BOARD_HEIGHT, BOARD_WIDTH, NOTE_Z_LIMIT, type NoteRect } from "@stickyard/shared";
+import { isFrameHeld, type BoardFrame } from "../frames/board";
 import { isHeld, isLocalId, type Board, type BoardNote } from "../notes/board";
 import { noteSize } from "../notes/size";
 import { groupOffset } from "./arrange";
@@ -19,8 +20,16 @@ export const BOARD_NODE_ID = "sy-board";
 
 /** `resizable`: show the resize handles (the only selected note, editable, not under Hand, and confirmed). */
 export type NoteFlowNode = Node<{ entry: BoardNote; editable: boolean; selected: boolean; resizable: boolean }, "note">;
+/** `resizable`: the only selected frame, editable (md and up), not under Hand, and confirmed. */
+export type FrameFlowNode = Node<{ entry: BoardFrame; editable: boolean; selected: boolean; resizable: boolean }, "frame">;
 export type BoardFlowNode = Node<Record<string, never>, "board">;
-export type CanvasNode = NoteFlowNode | BoardFlowNode;
+export type CanvasNode = NoteFlowNode | FrameFlowNode | BoardFlowNode;
+
+/**
+ * Frames sit in one band behind every note (whatever its z, down to -NOTE_Z_LIMIT) and above
+ * the board. Among themselves, frames stack in creation order (the node list's order).
+ */
+export const FRAME_Z_INDEX = -NOTE_Z_LIMIT - 1;
 
 /** The board's bounded area, drawn under the notes (and shown in the minimap). Never interactive. */
 export const BOARD_NODE: BoardFlowNode = {
@@ -34,8 +43,8 @@ export const BOARD_NODE: BoardFlowNode = {
   draggable: false,
   selectable: false,
   focusable: false,
-  // Below every note, whatever its z.
-  zIndex: -NOTE_Z_LIMIT - 1,
+  // Below every frame and note, whatever its z.
+  zIndex: -NOTE_Z_LIMIT - 2,
   // A click on the board's area is a click on empty space (it clears the selection).
   style: { pointerEvents: "none" },
   domAttributes: { "aria-hidden": true },
@@ -85,21 +94,74 @@ function toNode(entry: BoardNote, editable: boolean, movable: boolean, selected:
   };
 }
 
-/**
- * Board -> nodes, reusing the node for every entry that hasn't changed (and whose selected state
- * hasn't). `movable` is false while the Hand tool is on (every drag pans), so notes can't be
- * dragged even when editable.
+/*
+ * A frame's body lets pointers through (to the canvas behind it, for clicks, marquee and pan,
+ * and to the notes in front): the node itself has no pointer events, and only its title bar and
+ * border (class sy-frame-handle, pointer events on) take presses and drag it.
  */
-export function createNoteNodeMapper(): (board: Board, editable: boolean, movable?: boolean, selection?: Selection) => CanvasNode[] {
+const FRAME_STYLE: CSSProperties = { pointerEvents: "none" };
+export const FRAME_DRAG_HANDLE = ".sy-frame-handle";
+
+function toFrameNode(entry: BoardFrame, editable: boolean, movable: boolean, selected: boolean, resizable: boolean): FrameFlowNode {
+  const { x, y, w, h } = entry.frame;
+  const confirmed = !isLocalId(entry.frame.id);
+  return {
+    id: entry.frame.id,
+    type: "frame",
+    position: boardToFlow({ x, y }),
+    data: { entry, editable, selected, resizable },
+    width: w,
+    height: h,
+    measured: { width: w, height: h },
+    style: FRAME_STYLE,
+    className: cnNode("sy-frame-node", isFrameHeld(entry) && "sy-held"),
+    extent: NOTE_EXTENT,
+    dragHandle: FRAME_DRAG_HANDLE,
+    draggable: editable && movable && confirmed,
+    selectable: false,
+    focusable: false,
+    zIndex: FRAME_Z_INDEX,
+  };
+}
+
+const cnNode = (...names: (string | false)[]) => names.filter(Boolean).join(" ");
+
+/** Frames on the canvas: which is selected, and whether this layout can change them (md and up). */
+export interface FrameView {
+  selected: string | null;
+  wide: boolean;
+}
+const NO_FRAMES: FrameView = { selected: null, wide: false };
+
+/**
+ * Board -> nodes (the board, then frames, then notes), reusing the node for every entry that
+ * hasn't changed (and whose selected state hasn't). `movable` is false while the Hand tool is on
+ * (every drag pans), so notes and frames can't be dragged even when editable. Frames can only be
+ * changed from md up (`frames.wide`); phones show them.
+ */
+export function createNoteNodeMapper(): (board: Board, editable: boolean, movable?: boolean, selection?: Selection, frames?: FrameView) => CanvasNode[] {
   let cache = new WeakMap<BoardNote, NoteFlowNode>();
+  let frameCache = new WeakMap<BoardFrame, FrameFlowNode>();
   let lastKey = "";
-  return (board, editable, movable = true, selection = EMPTY_SELECTION) => {
-    const key = `${editable}:${movable}`;
+  return (board, editable, movable = true, selection = EMPTY_SELECTION, frames = NO_FRAMES) => {
+    const key = `${editable}:${movable}:${frames.wide}`;
     if (key !== lastKey) {
       cache = new WeakMap();
+      frameCache = new WeakMap();
       lastKey = key;
     }
     const nodes: CanvasNode[] = [BOARD_NODE];
+    const frameEditable = editable && frames.wide;
+    for (const entry of board.frames) {
+      const selected = frames.selected === entry.frame.id;
+      const resizable = selected && frameEditable && movable && !isLocalId(entry.frame.id);
+      let node = frameCache.get(entry);
+      if (!node || node.data.selected !== selected || node.data.resizable !== resizable) {
+        node = toFrameNode(entry, frameEditable, movable, selected, resizable);
+        frameCache.set(entry, node);
+      }
+      nodes.push(node);
+    }
     // Resize handles only for a single selected note (several resize through Match size).
     const single = selection.size === 1;
     for (const entry of board.notes) {
@@ -130,6 +192,10 @@ export interface DragActions {
   rectOf?(id: string): NoteRect | null;
   startGroupDrag?(ids: string[]): boolean;
   moveGroup?(positions: { id: string; x: number; y: number }[], final: boolean): void;
+  /** A frame drag: carries the notes inside it unless `carry` is false (Alt held). False if it can't move. */
+  startFrameDrag?(id: string, carry: boolean): boolean;
+  /** A frame's new (flow) position; the session clamps and moves its carried notes. */
+  moveFrame?(id: string, x: number, y: number, final: boolean): void;
 }
 
 /** A group drag: React Flow drags the grabbed note; the others follow at the same offset. */
@@ -147,6 +213,7 @@ interface Group {
  */
 export function createDragHandlers(actions: DragActions) {
   const active = new Set<string>();
+  const frames = new Set<string>();
   let group: Group | null = null;
 
   const groupMoves = (offset: XYLike) => {
@@ -162,8 +229,13 @@ export function createDragHandlers(actions: DragActions) {
   };
 
   return {
-    onNodeDragStart(node: Pick<CanvasNode, "id">) {
+    onNodeDragStart(node: Pick<CanvasNode, "id"> & { type?: string }, event?: { altKey: boolean }) {
       if (node.id === BOARD_NODE_ID) return;
+      if (node.type === "frame") {
+        // Alt moves the frame alone; otherwise the notes inside it come along.
+        if (actions.startFrameDrag?.(node.id, !(event?.altKey ?? false))) frames.add(node.id);
+        return;
+      }
       const ids = actions.groupFor?.(node.id) ?? [node.id];
       if (ids.length > 1 && actions.rectOf && actions.startGroupDrag && actions.moveGroup) {
         const start = new Map<string, NoteRect>();
@@ -179,6 +251,10 @@ export function createDragHandlers(actions: DragActions) {
     onNodesChange(changes: NodeChange<CanvasNode>[]) {
       for (const change of changes) {
         if (change.type !== "position" || !change.dragging || !change.position) continue;
+        if (frames.has(change.id)) {
+          actions.moveFrame?.(change.id, change.position.x, change.position.y, false);
+          continue;
+        }
         if (group?.anchor === change.id) {
           actions.moveGroup?.(groupMoves(offsetOf(change.id, change.position)), false);
           continue;
@@ -189,6 +265,10 @@ export function createDragHandlers(actions: DragActions) {
       }
     },
     onNodeDragStop(node: Pick<CanvasNode, "id" | "position">) {
+      if (frames.delete(node.id)) {
+        actions.moveFrame?.(node.id, node.position.x, node.position.y, true);
+        return;
+      }
       if (group?.anchor === node.id) {
         actions.moveGroup?.(groupMoves(offsetOf(node.id, node.position)), true);
         group = null;

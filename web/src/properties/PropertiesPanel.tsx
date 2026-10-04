@@ -1,9 +1,12 @@
 import type { ReactNode } from "react";
 import { Trash2 } from "lucide-react";
-import { BOARD_HEIGHT, BOARD_WIDTH, MAX_NOTES_PER_ROOM, NOTE_STYLE_FIELDS, type Note, type OrderAction, type Participant } from "@stickyard/shared";
+import { BOARD_HEIGHT, BOARD_WIDTH, MAX_NOTES_PER_ROOM, NOTE_STYLE_FIELDS, type FrameColor, type Note, type OrderAction, type Participant } from "@stickyard/shared";
 import { Button } from "../components/ui/button";
 import { useBoardUi } from "../canvas/uiStore";
 import { onlySelected, orderedIds } from "../canvas/selection";
+import { confirmFrameDelete } from "../frames/label";
+import { findFrame, framedNotes } from "../frames/board";
+import { FrameFields } from "../frames/FrameFields";
 import { findNote, type Board, type StylePatch } from "../notes/board";
 import { NOTE_COLOR_NAMES } from "../notes/colours";
 import { authorName, confirmDelete } from "../notes/label";
@@ -34,6 +37,10 @@ export interface PropertiesRoom {
   deleteNote(id: string): void;
   deleteNotes(ids: readonly string[]): void;
   orderNotes(ids: readonly string[], action: OrderAction): boolean;
+  setFrameDraft(id: string, draft: string | null): void;
+  editFrame(id: string, change: { title?: string; color?: FrameColor }): boolean;
+  setFrameSize(id: string, w: number, h: number): boolean;
+  deleteFrame(id: string): void;
 }
 
 /** The style and size fields whose values differ between these notes. */
@@ -84,6 +91,8 @@ export function PropertiesContent({ room, collapse }: { room: PropertiesRoom; co
   const entry = id === null ? undefined : findNote(room.board, id);
   const text = entry ? (entry.draft ?? entry.note.text) : "";
   const many = selection.size > 1 ? orderedIds(selection).flatMap((n) => findNote(room.board, n)?.note ?? []) : [];
+  const frameId = useBoardUi((s) => s.frameSelected);
+  const frame = frameId === null ? undefined : findFrame(room.board, frameId);
 
   return (
     <div className="px-md">
@@ -93,8 +102,26 @@ export function PropertiesContent({ room, collapse }: { room: PropertiesRoom; co
       </div>
       <div className="flex min-h-touch items-center gap-xs">
         <h3 className="min-w-0 flex-1 truncate text-sm font-semibold">
-          {many.length > 1 ? `${many.length} selected` : entry ? `${NOTE_COLOR_NAMES[entry.note.color]} note` : "Board"}
+          {frame ? "Frame" : many.length > 1 ? `${many.length} selected` : entry ? `${NOTE_COLOR_NAMES[entry.note.color]} note` : "Board"}
         </h3>
+        {frame && (
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label="Delete frame"
+            title="Delete frame (Del). Its notes stay."
+            disabled={!room.live}
+            onClick={() => {
+              const inside = framedNotes(frame.frame, room.board.notes.map((n) => n.note)).length;
+              if (!confirmFrameDelete(frame.frame.title, inside)) return;
+              room.deleteFrame(frame.frame.id);
+              useBoardUi.getState().clearSelection();
+            }}
+            className="text-status-error"
+          >
+            <Trash2 />
+          </Button>
+        )}
         {many.length > 1 && (
           <Button
             variant="ghost"
@@ -129,7 +156,19 @@ export function PropertiesContent({ room, collapse }: { room: PropertiesRoom; co
         )}
       </div>
       <div className="flex flex-col gap-md pb-md">
-        {many.length > 1 ? (
+        {frame ? (
+          <FrameFields
+            entry={frame}
+            live={room.live}
+            author={authorName(frame.frame.authorId, room)}
+            onDraft={(t) => room.setFrameDraft(frame.frame.id, t)}
+            onCommit={() => {
+              if (frame.draft !== null) room.editFrame(frame.frame.id, { title: frame.draft });
+            }}
+            onColour={(color) => room.editFrame(frame.frame.id, { color })}
+            onSize={(w, h) => room.setFrameSize(frame.frame.id, w, h)}
+          />
+        ) : many.length > 1 ? (
           <SelectionFields notes={many} live={room.live} onOrder={(action) => room.orderNotes(many.map((n) => n.id), action)} />
         ) : entry ? (
           <NoteFields

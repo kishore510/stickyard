@@ -2,6 +2,20 @@
 
 All notable changes to Stickyard, newest first. The format follows Keep a Changelog. Versions are 0.x: a minor bump for each slice and a patch bump for each follow-up fix. This file is shown in the app under **What’s new**, so entries are written for the people using it.
 
+## [0.9.0] - 2026-10-04
+
+### Added
+- Frames: named, coloured areas behind your notes, for example Start, Stop and Continue. On a wider screen, add one from the new Frames tile in the palette (click it, or drag it onto the board) and type its title straight away.
+- Drag a frame by its title bar or border and the notes inside it come along, keeping their places. Hold Alt to move the frame on its own. A frame holding more than 50 notes moves on its own, and the board says so.
+- Select a frame to change its title, colour, width and height in Properties, or resize it from its corners. Delete it from Properties or with the Delete key; its notes always stay.
+
+### Changed
+- The inside of a frame lets clicks through, so notes in a frame work exactly as before, and dragging across a frame still selects notes.
+- Fit to notes now fits frames too.
+- On a phone, frames are shown but can't be added or changed.
+- About's Privacy now says that frames (position, size, title and colour) are stored with the session.
+- Pages from before this update show Please reload when they join a session.
+
 ## [0.8.1] - 2026-10-03
 
 ### Added

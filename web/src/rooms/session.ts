@@ -1,16 +1,21 @@
 import {
   MAX_BATCH_ENTRIES,
+  MAX_FRAMES_PER_ROOM,
   MAX_NOTES_PER_ROOM,
   MAX_SERVER_MESSAGE_BYTES,
   PROTOCOL_VERSION,
+  clampFramePosition,
+  cleanFrameTitle,
   cleanName,
   cleanNoteText,
   cleanText,
   encodeMessage,
+  groupOffset,
   parseMessage,
   serverMessageSchema,
   stackOrder,
   type ClientMessage,
+  type FrameColor,
   type NoteBatchEntry,
   type NoteColor,
   type NoteRect,
@@ -19,6 +24,26 @@ import {
   type ServerMessage,
 } from "@stickyard/shared";
 import type { SocketFactory, SocketLike } from "../connection/socket";
+import {
+  addFrameLocal,
+  applyFrameAdded,
+  applyFrameDeleted,
+  applyFrameMoved,
+  applyFrameResized,
+  applyFrameUpdated,
+  applyFramesSnapshot,
+  deleteFrameLocal,
+  editFrameLocal,
+  findFrame,
+  framedNotes,
+  moveFrameLocal,
+  rejectFrameAdd,
+  resizeFrameLocal,
+  rollbackFrame,
+  setFrameDraft,
+  setFrameDragging,
+  setFrameResizing,
+} from "../frames/board";
 import {
   EMPTY_BOARD,
   addLocal,
@@ -123,6 +148,8 @@ export const NOTICES = {
   tooQuick: "That change was too quick and wasn’t saved. Try again.",
   refused: "That change wasn’t saved. Try again.",
   deletedWhileEditing: "Someone else deleted the note you were editing.",
+  framesFull: `The board has the maximum of ${MAX_FRAMES_PER_ROOM} frames. Delete a frame to add another.`,
+  frameTooFull: `This frame holds more than ${MAX_BATCH_ENTRIES} notes, so it moved on its own.`,
 } as const;
 
 const randomRef = (): string => {
@@ -144,6 +171,16 @@ export interface SessionOptions {
   onChange(view: RoomView): void;
   /** A note added here got its server id (selection and edit requests follow it). */
   onNoteConfirmed?(localId: string, id: string): void;
+  /** A frame added here got its server id. */
+  onFrameConfirmed?(localId: string, id: string): void;
+}
+
+/** A frame being dragged here: where it and the notes it carries started. */
+interface FrameDrag {
+  id: string;
+  start: NoteRect;
+  /** Carried notes (confirmed ids only), by id, at their start. Empty: the frame moves alone. */
+  notes: Map<string, NoteRect>;
 }
 
 export class RoomSession {
@@ -166,6 +203,11 @@ export class RoomSession {
   /** The group being dragged (confirmed ids), and its send throttle. */
   private group: string[] = [];
   private readonly groupMoves = new Map<string, Throttle>();
+  /** Frames: live move and resize throttles, adds deleted before they were confirmed, and the drag in progress. */
+  private readonly frameMoves = new Map<string, Throttle>();
+  private readonly frameResizes = new Map<string, Throttle>();
+  private readonly abandonedFrames = new Set<string>();
+  private frameDrag: FrameDrag | null = null;
 
   constructor(private readonly options: SessionOptions) {}
 
@@ -434,6 +476,163 @@ export class RoomSession {
     return true;
   }
 
+  /* ── Frames (protocol v9) ─────────────────────────────────────────── */
+
+  /**
+   * Adds a frame (plain data: position, colour, title), shown at once. Its temporary id, or null
+   * if not connected, the board has its frames already, or the title is too long.
+   */
+  addFrame({ x, y, color, title = "" }: { x: number; y: number; color: FrameColor; title?: string }): string | null {
+    if (!this.live || !this.view.you) return null;
+    if (this.view.board.frames.length >= MAX_FRAMES_PER_ROOM) {
+      this.update({ noteNotice: NOTICES.framesFull });
+      return null;
+    }
+    const clean = cleanFrameTitle(title);
+    if (clean === null) return null;
+    const clientRef = randomRef();
+    const board = addFrameLocal(this.view.board, { clientRef, x, y, color, title: clean, authorId: this.view.you.id });
+    const frame = findFrame(board, localId(clientRef))?.frame;
+    if (!frame) return null;
+    this.update({ board, noteNotice: null });
+    this.send({ type: "frameAdd", clientRef, x: frame.x, y: frame.y, color, title: clean });
+    return frame.id;
+  }
+
+  /** A title (cleaned to one line) and/or colour, shown at once; a frame not confirmed yet sends it once it is. False if refused. */
+  editFrame(id: string, change: { title?: string; color?: FrameColor }): boolean {
+    if (!this.live) return false;
+    const entry = findFrame(this.view.board, id);
+    const title = change.title === undefined ? undefined : cleanFrameTitle(change.title);
+    if (!entry || title === null) return false;
+    const before = entry.frame;
+    const board = editFrameLocal(this.view.board, id, { ...(title !== undefined ? { title } : {}), ...(change.color ? { color: change.color } : {}) });
+    const after = findFrame(board, id)?.frame ?? before;
+    this.update({ board, noteNotice: null });
+    if (isLocalId(id)) return true;
+    const edit = { ...(after.title !== before.title ? { title: after.title } : {}), ...(after.color !== before.color ? { color: after.color } : {}) };
+    if (Object.keys(edit).length > 0) this.send({ type: "frameEdit", id, ...edit });
+    return true;
+  }
+
+  /** The title being typed in a frame's header; kept even if someone else edits the frame meanwhile. */
+  setFrameDraft(id: string, draft: string | null): void {
+    if (this.stopped) return;
+    this.update({ board: setFrameDraft(this.view.board, id, draft) });
+  }
+
+  /**
+   * Starts dragging a frame. With `carry`, the notes whose centre is inside it come along (unless
+   * there are more than MAX_BATCH_ENTRIES: then it moves alone, and says so; it never carries
+   * some). False if the frame can't move now.
+   */
+  startFrameDrag(id: string, carry: boolean): boolean {
+    const entry = findFrame(this.view.board, id);
+    if (!this.live || isLocalId(id) || !entry) return false;
+    const inside = carry ? framedNotes(entry.frame, this.view.board.notes.map((n) => n.note)).filter((n) => !isLocalId(n.id)) : [];
+    const tooMany = inside.length > MAX_BATCH_ENTRIES;
+    const notes = new Map(tooMany ? [] : inside.map((n) => [n.id, { x: n.x, y: n.y, w: n.w, h: n.h }] as const));
+    let board = setFrameDragging(this.view.board, id, true);
+    for (const noteId of notes.keys()) board = setDragging(board, noteId, true);
+    const { x, y, w, h } = entry.frame;
+    this.frameDrag = { id, start: { x, y, w, h }, notes };
+    this.update({ board, noteNotice: tooMany ? NOTICES.frameTooFull : null });
+    return true;
+  }
+
+  /**
+   * Moves a frame (and the notes it carries, by the same delta clamped once for the group) here
+   * at once. Live moves are sent at most every MOVE_INTERVAL_MS; the final one straight away.
+   */
+  moveFrame(id: string, x: number, y: number, final: boolean): void {
+    if (!this.live || isLocalId(id)) return;
+    const entry = findFrame(this.view.board, id);
+    if (!entry) return this.stopFrameMove(id);
+    const drag = this.frameDrag?.id === id ? this.frameDrag : { id, start: { x: entry.frame.x, y: entry.frame.y, w: entry.frame.w, h: entry.frame.h }, notes: new Map<string, NoteRect>() };
+    const target = clampFramePosition(x, y, drag.start);
+    const want = { dx: target.x - drag.start.x, dy: target.y - drag.start.y };
+    const { dx, dy } = drag.notes.size > 0 ? groupOffset([drag.start, ...drag.notes.values()], want.dx, want.dy) : want;
+    let board = moveFrameLocal(this.view.board, id, drag.start.x + dx, drag.start.y + dy);
+    for (const [noteId, r] of drag.notes) board = moveLocal(board, noteId, r.x + dx, r.y + dy);
+    const noteIds = [...drag.notes.keys()].filter((n) => findNote(board, n));
+    if (final) {
+      board = setFrameDragging(board, id, false);
+      for (const n of drag.notes.keys()) board = setDragging(board, n, false);
+      this.frameDrag = null;
+    }
+    this.update({ board });
+    if (final) {
+      this.stopFrameMove(id);
+      return this.sendFrameMove(id, noteIds, true);
+    }
+    this.throttle(this.frameMoves, id, MOVE_INTERVAL_MS, () => this.sendFrameMove(id, noteIds, false));
+  }
+
+  startFrameResize(id: string): boolean {
+    if (!this.live || isLocalId(id) || !findFrame(this.view.board, id)) return false;
+    this.update({ board: setFrameResizing(this.view.board, id, true), noteNotice: null });
+    return true;
+  }
+
+  /** Resizes a frame here at once (clamped to frame sizes); live resizes throttled, the final one stored. */
+  resizeFrame(id: string, rect: NoteRect, final: boolean): void {
+    if (!this.live || isLocalId(id)) return;
+    if (!findFrame(this.view.board, id)) return this.stopFrameResize(id);
+    let board = resizeFrameLocal(this.view.board, id, rect);
+    if (final) board = setFrameResizing(board, id, false);
+    this.update({ board });
+    if (final) {
+      this.stopFrameResize(id);
+      return this.sendFrameResize(id, true);
+    }
+    this.throttle(this.frameResizes, id, RESIZE_INTERVAL_MS, () => this.sendFrameResize(id, false));
+  }
+
+  /** The Width/Height fields: one final resize at the same position. */
+  setFrameSize(id: string, w: number, h: number): boolean {
+    const entry = findFrame(this.view.board, id);
+    if (!this.live || isLocalId(id) || !entry) return false;
+    const board = resizeFrameLocal(this.view.board, id, { x: entry.frame.x, y: entry.frame.y, w, h });
+    if (board === this.view.board) return true;
+    this.update({ board, noteNotice: null });
+    this.sendFrameResize(id, true);
+    return true;
+  }
+
+  /** Deletes a frame here at once. Never its notes. */
+  deleteFrame(id: string): void {
+    if (!this.live) return;
+    const entry = findFrame(this.view.board, id);
+    if (!entry) return;
+    this.stopFrameMove(id);
+    this.stopFrameResize(id);
+    this.update({ board: deleteFrameLocal(this.view.board, id), noteNotice: null });
+    if (entry.clientRef !== null) this.abandonedFrames.add(entry.clientRef);
+    else this.send({ type: "frameDelete", id });
+  }
+
+  private sendFrameMove(id: string, noteIds: readonly string[], final: boolean): void {
+    const frame = findFrame(this.view.board, id)?.frame;
+    if (!frame || !this.live) return;
+    this.send({ type: "frameMove", id, x: frame.x, y: frame.y, final, ...(noteIds.length > 0 ? { noteIds: [...noteIds] } : {}) });
+  }
+
+  private sendFrameResize(id: string, final: boolean): void {
+    const frame = findFrame(this.view.board, id)?.frame;
+    if (!frame || !this.live) return;
+    this.send({ type: "frameResize", id, x: frame.x, y: frame.y, w: frame.w, h: frame.h, final });
+  }
+
+  private stopFrameMove(id: string): void {
+    clearTimeout(this.frameMoves.get(id)?.timer);
+    this.frameMoves.delete(id);
+  }
+
+  private stopFrameResize(id: string): void {
+    clearTimeout(this.frameResizes.get(id)?.timer);
+    this.frameResizes.delete(id);
+  }
+
   private moveEntries(ids: readonly string[]): NoteBatchEntry[] {
     return ids.flatMap((id) => {
       const note = findNote(this.view.board, id)?.note;
@@ -495,6 +694,9 @@ export class RoomSession {
   private stopAllMoves(): void {
     for (const id of [...this.moves.keys()]) this.stopMove(id);
     for (const id of [...this.resizes.keys()]) this.stopResize(id);
+    for (const id of [...this.frameMoves.keys()]) this.stopFrameMove(id);
+    for (const id of [...this.frameResizes.keys()]) this.stopFrameResize(id);
+    this.frameDrag = null;
     this.stopGroup();
   }
 
@@ -638,6 +840,44 @@ export class RoomSession {
         // One view update for every restacked note.
         return this.update({ board: applyOrdered(this.view.board, message.results) });
 
+      case "framesSnapshot":
+        // Right after the notes snapshot. The board is already joined and drawn; frames slot in behind.
+        return this.update({ board: applyFramesSnapshot(this.view.board, message.frames) });
+
+      case "frameAdded": {
+        const { frame, clientRef } = message;
+        const temp = clientRef === undefined ? undefined : findFrame(this.view.board, localId(clientRef));
+        let board = applyFrameAdded(this.view.board, frame, clientRef);
+        if (clientRef !== undefined && this.abandonedFrames.delete(clientRef)) {
+          board = deleteFrameLocal(board, frame.id);
+          this.send({ type: "frameDelete", id: frame.id });
+        } else if (temp) {
+          // A title or colour set while the add was in flight: one edit with both.
+          const edit = { ...(temp.frame.title !== frame.title ? { title: temp.frame.title } : {}), ...(temp.frame.color !== frame.color ? { color: temp.frame.color } : {}) };
+          if (Object.keys(edit).length > 0) this.send({ type: "frameEdit", id: frame.id, ...edit });
+        }
+        if (temp) this.options.onFrameConfirmed?.(temp.frame.id, frame.id);
+        return this.update({ board, ...(clientRef !== undefined ? { rateLimited: false } : {}) });
+      }
+
+      case "frameUpdated":
+        return this.update({ board: applyFrameUpdated(this.view.board, message.frame) });
+
+      case "frameMoved": {
+        // The frame and the notes it carried, in one view update.
+        let board = applyFrameMoved(this.view.board, message);
+        for (const n of message.notes ?? []) board = applyMoved(board, { ...n, final: message.final });
+        return this.update({ board });
+      }
+
+      case "frameResized":
+        return this.update({ board: applyFrameResized(this.view.board, message) });
+
+      case "frameDeleted":
+        this.stopFrameMove(message.id);
+        this.stopFrameResize(message.id);
+        return this.update({ board: applyFrameDeleted(this.view.board, message.id) });
+
       case "noteDeleted": {
         this.stopMove(message.id);
         this.stopResize(message.id);
@@ -649,7 +889,9 @@ export class RoomSession {
       }
 
       case "error":
-        if (message.clientRef !== undefined || message.noteId !== undefined || message.noteIds !== undefined) return this.noteRefused(message);
+        if (message.clientRef !== undefined || message.noteId !== undefined || message.noteIds !== undefined || message.frameId !== undefined) {
+          return this.noteRefused(message);
+        }
         switch (message.code) {
           case "version_mismatch":
             return this.finish("reload");
@@ -662,6 +904,8 @@ export class RoomSession {
             return this.update({ rateLimited: true });
           case "notes_full":
             return this.update({ noteNotice: NOTICES.full });
+          case "frames_full":
+            return this.update({ noteNotice: NOTICES.framesFull });
           case "bad_message":
           case "too_large":
           case "not_joined":
@@ -671,12 +915,20 @@ export class RoomSession {
     }
   }
 
-  /** The server refused a note change: roll it back and say why. */
+  /** The server refused a note or frame change: roll it back and say why. */
   private noteRefused(message: Extract<ServerMessage, { type: "error" }>): void {
     let board = this.view.board;
     if (message.clientRef !== undefined) {
+      // A clientRef belongs to one add, a note's or a frame's.
       this.abandoned.delete(message.clientRef);
-      board = rejectAdd(board, message.clientRef);
+      this.abandonedFrames.delete(message.clientRef);
+      board = rejectFrameAdd(rejectAdd(board, message.clientRef), message.clientRef);
+    }
+    if (message.frameId !== undefined) {
+      this.stopFrameMove(message.frameId);
+      this.stopFrameResize(message.frameId);
+      if (this.frameDrag?.id === message.frameId) this.frameDrag = null;
+      board = rollbackFrame(board, message.frameId);
     }
     // One note, or the notes a refused batch named (the rest of the batch stands). Last first, so
     // notes deleted together go back in their old places.
@@ -686,7 +938,13 @@ export class RoomSession {
       board = rollback(board, id);
     }
     const noteNotice =
-      message.code === "notes_full" ? NOTICES.full : message.code === "rate_limited" ? NOTICES.tooQuick : NOTICES.refused;
+      message.code === "notes_full"
+        ? NOTICES.full
+        : message.code === "frames_full"
+          ? NOTICES.framesFull
+          : message.code === "rate_limited"
+            ? NOTICES.tooQuick
+            : NOTICES.refused;
     this.update({ board, noteNotice, ...(message.code === "rate_limited" ? { rateLimited: true } : {}) });
   }
 

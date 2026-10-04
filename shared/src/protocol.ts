@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { cleanName, cleanNoteText, cleanText, codePointLength } from "./clean";
+import { cleanFrameTitle, cleanName, cleanNoteText, cleanText, codePointLength } from "./clean";
 import { NOTE_Z_LIMIT, ORDER_ACTIONS } from "./stack";
 
 /**
@@ -14,8 +14,10 @@ import { NOTE_Z_LIMIT, ORDER_ACTIONS } from "./stack";
  *   and errors that name refused batch entries (entries, noteIds).
  * v8 (slice z-order): notes carry z (stacking order, server-assigned); notesOrder (bring to
  *   front, send to back) and notesOrdered.
+ * v9 (slice frames): frames (frameAdd/Edit/Move/Resize/Delete and their server messages); a
+ *   final frameMove may carry notes; joining sends snapshot (notes, unchanged) then framesSnapshot.
  */
-export const PROTOCOL_VERSION = 8;
+export const PROTOCOL_VERSION = 9;
 
 /**
  * Hard cap on a single client-to-server WebSocket message, in UTF-8 bytes. Checked before JSON.parse.
@@ -146,6 +148,56 @@ export function clampNoteRect(rect: NoteRect): NoteRect {
   const w = between(whole(rect.w, NOTE_DEFAULT_W), NOTE_MIN_W, NOTE_MAX_W);
   const h = between(whole(rect.h, NOTE_DEFAULT_H), NOTE_MIN_H, NOTE_MAX_H);
   return { ...clampNotePosition(rect.x, rect.y, { w, h }), w, h };
+}
+
+/* ── Frames (v9) ────────────────────────────────────────────────────── */
+
+/** Frames on one board. */
+export const MAX_FRAMES_PER_ROOM = 30;
+/** Frame title length after cleaning, in characters (one line; may be empty). */
+export const MAX_FRAME_TITLE = 60;
+/** Frames are bigger than notes; the server clamps so the whole frame stays on the board. Mirrored in tokens.css (a test checks). */
+export const FRAME_DEFAULT_W = 640;
+export const FRAME_DEFAULT_H = 400;
+export const FRAME_MIN_W = 240;
+export const FRAME_MIN_H = 160;
+export const FRAME_MAX_W = 2400;
+export const FRAME_MAX_H = 1600;
+
+/** Frame colours are keys, never colour values: neutral plus the six note hues. The web maps each to tokens. */
+export const FRAME_COLORS = ["neutral", "yellow", "pink", "blue", "green", "orange", "purple"] as const;
+export const frameColorSchema = z.enum(FRAME_COLORS);
+export type FrameColor = z.infer<typeof frameColorSchema>;
+
+/** Rounds and clamps a position so the whole frame (default size unless given) is on the board. */
+export function clampFramePosition(
+  x: number,
+  y: number,
+  size: { w: number; h: number } = { w: FRAME_DEFAULT_W, h: FRAME_DEFAULT_H },
+): { x: number; y: number } {
+  return clampNotePosition(x, y, size);
+}
+
+/** Size first (whole units, within the frame min/max), then position (the whole frame on the board). */
+export function clampFrameRect(rect: NoteRect): NoteRect {
+  const w = between(whole(rect.w, FRAME_DEFAULT_W), FRAME_MIN_W, FRAME_MAX_W);
+  const h = between(whole(rect.h, FRAME_DEFAULT_H), FRAME_MIN_H, FRAME_MAX_H);
+  return { ...clampFramePosition(rect.x, rect.y, { w, h }), w, h };
+}
+
+/**
+ * A group move's offset (whole units), clamped once for the whole group so the arrangement is
+ * kept at the board's edges: a multi-selection drag on the page, and a frame carrying its notes
+ * on both sides. Each member may still be clamped on its own as a backstop.
+ */
+export function groupOffset(rects: readonly NoteRect[], dx: number, dy: number): { dx: number; dy: number } {
+  if (rects.length === 0) return { dx: 0, dy: 0 };
+  const left = Math.min(...rects.map((r) => r.x));
+  const top = Math.min(...rects.map((r) => r.y));
+  const right = Math.max(...rects.map((r) => r.x + r.w));
+  const bottom = Math.max(...rects.map((r) => r.y + r.h));
+  const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, whole(v, 0)));
+  return { dx: clamp(dx, -left, BOARD_WIDTH - right), dy: clamp(dy, -top, BOARD_HEIGHT - bottom) };
 }
 
 /** Server-assigned id (participants and notes): 12 random bytes, base64url. */
@@ -362,6 +414,70 @@ export function checkOrder(ids: readonly unknown[]): OrderCheck {
   return { valid, invalid, invalidIds: [], duplicate: false };
 }
 
+/* ── Frame messages (v9) ────────────────────────────────────────────── */
+
+export const frameIdSchema = serverIdSchema;
+const frameW = z.number().int().min(FRAME_MIN_W).max(FRAME_MAX_W);
+const frameH = z.number().int().min(FRAME_MIN_H).max(FRAME_MAX_H);
+/** Inbound frame title: at most MAX_FRAME_TITLE characters (the server still cleans it to one line). */
+const frameTitleIn = z
+  .string()
+  .max(MAX_FRAME_TITLE * 4)
+  .refine((title) => codePointLength(title) <= MAX_FRAME_TITLE);
+
+/** A new frame at a position (top-left), default size; no id, size or author (the server's). */
+export const frameAddSchema = z.strictObject({
+  type: z.literal("frameAdd"),
+  clientRef: clientRefSchema,
+  x: boardX,
+  y: boardY,
+  color: frameColorSchema,
+  title: frameTitleIn,
+});
+
+export const frameEditSchema = z
+  .strictObject({
+    type: z.literal("frameEdit"),
+    id: frameIdSchema,
+    title: frameTitleIn.optional(),
+    color: frameColorSchema.optional(),
+  })
+  .refine((edit) => edit.title !== undefined || edit.color !== undefined, { message: "Nothing to change." });
+
+/**
+ * A frame's new position. `noteIds` names the notes it carries (computed by the sender when the
+ * drag starts: notes whose centre is inside the frame): they move by the same delta, clamped once
+ * for the whole group. Without it (Alt, or more than MAX_BATCH_ENTRIES inside) the frame moves
+ * alone. final=false while dragging (relayed, never stored); final=true is stored in one transaction.
+ */
+export const frameMoveSchema = z.strictObject({
+  type: z.literal("frameMove"),
+  id: frameIdSchema,
+  x: boardX,
+  y: boardY,
+  final: z.boolean(),
+  noteIds: z
+    .array(noteIdSchema)
+    .max(MAX_BATCH_ENTRIES)
+    .refine((ids) => new Set(ids).size === ids.length, { message: "A note is named twice." })
+    .optional(),
+});
+
+export const frameResizeSchema = z.strictObject({
+  type: z.literal("frameResize"),
+  id: frameIdSchema,
+  x: boardX,
+  y: boardY,
+  w: frameW,
+  h: frameH,
+  final: z.boolean(),
+});
+
+export const frameDeleteSchema = z.strictObject({
+  type: z.literal("frameDelete"),
+  id: frameIdSchema,
+});
+
 export const clientMessageSchema = z.discriminatedUnion("type", [
   helloSchema,
   joinSchema,
@@ -373,6 +489,11 @@ export const clientMessageSchema = z.discriminatedUnion("type", [
   noteDeleteSchema,
   noteBatchSchema,
   notesOrderSchema,
+  frameAddSchema,
+  frameEditSchema,
+  frameMoveSchema,
+  frameResizeSchema,
+  frameDeleteSchema,
 ]);
 export type ClientMessage = z.infer<typeof clientMessageSchema>;
 
@@ -386,6 +507,7 @@ export const errorCodeSchema = z.enum([
   "already_joined",
   "invalid_name",
   "notes_full",
+  "frames_full",
 ]);
 export type ErrorCode = z.infer<typeof errorCodeSchema>;
 
@@ -417,6 +539,8 @@ export const errorMessageSchema = z.object({
   entries: z.array(z.number().int().min(0).max(MAX_BATCH_ENTRIES - 1)).max(MAX_BATCH_ENTRIES).optional(),
   /** The notes those entries were about (a refused batch's notes), so the sender rolls back only those. */
   noteIds: z.array(noteIdSchema).max(MAX_BATCH_ENTRIES).optional(),
+  /** The frame a refused frame edit, move, resize or delete was about. */
+  frameId: frameIdSchema.optional(),
 });
 
 /** The whole note on the board at its size. */
@@ -552,6 +676,83 @@ export const notesOrderedSchema = z.object({
   results: z.array(noteOrderResultSchema).min(1).max(MAX_NOTES_PER_ROOM),
 });
 
+/** A frame as the server stores and sends it. The title is already clean; anything else is rejected. */
+export const frameSchema = z
+  .object({
+    id: frameIdSchema,
+    x: z.number().int().min(0).max(BOARD_WIDTH - FRAME_MIN_W),
+    y: z.number().int().min(0).max(BOARD_HEIGHT - FRAME_MIN_H),
+    w: frameW,
+    h: frameH,
+    title: z.string().refine((title) => cleanFrameTitle(title) === title),
+    color: frameColorSchema,
+    /** Server-assigned; starts at 1 and goes up by one on every stored change. */
+    rev: z.number().int().min(1),
+    /** The participant who added it, from their socket. */
+    authorId: participantIdSchema,
+  })
+  .refine(onBoard);
+export type Frame = z.infer<typeof frameSchema>;
+
+/** Every frame on the board, in creation order. Sent right after `snapshot`, in the same step, so nothing lands between them. */
+export const framesSnapshotSchema = z.strictObject({
+  type: z.literal("framesSnapshot"),
+  frames: z.array(frameSchema).max(MAX_FRAMES_PER_ROOM),
+});
+
+export const frameAddedSchema = z.object({
+  type: z.literal("frameAdded"),
+  frame: frameSchema,
+  /** Only in the copy sent to the frame's sender. */
+  clientRef: clientRefSchema.optional(),
+});
+
+/** Title or colour changed. Carries the whole frame. */
+export const frameUpdatedSchema = z.object({
+  type: z.literal("frameUpdated"),
+  frame: frameSchema,
+});
+
+/** A carried note's new place (at its rev: bumped on a final move that changed it). */
+export const carriedNoteSchema = z.object({
+  id: noteIdSchema,
+  x: noteSchema.shape.x,
+  y: noteSchema.shape.y,
+  rev: noteSchema.shape.rev,
+});
+
+/**
+ * A frame moved, with the notes it carried (one message, so pages apply both at once). Live
+ * moves go to everyone but the mover at the current revs; final ones go to everyone.
+ */
+export const frameMovedSchema = z.object({
+  type: z.literal("frameMoved"),
+  id: frameIdSchema,
+  x: frameSchema.shape.x,
+  y: frameSchema.shape.y,
+  rev: z.number().int().min(1),
+  final: z.boolean(),
+  notes: z.array(carriedNoteSchema).max(MAX_BATCH_ENTRIES).optional(),
+});
+
+export const frameResizedSchema = z
+  .object({
+    type: z.literal("frameResized"),
+    id: frameIdSchema,
+    x: frameSchema.shape.x,
+    y: frameSchema.shape.y,
+    w: frameW,
+    h: frameH,
+    rev: z.number().int().min(1),
+    final: z.boolean(),
+  })
+  .refine(onBoard);
+
+export const frameDeletedSchema = z.object({
+  type: z.literal("frameDeleted"),
+  id: frameIdSchema,
+});
+
 export const serverMessageSchema = z.discriminatedUnion("type", [
   welcomeSchema,
   errorMessageSchema,
@@ -567,5 +768,11 @@ export const serverMessageSchema = z.discriminatedUnion("type", [
   noteDeletedSchema,
   notesBatchAppliedSchema,
   notesOrderedSchema,
+  framesSnapshotSchema,
+  frameAddedSchema,
+  frameUpdatedSchema,
+  frameMovedSchema,
+  frameResizedSchema,
+  frameDeletedSchema,
 ]);
 export type ServerMessage = z.infer<typeof serverMessageSchema>;

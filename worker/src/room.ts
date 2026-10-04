@@ -1,26 +1,34 @@
 import { DurableObject } from "cloudflare:workers";
 import {
+  FRAME_DEFAULT_H,
+  FRAME_DEFAULT_W,
   MAX_BATCH_ENTRIES,
+  MAX_FRAMES_PER_ROOM,
   MAX_NOTES_PER_ROOM,
   MAX_PARTICIPANTS,
   NOTE_DEFAULTS,
   NOTE_EDIT_FIELDS,
   PROTOCOL_VERSION,
+  clampFramePosition,
+  clampFrameRect,
   clampNotePosition,
   checkBatch,
   checkOrder,
   clampNoteRect,
   clientMessageSchema,
+  cleanFrameTitle,
   cleanName,
   cleanNoteText,
   cleanText,
   encodeMessage,
+  groupOffset,
   parseMessage,
   participantSchema,
   restack,
   zForNew,
   type ClientMessage,
   type ErrorCode,
+  type Frame,
   type Note,
   type NoteBatchResult,
   type Participant,
@@ -34,7 +42,7 @@ import { NoteStore } from "./noteStore";
 
 /**
  * Per-socket state, kept in the WebSocket attachment so it survives hibernation.
- * Notes live in the room's SQLite (see noteStore.ts); nothing about people is stored.
+ * Notes and frames live in the room's SQLite (see noteStore.ts); nothing about people is stored.
  */
 const socketStateSchema = z.object({
   /** Said hello with our protocol version. */
@@ -53,8 +61,13 @@ const socketStateSchema = z.object({
 });
 type SocketState = z.infer<typeof socketStateSchema>;
 
-/** Which note (or pending add) an error is about, so the sender can roll back. */
-type ErrorRef = { clientRef: string } | { noteId: string } | { noteIds: string[] } | Record<string, never>;
+/** Which note or frame (or pending add) an error is about, so the sender can roll back. */
+type ErrorRef =
+  | { clientRef: string }
+  | { noteId: string }
+  | { noteIds: string[] }
+  | { frameId: string; noteIds?: string[] }
+  | Record<string, never>;
 
 const error = (code: ErrorCode, message: string, ref: ErrorRef = {}): ServerMessage => ({ type: "error", code, message, ...ref });
 
@@ -78,6 +91,15 @@ function refOf(message: ClientMessage): ErrorRef {
       const noteIds = [...new Set([...valid.map((v) => v.id), ...invalidIds])];
       return noteIds.length > 0 ? { noteIds } : {};
     }
+    case "frameAdd":
+      return { clientRef: message.clientRef };
+    case "frameEdit":
+    case "frameResize":
+    case "frameDelete":
+      return { frameId: message.id };
+    case "frameMove":
+      // The notes it was carrying roll back with it.
+      return message.noteIds && message.noteIds.length > 0 ? { frameId: message.id, noteIds: message.noteIds } : { frameId: message.id };
     default:
       return {};
   }
@@ -86,10 +108,22 @@ function refOf(message: ClientMessage): ErrorRef {
 type NoteMessage = Extract<ClientMessage, { type: "noteAdd" | "noteEdit" | "noteMove" | "noteResize" | "noteDelete" }>;
 type BatchMessage = Extract<ClientMessage, { type: "noteBatch" }>;
 type OrderMessage = Extract<ClientMessage, { type: "notesOrder" }>;
+type FrameMessage = Extract<ClientMessage, { type: "frameAdd" | "frameEdit" | "frameMove" | "frameResize" | "frameDelete" }>;
 
-/** Drags and resizes in progress (one note or a group): relayed (coalesced), never stored. */
+/** Drags and resizes in progress (a note, a group or a frame): relayed (coalesced), never stored. */
 const isPreview = (message: ClientMessage) =>
-  (message.type === "noteMove" || message.type === "noteResize" || message.type === "noteBatch") && !message.final;
+  (message.type === "noteMove" ||
+    message.type === "noteResize" ||
+    message.type === "noteBatch" ||
+    message.type === "frameMove" ||
+    message.type === "frameResize") &&
+  !message.final;
+
+/** A frame's live move or resize waiting to be relayed (latest per frame and kind). */
+interface PendingFrame {
+  from: WebSocket;
+  message: Extract<ServerMessage, { type: "frameMoved" | "frameResized" }>;
+}
 
 /** A relayed change waiting to go out. `batch`: it came in a noteBatch, so it goes out in a notesBatchApplied. */
 interface Pending {
@@ -107,6 +141,8 @@ export class Room extends DurableObject<Env> {
   private readonly notes: NoteStore;
   /** Non-final moves and resizes waiting to be relayed, latest per note and kind. Never stored. */
   private readonly pendingMoves = new Map<string, Pending>();
+  /** Frames' live moves and resizes, likewise. */
+  private readonly pendingFrames = new Map<string, PendingFrame>();
   private flushScheduled = false;
 
   constructor(ctx: DurableObjectState, env: Env) {
@@ -171,9 +207,9 @@ export class Room extends DurableObject<Env> {
       );
       return;
     }
-    if (parsed.value.type === "noteBatch" || parsed.value.type === "notesOrder") {
-      // A batch (or a restack) is one message above; its entries also spend their own budget.
-      const entries = parsed.value.type === "noteBatch" ? parsed.value.ops.length : parsed.value.ids.length;
+    const entries = entriesOf(parsed.value);
+    if (entries > 0) {
+      // A batch, a restack or a carrying frame move is one message above; its entries also spend their own budget.
       state.entryTokens = Math.min(BATCH_LIMITS.entriesBurst, state.entryTokens + ((now - state.entryAt) / 1000) * BATCH_LIMITS.entriesPerSecond);
       state.entryAt = now;
       if (state.entryTokens < entries) {
@@ -252,7 +288,9 @@ export class Room extends DurableObject<Env> {
         ws.serializeAttachment(state);
 
         send(ws, { type: "joined", you, participants: this.participants().map(({ participant }) => participant) });
+        // Notes, then frames, in this same step: nothing else can be sent to this socket between them.
         send(ws, { type: "snapshot", notes: this.notes.all() });
+        send(ws, { type: "framesSnapshot", frames: this.notes.allFrames() });
         this.broadcast({ type: "participant_joined", participant: you }, ws);
         return;
       }
@@ -289,6 +327,136 @@ export class Room extends DurableObject<Env> {
         ws.serializeAttachment(state);
         if (!state.participant) return send(ws, error("not_joined", "Join the room first.", refOf(message)));
         this.handleOrder(ws, message);
+        return;
+      }
+
+      case "frameAdd":
+      case "frameEdit":
+      case "frameMove":
+      case "frameResize":
+      case "frameDelete": {
+        ws.serializeAttachment(state);
+        if (!state.participant) return send(ws, error("not_joined", "Join the room first.", refOf(message)));
+        this.handleFrame(ws, state.participant, message);
+        return;
+      }
+    }
+  }
+
+  /**
+   * Frames: last-write-wins in arrival order, every stored change bumps rev, unknown or deleted
+   * frames are ignored silently. A final frameMove carries the notes it names by the same delta,
+   * clamped once for the whole group, in one transaction and one frameMoved (with the notes).
+   * Live moves and resizes are relayed to the others, coalesced, never stored. Titles are untrusted
+   * text: cleaned, never logged.
+   */
+  private handleFrame(ws: WebSocket, you: Participant, message: FrameMessage): void {
+    switch (message.type) {
+      case "frameAdd": {
+        if (this.notes.frameCount >= MAX_FRAMES_PER_ROOM) {
+          return send(ws, error("frames_full", `This board has the maximum of ${MAX_FRAMES_PER_ROOM} frames.`, refOf(message)));
+        }
+        const title = cleanFrameTitle(message.title);
+        if (title === null) return send(ws, error("bad_message", "Frame title is too long.", refOf(message)));
+        const frame: Frame = {
+          id: randomBase64url(12),
+          ...clampFrameRect({ x: message.x, y: message.y, w: FRAME_DEFAULT_W, h: FRAME_DEFAULT_H }),
+          title,
+          color: message.color,
+          rev: 1,
+          authorId: you.id,
+        };
+        this.notes.insertFrame(frame);
+        send(ws, { type: "frameAdded", frame, clientRef: message.clientRef });
+        this.broadcast({ type: "frameAdded", frame }, ws);
+        return;
+      }
+
+      case "frameEdit": {
+        const current = this.notes.getFrame(message.id);
+        if (!current) return;
+        const title = message.title === undefined ? current.title : cleanFrameTitle(message.title);
+        if (title === null) return send(ws, error("bad_message", "Frame title is too long.", refOf(message)));
+        const color = message.color ?? current.color;
+        if (title === current.title && color === current.color) return;
+        const frame: Frame = { ...current, title, color, rev: current.rev + 1 };
+        this.notes.updateFrame(frame);
+        this.broadcast({ type: "frameUpdated", frame });
+        return;
+      }
+
+      case "frameMove": {
+        const current = this.notes.getFrame(message.id);
+        if (!current) return;
+        const carried = (message.noteIds ?? []).flatMap((id) => this.notes.get(id) ?? []);
+        const target = clampFramePosition(message.x, message.y, current);
+        const { dx, dy } = carried.length > 0 ? groupOffset([current, ...carried], target.x - current.x, target.y - current.y) : { dx: target.x - current.x, dy: target.y - current.y };
+        const x = current.x + dx;
+        const y = current.y + dy;
+        const placed = carried.map((note) => ({ note, ...clampNotePosition(note.x + dx, note.y + dy, note) }));
+        if (!message.final) {
+          this.pendingFrames.set(`move:${current.id}`, {
+            from: ws,
+            message: {
+              type: "frameMoved",
+              id: current.id,
+              x,
+              y,
+              rev: current.rev,
+              final: false,
+              ...(placed.length > 0 ? { notes: placed.map(({ note, x: nx, y: ny }) => ({ id: note.id, x: nx, y: ny, rev: note.rev })) } : {}),
+            },
+          });
+          this.scheduleFlush();
+          return;
+        }
+        const frame = x !== current.x || y !== current.y ? { ...current, x, y, rev: current.rev + 1 } : null;
+        const changed: Note[] = [];
+        const notes = placed.map(({ note, x: nx, y: ny }) => {
+          if (nx === note.x && ny === note.y) return note;
+          const next = { ...note, x: nx, y: ny, rev: note.rev + 1 };
+          changed.push(next);
+          return next;
+        });
+        // The frame and every changed note in one transaction: 1 + N rows at most.
+        this.notes.applyFrameMove(frame, changed);
+        const moved = frame ?? current;
+        // Reported even when unchanged, so everyone who saw the drag sees where it ended.
+        this.broadcast({
+          type: "frameMoved",
+          id: moved.id,
+          x: moved.x,
+          y: moved.y,
+          rev: moved.rev,
+          final: true,
+          ...(notes.length > 0 ? { notes: notes.map((n) => ({ id: n.id, x: n.x, y: n.y, rev: n.rev })) } : {}),
+        });
+        return;
+      }
+
+      case "frameResize": {
+        const current = this.notes.getFrame(message.id);
+        if (!current) return;
+        const rect = clampFrameRect(message);
+        if (!message.final) {
+          this.pendingFrames.set(`resize:${current.id}`, { from: ws, message: { type: "frameResized", id: current.id, ...rect, rev: current.rev, final: false } });
+          this.scheduleFlush();
+          return;
+        }
+        let frame = current;
+        if (rect.x !== current.x || rect.y !== current.y || rect.w !== current.w || rect.h !== current.h) {
+          frame = { ...current, ...rect, rev: current.rev + 1 };
+          this.notes.updateFrame(frame);
+        }
+        this.broadcast({ type: "frameResized", id: frame.id, x: frame.x, y: frame.y, w: frame.w, h: frame.h, rev: frame.rev, final: true });
+        return;
+      }
+
+      case "frameDelete": {
+        // Only the frame: notes inside it stay where they are.
+        if (!this.notes.getFrame(message.id)) return;
+        this.notes.deleteFrame(message.id);
+        this.broadcast({ type: "frameDeleted", id: message.id });
         return;
       }
     }
@@ -528,6 +696,12 @@ export class Room extends DurableObject<Env> {
 
   private flushMoves(): void {
     this.flushScheduled = false;
+    if (this.pendingFrames.size > 0) {
+      const frames = [...this.pendingFrames.values()];
+      this.pendingFrames.clear();
+      // A frame deleted since then is not moved or resized.
+      for (const { from, message } of frames) if (this.notes.getFrame(message.id)) this.broadcast(message, from);
+    }
     if (this.pendingMoves.size === 0) return;
     const pending = [...this.pendingMoves.values()];
     this.pendingMoves.clear();
@@ -569,6 +743,20 @@ export class Room extends DurableObject<Env> {
       // The socket is already gone; it no longer counts as open either way.
     }
     this.broadcast({ type: "participant_left", id: left.id }, ws);
+  }
+}
+
+/** Entries a message spends from BATCH_LIMITS: batch ops, restack ids, and the notes a final frame move carries. */
+function entriesOf(message: ClientMessage): number {
+  switch (message.type) {
+    case "noteBatch":
+      return message.ops.length;
+    case "notesOrder":
+      return message.ids.length;
+    case "frameMove":
+      return message.final ? (message.noteIds?.length ?? 0) : 0;
+    default:
+      return 0;
   }
 }
 

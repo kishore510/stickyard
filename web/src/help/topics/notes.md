@@ -1,8 +1,8 @@
 ---
 title: Notes
 order: 3
-summary: Add notes from the palette, edit, colour, style and resize them in Properties, bring them to the front or send them to the back, select several to move, arrange or delete together; pan, zoom and fit the board.
-keywords: front, back, order, stack, overlap, behind, top, bottom, inline, place, double-click, marquee, multi, several, many, group, arrange, align, distribute, match, right-click, middle, note, notes, sticky, board, add, edit, move, drag, delete, colour, color, text, title, body, size, width, height, bigger, smaller, handle, corner, font, bold, italic, align, alignment, left, centre, center, right, style, palette, tile, properties, panel, select, selection, collapse, resize, pan, hand, zoom, pinch, wheel, fit, overview, map, shortcut, full, saved
+summary: Add notes from the palette, edit, colour, style and resize them in Properties, bring them to the front or send them to the back, group them in frames, select several to move, arrange or delete together; pan, zoom and fit the board.
+keywords: frame, frames, area, section, title, carry, front, back, order, stack, overlap, behind, top, bottom, inline, place, double-click, marquee, multi, several, many, group, arrange, align, distribute, match, right-click, middle, note, notes, sticky, board, add, edit, move, drag, delete, colour, color, text, title, body, size, width, height, bigger, smaller, handle, corner, font, bold, italic, align, alignment, left, centre, center, right, style, palette, tile, properties, panel, select, selection, collapse, resize, pan, hand, zoom, pinch, wheel, fit, overview, map, shortcut, full, saved
 ---
 Every session has one shared **board**. Everyone in the session sees the same notes, and changes show up for everyone as they happen. The board fills the screen; its edge is the outline around the dotted area, and notes always stay inside it.
 
@@ -76,6 +76,20 @@ With two or more notes selected (and **Select** on), a bar appears at the top of
 - With several notes selected, the same two buttons are in Properties and in the bar at the top of the board. They move together and keep their order among themselves.
 - Moving, resizing, editing or selecting a note never changes which note is in front: everyone sees the same order. A selected note can sit partly behind another; bring it to the front to see all of it.
 - If two people change the order at the same time, the change that reaches the relay last wins.
+
+## Frames
+
+A frame is a named, coloured area that sits behind the notes, for example Start, Stop and Continue columns.
+
+- On a wider screen, choose **Frame** under **Frames** in the palette to add one in the middle of the view (or drag the tile onto the board). Its title is ready to type: **Enter**, **Esc** or clicking elsewhere saves it. You can also type the title in the frame's header at any time.
+- A board holds up to 30 frames. Frames are 240 to 2400 wide and 160 to 1600 tall, and always stay on the board.
+- Drag a frame by its title bar or its border. The notes inside it (any note whose middle is inside the frame) move with it and keep their places. Hold **Alt** while you start dragging to move the frame on its own. A frame holding more than 50 notes moves on its own, and the board says so.
+- The inside of a frame lets clicks through: you can select, move and edit the notes in it, and drag across it to select several, as if the frame wasn't there. Notes can be dragged in and out of a frame freely.
+- Click a frame's title bar or border to select it (this clears any selected notes). Small squares at its corners resize it. **Properties** shows its **Title**, **Colour**, **Width** and **Height**, and who added it.
+- To delete a frame, use the bin in **Properties** or press **Delete** with the frame selected. You're asked first if it has a title or notes inside. Deleting a frame never deletes its notes.
+- Frames are always behind every note; **Bring to front** and **Send to back** only change the order of notes.
+- On a phone, frames are shown but can't be added, moved or changed.
+- Others see a frame move as you drag it. If two people change the same frame, the change that reaches the relay last wins.
 
 ## The side panels
 

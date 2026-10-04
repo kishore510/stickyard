@@ -1,4 +1,4 @@
-import { NOTE_DEFAULTS, clampNoteRect, clampZ, noteSchema, type Note } from "@stickyard/shared";
+import { FRAME_DEFAULT_H, FRAME_DEFAULT_W, NOTE_DEFAULTS, clampFrameRect, clampNoteRect, clampZ, frameSchema, noteSchema, type Frame, type Note } from "@stickyard/shared";
 
 /**
  * A room's notes, in its Durable Object's SQLite. Written only on commits (add, edit, final
@@ -18,8 +18,11 @@ import { NOTE_DEFAULTS, clampNoteRect, clampZ, noteSchema, type Note } from "@st
  *   5 (slice z-order): notes gains z (stacking order, NOT NULL DEFAULT 0), set once to each
  *     note's place in creation (rowid) order, 0..n-1, which is how notes were stacked before.
  *     Version 4 code still inserts (z 0) and updates (z kept) without it.
+ *   6 (slice frames): a new frames table (id, x, y, w, h, title, color, rev, author_id), every
+ *     column but the key with a DEFAULT. Additive: notes are untouched, and version 5 code (which
+ *     never reads frames) keeps working on it.
  */
-export const SCHEMA_VERSION = 5;
+export const SCHEMA_VERSION = 6;
 
 /** Columns added by version 2, with their SQL definitions. Defaults come from NOTE_DEFAULTS. */
 const V2_COLUMNS: [name: string, definition: string][] = [
@@ -63,6 +66,20 @@ interface NoteRow extends Record<string, SqlStorageValue> {
   author_id: string;
 }
 
+interface FrameRow extends Record<string, SqlStorageValue> {
+  id: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  title: string;
+  color: string;
+  rev: number;
+  author_id: string;
+}
+
+const FRAME_COLUMNS = "id, x, y, w, h, title, color, rev, author_id";
+
 const COLUMNS =
   "id, x, y, w, h, text, color, font_size, bold, italic, text_color, align, title_align, title_font_size, title_bold, title_italic, title_text_color, z, rev, author_id";
 
@@ -75,6 +92,7 @@ export class NoteStore {
   /** Batch transactions committed by this instance (tests check a final batch is one). */
   transactions = 0;
   private cache: Map<string, Note> | null = null;
+  private frameCache: Map<string, Frame> | null = null;
 
   constructor(
     private readonly sql: SqlStorage,
@@ -132,6 +150,21 @@ export class NoteStore {
       if (!existing.has("z")) this.sql.exec("ALTER TABLE notes ADD COLUMN z INTEGER NOT NULL DEFAULT 0");
       // Stacked as before: each note's place in creation order. Safe to repeat: it only runs below version 5.
       this.write("UPDATE notes SET z = (SELECT COUNT(*) FROM notes AS older WHERE older.rowid < notes.rowid)");
+    }
+    if (version < 6) {
+      this.sql.exec(
+        `CREATE TABLE IF NOT EXISTS frames (
+          id TEXT PRIMARY KEY,
+          x INTEGER NOT NULL DEFAULT 0,
+          y INTEGER NOT NULL DEFAULT 0,
+          w INTEGER NOT NULL DEFAULT ${FRAME_DEFAULT_W},
+          h INTEGER NOT NULL DEFAULT ${FRAME_DEFAULT_H},
+          title TEXT NOT NULL DEFAULT '',
+          color TEXT NOT NULL DEFAULT 'neutral',
+          rev INTEGER NOT NULL DEFAULT 1,
+          author_id TEXT NOT NULL DEFAULT ''
+        )`,
+      );
     }
     this.write("INSERT OR REPLACE INTO meta (key, value) VALUES ('schema_version', ?)", SCHEMA_VERSION);
   }
@@ -226,6 +259,75 @@ export class NoteStore {
     this.notes().delete(id);
   }
 
+  /* ── Frames (schema 6) ──────────────────────────────────────────── */
+
+  /** Every frame, in creation order. Bad rows are skipped; one off the board at its size is clamped back on. */
+  private frames(): Map<string, Frame> {
+    if (this.frameCache) return this.frameCache;
+    const cache = new Map<string, Frame>();
+    for (const row of this.sql.exec<FrameRow>(`SELECT ${FRAME_COLUMNS} FROM frames ORDER BY rowid`)) {
+      const parsed = frameSchema.safeParse({
+        id: row.id,
+        ...clampFrameRect({ x: row.x, y: row.y, w: row.w, h: row.h }),
+        title: row.title,
+        color: row.color,
+        rev: row.rev,
+        authorId: row.author_id,
+      });
+      if (parsed.success) cache.set(parsed.data.id, parsed.data);
+    }
+    this.frameCache = cache;
+    return cache;
+  }
+
+  allFrames(): Frame[] {
+    return [...this.frames().values()];
+  }
+
+  getFrame(id: string): Frame | undefined {
+    return this.frames().get(id);
+  }
+
+  get frameCount(): number {
+    return this.frames().size;
+  }
+
+  insertFrame(frame: Frame): void {
+    const row = frameValues(frame);
+    this.write(`INSERT INTO frames (${FRAME_COLUMNS}) VALUES (${row.map(() => "?").join(", ")})`, ...row);
+    this.frames().set(frame.id, frame);
+  }
+
+  updateFrame(frame: Frame): void {
+    this.writeFrameUpdate(frame);
+    this.frames().set(frame.id, frame);
+  }
+
+  deleteFrame(id: string): void {
+    this.write("DELETE FROM frames WHERE id = ?", id);
+    this.frames().delete(id);
+  }
+
+  /**
+   * A final frame move that carries notes: the frame (if it changed) and every changed note in
+   * one transaction, so they land together or not at all. Caches change once it has committed.
+   */
+  applyFrameMove(frame: Frame | null, notes: readonly Note[]): void {
+    if (!frame && notes.length === 0) return;
+    this.transact(() => {
+      if (frame) this.writeFrameUpdate(frame);
+      for (const note of notes) this.writeUpdate(note);
+    });
+    this.transactions += 1;
+    if (frame) this.frames().set(frame.id, frame);
+    const cache = this.notes();
+    for (const note of notes) cache.set(note.id, note);
+  }
+
+  private writeFrameUpdate(frame: Frame): void {
+    this.write("UPDATE frames SET x = ?, y = ?, w = ?, h = ?, title = ?, color = ?, rev = ? WHERE id = ?", ...frameValues(frame).slice(1, -1), frame.id);
+  }
+
   private write(query: string, ...bindings: SqlStorageValue[]): void {
     const cursor = this.sql.exec(query, ...bindings);
     cursor.toArray();
@@ -241,4 +343,9 @@ function values(n: Note): SqlStorageValue[] {
     n.titleAlign, n.titleFontSize, Number(n.titleBold), Number(n.titleItalic), n.titleTextColor,
     n.z, n.rev, n.authorId,
   ];
+}
+
+/** A frame's column values, in FRAME_COLUMNS order. */
+function frameValues(f: Frame): SqlStorageValue[] {
+  return [f.id, f.x, f.y, f.w, f.h, f.title, f.color, f.rev, f.authorId];
 }

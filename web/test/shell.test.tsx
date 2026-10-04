@@ -201,7 +201,7 @@ describe("What's new", () => {
   it("shows the current version with the This version badge", async () => {
     await mount("#/changelog");
     const current = dialog()?.querySelector('[aria-current="true"]');
-    expect(current?.querySelector("h3")?.textContent).toBe("0.8.1");
+    expect(current?.querySelector("h3")?.textContent).toBe("0.9.0");
     expect(current?.textContent).toContain("This version");
     expect(current?.textContent).toContain("Added");
   });
@@ -215,11 +215,11 @@ describe("What's new", () => {
     await openFromMenu("What’s new");
     await press("Escape");
     expect(document.querySelector('[data-testid="unseen-dot"]')).toBeNull();
-    expect(localStorage.getItem("stickyard:last-seen-version")).toBe("0.8.1");
+    expect(localStorage.getItem("stickyard:last-seen-version")).toBe("0.9.0");
   });
 
   it("no dot once this version has been seen", async () => {
-    localStorage.setItem("stickyard:last-seen-version", "0.8.1");
+    localStorage.setItem("stickyard:last-seen-version", "0.9.0");
     await mount();
     expect(document.querySelector('[data-testid="unseen-dot"]')).toBeNull();
   });
@@ -231,7 +231,7 @@ describe("About", () => {
 
   it("shows version, build, protocol and relay", async () => {
     await mount("#/about");
-    expect(detail("Version")).toBe("0.8.1");
+    expect(detail("Version")).toBe("0.9.0");
     expect(detail("Build")).toMatch(/^([0-9a-f]{4,40}|dev)$/);
     expect(detail("Built")).not.toBe("unknown");
     expect(detail("Protocol")).toBe(`v${PROTOCOL_VERSION}`);
@@ -267,6 +267,9 @@ describe("About", () => {
       "sessions don’t expire yet",
       // Slice z-order: stacking order is stored with each note.
       "stacking order (which notes are in front)",
+      // Slice frames: frames are stored with the room.
+      "Frames are stored with the room",
+      "position, size, title and colour",
       // Slice 2.6: the panel layout is a layout preference kept on this device.
       "how wide the board’s side panels are and whether they’re collapsed",
       "layout preferences only",

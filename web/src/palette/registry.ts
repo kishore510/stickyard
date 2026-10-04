@@ -1,6 +1,6 @@
-import type { LucideIcon } from "lucide-react";
-import { NOTE_COLORS, type NoteColor } from "@stickyard/shared";
-import type { XY } from "../canvas/geometry";
+import { Frame as FrameIcon, type LucideIcon } from "lucide-react";
+import { FRAME_DEFAULT_H, FRAME_DEFAULT_W, NOTE_COLORS, type FrameColor, type NoteColor } from "@stickyard/shared";
+import type { Size, XY } from "../canvas/geometry";
 import { NOTE_COLOR_NAMES } from "../notes/colours";
 
 /*
@@ -18,18 +18,27 @@ import { NOTE_COLOR_NAMES } from "../notes/colours";
 export type PalettePreview = { kind: "note"; color: NoteColor } | { kind: "icon"; icon: LucideIcon };
 
 /** What a drag carries (shown under the pointer while dragging). */
-export type PalettePayload = { kind: "note"; color: NoteColor };
+export type PalettePayload = { kind: "note"; color: NoteColor } | { kind: "frame"; color: FrameColor };
 
-/** What tiles can do. `at` is a board position (a drop); without it, the viewport centre. */
+/**
+ * What tiles can do, with plain data. `at` is a board position (a drop); without it, the
+ * viewport centre. A tile may call several of these (a template, later, adds frames and notes).
+ */
 export interface PaletteActions {
   addNote(color: NoteColor, at?: XY): void;
+  addFrame(color: FrameColor, at?: XY): void;
 }
 
 /** What tiles need to know to be enabled. */
 export interface PaletteContext {
   /** Why notes can't be added right now (disconnected, board full), or null. */
   noteReason: string | null;
+  /** Why frames can't be added right now (disconnected, the board has its frames), or null. */
+  frameReason: string | null;
 }
+
+/** Where tiles are listed: the palette panel (md and up, also its collapsed strip) or the phone add drawer. */
+export type PaletteSurface = "panel" | "drawer";
 
 /**
  * Room state the palette can draw items from. Today no selector uses it; later, tiles the
@@ -50,6 +59,8 @@ export interface PaletteItem {
   payload: PalettePayload;
   /** Click (at the viewport centre) or drop (at `at`, in board units). */
   create(actions: PaletteActions, at?: XY): void;
+  /** The size of what a drop places (centred on the pointer); a note's size when not given. */
+  dropSize?: Size;
   /** Why it can't be used now, or null. */
   disabled(ctx: PaletteContext): string | null;
 }
@@ -69,6 +80,8 @@ export interface PaletteCategory {
   items: readonly PaletteItem[];
   /** Extra items derived from the room's state, after the static ones. */
   fromRoom?: (state: PaletteRoomState) => readonly PaletteItem[];
+  /** Listed only on these surfaces (all when not given). Frames are md and up only. */
+  surfaces?: readonly PaletteSurface[];
 }
 
 /** A note tile: the colour's note, labelled with its name. */
@@ -86,6 +99,20 @@ export function noteTile(id: string, color: NoteColor, label = `${NOTE_COLOR_NAM
 
 export const NOTE_TILES: readonly PaletteItem[] = NOTE_COLORS.map((color) => noteTile(`note-${color}`, color));
 
+/** The one Frames tile: a neutral frame (colour changes in Properties). Its title is ready to type. */
+export const FRAME_TILES: readonly PaletteItem[] = [
+  {
+    id: "frame",
+    label: "Frame",
+    keywords: ["frame", "area", "section", "group", "zone", "box"],
+    preview: { kind: "icon", icon: FrameIcon },
+    payload: { kind: "frame", color: "neutral" },
+    create: (actions, at) => actions.addFrame("neutral", at),
+    dropSize: { width: FRAME_DEFAULT_W, height: FRAME_DEFAULT_H },
+    disabled: (ctx) => ctx.frameReason,
+  },
+];
+
 /** Note tiles defined by the room. None yet (facilitator palettes are slice 6). */
 export function roomNoteTiles(_state: PaletteRoomState): readonly PaletteItem[] {
   return [];
@@ -99,6 +126,8 @@ export const PALETTE_TABS: readonly PaletteTab[] = [
 
 export const PALETTE_CATEGORIES: readonly PaletteCategory[] = [
   { id: "notes", label: "Notes", order: 1, tab: "add", items: NOTE_TILES, fromRoom: roomNoteTiles },
+  // Frames can only be added from md up (phones show them but don't change them).
+  { id: "frames", label: "Frames", order: 2, tab: "add", items: FRAME_TILES, surfaces: ["panel"] },
 ];
 
 export interface PaletteSection {
@@ -116,14 +145,15 @@ export function matchesQuery(item: PaletteItem, query: string): boolean {
 
 const byOrder = <T extends { order: number }>(list: readonly T[]) => [...list].sort((a, b) => a.order - b.order);
 
-/** One tab's categories in order, each with its items (static, then from the room) matching the query. Empty ones are left out. */
+/** One tab's categories in order, each with its items (static, then from the room) matching the query. Empty ones, and ones not on this surface, are left out. */
 export function paletteSections(
   categories: readonly PaletteCategory[],
   tab: string,
   state: PaletteRoomState,
   query: string,
+  surface: PaletteSurface = "panel",
 ): PaletteSection[] {
-  return byOrder(categories.filter((c) => c.tab === tab))
+  return byOrder(categories.filter((c) => c.tab === tab && (!c.surfaces || c.surfaces.includes(surface))))
     .map((category) => ({
       category,
       items: [...category.items, ...(category.fromRoom?.(state) ?? [])].filter((item) => matchesQuery(item, query)),
@@ -132,6 +162,6 @@ export function paletteSections(
 }
 
 /** The tabs with anything in them, in order. */
-export function visibleTabs(tabs: readonly PaletteTab[], categories: readonly PaletteCategory[], state: PaletteRoomState): PaletteTab[] {
-  return byOrder(tabs).filter((t) => paletteSections(categories, t.id, state, "").length > 0);
+export function visibleTabs(tabs: readonly PaletteTab[], categories: readonly PaletteCategory[], state: PaletteRoomState, surface: PaletteSurface = "panel"): PaletteTab[] {
+  return byOrder(tabs).filter((t) => paletteSections(categories, t.id, state, "", surface).length > 0);
 }
