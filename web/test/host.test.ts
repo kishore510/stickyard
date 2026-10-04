@@ -250,3 +250,27 @@ describe("End session (4411) is final, like expiry", () => {
     expect(ENDED_TEXT.home).toBe("Go to the start page");
   });
 });
+
+describe("host commands (facilitation UI)", () => {
+  it("startRoomTimer sends timerStart within the relay's bounds; stopRoomTimer sends timerStop", () => {
+    const t = hosted();
+    expect(t.session.startRoomTimer(300_000)).toBe(true);
+    expect(t.session.startRoomTimer(0)).toBe(false);
+    expect(t.session.startRoomTimer(3 * 60 * 60 * 1000 + 1)).toBe(false);
+    expect(t.session.startRoomTimer(1500.5)).toBe(false);
+    expect(t.sent("timerStart")).toEqual([{ type: "timerStart", durationMs: 300_000 }]);
+    expect(t.session.stopRoomTimer()).toBe(true);
+    expect(t.sent("timerStop")).toEqual([{ type: "timerStop" }]);
+  });
+
+  it("host commands are refused (nothing sent) for a guest or while disconnected", () => {
+    const guest = room([], [], {});
+    expect(guest.session.startRoomTimer(60_000)).toBe(false);
+    expect(guest.session.stopRoomTimer()).toBe(false);
+    expect(guest.sent("timerStart")).toEqual([]);
+    const t = hosted();
+    t.relay.drop();
+    expect(t.session.startRoomTimer(60_000)).toBe(false);
+    expect(t.sent("timerStart")).toEqual([]);
+  });
+});

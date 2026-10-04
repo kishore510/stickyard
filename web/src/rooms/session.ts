@@ -2659,6 +2659,16 @@ export class RoomSession {
     });
   }
 
+  /** Stub: tests first. */
+  startRoomTimer(_durationMs: number): boolean {
+    return false;
+  }
+
+  /** Stub: tests first. */
+  stopRoomTimer(): boolean {
+    return false;
+  }
+
   /** Protocol v12: claims host powers with this room's token, if this device has one. Never shown or logged. */
   private claimHost(): void {
     const token = this.options.hostToken?.();
