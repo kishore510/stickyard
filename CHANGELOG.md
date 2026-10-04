@@ -2,6 +2,15 @@
 
 All notable changes to Stickyard, newest first. The format follows Keep a Changelog. Versions are 0.x: a minor bump for each slice and a patch bump for each follow-up fix. This file is shown in the app under **What’s new**, so entries are written for the people using it.
 
+## [0.14.0] - 2026-10-04
+
+### Added
+- Sessions now expire once nobody has been in them for 7 days. Their notes and frames are deleted, and opening the link says **Session expired** and why, with a button back to the start page, where you can start a new session. Stickyard doesn't keep trying to reconnect to an expired session, even if it expired while you were away.
+- Help explains how long a session lasts (in **Starting and joining a session**) and what **Session expired** means (in **Connection**).
+
+### Changed
+- About > Privacy now says that a session's notes and frames are deleted automatically once nobody has been in it for 7 days, and that after that the relay keeps only the time it expired.
+
 ## [0.13.0] - 2026-10-04
 
 ### Added

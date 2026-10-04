@@ -34,6 +34,15 @@ export const MAX_MESSAGE_BYTES = 4096;
  */
 export const MAX_SERVER_MESSAGE_BYTES = 512 * 1024;
 
+/**
+ * Idle room expiry (not a protocol message, so no version bump). A room nobody has been in for
+ * this many days is deleted by its Durable Object's alarm; joining it afterwards gets a socket
+ * that is closed at once with ROOM_EXPIRED_CLOSE_CODE (reason "expired"). The web treats that
+ * code, and only it, as final: no retries, no Rejoin.
+ */
+export const ROOM_IDLE_EXPIRY_DAYS = 7;
+export const ROOM_EXPIRED_CLOSE_CODE = 4410;
+
 /** Display name length after cleaning, in characters. */
 export const MAX_NAME_LENGTH = 24;
 /** Echo text length after cleaning, in characters. */

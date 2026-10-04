@@ -2,7 +2,7 @@
 title: Connection
 order: 7
 summary: What the connection status means, what happens when the connection drops, and what to do about "Please reload".
-keywords: connection, connect, relay, server, connected, reload, offline, online, error, protocol, version, websocket, lost, rejoin, reconnect, reconnecting, dropped, saved, unsaved, undo, limit, daily, full
+keywords: connection, connect, relay, server, connected, reload, offline, online, error, protocol, version, websocket, lost, rejoin, reconnect, reconnecting, dropped, saved, unsaved, undo, limit, daily, full, expired, expire
 ---
 Stickyard passes messages between everyone in a session through a **relay**: a small server. The start page shows whether your browser can reach it.
 
@@ -19,6 +19,7 @@ Stickyard passes messages between everyone in a session through a **relay**: a s
 - While you're disconnected the board stays on screen but is read-only.
 - If it can't get through, it says **Offline**. Choose **Rejoin** to start again. If your device has no network, it says **You're offline** and tries as soon as the network is back.
 - If the session filled up (20 people) while you were away, it says so. Choose **Rejoin** when someone leaves.
+- If the session expired while you were away (nobody was in it for 7 days), it says **Session expired**. Its notes and frames have been deleted, so there's nothing to rejoin: Stickyard stops trying, and **Go to the start page** lets you start a new session. See [Starting and joining a session](help:sessions).
 - If the relay can't be reached at all, it may be down or over its free daily limit (Stickyard can't tell which from your browser). The board says so: the limit resets at 00:00 UTC, and Stickyard checks once a minute while the tab is open. You can choose **Rejoin** at any time.
 
 ## What happens to your changes

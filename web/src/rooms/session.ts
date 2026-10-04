@@ -6,6 +6,8 @@ import {
   MAX_NOTES_PER_ROOM,
   MAX_SERVER_MESSAGE_BYTES,
   PROTOCOL_VERSION,
+  ROOM_EXPIRED_CLOSE_CODE,
+  ROOM_IDLE_EXPIRY_DAYS,
   clampFramePosition,
   clampFrameRect,
   clampNoteRect,
@@ -123,7 +125,18 @@ import { discardUnconfirmed, resyncFrames, resyncNotes, unsavedKeys, type Orphan
  * relay's snapshots replace it (rooms/resync.ts). Drafts being typed are kept.
  */
 
-export type RoomStatus = "idle" | "connecting" | "joined" | "invalid" | "full" | "reload" | "unreachable" | "disconnected";
+/**
+ * `expired`: the relay closed the socket with ROOM_EXPIRED_CLOSE_CODE (4410): nobody was in the
+ * room for ROOM_IDLE_EXPIRY_DAYS, so it was deleted. Final: no retries, no probes, no Rejoin.
+ */
+export type RoomStatus = "idle" | "connecting" | "joined" | "invalid" | "full" | "reload" | "unreachable" | "disconnected" | "expired";
+
+/** What the page says about an expired session. */
+export const EXPIRED_TEXT = {
+  title: "Session expired",
+  body: `This session has expired because nobody used it for ${ROOM_IDLE_EXPIRY_DAYS} days. Start a new session from the start page.`,
+  home: "Go to the start page",
+} as const;
 
 /**
  * While disconnected after having joined: `reconnecting` (try `attempt` of `max` is waiting or
@@ -597,7 +610,7 @@ export class RoomSession {
       this.socket = this.options.createSocket(this.options.url, {
         onOpen: mine(() => this.onOpen()),
         onMessage: mine((data: unknown) => this.onMessage(data)),
-        onClose: mine(() => this.onClose()),
+        onClose: mine((code?: number) => this.onClose(code)),
         onError: () => {
           // A close event always follows.
         },
@@ -2126,10 +2139,12 @@ export class RoomSession {
     this.send({ type: "hello", protocolVersion: PROTOCOL_VERSION });
   }
 
-  private onClose(): void {
+  private onClose(code?: number): void {
     if (this.stopped) return;
     const { status } = this.view;
-    if (status === "invalid" || status === "full" || status === "reload" || status === "unreachable") return;
+    if (status === "invalid" || status === "full" || status === "reload" || status === "unreachable" || status === "expired") return;
+    // The room has expired: final, on a first join or a reconnect alike (and only this code).
+    if (code === ROOM_EXPIRED_CLOSE_CODE) return this.roomExpired();
     if (status === "joined") {
       this.detach(false);
       return this.dropped();
@@ -2503,6 +2518,46 @@ export class RoomSession {
     this.resyncing = false;
     r.phase = phase;
     this.update({});
+  }
+
+  /**
+   * The relay says the room has expired (4410). Its board is gone, so everything goes with it:
+   * retries, probes, browser listeners, queued work, runs and the undo history. Nothing is
+   * tried again; the page shows the expired message instead of the board.
+   */
+  private roomExpired(): void {
+    clearTimeout(this.timer);
+    this.stopRetry();
+    this.unlisten?.();
+    this.unlisten = null;
+    clearTimeout(this.itemTimer);
+    this.itemTimer = undefined;
+    this.itemQueue = [];
+    this.itemBatches.clear();
+    clearTimeout(this.clearTimer);
+    this.clearTimer = undefined;
+    this.clearRun = null;
+    this.restoreRun = null;
+    this.deleteRun = null;
+    this.template = null;
+    this.abandoned.clear();
+    this.abandonedFrames.clear();
+    clearTimeout(this.presenceTimer);
+    clearTimeout(this.toastTimer);
+    this.history.clear();
+    this.stopAllMoves();
+    this.detach(true);
+    this.update({
+      status: "expired",
+      board: EMPTY_BOARD,
+      synced: false,
+      presenceToast: null,
+      noteNotice: null,
+      deleteReport: null,
+      historyReport: null,
+      dropReport: null,
+      orphanDraft: null,
+    });
   }
 
   /** A final state: report it and close the socket. */

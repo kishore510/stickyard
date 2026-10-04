@@ -92,6 +92,13 @@ export class Relay {
     this.handlers = null;
     h?.onClose();
   }
+  /** The relay closes the socket with a close code (4410: the room has expired). */
+  closeWith(code: number) {
+    this.queue = [];
+    const h = this.handlers;
+    this.handlers = null;
+    h?.onClose(code);
+  }
   /** A socket that never opens (the upgrade failed). */
   failOpen() {
     this.drop();

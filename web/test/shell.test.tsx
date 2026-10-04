@@ -201,7 +201,7 @@ describe("What's new", () => {
   it("shows the current version with the This version badge", async () => {
     await mount("#/changelog");
     const current = dialog()?.querySelector('[aria-current="true"]');
-    expect(current?.querySelector("h3")?.textContent).toBe("0.13.0");
+    expect(current?.querySelector("h3")?.textContent).toBe("0.14.0");
     expect(current?.textContent).toContain("This version");
     expect(current?.textContent).toMatch(/Added|Changed|Fixed/);
   });
@@ -215,11 +215,11 @@ describe("What's new", () => {
     await openFromMenu("What’s new");
     await press("Escape");
     expect(document.querySelector('[data-testid="unseen-dot"]')).toBeNull();
-    expect(localStorage.getItem("stickyard:last-seen-version")).toBe("0.13.0");
+    expect(localStorage.getItem("stickyard:last-seen-version")).toBe("0.14.0");
   });
 
   it("no dot once this version has been seen", async () => {
-    localStorage.setItem("stickyard:last-seen-version", "0.13.0");
+    localStorage.setItem("stickyard:last-seen-version", "0.14.0");
     await mount();
     expect(document.querySelector('[data-testid="unseen-dot"]')).toBeNull();
   });
@@ -231,7 +231,7 @@ describe("About", () => {
 
   it("shows version, build, protocol and relay", async () => {
     await mount("#/about");
-    expect(detail("Version")).toBe("0.13.0");
+    expect(detail("Version")).toBe("0.14.0");
     expect(detail("Build")).toMatch(/^([0-9a-f]{4,40}|dev)$/);
     expect(detail("Built")).not.toBe("unknown");
     expect(detail("Protocol")).toBe(`v${PROTOCOL_VERSION}`);
@@ -264,7 +264,10 @@ describe("About", () => {
       "the last name you joined with",
       "Notes are stored by the relay",
       "random id the relay gave the visit that added it (not your name)",
-      "sessions don’t expire yet",
+      // Idle room expiry (v0.14.0).
+      "a session’s notes and frames are deleted automatically once nobody has been in it for 7 days",
+      "keeps only the time it expired",
+      "link stops working",
       // Slice z-order: stacking order is stored with each note.
       "stacking order (which notes are in front)",
       // Slice frames: frames are stored with the room.
@@ -282,6 +285,7 @@ describe("About", () => {
     expect(privacy).not.toContain("only checks that the relay is reachable");
     expect(privacy).not.toContain("When joining sessions arrives");
     expect(privacy).not.toContain("Nothing is saved");
+    expect(privacy).not.toContain("don’t expire");
   });
 
   it("has Privacy and Credits sections", async () => {
