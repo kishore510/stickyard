@@ -2649,7 +2649,7 @@ describe("the floating bar and Duplicate (md up)", () => {
   });
 
   it("not enough room: Duplicate is off and says how many are needed and free", async () => {
-    const full = Array.from({ length: MAX_NOTES_PER_ROOM - 1 }, (_, i) => make(i, { x: (i % 15) * 200, y: Math.floor(i / 15) * 150 }));
+    const full = Array.from({ length: MAX_NOTES_PER_ROOM - 1 }, (_, i) => make(i, { x: (i % 15) * 200, y: Math.floor(i / 15) * 130 }));
     await withBoard(full);
     await select(0);
     await select(1, { shiftKey: true });

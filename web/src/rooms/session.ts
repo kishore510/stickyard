@@ -45,6 +45,7 @@ import {
   deleteFrameLocal,
   editFrameLocal,
   findFrame,
+  isFrameHeld,
   frameChanges,
   framedNotes,
   moveFrameLocal,
@@ -70,6 +71,7 @@ import {
   deleteLocal,
   editLocal,
   findNote,
+  isHeld,
   isLocalId,
   localId,
   moveLocal,
@@ -85,6 +87,7 @@ import {
   type Board,
   type StylePatch,
 } from "../notes/board";
+import { DUPLICATE_HINTS, duplicateFrameInput, duplicateNoteInputs } from "../canvas/duplicate";
 import type { CodeCheck } from "./api";
 import { packItems, type ItemDraft, type ItemsAddMessage } from "./items";
 
@@ -132,6 +135,8 @@ export interface RoomView {
   template: TemplateRun | null;
   /** Everyone seen in this visit (including people who have left), by id: note authors' names. */
   people: ReadonlyMap<string, Participant>;
+  /** itemsAdd messages are still queued or in flight (a duplicate, a template): another waits. */
+  adding: boolean;
 }
 
 /** A delete's outcome: `partial` when some notes weren't (or may not have been) deleted. */
@@ -154,6 +159,7 @@ export const INITIAL_VIEW: RoomView = {
   synced: false,
   template: null,
   people: new Map(),
+  adding: false,
 };
 
 export const JOIN_TIMEOUT_MS = 10_000;
@@ -244,6 +250,8 @@ export const NOTICES = {
   templatePartial: "The template was only partly added. The frames that were added stay on the board; delete any you don’t want.",
   templateNoRoom: (needs: number, free: number) => `This template needs ${needs} frames, but the board has room for ${free} more.`,
   itemsNotAdded: (refused: ItemsRefused) => itemsNotice(refused),
+  duplicateNoRoom: (kind: "note" | "frame", needs: number, free: number) =>
+    kind === "note" ? DUPLICATE_HINTS.notesFull(needs, free) : DUPLICATE_HINTS.framesFull(free),
 } as const;
 
 const notesWord = (n: number) => (n === 1 ? "note" : "notes");
@@ -977,6 +985,42 @@ export class RoomSession {
     return board;
   }
 
+  /* ── Duplicate ──────────────────────────────────────────────────── */
+
+  /**
+   * Duplicates these notes (canvas/duplicate.ts: full content, one offset clamped for the group,
+   * on top in the originals' stacking order) through addItems. Refused, sending nothing, while
+   * disconnected, for a note that's missing, unsaved or being moved here, while another add run is
+   * being sent, or when the board hasn't room for every copy (a notice gives the counts). The
+   * copies' local ids (in stacking order), or null.
+   */
+  duplicateNotes(ids: readonly string[]): string[] | null {
+    if (!this.live || ids.length === 0) return null;
+    const entries = ids.map((id) => findNote(this.view.board, id));
+    if (entries.some((e) => !e || e.confirmed === null || isLocalId(e.note.id) || isHeld(e))) return null;
+    const notes = entries.flatMap((e) => (e ? [e.note] : []));
+    const free = Math.max(0, MAX_NOTES_PER_ROOM - this.view.board.notes.length);
+    if (notes.length > free) {
+      this.update({ noteNotice: NOTICES.duplicateNoRoom("note", notes.length, free) });
+      return null;
+    }
+    if (this.itemBatches.size > 0) return null;
+    return this.addItems(duplicateNoteInputs(notes))?.flatMap((id) => (id === null ? [] : [id])) ?? null;
+  }
+
+  /** Duplicates a frame alone (never its notes) through addItems, likewise. The copy's local id, or null. */
+  duplicateFrame(id: string): string | null {
+    const entry = findFrame(this.view.board, id);
+    if (!this.live || !entry || entry.confirmed === null || isLocalId(id) || isFrameHeld(entry)) return null;
+    const free = Math.max(0, MAX_FRAMES_PER_ROOM - this.view.board.frames.length);
+    if (free < 1) {
+      this.update({ noteNotice: NOTICES.duplicateNoRoom("frame", 1, free) });
+      return null;
+    }
+    if (this.itemBatches.size > 0) return null;
+    return this.addItems([duplicateFrameInput(entry.frame)])?.[0] ?? null;
+  }
+
   /* ── Templates ──────────────────────────────────────────────────── */
 
   /**
@@ -1456,7 +1500,7 @@ export class RoomSession {
   private update(patch: Partial<RoomView>): void {
     // A note action (it clears the notice) also clears the last delete's report.
     if (patch.noteNotice === null && !("deleteReport" in patch)) patch = { ...patch, deleteReport: null };
-    this.view = { ...this.view, ...patch };
+    this.view = { ...this.view, ...patch, adding: this.itemBatches.size > 0 };
     this.options.onChange(this.view);
   }
 }

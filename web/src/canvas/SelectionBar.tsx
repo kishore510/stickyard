@@ -1,6 +1,7 @@
 import { useId, type ReactNode } from "react";
 import {
   AlignCenterHorizontal,
+  Copy,
   AlignCenterVertical,
   AlignEndHorizontal,
   AlignEndVertical,
@@ -14,6 +15,7 @@ import {
   MoveVertical,
   Plus,
   Scaling,
+  Trash2,
 } from "lucide-react";
 import type { NoteRect, OrderAction } from "@stickyard/shared";
 import { Button } from "../components/ui/button";
@@ -24,10 +26,11 @@ import { GRID_GAP, align, autoColumns, distribute, grid, matchSize, type AlignMo
 import { useBoardUi } from "./uiStore";
 
 /*
- * The floating bar at the top of the canvas for a multi-selection (md and up, Select tool), as
- * Chalkline's ArrangeBar: Align, Distribute (3+ notes), Arrange (a labelled Grid button and its
- * Columns stepper), Match size and Order (front, back); the others one icon button per mode.
- * Built as a generic toolbar of groups, so a single-note toolbar can share it later.
+ * The floating bar at the top of the canvas (md and up), always there, in labelled groups:
+ * Edit (Duplicate, Delete), Order (Bring to front, Send to back) and Arrange (Align,
+ * Distribute, Grid with its Columns stepper, Match size: Chalkline's ArrangeBar). A command that
+ * doesn't apply now is disabled, never hidden, and its group says why as text (each disabled
+ * button points at that text with aria-describedby). Edit and Order show their names from lg up.
  */
 
 export interface BarCommand {
@@ -36,41 +39,61 @@ export interface BarCommand {
   disabled?: boolean;
   /** Shown instead of the title while disabled. */
   hint?: string;
+  /** Shows the title as text next to the icon from lg up (it's always the accessible name). */
+  text?: boolean;
   run: () => void;
 }
 
 export interface BarGroup {
   label: string;
   commands: BarCommand[];
-  /** Controls of the group's own, after its commands. */
-  content?: ReactNode;
+  /** Controls of the group's own, after its commands; given the id of the group's hint text. */
+  content?: (hintId: string | undefined) => ReactNode;
+  /** Why commands in this group are off, shown as text after them (repeats are shown once). */
+  hints?: (string | null)[];
 }
 
-/** A floating toolbar of labelled groups with dividers between them. */
+function BarGroupView({ group, first }: { group: BarGroup; first: boolean }) {
+  const hintId = useId();
+  const hints = [...new Set((group.hints ?? []).filter((h): h is string => h !== null))];
+  return (
+    <div className="flex max-w-full items-center">
+      {!first && <div aria-hidden="true" className="mx-xs h-icon-lg w-px bg-border" />}
+      <div role="group" aria-label={group.label} className="flex min-w-0 flex-wrap items-center gap-2xs">
+        <span className="px-xs text-xs font-medium text-fg-muted">{group.label}</span>
+        {group.commands.map((c) => (
+          <Button
+            key={c.title}
+            variant="ghost"
+            size={c.text ? "default" : "icon"}
+            aria-label={c.title}
+            title={c.disabled && c.hint ? c.hint : c.title}
+            aria-describedby={c.disabled && hints.length > 0 ? hintId : undefined}
+            disabled={c.disabled}
+            onClick={c.run}
+            className={cn(c.text && "min-w-touch px-sm")}
+          >
+            {c.icon}
+            {c.text && <span className="hidden lg:inline">{c.title}</span>}
+          </Button>
+        ))}
+        {group.content?.(hints.length > 0 ? hintId : undefined)}
+        {hints.length > 0 && (
+          <span id={hintId} data-bar-hint="" className="px-xs text-xs text-fg-muted">
+            {hints.join(" ")}
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** A floating toolbar of labelled groups with dividers between them; it wraps when narrow. */
 export function FloatingBar({ label, groups }: { label: string; groups: BarGroup[] }) {
   return (
     <Panel role="toolbar" aria-label={label} className="pointer-events-auto flex max-w-full flex-wrap items-center justify-center gap-x-xs p-xs shadow-lg">
       {groups.map((group, i) => (
-        <div key={group.label} className="flex items-center">
-          {i > 0 && <div aria-hidden="true" className="mx-xs h-icon-lg w-px bg-border" />}
-          <div role="group" aria-label={group.label} className="flex items-center gap-2xs">
-            <span className="px-xs text-xs font-medium text-fg-muted">{group.label}</span>
-            {group.commands.map((c) => (
-              <Button
-                key={c.title}
-                variant="ghost"
-                size="icon"
-                aria-label={c.title}
-                title={c.disabled && c.hint ? c.hint : c.title}
-                disabled={c.disabled}
-                onClick={c.run}
-              >
-                {c.icon}
-              </Button>
-            ))}
-            {group.content}
-          </div>
-        </div>
+        <BarGroupView key={group.label} group={group} first={i === 0} />
       ))}
     </Panel>
   );
@@ -100,7 +123,7 @@ export const DISTRIBUTE_HINT = "Select 3 or more notes to distribute.";
 
 /** Why Grid is off, shown next to it. */
 export const GRID_HINTS = {
-  few: "Select 2 or more notes for a grid.",
+  few: "Select 2 or more notes to arrange.",
   offline: "Not connected.",
   held: "Finish moving or resizing first.",
   unsaved: "Wait until new notes are saved.",
@@ -124,30 +147,30 @@ export function gridDisabledReason({ count, live, held, unsaved }: { count: numb
 
 /**
  * Grid and its Columns stepper (1 to the count; Auto = autoColumns). The chosen count lives in
- * uiStore for the session, and is kept within the count of the current selection.
+ * uiStore for the session, and is kept within the count of the current selection. Why Grid is
+ * off is the Arrange group's hint (`hintId`).
  */
-function GridControls({ notes, reason, onGrid }: { notes: Placed[]; reason: string | null; onGrid: (columns: number) => void }) {
+function GridControls({ notes, reason, hintId, onGrid }: { notes: Placed[]; reason: string | null; hintId: string | undefined; onGrid: (columns: number) => void }) {
   const chosen = useBoardUi((s) => s.gridColumns);
   const setColumns = useBoardUi((s) => s.setGridColumns);
-  const hintId = useId();
-  const count = notes.length;
-  const auto = autoColumns(notes);
+  const count = Math.max(1, notes.length);
+  const auto = notes.length > 0 ? autoColumns(notes) : 1;
   const columns = chosen === null ? auto : Math.min(Math.max(1, chosen), count);
   return (
     <>
-      <Button variant="ghost" title="Lay out in a grid" aria-describedby={reason ? hintId : undefined} disabled={reason !== null} onClick={() => onGrid(columns)}>
+      <Button variant="ghost" title="Lay out in a grid" aria-describedby={reason ? hintId : undefined} disabled={reason !== null} onClick={() => onGrid(columns)} className="px-sm">
         <LayoutGrid />
         Grid
       </Button>
       <div role="group" aria-label="Columns" className="flex items-center">
         <span className="px-xs text-xs text-fg-muted">Columns</span>
-        <Button variant="ghost" size="icon" aria-label="Fewer columns" title="Fewer columns" disabled={columns <= 1} onClick={() => setColumns(columns - 1)}>
+        <Button variant="ghost" size="icon" aria-label="Fewer columns" title="Fewer columns" aria-describedby={columns <= 1 ? hintId : undefined} disabled={columns <= 1} onClick={() => setColumns(columns - 1)}>
           <Minus />
         </Button>
         <output data-grid-columns="" aria-live="polite" className="min-w-touch text-center text-sm tabular-nums">
           {chosen === null ? `Auto (${columns})` : columns}
         </output>
-        <Button variant="ghost" size="icon" aria-label="More columns" title="More columns" disabled={columns >= count} onClick={() => setColumns(columns + 1)}>
+        <Button variant="ghost" size="icon" aria-label="More columns" title="More columns" aria-describedby={columns >= count ? hintId : undefined} disabled={columns >= count} onClick={() => setColumns(columns + 1)}>
           <Plus />
         </Button>
         <Button
@@ -161,58 +184,90 @@ function GridControls({ notes, reason, onGrid }: { notes: Placed[]; reason: stri
           Auto
         </Button>
       </div>
-      {reason && (
-        <span id={hintId} className="px-xs text-xs text-fg-muted">
-          {reason}
-        </span>
-      )}
     </>
   );
 }
 
-/**
- * Arrange commands for the selected notes (in selection order: the first is Match size's
- * reference). `apply` sends the changed rects; `order` restacks them; `notice` tells why a grid
- * didn't fit. Everything is off while disconnected; Grid also while a note in the selection is
- * held or unsaved.
- */
-export function SelectionBar({
-  notes,
-  live,
-  held,
-  unsaved,
-  apply,
-  order,
-  notice,
-}: {
+/** Why Order is off: frames always sit behind notes, so only notes restack. */
+export const ORDER_HINTS = {
+  none: "Select notes to restack them.",
+  frame: "Frames always sit behind notes.",
+  offline: "Not connected.",
+} as const;
+
+/** Why Delete is off. */
+export const DELETE_HINTS = {
+  none: "Select notes or a frame first.",
+  offline: "Not connected.",
+} as const;
+
+export interface BoardBarProps {
+  /** Selected notes, in selection order (the first is Match size's reference). */
   notes: Placed[];
+  /** A frame is selected (instead of notes). */
+  frame: boolean;
   live: boolean;
+  /** A selected note is being moved or resized here. */
   held: boolean;
+  /** A selected note has no server id yet. */
   unsaved: boolean;
+  /** Why Duplicate is off (canvas/duplicate.ts), or null. */
+  duplicateReason: string | null;
+  duplicate: () => void;
+  /** Deletes the selection (notes or the frame), asking as the Delete key does. */
+  remove: () => void;
   apply: (rects: (NoteRect & { id: string })[]) => void;
   order: (action: OrderAction) => void;
   notice: (text: string) => void;
-}) {
+}
+
+/**
+ * The bar's groups for the current selection. Edit: Duplicate and Delete. Order: Bring to front
+ * and Send to back for notes. Arrange (2+ notes; Distribute 3+): `apply` sends the changed rects;
+ * `notice` tells why a grid didn't fit. Everything is off while disconnected; Grid also while a
+ * note in the selection is held or unsaved.
+ */
+export function BoardBar({ notes, frame, live, held, unsaved, duplicateReason, duplicate, remove, apply, order, notice }: BoardBarProps) {
   const send = (changes: Map<string, NoteRect>) => apply([...changes].map(([id, rect]) => ({ id, ...rect })));
-  const canDistribute = notes.length >= 3;
-  const gridReason = gridDisabledReason({ count: notes.length, live, held, unsaved });
+  const count = notes.length;
+  const canArrange = live && count >= 2;
+  const canDistribute = canArrange && count >= 3;
+  const gridReason = gridDisabledReason({ count, live, held, unsaved });
   const runGrid = (columns: number) => {
     const result = grid(notes, columns, GRID_GAP);
     if (result.reason) notice(GRID_NO_ROOM[result.reason]);
     else send(result.changes);
   };
+  const deleteReason = count === 0 && !frame ? DELETE_HINTS.none : !live ? DELETE_HINTS.offline : null;
+  const orderReason = count === 0 ? (frame ? ORDER_HINTS.frame : ORDER_HINTS.none) : !live ? ORDER_HINTS.offline : null;
+  const arrangeHints = [gridReason, count === 2 && live ? DISTRIBUTE_HINT : null];
   return (
     <FloatingBar
-      label="Selection"
+      label="Board actions"
       groups={[
-        { label: "Align", commands: ALIGN.map((a) => ({ ...a, disabled: !live, run: () => send(align(notes, a.mode)) })) },
         {
-          label: "Distribute",
-          commands: DISTRIBUTE.map((d) => ({ ...d, disabled: !live || !canDistribute, ...(canDistribute ? {} : { hint: DISTRIBUTE_HINT }), run: () => send(distribute(notes, d.axis)) })),
+          label: "Edit",
+          commands: [
+            { title: "Duplicate", icon: <Copy />, text: true, disabled: duplicateReason !== null, ...(duplicateReason ? { hint: duplicateReason } : {}), run: duplicate },
+            { title: "Delete", icon: <Trash2 />, text: true, disabled: deleteReason !== null, ...(deleteReason ? { hint: deleteReason } : {}), run: remove },
+          ],
+          hints: [duplicateReason, deleteReason],
         },
-        { label: "Arrange", commands: [], content: <GridControls notes={notes} reason={gridReason} onGrid={runGrid} /> },
-        { label: "Match size", commands: MATCH.map((m) => ({ ...m, disabled: !live, run: () => send(matchSize(notes, m.mode)) })) },
-        { label: "Order", commands: ORDER_COMMANDS.map((c) => ({ title: c.label, icon: c.icon, disabled: !live, run: () => order(c.action) })) },
+        {
+          label: "Order",
+          commands: ORDER_COMMANDS.map((c) => ({ title: c.label, icon: c.icon, text: true, disabled: orderReason !== null, run: () => order(c.action) })),
+          hints: [orderReason],
+        },
+        {
+          label: "Arrange",
+          commands: [
+            ...ALIGN.map((a) => ({ ...a, disabled: !canArrange, run: () => send(align(notes, a.mode)) })),
+            ...DISTRIBUTE.map((d) => ({ ...d, disabled: !canDistribute, ...(count === 2 ? { hint: DISTRIBUTE_HINT } : {}), run: () => send(distribute(notes, d.axis)) })),
+            ...MATCH.map((m) => ({ ...m, disabled: !canArrange, run: () => send(matchSize(notes, m.mode)) })),
+          ],
+          content: (hintId) => <GridControls notes={notes} reason={gridReason} hintId={hintId} onGrid={runGrid} />,
+          hints: arrangeHints,
+        },
       ]}
     />
   );

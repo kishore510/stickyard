@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   BOARD_HEIGHT,
@@ -60,7 +61,7 @@ const frame = (i: number, extra: Partial<Frame> = {}): Frame => ({
 
 describe("the duplicate offset", () => {
   it("is mirrored by --sy-duplicate-offset in tokens.css", () => {
-    const tokens = readFileSync(new URL("../src/styles/tokens.css", import.meta.url), "utf8");
+    const tokens = readFileSync(resolve(import.meta.dirname, "../src/styles/tokens.css"), "utf8");
     expect(DUPLICATE_OFFSET).toBeGreaterThan(0);
     expect(tokens).toContain(`--sy-duplicate-offset: ${DUPLICATE_OFFSET}px;`);
   });
