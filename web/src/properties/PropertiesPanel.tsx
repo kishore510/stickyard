@@ -1,5 +1,5 @@
-import type { ReactNode } from "react";
-import { Trash2 } from "lucide-react";
+import { useId, type ReactNode } from "react";
+import { Eraser, Trash2 } from "lucide-react";
 import { BOARD_HEIGHT, BOARD_WIDTH, MAX_NOTES_PER_ROOM, NOTE_STYLE_FIELDS, type FrameColor, type Note, type OrderAction, type Participant } from "@stickyard/shared";
 import { Button } from "../components/ui/button";
 import { useBoardUi } from "../canvas/uiStore";
@@ -13,6 +13,7 @@ import { authorName, confirmDelete, confirmDeleteNotes } from "../notes/label";
 import { NoteFields } from "../notes/NoteFields";
 import { OrderSection } from "../notes/OrderFields";
 import { ColourSection, PartTextSection, SizeSection, type MixedFields } from "../notes/StyleFields";
+import { clearBoardReason, confirmClearBoard } from "./clearBoard";
 
 /*
  * The Properties panel's content (md and up, inside the SidePanel frame), laid out like
@@ -41,6 +42,12 @@ export interface PropertiesRoom {
   editFrame(id: string, change: FrameEdit): boolean;
   setFrameSize(id: string, w: number, h: number): boolean;
   deleteFrame(id: string): void;
+  /** Deletes every note and frame (asked first here); false if it couldn't start. */
+  clearBoard(): boolean;
+  /** An add run (template, duplicate, restore) is still being sent. */
+  adding: boolean;
+  /** A clear is still running. */
+  clearing: boolean;
 }
 
 /** The style and size fields whose values differ between these notes. */
@@ -73,13 +80,37 @@ function SelectionFields({ notes, live, onOrder }: { notes: Note[]; live: boolea
   );
 }
 
-function Summary({ count }: { count: number }) {
+/** Nothing selected: the board's counts, and Clear board (asks once; one undo brings it all back). */
+function Summary({ room }: { room: PropertiesRoom }) {
+  const hintId = useId();
+  const notes = room.board.notes.length;
+  const frames = room.board.frames.length;
+  const reason = clearBoardReason({ live: room.live, notes, frames, busy: room.adding, clearing: room.clearing });
   return (
     <>
       <p className="text-sm text-fg-muted tabular-nums">
-        {count} of {MAX_NOTES_PER_ROOM} notes. Board size {BOARD_WIDTH} × {BOARD_HEIGHT}.
+        {notes} of {MAX_NOTES_PER_ROOM} notes. Board size {BOARD_WIDTH} × {BOARD_HEIGHT}.
       </p>
       <p className="text-sm text-fg-muted">Select a note to see and edit it here.</p>
+      <div className="flex flex-col gap-xs">
+        <Button
+          aria-describedby={reason ? hintId : undefined}
+          disabled={reason !== null}
+          onClick={() => {
+            if (!confirmClearBoard(notes, frames)) return;
+            if (room.clearBoard()) useBoardUi.getState().clearSelection();
+          }}
+          className="self-start text-status-error"
+        >
+          <Eraser />
+          Clear board
+        </Button>
+        {reason && (
+          <p id={hintId} className="text-xs text-fg-muted">
+            {reason}
+          </p>
+        )}
+      </div>
     </>
   );
 }
@@ -190,7 +221,7 @@ export function PropertiesContent({ room, collapse }: { room: PropertiesRoom; co
             onFocused={() => useBoardUi.setState({ editRequest: null })}
           />
         ) : (
-          <Summary count={room.board.notes.length} />
+          <Summary room={room} />
         )}
       </div>
     </div>

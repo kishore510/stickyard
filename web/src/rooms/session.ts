@@ -142,6 +142,8 @@ export interface RoomView {
   history: { undo: string | null; redo: string | null };
   /** A restore in progress ("Restoring 120 of 200…"), or how the last undo or redo went, until the next note action. */
   historyReport: DeleteReport | null;
+  /** Clear board is still deleting (another waits); its outcome is `deleteReport`. */
+  clearing: boolean;
 }
 
 /** A delete's outcome: `partial` when some notes weren't (or may not have been) deleted. */
@@ -167,6 +169,7 @@ export const INITIAL_VIEW: RoomView = {
   adding: false,
   history: { undo: "Not connected.", redo: "Not connected." },
   historyReport: null,
+  clearing: false,
 };
 
 /** What Undo and Redo say (with HISTORY_TEXT from the history itself). */
@@ -202,6 +205,12 @@ export const GROUP_MOVE_INTERVAL_MS = 100;
 export const ITEMS_MESSAGES_PER_SECOND = 10;
 /** The gap between itemsAdd messages. */
 export const ITEMS_STEP_MS = 1000 / ITEMS_MESSAGES_PER_SECOND;
+
+/**
+ * Clear board sends one frameDelete this often (20 a second): with its four batches of note
+ * deletes, inside the relay's SOCKET_LIMITS (30 a second, burst 40).
+ */
+export const CLEAR_FRAME_STEP_MS = 50;
 
 /** A template run: `frameIds` are the frames it made (server ids, in template order) once it ends. */
 export interface TemplateRun {
@@ -329,6 +338,52 @@ interface DeleteRun {
   tooQuick: boolean;
 }
 
+/** Clear board in flight: per kind, what the relay hasn't answered for yet, and what it refused. */
+interface ClearRun {
+  notes: ClearPart;
+  frames: ClearPart & { queue: string[] };
+}
+interface ClearPart {
+  total: number;
+  /** Server ids waiting for the relay. */
+  ids: Set<string>;
+  /** Adds deleted before they were confirmed (their clientRefs). */
+  refs: Set<string>;
+  refused: number;
+  tooQuick: boolean;
+}
+
+const word = (n: number, kind: string) => `${n} ${kind}${n === 1 ? "" : "s"}`;
+
+/** Clear board's outcome, once every note and frame in it is accounted for (or the connection was lost). */
+export function clearReportFor(
+  notes: { total: number; refused: number; lost: number; tooQuick: boolean },
+  frames: { total: number; refused: number; lost: number; tooQuick: boolean },
+): DeleteReport {
+  const done = (p: typeof notes) => p.total - p.refused - p.lost;
+  if (notes.refused + notes.lost + frames.refused + frames.lost === 0) {
+    const parts = [notes.total > 0 ? word(notes.total, "note") : null, frames.total > 0 ? word(frames.total, "frame") : null].filter((p) => p !== null);
+    return { text: `Cleared the board: deleted ${parts.join(" and ")}.`, partial: false };
+  }
+  const of = (p: typeof notes, kind: string) => (p.total > 0 ? `${done(p)} of ${word(p.total, kind)}` : null);
+  const parts = [`Deleted ${[of(notes, "note"), of(frames, "frame")].filter((p) => p !== null).join(" and ")}.`];
+  const refused = (p: typeof notes, kind: string) => {
+    if (p.refused === 0) return;
+    const one = p.refused === 1;
+    const why = p.tooQuick ? "that was too quick" : `the relay refused ${one ? "it" : "them"}`;
+    parts.push(`${word(p.refused, kind)} ${one ? "wasn’t" : "weren’t"} deleted because ${why}; ${one ? "it’s" : "they’re"} back on the board.`);
+  };
+  refused(notes, "note");
+  refused(frames, "frame");
+  const lost = notes.lost + frames.lost;
+  if (lost > 0) {
+    const kind = notes.lost === 0 ? "frame" : frames.lost === 0 ? "note" : "item";
+    parts.push(`The connection was lost before ${word(lost, kind)} ${lost === 1 ? "was" : "were"} deleted, so ${lost === 1 ? "it" : "they"} may still be on the board.`);
+  }
+  if (notes.refused + frames.refused > 0) parts.push("Nothing was retried.");
+  return { text: parts.join(" "), partial: true };
+}
+
 const randomRef = (): string => {
   const bytes = crypto.getRandomValues(new Uint8Array(9));
   return btoa(String.fromCharCode(...bytes)).replaceAll("+", "-").replaceAll("/", "_");
@@ -398,6 +453,9 @@ export class RoomSession {
   private readonly history = new History();
   /** Items being added back by an undo or redo, if any. */
   private restoreRun: ItemsRun | null = null;
+  /** Clear board in flight, and its frame-delete pacing timer. */
+  private clearRun: ClearRun | null = null;
+  private clearTimer: ReturnType<typeof setTimeout> | undefined;
 
   constructor(private readonly options: SessionOptions) {}
 
@@ -691,6 +749,7 @@ export class RoomSession {
   /** The relay deleted a note (ours or someone else's): one fewer to hear about. */
   private deleteDone(id: string): void {
     this.deleteRun?.ids.delete(id);
+    this.clearRun?.notes.ids.delete(id);
   }
 
   /** Reports the delete once nothing in it is left to hear about. */
@@ -1022,7 +1081,11 @@ export class RoomSession {
     this.itemSettled(run, ref, null);
     this.history.refuse(kind, localId(ref));
     const deletedHere = kind === "note" ? this.abandoned.delete(ref) : this.abandonedFrames.delete(ref);
-    if (deletedHere) this.deleteRun?.refs.delete(ref);
+    if (deletedHere) {
+      this.deleteRun?.refs.delete(ref);
+      this.clearRun?.notes.refs.delete(ref);
+      this.clearRun?.frames.refs.delete(ref);
+    }
     else run.refused[refusalKey(reason)]++;
     return kind === "note" ? rejectAdd(board, ref) : rejectFrameAdd(board, ref);
   }
@@ -1110,6 +1173,94 @@ export class RoomSession {
     }
     if (this.itemBatches.size > 0) return null;
     return this.addItems([duplicateFrameInput(entry.frame)], "Duplicate")?.[0] ?? null;
+  }
+
+  /* ── Clear board ────────────────────────────────────────────────── */
+
+  /**
+   * Deletes every note and frame, for everyone: the notes first as batches of deletes (as Delete
+   * does, unconfirmed ones once confirmed), then the frames one frameDelete each, every
+   * CLEAR_FRAME_STEP_MS. One history step holds whatever was actually deleted, so one undo brings
+   * it back. Nothing is retried; `deleteReport` says how it went once everything is answered.
+   * Refused (false, nothing sent) while disconnected, on an empty board, while an add run (a
+   * template, a duplicate, a restore) is being sent, or while another clear runs.
+   */
+  clearBoard(): boolean {
+    if (!this.live || this.clearRun || this.restoreRun || this.template || this.itemBatches.size > 0) return false;
+    const { notes, frames } = this.view.board;
+    if (notes.length + frames.length === 0) return false;
+    const part = (): ClearPart => ({ total: 0, ids: new Set(), refs: new Set(), refused: 0, tooQuick: false });
+    const run: ClearRun = { notes: part(), frames: { ...part(), queue: [] } };
+    let board = this.view.board;
+    const ops: NoteBatchEntry[] = [];
+    const removedNotes: Note[] = [];
+    for (const entry of notes) {
+      const id = entry.note.id;
+      this.stopMove(id);
+      this.stopResize(id);
+      board = deleteLocal(board, id);
+      run.notes.total++;
+      if (entry.clientRef !== null) {
+        this.abandoned.add(entry.clientRef);
+        run.notes.refs.add(entry.clientRef);
+        this.history.refuse("note", id);
+      } else {
+        ops.push({ op: "delete", id });
+        run.notes.ids.add(id);
+        removedNotes.push(entry.note);
+      }
+    }
+    const removedFrames: Frame[] = [];
+    for (const entry of frames) {
+      const id = entry.frame.id;
+      run.frames.total++;
+      if (entry.clientRef !== null) {
+        // Not on the relay yet: gone here now, deleted once confirmed.
+        board = deleteFrameLocal(board, id);
+        this.abandonedFrames.add(entry.clientRef);
+        run.frames.refs.add(entry.clientRef);
+        this.history.refuse("frame", id);
+      } else {
+        run.frames.queue.push(id);
+        removedFrames.push(entry.frame);
+      }
+    }
+    this.clearRun = run;
+    this.update({ board, noteNotice: null });
+    this.recordRemoval("Clear board", removedNotes, removedFrames);
+    this.sendBatch(ops, true);
+    this.pumpClear();
+    return true;
+  }
+
+  /** Sends the next frameDelete of a clear, then waits CLEAR_FRAME_STEP_MS. */
+  private pumpClear(): void {
+    const run = this.clearRun;
+    if (!run || this.clearTimer !== undefined || !this.live) return;
+    const id = run.frames.queue.shift();
+    if (id === undefined) return this.settleClear();
+    const entry = findFrame(this.view.board, id);
+    if (entry) {
+      this.stopFrameMove(id);
+      this.stopFrameResize(id);
+      run.frames.ids.add(id);
+      this.update({ board: deleteFrameLocal(this.view.board, id) });
+      this.send({ type: "frameDelete", id });
+    }
+    this.clearTimer = setTimeout(() => {
+      this.clearTimer = undefined;
+      this.pumpClear();
+    }, CLEAR_FRAME_STEP_MS);
+  }
+
+  /** Reports the clear once nothing in it is left to send or hear about. */
+  private settleClear(): void {
+    const run = this.clearRun;
+    if (!run) return;
+    const { notes, frames } = run;
+    if (notes.ids.size + notes.refs.size + frames.ids.size + frames.refs.size + frames.queue.length > 0) return;
+    this.clearRun = null;
+    this.update({ deleteReport: clearReportFor({ ...notes, lost: 0 }, { ...frames, lost: 0 }) });
   }
 
   /* ── Undo and redo (history/history.ts) ─────────────────────────── */
@@ -1470,6 +1621,8 @@ export class RoomSession {
     clearTimeout(this.itemTimer);
     this.template = null;
     this.restoreRun = null;
+    this.clearRun = null;
+    clearTimeout(this.clearTimer);
     this.history.clear();
     this.stopAllMoves();
     this.socket?.close();
@@ -1498,6 +1651,11 @@ export class RoomSession {
       this.itemQueue = [];
       const restore = this.restoreRun;
       this.restoreRun = null;
+      // A clear cut off: frames not sent yet stay; what was in flight may not have gone.
+      const clear = this.clearRun;
+      this.clearRun = null;
+      clearTimeout(this.clearTimer);
+      this.clearTimer = undefined;
       const board = this.cancelQueued(null, this.view.board);
       this.itemBatches.clear();
       // Ids and revs can't be trusted after this: the history goes.
@@ -1507,6 +1665,14 @@ export class RoomSession {
         status: "disconnected",
         board,
         ...(run ? { deleteReport: deleteReportFor({ ...run, lost }) } : {}),
+        ...(clear
+          ? {
+              deleteReport: clearReportFor(
+                { ...clear.notes, lost: clear.notes.ids.size + clear.notes.refs.size },
+                { ...clear.frames, lost: clear.frames.ids.size + clear.frames.refs.size + clear.frames.queue.length },
+              ),
+            }
+          : {}),
         ...(restore ? { historyReport: { text: UNDO_TEXT.restoreLost(restoredCount(restore), restore.refs.length), partial: true } } : {}),
         ...this.templateEnd("partial"),
       });
@@ -1526,6 +1692,7 @@ export class RoomSession {
     const before = this.view.board;
     this.handle(parsed.value);
     this.observe(before, this.view.board);
+    this.settleClear();
   }
 
   private handle(message: ServerMessage): void {
@@ -1649,6 +1816,7 @@ export class RoomSession {
         return this.update({ board: applyFrameResized(this.view.board, message) });
 
       case "frameDeleted":
+        this.clearRun?.frames.ids.delete(message.id);
         this.stopFrameMove(message.id);
         this.stopFrameResize(message.id);
         return this.update({ board: applyFrameDeleted(this.view.board, message.id) });
@@ -1705,8 +1873,9 @@ export class RoomSession {
     if (clientRef !== undefined && this.abandoned.delete(clientRef)) {
       // Deleted here before the server confirmed it.
       next = deleteLocal(next, note.id);
-      this.send({ type: "noteDelete", id: note.id });
       if (this.deleteRun?.refs.delete(clientRef)) this.deleteRun.ids.add(note.id);
+      if (this.clearRun?.notes.refs.delete(clientRef)) this.clearRun.notes.ids.add(note.id);
+      this.send({ type: "noteDelete", id: note.id });
     } else if (temp) {
       this.history.confirmAdd("note", temp.note.id, note.id, note.rev);
       // Text, colour or style committed while the add was in flight: one edit with all of it.
@@ -1726,6 +1895,7 @@ export class RoomSession {
     let next = applyFrameAdded(board, frame, clientRef);
     if (clientRef !== undefined && this.abandonedFrames.delete(clientRef)) {
       next = deleteFrameLocal(next, frame.id);
+      if (this.clearRun?.frames.refs.delete(clientRef)) this.clearRun.frames.ids.add(frame.id);
       this.send({ type: "frameDelete", id: frame.id });
     } else if (temp) {
       this.history.confirmAdd("frame", temp.frame.id, frame.id, frame.rev);
@@ -1758,6 +1928,25 @@ export class RoomSession {
           run.tooQuick ||= message.code === "rate_limited";
         } else ours = false;
       }
+    }
+    // Refusals that only touch a clear in flight are told in its report too.
+    const clear = this.clearRun;
+    if (clear) {
+      let all = true;
+      if (message.clientRef !== undefined && !clear.notes.refs.delete(message.clientRef) && !clear.frames.refs.delete(message.clientRef)) all = false;
+      for (const id of noteIds) {
+        if (clear.notes.ids.delete(id)) {
+          clear.notes.refused++;
+          clear.notes.tooQuick ||= message.code === "rate_limited";
+        } else all = false;
+      }
+      if (message.frameId !== undefined) {
+        if (clear.frames.ids.delete(message.frameId)) {
+          clear.frames.refused++;
+          clear.frames.tooQuick ||= message.code === "rate_limited";
+        } else all = false;
+      }
+      if (all && (message.clientRef !== undefined || noteIds.length > 0 || message.frameId !== undefined)) ours = true;
     }
     if (message.clientRef !== undefined) {
       this.history.refuse("note", localId(message.clientRef));
@@ -1832,6 +2021,7 @@ export class RoomSession {
       ...this.view,
       ...patch,
       adding: this.itemBatches.size > 0,
+      clearing: this.clearRun !== null,
       ...(restore ? { historyReport: { text: UNDO_TEXT.restoring(restoredCount(restore), restore.refs.length), partial: false } } : {}),
     };
     this.view = { ...this.view, history: this.historyReasons() };

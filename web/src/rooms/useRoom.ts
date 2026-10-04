@@ -73,6 +73,7 @@ export function useRoom(code: string) {
     resizeFrame: (id: string, rect: NoteRect, final: boolean) => session.current?.resizeFrame(id, rect, final),
     setFrameSize: (id: string, w: number, h: number) => session.current?.setFrameSize(id, w, h) ?? false,
     deleteFrame: (id: string) => session.current?.deleteFrame(id),
+    clearBoard: () => session.current?.clearBoard() ?? false,
     undo: () => session.current?.undo(),
     redo: () => session.current?.redo(),
     duplicateNotes: (ids: readonly string[]) => session.current?.duplicateNotes(ids) ?? null,

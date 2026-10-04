@@ -506,6 +506,9 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
                 editFrame: room.editFrame,
                 setFrameSize: room.setFrameSize,
                 deleteFrame: room.deleteFrame,
+                clearBoard: room.clearBoard,
+                adding: view.adding,
+                clearing: view.clearing,
               }}
             />
           )}
