@@ -2,6 +2,22 @@
 
 All notable changes to Stickyard, newest first. The format follows Keep a Changelog. Versions are 0.x: a minor bump for each slice and a patch bump for each follow-up fix. This file is shown in the app under **What’s new**, so entries are written for the people using it.
 
+## [0.13.0] - 2026-10-04
+
+### Added
+- If the connection drops, Stickyard now reconnects by itself: it tries again after about 1 second, then 2, 4 and so on up to 30 seconds, eight times in all. It also tries straight away when your network comes back or you return to the tab. If it still can't get through, it says **Offline** and offers **Rejoin**, which starts again. You rejoin with the same name, without being asked.
+- A status at the top of the board says what's happening: **Reconnecting…** (with which try it's on), **You're offline**, **the session is full** (with **Rejoin**), or that the relay may be unreachable or over its daily limit. In that last case it checks once a minute and says when the limit resets (00:00 UTC). The board stays on screen, read-only, until you're back.
+- On a wider screen, the **Participants** button now shows the people in the session as small round faces with their initials: you first, then up to two more, then **+N** for the rest. On a phone it shows how many people are here. Either way it opens the Participants panel.
+- A short message at the top of the board says who joined or left. When lots of people arrive at once it says so in one message ("5 people joined"). You don't get one for yourself, for the people already there when you join, or for someone who drops out and comes straight back.
+
+### Changed
+- After a reconnect, the board reloads from the relay, so it shows exactly what's saved.
+- Changes the relay hadn't confirmed when the connection dropped are undone on your screen, and one message says how many may not have been saved. Text you were typing into a note is kept, and saved once you're back. If that note was deleted meanwhile, the board offers your text back as a new note.
+- Undo and Redo start afresh after a reconnect.
+
+### Fixed
+- The Undo and Redo buttons now update when a change that was waiting to be saved is given up on after 10 seconds. Before, they could keep saying "Wait until your last change is saved."
+
 ## [0.12.0] - 2026-10-04
 
 ### Added
