@@ -55,7 +55,7 @@ Endpoints (all browser calls are Origin-checked; see below):
 
 | Endpoint | What |
 |---|---|
-| `GET /health` | `{ "ok": true, "protocolVersion": 2 }`. No Durable Object. Used for the start page's status line |
+| `GET /health` | `{ "ok": true, "protocolVersion": <PROTOCOL_VERSION> }` (10 at v0.10.2). No Durable Object. Used for the start page's status line |
 | `POST /rooms` | Body `{ "passcode": "..." }` (max 1 KB). `200 { code }`, `401 invalid_passcode`, `429 rate_limited` + `Retry-After`, `503 creation_disabled` / `not_configured`, `400` / `413` |
 | `GET /rooms/check?room=<code>` | `200` if the code's signature is valid, else `404`. No Durable Object |
 | `GET /ws?room=<code>` | The room WebSocket. Origin, then signature, then the room's Durable Object. Invalid codes: one generic `404` |

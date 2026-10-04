@@ -2,7 +2,7 @@
 title: Notes
 order: 3
 summary: Add notes from the palette, edit, colour, style and resize them in Properties, bring them to the front or send them to the back, group them in frames, start from a template, select several to move, arrange or delete together; pan, zoom and fit the board.
-keywords: template, templates, retro, retrospective, start stop continue, 2x2, matrix, impact, effort, sprint, planning, kanban, frame, frames, area, section, title, carry, front, back, order, stack, overlap, behind, top, bottom, inline, place, double-click, marquee, multi, several, many, group, arrange, align, distribute, match, right-click, middle, note, notes, sticky, board, add, edit, move, drag, delete, colour, color, text, title, body, size, width, height, bigger, smaller, handle, corner, font, bold, italic, align, alignment, left, centre, center, right, style, palette, tile, properties, panel, select, selection, collapse, resize, pan, hand, zoom, pinch, wheel, fit, overview, map, shortcut, full, saved
+keywords: tick, outline, template, templates, retro, retrospective, start stop continue, 2x2, matrix, impact, effort, sprint, planning, kanban, frame, frames, area, section, title, carry, front, back, order, stack, overlap, behind, top, bottom, inline, place, double-click, marquee, multi, several, many, group, arrange, align, distribute, match, right-click, middle, note, notes, sticky, board, add, edit, move, drag, delete, colour, color, text, title, body, size, width, height, bigger, smaller, handle, corner, font, bold, italic, align, alignment, left, centre, center, right, style, palette, tile, properties, panel, select, selection, collapse, resize, pan, hand, zoom, pinch, wheel, fit, overview, map, shortcut, full, saved
 ---
 Every session has one shared **board**. Everyone in the session sees the same notes, and changes show up for everyone as they happen. The board fills the screen; its edge is the outline around the dotted area, and notes always stay inside it.
 
@@ -16,7 +16,7 @@ Every session has one shared **board**. Everyone in the session sees the same no
 
 ## Selecting a note
 
-- Click a note, or move to it with **Tab**, to select it. It gets a coloured outline. Click an empty part of the board, or press **Esc**, to clear the selection.
+- Click a note, or move to it with **Tab**, to select it. It gets a thick coloured outline. Click an empty part of the board, or press **Esc**, to clear the selection.
 - On a wider screen, the **Properties** panel on the right shows the selected note. With nothing selected, it shows how many notes the board has and its size.
 
 ## Selecting several notes
@@ -26,8 +26,10 @@ On a wider screen, with a mouse:
 - Drag across an empty part of the board to draw a **marquee**: every note it touches is selected. Hold **Shift** while you start dragging to add to what's already selected.
 - **Shift**-click or **Ctrl**-click (**Cmd**-click on a Mac) a note to add it to the selection, or take it out.
 - **Ctrl+A** (**Cmd+A**) selects every note. **Esc**, or a click on an empty part of the board, clears the selection.
+- Each selected note has a thick outline and a tick in its corner, and a dashed box surrounds the whole selection, so it's easy to see what's selected.
 - Drag any selected note to move them all together. They keep their places relative to each other, and stop together at the edge of the board. Dragging a note that isn't selected selects just that note.
-- With a note of the selection focused, the **arrow keys** move them all (**Shift** for bigger steps), and **Delete** deletes them all (you're asked first if any has text).
+- With a note of the selection focused, the **arrow keys** move them all (**Shift** for bigger steps).
+- **Delete** deletes every selected note, for example straight after **Ctrl+A** or a marquee. You're asked once, with how many. Afterwards the board says how many were deleted, or, if some weren't (too quick, or the connection was lost), how many and why. When you're not connected, nothing is deleted and the board says so. **Delete** while you're typing in a note or a field only edits the text.
 - Properties shows how many are selected, with a bin to delete them. Their colour, text style and size are shown as **Mixed** where they differ; for now, colour and text style change one note at a time.
 - Others see the notes move as you drag (for big selections, the first 50 move live and the rest catch up when you let go).
 - On a phone (or with a finger or pen), you select one note at a time, and dragging an empty part of the board moves around it.
@@ -81,11 +83,11 @@ With two or more notes selected (and **Select** on), a bar appears at the top of
 
 A frame is a named, coloured area that sits behind the notes, for example Start, Stop and Continue columns.
 
-- On a wider screen, choose **Frame** under **Frames** in the palette to add one in the middle of the view (or drag the tile onto the board). Its title is ready to type: **Enter**, **Esc** or clicking elsewhere saves it. You can also type the title in the frame's header at any time.
+- On a wider screen, choose **Frame** under **Frames** in the palette to add one in the middle of the view (or drag the tile onto the board). Its title is ready to type: **Enter**, **Esc** or clicking elsewhere saves it. To change it later, **double-click** the title, or select the frame and press **Enter**; you can also type it under **Title** in Properties.
 - A board holds up to 30 frames. Frames are 240 to 2400 wide and 160 to 1600 tall, and always stay on the board.
 - Drag a frame by its title bar or its border. The notes inside it (any note whose middle is inside the frame) move with it and keep their places. Hold **Alt** while you start dragging to move the frame on its own. A frame holding more than 50 notes moves on its own, and the board says so.
 - The inside of a frame lets clicks through: you can select, move and edit the notes in it, and drag across it to select several, as if the frame wasn't there. Notes can be dragged in and out of a frame freely.
-- Click a frame's title bar or border to select it (this clears any selected notes). Small squares at its corners resize it. **Properties** shows its **Title**, **Colour**, **Title text**, **Width** and **Height**, and who added it.
+- Click a frame's title bar (the title too) or border to select it (this clears any selected notes). It gets a thick outline. Small squares at its corners resize it. **Properties** shows its **Title**, **Colour**, **Title text**, **Width** and **Height**, and who added it.
 - **Title text** styles the frame's title like a note's: **Size**, **Bold** and **Italic**, **Align** (left, centre or right) and **Text colour**. The title bar gets taller for the larger sizes. Frame titles start bold; a bold frame title is a little lighter than a bold note title. Every text colour stays readable on every frame colour, in light and dark.
 - To delete a frame, use the bin in **Properties** or press **Delete** with the frame selected. You're asked first if it has a title or notes inside. Deleting a frame never deletes its notes.
 - Frames are always behind every note; **Bring to front** and **Send to back** only change the order of notes.

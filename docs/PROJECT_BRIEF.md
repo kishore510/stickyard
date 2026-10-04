@@ -1,6 +1,6 @@
 # Project Brief: Stickyard
 
-Last updated: 4 October 2026 (thread 6). Update the status table and session log at the end of every thread, then re-upload.
+Last updated: 4 October 2026 (thread 7). Update the status table and session log at the end of every thread, then re-upload.
 
 ## 1. Purpose
 
@@ -89,6 +89,8 @@ Keep tsc, tests and build green. Stop for review with a summary of what was buil
 | Frames | Named areas behind notes that carry their notes | Done (v0.9.0, protocol v9, stored schema 6) |
 | Frame title styling | Size, bold, italic, alignment and ink for frame titles | Done (v0.9.1, protocol v10, stored schema 7) |
 | Templates | Retro, Start Stop Continue, 2x2 Impact and Effort, Sprint planning, from frames | Done (v0.10.0, web only) |
+| Delete polish | Delete key on a selection, one confirm with the count, multi-delete report | Done (v0.10.1, web only) |
+| Selection fixes | Frame + Delete, clearer multi-select (outline, ticks, selection box) | Done (v0.10.2, web only) |
 | 3 onwards | See PHASE_PLAN.md | See PHASE_PLAN.md |
 
 ## 7. Open decisions
@@ -117,6 +119,7 @@ Start a thread with the slice and what I want (for example "Slice 1, write the C
 - Thread 6, later (3 October 2026): Z-order merged and deployed (v0.8.0, protocol v8, stored schema 5). Frames stopped before building: with 30 frames and 60-character titles the worst-case snapshot (419,360 bytes) would breach the 400 KiB tripwire, so it needs a decision first. Welcome screen with the new logo mark built (v0.8.1, web only). Next: decide how frames fit the snapshot budget, then the frames prompt.
 - Thread 6, later (4 October 2026): Frames merged and deployed (v0.9.0, protocol v9, schema 6). Frame title styling built (v0.9.1, protocol v10, schema 7): it stopped first because the framesSnapshot worst case (18,306 bytes) broke the 16 KiB test cap; decided to raise that cap to 20 KiB with a 10% rule. Frame-only dark-theme inks added. Merged and deployed.
 - Thread 6, later (4 October 2026): Templates built (v0.10.0, web only): four templates in a Templates palette category, applied as paced frame adds, then a resize and a style edit per frame once confirmed. Merged and deployed. Next: timer and lock board.
+- Thread 7 (4 October 2026): Delete polish finished after an editor crash mid-build (v0.10.1, web only): Delete on a selection, one confirm with the count, a report of how a multi-note delete went. A racy worker z-order test fixed (CI only). Then, from user feedback, selection fixes (v0.10.2, web only): frame + Delete works (the title no longer takes the selecting click), a 0.10.1 regression where a click on the canvas focused `<main>` and Delete was ignored (found by checking in Chromium; happy-dom hid it), and a clearer multi-select. Both merged and deployed. Next: timer and lock board.
 
 ## 10. One-time manual setup
 
