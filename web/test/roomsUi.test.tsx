@@ -1385,7 +1385,7 @@ describe("phone: add sheet and editor sheet", () => {
     expect(drawer?.getAttribute("aria-modal")).toBeNull();
     expect(drawer?.querySelector('input[type="search"]')).not.toBeNull();
     const labels = [...(drawer?.querySelectorAll<HTMLElement>("[data-palette-item]") ?? [])].map((t) => t.getAttribute("aria-label"));
-    const expected = paletteSections(PALETTE_CATEGORIES, "add", { live: true, noteCount: 0 }, "", "drawer").flatMap((s) => s.items.map((i) => i.label));
+    const expected = paletteSections(PALETTE_CATEGORIES, "add", { live: true, noteCount: 0, isHost: false }, "", "drawer").flatMap((s) => s.items.map((i) => i.label));
     expect(labels).toEqual(expected);
     // One sideways-scrolling row per category.
     expect(drawer?.querySelector("[data-palette-item]")?.parentElement?.className).toContain("overflow-x-auto");
@@ -2698,9 +2698,10 @@ describe("the floating bar and Duplicate (md up)", () => {
     }
     expect(tipOf(command("Delete"))?.textContent).toContain("Select notes or a frame first.");
     expect(hint("Arrange")?.textContent).toContain("Select 2 or more notes to arrange.");
-    // Edit and Order show their names as text too, not only icons.
-    expect(command("Duplicate")?.textContent).toContain("Duplicate");
-    expect(command("Bring to front")?.textContent).toContain("Bring to front");
+    // Since v0.16.0 History, Edit and Order are icons (room in the top bar for the timer and the
+    // host's Session group); each is named, and its tooltip names it when it's on.
+    expect(command("Duplicate")?.getAttribute("aria-label")).toBe("Duplicate");
+    expect(command("Bring to front")?.getAttribute("aria-label")).toBe("Bring to front");
   });
 
   it("lives in the top bar, between the mark and the menu, with no line of hint text (v0.15.1)", async () => {
@@ -3179,7 +3180,13 @@ describe("presence (UI)", () => {
     expect(avatars[0]?.hasAttribute("data-you")).toBe(true);
     expect(avatars.map((a) => a.textContent)).toEqual(["A", "P0", "P1"]);
     expect(button?.querySelector("[data-avatar-more]")?.textContent).toBe("+3");
-    expect(button?.querySelector("[data-avatar-stack]")?.getAttribute("aria-hidden")).toBe("true");
+    // Since v0.16.0 each face is named (role img), so a host can be marked "…, host"; the "+N" stays decorative.
+    expect(avatars.map((a) => [a.getAttribute("role"), a.getAttribute("aria-label")])).toEqual([
+      ["img", "Alex"],
+      ["img", "Person 0"],
+      ["img", "Person 1"],
+    ]);
+    expect(button?.querySelector("[data-avatar-more]")?.getAttribute("aria-hidden")).toBe("true");
     expect(avatars[1]?.className).toContain("border-participant-1");
     await click(button ?? undefined);
     expect(window.location.hash).toBe("#/participants");

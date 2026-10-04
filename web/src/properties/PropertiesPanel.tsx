@@ -1,5 +1,5 @@
 import { useId, type ReactNode } from "react";
-import { Eraser, Trash2 } from "lucide-react";
+import { Eraser, Power, Trash2 } from "lucide-react";
 import { BOARD_HEIGHT, BOARD_WIDTH, MAX_NOTES_PER_ROOM, NOTE_STYLE_FIELDS, type FrameColor, type Note, type OrderAction, type Participant } from "@stickyard/shared";
 import { Button } from "../components/ui/button";
 import { useBoardUi } from "../canvas/uiStore";
@@ -14,6 +14,7 @@ import { NoteFields } from "../notes/NoteFields";
 import { OrderSection } from "../notes/OrderFields";
 import { ColourSection, PartTextSection, SizeSection, type MixedFields } from "../notes/StyleFields";
 import { clearBoardReason, confirmClearBoard } from "./clearBoard";
+import { LOCK_TEXT, confirmEndSession, endSessionReason, withLock } from "../facilitation/lock";
 
 /*
  * The Properties panel's content (md and up, inside the SidePanel frame), laid out like
@@ -49,6 +50,12 @@ export interface PropertiesRoom {
   adding: boolean;
   /** A clear is still running. */
   clearing: boolean;
+  /** A guest on a locked board (facilitation UI): read-only, and says why. */
+  locked?: boolean;
+  /** This visit is a host: End session sits next to Clear board. */
+  isHost?: boolean;
+  /** Ends the session for everyone (asked first here); false if it couldn't start. */
+  endSession?: () => boolean;
 }
 
 /** The style and size fields whose values differ between these notes. */
@@ -86,7 +93,12 @@ function Summary({ room }: { room: PropertiesRoom }) {
   const hintId = useId();
   const notes = room.board.notes.length;
   const frames = room.board.frames.length;
-  const reason = clearBoardReason({ live: room.live, notes, frames, busy: room.adding, clearing: room.clearing });
+  const reason = withLock(clearBoardReason({ live: room.live, notes, frames, busy: room.adding, clearing: room.clearing }), {
+    live: room.live,
+    locked: room.locked ?? false,
+    isHost: room.isHost ?? false,
+  });
+  const endReason = endSessionReason({ live: room.live, busy: room.adding, clearing: room.clearing });
   return (
     <>
       <p className="text-sm text-fg-muted tabular-nums">
@@ -112,12 +124,36 @@ function Summary({ room }: { room: PropertiesRoom }) {
           </p>
         )}
       </div>
+      {room.isHost && room.endSession && (
+        <div className="flex flex-col gap-xs border-t border-border pt-md">
+          <p className="text-sm text-fg-muted">You’re the host. Ending the session deletes the board for everyone.</p>
+          <Button
+            aria-describedby={endReason ? `${hintId}-end` : undefined}
+            aria-disabled={endReason !== null || undefined}
+            onClick={() => {
+              if (endReason !== null || !confirmEndSession()) return;
+              room.endSession?.();
+            }}
+            className="self-start text-status-error"
+          >
+            <Power />
+            End session
+          </Button>
+          {endReason && (
+            <p id={`${hintId}-end`} className="text-xs text-fg-muted">
+              {endReason}
+            </p>
+          )}
+        </div>
+      )}
     </>
   );
 }
 
 export function PropertiesContent({ room, collapse }: { room: PropertiesRoom; collapse: ReactNode }) {
   const selection = useBoardUi((s) => s.selection);
+  // A guest on a locked board sees everything read-only (the relay would refuse changes).
+  const editable = room.live && !(room.locked ?? false);
   const editRequest = useBoardUi((s) => s.editRequest);
   const id = onlySelected(selection);
   const entry = id === null ? undefined : findNote(room.board, id);
@@ -142,7 +178,7 @@ export function PropertiesContent({ room, collapse }: { room: PropertiesRoom; co
             size="icon"
             aria-label="Delete frame"
             title="Delete frame (Del). Its notes stay."
-            disabled={!room.live}
+            disabled={!editable}
             onClick={() => {
               const inside = framedNotes(frame.frame, room.board.notes.map((n) => n.note)).length;
               if (!confirmFrameDelete(frame.frame.title, inside)) return;
@@ -160,7 +196,7 @@ export function PropertiesContent({ room, collapse }: { room: PropertiesRoom; co
             size="icon"
             aria-label={`Delete ${many.length} notes`}
             title={`Delete ${many.length} notes (Del)`}
-            disabled={!room.live}
+            disabled={!editable}
             onClick={() => {
               if (!confirmDeleteNotes(many.length)) return;
               room.deleteNotes(many.map((n) => n.id));
@@ -176,7 +212,7 @@ export function PropertiesContent({ room, collapse }: { room: PropertiesRoom; co
             variant="ghost"
             size="icon"
             title="Delete note (Del)"
-            disabled={!room.live}
+            disabled={!editable}
             onClick={() => {
               if (confirmDelete(text)) room.deleteNote(entry.note.id);
             }}
@@ -188,10 +224,15 @@ export function PropertiesContent({ room, collapse }: { room: PropertiesRoom; co
         )}
       </div>
       <div className="flex flex-col gap-md pb-md">
+        {room.live && room.locked && (selection.size > 0 || frame) && (
+          <p data-locked-reason="" className="rounded-md bg-surface-muted p-ms text-sm">
+            {LOCK_TEXT.reason}
+          </p>
+        )}
         {frame ? (
           <FrameFields
             entry={frame}
-            live={room.live}
+            live={editable}
             author={authorName(frame.frame.authorId, room)}
             onDraft={(t) => room.setFrameDraft(frame.frame.id, t)}
             onCommit={() => {
@@ -202,11 +243,11 @@ export function PropertiesContent({ room, collapse }: { room: PropertiesRoom; co
             onSize={(w, h) => room.setFrameSize(frame.frame.id, w, h)}
           />
         ) : many.length > 1 ? (
-          <SelectionFields notes={many} live={room.live} onOrder={(action) => room.orderNotes(many.map((n) => n.id), action)} />
+          <SelectionFields notes={many} live={editable} onOrder={(action) => room.orderNotes(many.map((n) => n.id), action)} />
         ) : entry ? (
           <NoteFields
             entry={entry}
-            live={room.live}
+            live={editable}
             author={authorName(entry.note.authorId, room)}
             onDraft={(t) => room.setDraft(entry.note.id, t)}
             onCommit={() => {

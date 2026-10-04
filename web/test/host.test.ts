@@ -250,3 +250,83 @@ describe("End session (4411) is final, like expiry", () => {
     expect(ENDED_TEXT.home).toBe("Go to the start page");
   });
 });
+
+describe("host commands (facilitation UI)", () => {
+  it("startRoomTimer sends timerStart within the relay's bounds; stopRoomTimer sends timerStop", () => {
+    const t = hosted();
+    expect(t.session.startRoomTimer(300_000)).toBe(true);
+    expect(t.session.startRoomTimer(0)).toBe(false);
+    expect(t.session.startRoomTimer(3 * 60 * 60 * 1000 + 1)).toBe(false);
+    expect(t.session.startRoomTimer(1500.5)).toBe(false);
+    expect(t.sent("timerStart")).toEqual([{ type: "timerStart", durationMs: 300_000 }]);
+    expect(t.session.stopRoomTimer()).toBe(true);
+    expect(t.sent("timerStop")).toEqual([{ type: "timerStop" }]);
+  });
+
+  it("host commands are refused (nothing sent) for a guest or while disconnected", () => {
+    const guest = room([], [], {});
+    expect(guest.session.startRoomTimer(60_000)).toBe(false);
+    expect(guest.session.stopRoomTimer()).toBe(false);
+    expect(guest.sent("timerStart")).toEqual([]);
+    const t = hosted();
+    t.relay.drop();
+    expect(t.session.startRoomTimer(60_000)).toBe(false);
+    expect(t.sent("timerStart")).toEqual([]);
+  });
+});
+
+describe("lock and End session (facilitation UI)", () => {
+  it("setLock sends lockSet and is pending until lockChanged (not optimistic)", () => {
+    const t = hosted();
+    expect(t.session.setLock(true)).toBe(true);
+    expect(t.sent("lockSet")).toEqual([{ type: "lockSet", locked: true }]);
+    expect(t.view().locked).toBe(false);
+    expect(t.view().lockPending).toBe(true);
+    // A second press while waiting sends nothing.
+    expect(t.session.setLock(true)).toBe(false);
+    t.relay.emit({ type: "lockChanged", locked: true });
+    expect(t.view()).toMatchObject({ locked: true, lockPending: null });
+    expect(t.session.setLock(false)).toBe(true);
+    expect(t.view().lockPending).toBe(false);
+    t.relay.emit({ type: "lockChanged", locked: false });
+    expect(t.view().lockPending).toBeNull();
+  });
+
+  it("a refused lockSet (not_host) ends the wait", () => {
+    const t = hosted();
+    t.session.setLock(true);
+    t.relay.emit({ type: "error", code: "not_host", message: "No." });
+    expect(t.view().lockPending).toBeNull();
+  });
+
+  it("a guest can't lock or end; nothing is sent", () => {
+    const t = room([], [], {});
+    expect(t.session.setLock(true)).toBe(false);
+    expect(t.session.endSession()).toBe(false);
+    expect(t.sent("lockSet")).toEqual([]);
+    expect(t.sent("endSession")).toEqual([]);
+  });
+
+  it("End session is refused while disconnected or while a run is still going", () => {
+    const t = hosted();
+    t.relay.paused = true;
+    expect(t.session.duplicateNotes([nid(1)])).not.toBeNull();
+    expect(t.view().adding).toBe(true);
+    expect(t.session.endSession()).toBe(false);
+    t.relay.resume();
+    expect(t.session.endSession()).toBe(true);
+    expect(t.sent("endSession")).toEqual([{ type: "endSession" }]);
+    const u = hosted();
+    u.relay.drop();
+    expect(u.session.endSession()).toBe(false);
+  });
+
+  it("Undo and Redo are off for a guest while locked, with the lock's reason; a host keeps them", () => {
+    const g = room([note(1)], [], {});
+    g.relay.emit({ type: "lockChanged", locked: true });
+    expect(g.view().history).toEqual({ undo: "The board is locked by the host.", redo: "The board is locked by the host." });
+    const h = hosted();
+    h.relay.emit({ type: "lockChanged", locked: true });
+    expect(h.view().history.undo).not.toBe("The board is locked by the host.");
+  });
+});

@@ -1,4 +1,4 @@
-import { Frame as FrameIcon, type LucideIcon } from "lucide-react";
+import { Frame as FrameIcon, Timer as TimerIcon, type LucideIcon } from "lucide-react";
 import { FRAME_DEFAULT_H, FRAME_DEFAULT_W, NOTE_COLORS, type FrameColor, type NoteColor } from "@stickyard/shared";
 import type { Size, XY } from "../canvas/geometry";
 import { NOTE_COLOR_NAMES } from "../notes/colours";
@@ -20,7 +20,7 @@ import { TEMPLATES, type Template } from "../templates/registry";
 export type PalettePreview = { kind: "note"; color: NoteColor } | { kind: "icon"; icon: LucideIcon } | { kind: "template"; template: Template };
 
 /** What a drag carries (shown under the pointer while dragging). */
-export type PalettePayload = { kind: "note"; color: NoteColor } | { kind: "frame"; color: FrameColor } | { kind: "template"; id: string };
+export type PalettePayload = { kind: "note"; color: NoteColor } | { kind: "frame"; color: FrameColor } | { kind: "template"; id: string } | { kind: "timer" };
 
 /**
  * What tiles can do, with plain data. `at` is a board position (a drop: the top-left of the
@@ -30,6 +30,8 @@ export interface PaletteActions {
   addNote(color: NoteColor, at?: XY): void;
   addFrame(color: FrameColor, at?: XY): void;
   applyTemplate(template: Template, at?: XY): void;
+  /** Opens the host's timer picker (a click or a drop both just open it). */
+  openTimer(): void;
 }
 
 /** What tiles need to know to be enabled. */
@@ -40,6 +42,8 @@ export interface PaletteContext {
   frameReason: string | null;
   /** Why templates can't be applied right now (disconnected, one is being applied), or null. Too few free frames is a notice instead, with the numbers. */
   templateReason: string | null;
+  /** Why the host can't start a timer right now (disconnected), or null. */
+  timerReason: string | null;
 }
 
 /** Where tiles are listed: the palette panel (md and up, also its collapsed strip) or the phone add drawer. */
@@ -52,6 +56,8 @@ export type PaletteSurface = "panel" | "drawer";
 export interface PaletteRoomState {
   live: boolean;
   noteCount: number;
+  /** This visit has host powers (facilitation tiles are the host's only). */
+  isHost: boolean;
 }
 
 export interface PaletteItem {
@@ -130,6 +136,22 @@ export const TEMPLATE_TILES: readonly PaletteItem[] = TEMPLATES.map((template) =
   disabled: (ctx) => ctx.templateReason,
 }));
 
+/** The host's Timer tile: opens the duration picker (the timer is the room's, not a thing on the board). */
+export const TIMER_TILE: PaletteItem = {
+  id: "timer",
+  label: "Timer",
+  keywords: ["timer", "countdown", "clock", "time", "timebox", "facilitation", "host"],
+  preview: { kind: "icon", icon: TimerIcon },
+  payload: { kind: "timer" },
+  create: (actions) => actions.openTimer(),
+  disabled: (ctx) => ctx.timerReason,
+};
+
+/** Facilitation tiles: the host's only, so they come from the room's state (nothing for guests, so no section). */
+export function facilitationTiles(state: PaletteRoomState): readonly PaletteItem[] {
+  return state.isHost ? [TIMER_TILE] : [];
+}
+
 /** Note tiles defined by the room. None yet (facilitator palettes are slice 6). */
 export function roomNoteTiles(_state: PaletteRoomState): readonly PaletteItem[] {
   return [];
@@ -147,6 +169,8 @@ export const PALETTE_CATEGORIES: readonly PaletteCategory[] = [
   { id: "frames", label: "Frames", order: 2, tab: "add", items: FRAME_TILES, surfaces: ["panel"] },
   // Templates are frames, so md and up only too.
   { id: "templates", label: "Templates", order: 3, tab: "add", items: TEMPLATE_TILES, surfaces: ["panel"] },
+  // Host only, md and up (phones: the Participants sheet's Session section).
+  { id: "facilitation", label: "Facilitation", order: 4, tab: "add", items: [], fromRoom: facilitationTiles, surfaces: ["panel"] },
 ];
 
 export interface PaletteSection {

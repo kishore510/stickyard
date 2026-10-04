@@ -8,6 +8,8 @@ export const MEDIA = {
   /** Tablet and up: sheets become a side panel. */
   tablet: `(min-width: ${BREAKPOINTS.md})`,
   desktop: `(min-width: ${BREAKPOINTS.lg})`,
+  /** Wide desktop: the board bar shows every group in full (below it, Order and the host's Session fold into panels). */
+  wideDesktop: `(min-width: ${BREAKPOINTS.xl})`,
   reducedMotion: "(prefers-reduced-motion: reduce)",
   systemDark: "(prefers-color-scheme: dark)",
   /** Mouse or trackpad: safe to put focus in a search box without opening a phone keyboard. */
