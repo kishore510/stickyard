@@ -12,6 +12,7 @@ import {
   NOTE_DEFAULTS,
   NOTE_EDIT_FIELDS,
   PROTOCOL_VERSION,
+  ROOM_EXPIRED_CLOSE_CODE,
   clampFramePosition,
   clampFrameRect,
   clampNotePosition,
@@ -42,6 +43,7 @@ import {
 } from "@stickyard/shared";
 import { z } from "zod";
 import { randomBase64url } from "./crypto";
+import { EXPIRED_REASON, nextExpiryAlarm, readTombstone, writeTombstone } from "./expiry";
 import { BATCH_LIMITS, SOCKET_LIMITS } from "./limits";
 import { NoteStore } from "./noteStore";
 
@@ -142,10 +144,16 @@ interface Pending {
 /**
  * One instance per room, addressed by the room id from a verified code.
  * Uses the WebSocket Hibernation API so idle rooms don't stay in memory. The participant
- * list is derived from the live sockets' attachments.
+ * list is derived from the live sockets' attachments. Idle rooms expire (expiry.ts): the last
+ * socket to close sets the alarm, and `alarm` deletes the room and leaves a tombstone.
  */
 export class Room extends DurableObject<Env> {
-  private readonly notes: NoteStore;
+  /** The notes and frames; null once the room has expired (nothing may read or write them). */
+  private store: NoteStore | null;
+  /** When the room expired (its tombstone), or null. */
+  private expiredAt: number | null;
+  /** Rows written outside the current store: alarm sets, the tombstone, and a store dropped at expiry. */
+  private otherRows = 0;
   /** Non-final moves and resizes waiting to be relayed, latest per note and kind. Never stored. */
   private readonly pendingMoves = new Map<string, Pending>();
   /** Frames' live moves and resizes, likewise. */
@@ -154,30 +162,43 @@ export class Room extends DurableObject<Env> {
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
-    this.notes = new NoteStore(ctx.storage.sql, (fn) => ctx.storage.transactionSync(fn));
+    // An expired room never runs the normal init: that would create a fresh board under the tombstone.
+    this.expiredAt = readTombstone(ctx.storage.sql);
+    this.store = this.expiredAt === null ? new NoteStore(ctx.storage.sql, (fn) => ctx.storage.transactionSync(fn)) : null;
   }
 
-  /** SQLite rows written by this instance (tests check drags write nothing). */
+  /** Only reached from joined sockets, which an expired room never has (see fetch and webSocketMessage). */
+  private get notes(): NoteStore {
+    if (!this.store) throw new Error("room expired");
+    return this.store;
+  }
+
+  /**
+   * Rows written by this instance (tests check drags write nothing). Counts an alarm set as one
+   * row, as Cloudflare bills it.
+   */
   get rowsWritten(): number {
-    return this.notes.rowsWritten;
+    return this.otherRows + (this.store?.rowsWritten ?? 0);
   }
 
-  /** Stub: tests first. */
-  override async alarm(): Promise<void> {}
-
-  /** Expired (tombstoned). Stub: tests first. */
+  /** The room has expired (it has a tombstone). */
   get expired(): boolean {
-    return false;
+    return this.expiredAt !== null;
   }
 
   /** Batch transactions committed by this instance (tests check a final batch is one). */
   get transactions(): number {
-    return this.notes.transactions;
+    return this.store?.transactions ?? 0;
   }
 
   override async fetch(_request: Request): Promise<Response> {
     const pair = new WebSocketPair();
     this.ctx.acceptWebSocket(pair[1]);
+    if (this.expiredAt !== null) {
+      // Room links stay validly signed, so this close is how a visitor learns the room has gone.
+      safeClose(pair[1], ROOM_EXPIRED_CLOSE_CODE, EXPIRED_REASON);
+      return new Response(null, { status: 101, webSocket: pair[0] });
+    }
     const state: SocketState = {
       hello: false,
       participant: null,
@@ -193,6 +214,10 @@ export class Room extends DurableObject<Env> {
   }
 
   override async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): Promise<void> {
+    if (this.expiredAt !== null) {
+      safeClose(ws, ROOM_EXPIRED_CLOSE_CODE, EXPIRED_REASON);
+      return;
+    }
     const state = readState(ws);
     if (!state) {
       ws.close(1011, "error");
@@ -206,7 +231,7 @@ export class Room extends DurableObject<Env> {
     if (state.tokens < 1) {
       // The message is dropped. Name the note it was about (if any) so the sender can roll back.
       const dropped = parseMessage(message, clientMessageSchema);
-      this.overLimit(ws, state, now, dropped.ok ? refOf(dropped.value) : {});
+      await this.overLimit(ws, state, now, dropped.ok ? refOf(dropped.value) : {});
       return;
     }
     state.tokens -= 1;
@@ -228,7 +253,7 @@ export class Room extends DurableObject<Env> {
       state.entryTokens = Math.min(BATCH_LIMITS.entriesBurst, state.entryTokens + ((now - state.entryAt) / 1000) * BATCH_LIMITS.entriesPerSecond);
       state.entryAt = now;
       if (state.entryTokens < entries) {
-        this.overLimit(ws, state, now, refOf(parsed.value));
+        await this.overLimit(ws, state, now, refOf(parsed.value));
         return;
       }
       state.entryTokens -= entries;
@@ -240,7 +265,7 @@ export class Room extends DurableObject<Env> {
    * A message over a rate budget is dropped with rate_limited (naming its notes). Violations are
    * counted per window, not consecutively, so a sender at twice the rate still gets closed.
    */
-  private overLimit(ws: WebSocket, state: SocketState, now: number, ref: ErrorRef): void {
+  private async overLimit(ws: WebSocket, state: SocketState, now: number, ref: ErrorRef): Promise<void> {
     if (now - state.strikeAt > SOCKET_LIMITS.violationWindowMs) {
       state.strikes = 0;
       state.strikeAt = now;
@@ -249,6 +274,7 @@ export class Room extends DurableObject<Env> {
     if (state.strikes >= SOCKET_LIMITS.maxViolations) {
       this.leave(ws, state);
       safeClose(ws, 1008, "Too many messages");
+      await this.armExpiry(ws);
       return;
     }
     ws.serializeAttachment(state);
@@ -260,12 +286,52 @@ export class Room extends DurableObject<Env> {
     if (state) this.leave(ws, state);
     // 1005/1006 are reserved and cannot be sent back in a close frame.
     safeClose(ws, code === 1005 || code === 1006 ? 1000 : code, "closing");
+    await this.armExpiry(ws);
   }
 
   override async webSocketError(ws: WebSocket, _error: unknown): Promise<void> {
     const state = readState(ws);
     if (state) this.leave(ws, state);
     safeClose(ws, 1011, "error");
+    await this.armExpiry(ws);
+  }
+
+  /**
+   * `closing` has gone. If it was the last open socket, make sure the room's alarm is about
+   * ROOM_IDLE_EXPIRY_MS away: one write, and none at all when the alarm already is within
+   * ALARM_RESET_SLACK_MS of that (nextExpiryAlarm). Joining never touches the alarm.
+   */
+  private async armExpiry(closing: WebSocket): Promise<void> {
+    if (this.expiredAt !== null) return;
+    if (this.openSockets(closing) > 0) return;
+    const at = nextExpiryAlarm(await this.ctx.storage.getAlarm(), Date.now());
+    if (at === null) return;
+    await this.ctx.storage.setAlarm(at);
+    this.otherRows += 1;
+  }
+
+  /** Open sockets, leaving out `except`. Hibernated sockets count: they are still connected. */
+  private openSockets(except?: WebSocket): number {
+    return this.ctx.getWebSockets().filter((ws) => ws !== except && ws.readyState === WebSocket.OPEN).length;
+  }
+
+  /**
+   * The expiry alarm. With anyone connected (joined or not), nothing happens and nothing is
+   * written; the next last close sets a new alarm. Otherwise everything goes (deleteAll, which
+   * at our compatibility date also deletes the alarm), the in-memory state is dropped so this
+   * instance can't serve old notes, and then the tombstone is written (after deleteAll, which
+   * would remove it). Already expired: nothing to do.
+   */
+  override async alarm(): Promise<void> {
+    if (this.expiredAt !== null || this.openSockets() > 0) return;
+    await this.ctx.storage.deleteAll();
+    this.otherRows += this.store?.rowsWritten ?? 0;
+    this.store = null;
+    this.pendingMoves.clear();
+    this.pendingFrames.clear();
+    const at = Date.now();
+    this.otherRows += writeTombstone(this.ctx.storage.sql, at);
+    this.expiredAt = at;
   }
 
   private handle(ws: WebSocket, state: SocketState, message: ClientMessage): void {

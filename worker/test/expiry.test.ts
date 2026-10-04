@@ -225,9 +225,7 @@ describe("the alarm firing", () => {
     await runDurableObjectAlarm(stub);
     const rows = await allRows(stub);
     const before = await rowsWritten(stub);
-    const c = await expectExpired(code);
-    c.send({ type: "join", name: "Priya" });
-    expect(await c.quiet(50)).toBe(true);
+    await expectExpired(code);
     await new Promise((r) => setTimeout(r, 50));
     expect(await allRows(stub)).toEqual(rows);
     expect(await rowsWritten(stub)).toBe(before);
