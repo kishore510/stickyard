@@ -1669,6 +1669,162 @@ describe("multi-select and arrange (slice 2.8, md up)", () => {
   });
 });
 
+describe("selection and delete polish (md up)", () => {
+  const nid = (i: number) => `NNNNNNNNNNNN${String(i).padStart(4, "0")}`;
+  const make = (i: number, text = ""): Note => ({ id: nid(i), x: 40 + (i % 10) * 200, y: 60 + Math.floor(i / 10) * 90, ...NOTE_DEFAULTS, text, color: "yellow", z: i, rev: 1, authorId: sam.id });
+  const notes = () => [...document.querySelectorAll<HTMLElement>('[aria-roledescription="note"]')];
+  const selected = () => notes().filter((n) => n.getAttribute("aria-current") === "true").map((n) => n.dataset.noteId);
+  const batches = (socket: FakeWebSocket) => (socket.sent as { type: string; ops: { op: string; id: string }[] }[]).filter((m) => m.type === "noteBatch");
+  const sentOfType = (socket: FakeWebSocket, t: string) => (socket.sent as Record<string, unknown>[]).filter((m) => m.type === t);
+  const statusText = () => [...document.querySelectorAll('[role="status"]')].map((s) => s.textContent).join(" ");
+  async function withNotes(list: Note[]) {
+    setWide(true);
+    const socket = await inRoom();
+    await server(socket, { data: { type: "snapshot", notes: list } });
+    for (let i = 0; i < 100 && notes().length < list.length; i++) await settle();
+    return socket;
+  }
+  async function pointer(target: EventTarget, type: string, init: PointerEventInit) {
+    await act(async () => {
+      target.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, pointerType: "mouse", button: 0, ...init }));
+    });
+  }
+  /** A key press where a real keyboard sends it: the focused element (or the body). */
+  async function press(k: string, init: KeyboardEventInit = {}) {
+    await act(async () => {
+      (document.activeElement ?? document.body).dispatchEvent(new KeyboardEvent("keydown", { key: k, bubbles: true, cancelable: true, ...init }));
+    });
+    await settle();
+  }
+  const applied = (socket: FakeWebSocket, ids: readonly string[]) =>
+    server(socket, { data: { type: "notesBatchApplied", final: true, results: ids.map((id) => ({ type: "noteDeleted", id })) } });
+
+  it("Ctrl+A then Delete deletes every note (asking once, with the count) and reports it", async () => {
+    const socket = await withNotes([make(0, "Idea"), make(1), make(2)]);
+    await act(async () => (document.activeElement as HTMLElement | null)?.blur());
+    await press("a", { ctrlKey: true });
+    expect(selected()).toHaveLength(3);
+    const confirm = vi.fn(() => true);
+    vi.stubGlobal("confirm", confirm);
+    await press("Delete");
+    expect(confirm.mock.calls).toEqual([["Delete 3 notes? They’re removed for everyone in the session."]]);
+    expect(batches(socket).map((b) => b.ops.map((o) => o.id))).toEqual([[nid(0), nid(1), nid(2)]]);
+    expect(selected()).toEqual([]);
+    await applied(socket, [nid(0), nid(1), nid(2)]);
+    expect(statusText()).toContain("Deleted 3 notes.");
+  });
+
+  it("no on the confirm deletes nothing, and the selection stays", async () => {
+    const socket = await withNotes([make(0), make(1)]);
+    await press("a", { ctrlKey: true });
+    vi.stubGlobal("confirm", () => false);
+    await press("Delete");
+    expect(batches(socket)).toEqual([]);
+    expect(selected()).toHaveLength(2);
+  });
+
+  it("after a marquee, Delete deletes the marquee's notes, never a note that had focus outside it", async () => {
+    const socket = await withNotes([make(0), make(1), make(25)]);
+    // Keyboard focus on the far note first (it's selected), then a marquee round the first two.
+    await act(async () => notes()[2]?.focus());
+    expect(selected()).toEqual([nid(25)]);
+    const pane = document.querySelector<HTMLElement>(".react-flow__pane");
+    if (!pane) throw new Error("no pane");
+    const [tx, ty, zoom] = (document.querySelector(".react-flow__viewport")?.getAttribute("style") ?? "").match(/-?[\d.]+/g)?.map(Number) ?? [0, 0, 1];
+    const at = (x: number, y: number) => ({ clientX: (tx ?? 0) + x * (zoom ?? 1), clientY: (ty ?? 0) + y * (zoom ?? 1) });
+    await pointer(pane, "pointerdown", at(0, 0));
+    await pointer(window, "pointermove", at(500, 100));
+    await pointer(window, "pointerup", at(500, 100));
+    await settle();
+    expect(selected()).toEqual([nid(0), nid(1)]);
+    vi.stubGlobal("confirm", () => true);
+    await press("Delete");
+    expect(batches(socket).map((b) => b.ops.map((o) => o.id))).toEqual([[nid(0), nid(1)]]);
+    expect(sentOfType(socket, "noteDelete")).toEqual([]);
+  });
+
+  it("a focused note that isn't in the selection: Delete deletes the selection", async () => {
+    const socket = await withNotes([make(0), make(1), make(2)]);
+    await act(async () => notes()[0]?.focus());
+    // Ctrl+A, then Ctrl-click the focused note out of the selection (focus stays on it).
+    await press("a", { ctrlKey: true });
+    const el = notes()[0] as HTMLElement;
+    await pointer(el, "pointerdown", { ctrlKey: true });
+    await act(async () => el.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, ctrlKey: true })));
+    await settle();
+    expect(selected()).toEqual([nid(1), nid(2)]);
+    vi.stubGlobal("confirm", () => true);
+    await act(async () => el.dispatchEvent(new KeyboardEvent("keydown", { key: "Delete", bubbles: true, cancelable: true })));
+    await settle();
+    expect(batches(socket).map((b) => b.ops.map((o) => o.id))).toEqual([[nid(1), nid(2)]]);
+    expect(sentOfType(socket, "noteDelete")).toEqual([]);
+  });
+
+  it("200 notes: one confirm, four chunks of 50 in order, and the report counts them all", async () => {
+    const all = Array.from({ length: MAX_NOTES_PER_ROOM }, (_, i) => make(i));
+    const socket = await withNotes(all);
+    await press("a", { ctrlKey: true });
+    const confirm = vi.fn(() => true);
+    vi.stubGlobal("confirm", confirm);
+    await press("Delete");
+    expect(confirm).toHaveBeenCalledTimes(1);
+    expect(confirm.mock.calls[0]).toEqual([`Delete ${MAX_NOTES_PER_ROOM} notes? They’re removed for everyone in the session.`]);
+    const sent = batches(socket);
+    expect(sent.map((b) => b.ops.length)).toEqual([50, 50, 50, 50]);
+    expect(sent.flatMap((b) => b.ops.map((o) => o.id))).toEqual(all.map((n) => n.id));
+    for (const b of sent.slice(0, 3)) await applied(socket, b.ops.map((o) => o.id));
+    await server(socket, { data: { type: "error", code: "rate_limited", message: "x", noteIds: sent[3]?.ops.map((o) => o.id) } });
+    expect(notes()).toHaveLength(50);
+    expect(statusText()).toContain("Deleted 150 of 200 notes. 50 weren’t deleted because that was too quick");
+  });
+
+  it("disconnected: Delete (on the board or a note) asks nothing, deletes nothing, and says why", async () => {
+    const socket = await withNotes([make(0, "Idea"), make(1)]);
+    await press("a", { ctrlKey: true });
+    await server(socket, "close");
+    const confirm = vi.fn(() => true);
+    vi.stubGlobal("confirm", confirm);
+    await press("Delete");
+    expect(confirm).not.toHaveBeenCalled();
+    expect(notes()).toHaveLength(2);
+    expect(statusText()).toContain("You’re not connected, so nothing was deleted.");
+    await act(async () => notes()[0]?.dispatchEvent(new KeyboardEvent("keydown", { key: "Delete", bubbles: true, cancelable: true })));
+    await settle();
+    expect(confirm).not.toHaveBeenCalled();
+    expect(sentOfType(socket, "noteBatch")).toEqual([]);
+  });
+
+  it("Delete while a note is edited in place is the text's, even with notes selected before", async () => {
+    const socket = await withNotes([make(0, "Idea"), make(1)]);
+    await press("a", { ctrlKey: true });
+    await act(async () => {
+      notes()[0]?.querySelector("[data-note-title]")?.dispatchEvent(new MouseEvent("dblclick", { bubbles: true, cancelable: true }));
+    });
+    await settle();
+    const area = document.querySelector<HTMLTextAreaElement>('textarea[data-inline="title"]');
+    expect(area).not.toBeNull();
+    const confirm = vi.fn(() => true);
+    vi.stubGlobal("confirm", confirm);
+    for (const k of ["Delete", "Backspace"]) {
+      await act(async () => area?.dispatchEvent(new KeyboardEvent("keydown", { key: k, bubbles: true, cancelable: true })));
+    }
+    await settle();
+    expect(confirm).not.toHaveBeenCalled();
+    expect(batches(socket)).toEqual([]);
+    expect(sentOfType(socket, "noteDelete")).toEqual([]);
+  });
+
+  it("Delete from a control outside the board (the top bar) does nothing", async () => {
+    const socket = await withNotes([make(0), make(1)]);
+    await press("a", { ctrlKey: true });
+    const menu = document.querySelector<HTMLElement>("header button");
+    await act(async () => menu?.focus());
+    vi.stubGlobal("confirm", () => true);
+    await press("Delete");
+    expect(batches(socket)).toEqual([]);
+  });
+});
+
 describe("inline editing (slice 2.9, md up)", () => {
   const N1 = "NNNNNNNNNNNNNNN1";
   const one: Note = { id: N1, x: 40, y: 60, ...NOTE_DEFAULTS, text: "Idea one\nThe details", color: "pink", z: 0, rev: 1, authorId: sam.id };
