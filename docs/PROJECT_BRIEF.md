@@ -98,7 +98,8 @@ Keep tsc, tests and build green. Stop for review with a summary of what was buil
 | Arrange grid | Lay out a selection in rows and columns (Columns stepper, Auto) | Done (v0.10.3, web only) |
 | Create with content | Add notes and frames with full content in one `itemsAdd`, packed by size; templates in one step | Done (v0.11.0, protocol v11, PR #25) |
 | Bar, Duplicate, Undo/Redo, Clear board | Permanent floating bar, Duplicate, per-user undo/redo, Clear board (four parts, one branch) | Done (v0.12.0, web only, PR #26) |
-| Next | Reconnect, idle expiry, timer and lock board, presence 3a, dot voting, export, trimmed hardening, then silent brainstorm | Not started; see PHASE_PLAN.md |
+| Reconnect and presence | Automatic reconnect with backoff, full resync, "relay may be over its daily limit" state, unsaved-change notice; avatar stack and join/leave toasts | Done (v0.13.0, web only, PR #28) |
+| Next | Idle expiry, timer and lock board, dot voting, export, trimmed hardening, then silent brainstorm | Not started; see PHASE_PLAN.md |
 | 3 onwards | See PHASE_PLAN.md | See PHASE_PLAN.md |
 
 ## 7. Open decisions
@@ -133,6 +134,7 @@ Start a thread with the slice and what I want (for example "Slice 1, write the C
 - Thread 7 (4 October 2026): Delete polish finished after an editor crash mid-build (v0.10.1, web only): Delete on a selection, one confirm with the count, a report of how a multi-note delete went. A racy worker z-order test fixed (CI only). Then, from user feedback, selection fixes (v0.10.2, web only): frame + Delete works (the title no longer takes the selecting click), a 0.10.1 regression where a click on the canvas focused `<main>` and Delete was ignored (found by checking in Chromium; happy-dom hid it), and a clearer multi-select. Both merged and deployed. Next: timer and lock board.
 - Thread 8 (4 October 2026): Arrange grid built tests-first (v0.10.3, web only): Arrange > Grid in the selection bar lays a selection out in rows and columns in reading order, with a Columns stepper and Auto; a grid too big for the board moves nothing and says why. The editor crashed after the PR was opened; picked up from git and the open PR, then merged and deployed. Next: timer and lock board.
 - Thread 9 (4 October 2026): Grid merged (v0.10.3). Create with content built (protocol v11, v0.11.0): `itemsAdd` adds notes and frames with full content, packed under the 4 KiB cap; templates apply in one step. Floating bar, Duplicate, undo/redo and Clear board built on one branch as four parts (v0.12.0, web only, PR #26), merged and deployed. Idle-room cost reviewed and a trimmed expiry slice pulled forward. Order to a demo-able retro tool agreed: reconnect, expiry, timer and lock board, presence, voting, export, trimmed hardening. Next: reconnect prompt.
+- Thread 9, later (4 October 2026): Reconnect and Presence 3a built on one branch in three parts, tests first (v0.13.0, web only, no protocol or schema change, PR #28): automatic reconnect with backoff and a cap, full resync, a conservative "relay may be over its daily limit" state, one notice for unsaved changes, drafts kept; avatar stack and batched join/leave toasts; the 0.12.0 stale-undo-button bug fixed. Checked in headless Chromium against a local relay (relay killed and restarted, offline/online, 360/768/1280, light and dark), which found and fixed toasts for other people's quick reconnects. Merged and deployed. Next: idle expiry prompt.
 
 ## 10. One-time manual setup
 
