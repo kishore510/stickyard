@@ -219,6 +219,8 @@
   --sy-brand-mark: 7rem;
   --sy-brand-mark-lg: 15rem;
   --sy-dot: 0.75rem;
+  /* A face in the top bar's avatar stack (md and up), inside a 44px button. */
+  --sy-avatar: 1.75rem;
   /* "What's new" dot on the menu button. */
   --sy-badge-dot: 8px;
   --sy-badge-ring: 2px;
@@ -475,6 +477,7 @@
   --spacing-brand-mark: var(--sy-brand-mark);
   --spacing-brand-mark-lg: var(--sy-brand-mark-lg);
   --spacing-dot: var(--sy-dot);
+  --spacing-avatar: var(--sy-avatar);
   --spacing-badge: var(--sy-badge-dot);
   --spacing-handle-w: var(--sy-handle-width);
   --spacing-handle-h: var(--sy-handle-height);

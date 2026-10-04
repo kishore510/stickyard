@@ -197,9 +197,6 @@ export function RoomScreen({ code }: { code: string }) {
 
   return (
     <>
-      <p aria-live="polite" className="sr-only">
-        {view.announcement}
-      </p>
       <PublishRoom code={code} view={view} room={room} />
       <Suspense fallback={<div className="absolute inset-0 bg-canvas" />}>
         <RoomBoard

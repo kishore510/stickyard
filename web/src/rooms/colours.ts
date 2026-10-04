@@ -16,7 +16,24 @@ const CLASSES = [
   "bg-participant-8",
 ] as const satisfies { length: typeof PALETTE_SIZE };
 
+const BORDERS = [
+  "border-participant-1",
+  "border-participant-2",
+  "border-participant-3",
+  "border-participant-4",
+  "border-participant-5",
+  "border-participant-6",
+  "border-participant-7",
+  "border-participant-8",
+] as const satisfies { length: typeof PALETTE_SIZE };
+
+const slotOf = (colourIndex: number) => ((Math.trunc(colourIndex) % PALETTE_SIZE) + PALETTE_SIZE) % PALETTE_SIZE;
+
 export function participantColourClass(colourIndex: number): string {
-  const slot = ((Math.trunc(colourIndex) % PALETTE_SIZE) + PALETTE_SIZE) % PALETTE_SIZE;
-  return CLASSES[slot] ?? CLASSES[0];
+  return CLASSES[slotOf(colourIndex)] ?? CLASSES[0];
+}
+
+/** The same colour as a border (the avatar stack's rings). */
+export function participantBorderClass(colourIndex: number): string {
+  return BORDERS[slotOf(colourIndex)] ?? BORDERS[0];
 }

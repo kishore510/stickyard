@@ -3,6 +3,7 @@ import { MAX_NOTES_PER_ROOM, PROTOCOL_VERSION, type Note, NOTE_DEFAULTS, NOTE_MA
 import type { SocketFactory, SocketHandlers } from "../src/connection/socket";
 import type { CodeCheck } from "../src/rooms/api";
 import { findNote, localId } from "../src/notes/board";
+import { TOAST_BATCH_MS } from "../src/presence/toasts";
 import { JOIN_TIMEOUT_MS, MAX_MESSAGES, MOVE_INTERVAL_MS, RESIZE_INTERVAL_MS, RoomSession, type RoomView } from "../src/rooms/session";
 
 class FakeSocket {
@@ -168,15 +169,15 @@ describe("joining", () => {
 });
 
 describe("in the room", () => {
-  it("adds and removes participants, and announces them", () => {
+  it("adds and removes participants, and announces them (one batched toast since 0.13)", () => {
     const t = joined();
     const kai: Participant = { id: "CCCCCCCCCCCCCCCC", name: "Kai", colourIndex: 2 };
     t.sock().receive({ type: "participant_joined", participant: kai });
     expect(t.view().participants).toEqual([sam, alex, kai]);
-    expect(t.view().announcement).toBe("Kai joined");
     t.sock().receive({ type: "participant_left", id: sam.id });
     expect(t.view().participants).toEqual([alex, kai]);
-    expect(t.view().announcement).toBe("Sam left");
+    vi.advanceTimersByTime(TOAST_BATCH_MS);
+    expect(t.view().presenceToast?.text).toBe("Kai joined, Sam left");
   });
 
   it("echoes carry the sender's name and colour, kept after they leave", () => {

@@ -153,7 +153,8 @@ describe("toasts from the session", () => {
   });
 
   it("none for the churn of your own reconnect; someone new still gets one", async () => {
-    const t = room();
+    // No jitter: the first try is exactly 1 s after the drop.
+    const t = room([], [], { random: () => 0.5 });
     t.relay.arrive(kai);
     await vi.advanceTimersByTimeAsync(TOAST_BATCH_MS + TOAST_SHOW_MS);
     t.relay.drop();

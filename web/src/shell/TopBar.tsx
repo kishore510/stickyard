@@ -5,13 +5,20 @@ import { Button } from "../components/ui/button";
 import { useMediaQuery } from "../lib/useMediaQuery";
 import { useRoomUi, useUnread } from "../rooms/roomStore";
 import { MEDIA } from "../styles/breakpoints";
+import { AvatarStack } from "../presence/AvatarStack";
+import { peopleLabel } from "../presence/avatars";
 import { Menu } from "./Menu";
 import { openSheet } from "./nav";
 import { ThemeToggle } from "./ThemeToggle";
 
-/** In a session: Participants (all widths) and, on phones, Chat (from md up it floats on the board). */
+/**
+ * In a session: Participants (all widths; from md up an avatar stack, on phones a count) and, on
+ * phones, Chat (from md up it floats on the board).
+ */
 function SessionButtons() {
-  const count = useRoomUi((s) => (s.room?.live ? s.room.participants.length : null));
+  const participants = useRoomUi((s) => (s.room?.live ? s.room.participants : null));
+  const youId = useRoomUi((s) => s.room?.you?.id ?? null);
+  const count = participants?.length ?? null;
   const inRoom = useRoomUi((s) => s.room !== null);
   const chatOpen = useRoomUi((s) => s.chatOpen);
   const openChat = useRoomUi((s) => s.openChat);
@@ -20,22 +27,35 @@ function SessionButtons() {
   if (!inRoom) return null;
   return (
     <>
-      <Button
-        variant="ghost"
-        size="icon"
-        aria-label={count === null ? "Participants" : `Participants (${count})`}
-        title="Participants"
-        aria-haspopup="dialog"
-        onClick={() => openSheet({ kind: "participants" })}
-        className="relative"
-      >
-        <Users />
-        {count !== null && (
-          <span aria-hidden="true" className="absolute right-2xs bottom-2xs rounded-full bg-surface-muted px-xs text-xs font-semibold tabular-nums">
-            {count}
-          </span>
-        )}
-      </Button>
+      {wide && participants !== null && participants.length > 0 ? (
+        <Button
+          variant="ghost"
+          aria-label={peopleLabel(count)}
+          title="Participants"
+          aria-haspopup="dialog"
+          onClick={() => openSheet({ kind: "participants" })}
+          className="px-xs"
+        >
+          <AvatarStack participants={participants} youId={youId} />
+        </Button>
+      ) : (
+        <Button
+          variant="ghost"
+          size="icon"
+          aria-label={peopleLabel(count)}
+          title="Participants"
+          aria-haspopup="dialog"
+          onClick={() => openSheet({ kind: "participants" })}
+          className="relative"
+        >
+          <Users />
+          {count !== null && (
+            <span aria-hidden="true" className="absolute right-2xs bottom-2xs rounded-full bg-surface-muted px-xs text-xs font-semibold tabular-nums">
+              {count}
+            </span>
+          )}
+        </Button>
+      )}
       {!wide && (
         <>
           <Button

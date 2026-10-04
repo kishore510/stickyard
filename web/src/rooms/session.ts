@@ -104,6 +104,7 @@ import { DUPLICATE_HINTS, duplicateFrameInput, duplicateNoteInputs } from "../ca
 import { HISTORY_TEXT, History, type Fields, type ItemKind, type Lookup, type Plan } from "../history/history";
 import type { CodeCheck } from "./api";
 import { packItems, type ItemDraft, type ItemsAddMessage } from "./items";
+import { RESYNC_QUIET_MS, TOAST_BATCH_MS, TOAST_GAP_MS, TOAST_SHOW_MS, summarizePresence, type PresenceEvent } from "../presence/toasts";
 import { discardUnconfirmed, resyncFrames, resyncNotes, unsavedKeys, type OrphanDraft } from "./resync";
 
 /*
@@ -156,8 +157,8 @@ export interface RoomView {
   nameError: boolean;
   /** The server said we're sending too fast. Cleared by our next accepted message. */
   rateLimited: boolean;
-  /** For an aria-live region: "<name> joined" / "<name> left". */
-  announcement: string;
+  /** A join/leave toast (plain text, batched; presence/toasts.ts), until it times out. */
+  presenceToast: { seq: number; text: string } | null;
   board: Board;
   /** A short message about a refused note change, until the next note action. */
   noteNotice: string | null;
@@ -200,7 +201,7 @@ export const INITIAL_VIEW: RoomView = {
   messages: [],
   nameError: false,
   rateLimited: false,
-  announcement: "",
+  presenceToast: null,
   board: EMPTY_BOARD,
   noteNotice: null,
   deleteReport: null,
@@ -550,6 +551,15 @@ export class RoomSession {
   private unlisten: (() => void) | null = null;
   /** When the tab was hidden (null while visible). */
   private hiddenSince: number | null = null;
+  /** Join/leave events waiting for the next toast, its timer, and the toast's hide timer. */
+  private presenceEvents: PresenceEvent[] = [];
+  private presenceTimer: ReturnType<typeof setTimeout> | undefined;
+  private toastTimer: ReturnType<typeof setTimeout> | undefined;
+  private lastToastAt = -Infinity;
+  private toastSeq = 0;
+  /** After my own reconnect: names that were here before the drop, quiet until `quietUntil`. */
+  private quietNames = new Set<string>();
+  private quietUntil = 0;
 
   constructor(private readonly options: SessionOptions) {
     this.env = options.env ?? STATIC_ENV;
@@ -847,6 +857,11 @@ export class RoomSession {
     clearTimeout(this.timer);
     this.stopAllMoves();
     this.socket = null;
+    // Joins and leaves not shown yet are forgotten; people here now aren't news when they come back.
+    clearTimeout(this.presenceTimer);
+    this.presenceTimer = undefined;
+    this.presenceEvents = [];
+    this.quietNames = new Set(this.view.participants.filter((p) => !this.yourIds.has(p.id)).map((p) => p.name));
     // What was in flight, counted before anything is cleared. Runs report their own losses.
     const excluded = new Set<string>();
     const both = (id: string) => {
@@ -901,6 +916,32 @@ export class RoomSession {
       ...this.templateEnd("partial"),
     });
     if (this.retry.phase === "reconnecting") this.schedule(backoffDelay(1, this.options.random ?? Math.random));
+  }
+
+  /* ── Presence toasts (presence/toasts.ts) ───────────────────────── */
+
+  /** A join or leave: shown in the next toast, after the batch window and at least the gap after the last one. */
+  private presence(event: PresenceEvent): void {
+    this.presenceEvents.push(event);
+    if (this.presenceTimer !== undefined) return;
+    const wait = Math.max(TOAST_BATCH_MS, this.lastToastAt + TOAST_GAP_MS - Date.now());
+    this.presenceTimer = setTimeout(() => {
+      this.presenceTimer = undefined;
+      this.showToast();
+    }, wait);
+  }
+
+  private showToast(): void {
+    const text = summarizePresence(this.presenceEvents);
+    this.presenceEvents = [];
+    if (this.stopped || text === null) return;
+    const seq = ++this.toastSeq;
+    this.lastToastAt = Date.now();
+    clearTimeout(this.toastTimer);
+    this.toastTimer = setTimeout(() => {
+      if (this.view.presenceToast?.seq === seq) this.update({ presenceToast: null });
+    }, TOAST_SHOW_MS);
+    this.update({ presenceToast: { seq, text } });
   }
 
   /** Adds the orphaned draft back as a new note where its note was. Its local id, or null. */
@@ -2056,6 +2097,8 @@ export class RoomSession {
     this.unlisten?.();
     this.unlisten = null;
     clearTimeout(this.expiryTimer);
+    clearTimeout(this.presenceTimer);
+    clearTimeout(this.toastTimer);
     clearTimeout(this.itemTimer);
     this.template = null;
     this.restoreRun = null;
@@ -2118,6 +2161,7 @@ export class RoomSession {
         if (this.retry) {
           // A reconnect: live once the snapshot has replaced the board (the join timer runs till then).
           this.resyncing = true;
+          this.quietUntil = Date.now() + RESYNC_QUIET_MS;
           return this.update({ you: message.you, participants: message.participants, nameError: false, people: new Map(this.known), yourIds: new Set(this.yourIds) });
         }
         clearTimeout(this.timer);
@@ -2134,16 +2178,17 @@ export class RoomSession {
         const p = message.participant;
         this.known.set(p.id, p);
         const others = this.view.participants.filter((q) => q.id !== p.id);
-        return this.update({ participants: [...others, p], announcement: `${p.name} joined`, people: new Map(this.known) });
+        // Not news: yourself, or someone back after your own reconnect.
+        const quiet = Date.now() < this.quietUntil && this.quietNames.has(p.name);
+        if (!this.yourIds.has(p.id) && !quiet) this.presence({ kind: "joined", id: p.id, name: p.name });
+        return this.update({ participants: [...others, p], people: new Map(this.known) });
       }
 
       case "participant_left": {
         const gone = this.view.participants.find((p) => p.id === message.id);
         if (!gone) return;
-        return this.update({
-          participants: this.view.participants.filter((p) => p.id !== message.id),
-          announcement: `${gone.name} left`,
-        });
+        this.presence({ kind: "left", id: gone.id, name: gone.name });
+        return this.update({ participants: this.view.participants.filter((p) => p.id !== message.id) });
       }
 
       case "echo": {

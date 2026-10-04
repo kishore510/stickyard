@@ -116,6 +116,7 @@ const Notices = memo(function Notices({
   historyReport,
   dropReport,
   orphanDraft,
+  presenceToast,
   noteReason,
   onRejoin,
   onRestoreDraft,
@@ -131,6 +132,8 @@ const Notices = memo(function Notices({
   /** What may not have been saved when the connection dropped. */
   dropReport: string | null;
   orphanDraft: OrphanDraft | null;
+  /** Who joined or left (plain text). */
+  presenceToast: string | null;
   noteReason: string | null;
   onRejoin: () => void;
   onRestoreDraft: () => void;
@@ -176,6 +179,11 @@ const Notices = memo(function Notices({
           {noteReason}
         </p>
       )}
+      {/* Join and leave toasts: always in the page so the live region is ready; no focus, no
+          buttons, never over the top bar or the phone ribbon; fade only without reduced motion. */}
+      <div role="status" aria-live="polite" data-presence-toasts="" className="flex flex-col items-center">
+        {presenceToast && <p className="sy-fade-in max-w-content rounded-md bg-surface px-ms py-xs text-sm break-words shadow-md">{presenceToast}</p>}
+      </div>
     </div>
   );
 });
@@ -525,6 +533,7 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
           historyReport={view.historyReport}
           dropReport={view.dropReport}
           orphanDraft={view.orphanDraft}
+          presenceToast={view.presenceToast?.text ?? null}
           noteReason={noteReason}
           onRejoin={rejoin}
           onRestoreDraft={restoreDraft}
