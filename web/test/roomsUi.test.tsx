@@ -2578,9 +2578,61 @@ describe("the floating bar and Duplicate (md up)", () => {
     expect(command("Bring to front")?.textContent).toContain("Bring to front");
   });
 
-  it("no undo or redo yet (part 2 adds them)", async () => {
+  it("has a History group first: Undo and Redo, off with the reason as text until there's something to undo", async () => {
     await withBoard([make(0)]);
-    expect(command("Undo")).toBeUndefined();
+    expect(bar()?.querySelector('[role="group"]')?.getAttribute("aria-label")).toBe("History");
+    expect(command("Undo")?.disabled).toBe(true);
+    expect(command("Redo")?.disabled).toBe(true);
+    expect(group("History")?.textContent).toContain("Nothing to undo.");
+  });
+
+  it("Undo after a delete adds the notes back (itemsAdd), shows how it went, and Redo deletes them again", async () => {
+    const socket = await withBoard([make(0), make(1)]);
+    await select(0);
+    await select(1, { shiftKey: true });
+    vi.stubGlobal("confirm", vi.fn(() => true));
+    await click(command("Delete"));
+    await server(socket, { data: { type: "notesBatchApplied", final: true, results: [{ type: "noteDeleted", id: nid(0) }, { type: "noteDeleted", id: nid(1) }] } });
+    expect(notes()).toHaveLength(0);
+    expect(command("Undo")?.disabled).toBe(false);
+    await click(command("Undo"));
+    const add = sentOfType(socket, "itemsAdd").at(-1)!;
+    expect((add.notes as { text: string }[]).map((n) => n.text)).toEqual(["Idea 0", "Idea 1"]);
+    expect(notes()).toHaveLength(2);
+    expect(document.body.textContent).toContain("Restoring 0 of 2…");
+    const refs = (add.notes as { ref: string }[]).map((n) => n.ref);
+    await server(socket, {
+      data: { type: "itemsAdded", clientRef: add.clientRef, notes: refs.map((ref, i) => ({ ref, note: { ...make(i), id: nid(20 + i), authorId: alex.id } })), frames: [], refused: [] },
+    });
+    expect([...document.querySelectorAll('[role="status"]')].map((el) => el.textContent).join(" ")).toContain("Restored 2 items.");
+    expect(command("Redo")?.disabled).toBe(false);
+    await click(command("Redo"));
+    expect(sentOfType(socket, "noteBatch").at(-1)).toMatchObject({ ops: [{ op: "delete", id: nid(20) }, { op: "delete", id: nid(21) }] });
+  });
+
+  it("Ctrl+Z undoes on the board (and stops the browser's own); not in a text field", async () => {
+    const socket = await withBoard([make(0)]);
+    await select(0);
+    await press("ArrowRight", notes()[0]!);
+    await act(() => new Promise((resolve) => setTimeout(resolve, 500)));
+    await server(socket, { data: { type: "noteMoved", id: nid(0), x: 50, y: 60, rev: 2, final: true } });
+    const title = document.querySelector<HTMLInputElement>('aside[aria-label="Properties"] input[name="title"]');
+    const inField = await press("z", title ?? document.body, { ctrlKey: true });
+    expect(inField.defaultPrevented).toBe(false);
+    expect(sentOfType(socket, "noteBatch")).toHaveLength(0);
+    await act(async () => (document.activeElement as HTMLElement | null)?.blur());
+    const event = await press("z", document.body, { ctrlKey: true });
+    expect(event.defaultPrevented).toBe(true);
+    expect(sentOfType(socket, "noteBatch").at(-1)).toMatchObject({ final: true, ops: [{ op: "move", id: nid(0), x: 40, y: 60 }] });
+  });
+
+  it("an order change: undo says it can't be undone", async () => {
+    await withBoard([make(0), make(1)]);
+    await select(0);
+    await click(command("Send to back"));
+    expect(command("Undo")?.disabled).toBe(false);
+    await click(command("Undo"));
+    expect(document.body.textContent).toContain("Order changes can’t be undone.");
   });
 
   it("Duplicate copies the selected notes (full content, offset, one itemsAdd) and selects the copies", async () => {
@@ -2683,8 +2735,16 @@ describe("the floating bar and Duplicate (md up)", () => {
     expect(notes()).toHaveLength(1);
   });
 
-  it("phones: no floating bar (the ribbon stays as it was)", async () => {
+  it("phones: no floating bar; the ribbon gets Undo and Redo (only these two), off with the reason in their tooltip", async () => {
     await withBoard([make(0)], [], false);
     expect(bar()).toBeNull();
+    const ribbon = document.querySelector<HTMLElement>('[role="toolbar"][aria-label="Board tools"]');
+    const undo = ribbon?.querySelector<HTMLButtonElement>('[data-tool="undo"]');
+    const redo = ribbon?.querySelector<HTMLButtonElement>('[data-tool="redo"]');
+    expect(undo?.getAttribute("aria-label")).toBe("Undo");
+    expect(redo?.getAttribute("aria-label")).toBe("Redo");
+    expect(undo?.disabled).toBe(true);
+    expect(undo?.title).toContain("Nothing to undo.");
+    expect(ribbon?.querySelector('[data-tool="duplicate"]')).toBeNull();
   });
 });
