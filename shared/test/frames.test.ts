@@ -3,6 +3,7 @@ import {
   BOARD_HEIGHT,
   BOARD_WIDTH,
   FRAME_COLORS,
+  FRAME_DEFAULTS,
   FRAME_DEFAULT_H,
   FRAME_DEFAULT_W,
   FRAME_MAX_H,
@@ -13,7 +14,6 @@ import {
   MAX_FRAMES_PER_ROOM,
   MAX_FRAME_TITLE,
   MAX_MESSAGE_BYTES,
-  MAX_SERVER_MESSAGE_BYTES,
   NOTE_MAX_H,
   NOTE_MAX_W,
   PROTOCOL_VERSION,
@@ -38,11 +38,11 @@ const id = (i: number) => `frame${String(i).padStart(11, "0")}`;
 const noteId = (i: number) => `note${String(i).padStart(12, "0")}`;
 const parses = (message: unknown) => clientMessageSchema.safeParse(message).success;
 const serverParses = (message: unknown) => serverMessageSchema.safeParse(message).success;
-const frame: Frame = { id: id(0), x: 100, y: 100, w: FRAME_DEFAULT_W, h: FRAME_DEFAULT_H, title: "Start", color: "neutral", rev: 1, authorId: "AAAAAAAAAAAAAAAA" };
+const frame: Frame = { id: id(0), x: 100, y: 100, w: FRAME_DEFAULT_W, h: FRAME_DEFAULT_H, title: "Start", color: "neutral", ...FRAME_DEFAULTS, rev: 1, authorId: "AAAAAAAAAAAAAAAA" };
 
 describe("protocol v9 constants", () => {
-  it("is protocol 9, with frame caps and sizes bigger than notes that fit the board", () => {
-    expect(PROTOCOL_VERSION).toBe(9);
+  it("is protocol 9 or later, with frame caps and sizes bigger than notes that fit the board", () => {
+    expect(PROTOCOL_VERSION).toBeGreaterThanOrEqual(9);
     expect(MAX_FRAMES_PER_ROOM).toBe(30);
     expect(MAX_FRAME_TITLE).toBe(60);
     expect(FRAME_MIN_W).toBeGreaterThanOrEqual(NOTE_MAX_W / 2);
@@ -187,30 +187,5 @@ describe("server frame messages", () => {
     expect(serverParses({ type: "error", code: "rate_limited", message: "Slow.", frameId: id(0), noteIds: [noteId(1)] })).toBe(true);
   });
 
-  /**
-   * Worst case per frame: the longest id/author, 4-digit positions, the largest size, a title of
-   * lone surrogates (JSON escapes each as 6 bytes), the longest colour key, rev at
-   * MAX_SAFE_INTEGER. The frames message is separate from the notes snapshot (whose own
-   * worst-case test and 400 KiB tripwire are unchanged; see noteSize.test.ts and docs/LIMITS.md).
-   */
-  it("the largest possible framesSnapshot stays far under the server message cap (recorded in docs/LIMITS.md)", () => {
-    const longest = [...FRAME_COLORS].sort((a, b) => b.length - a.length)[0]!;
-    const big: Frame = {
-      id: id(0),
-      x: BOARD_WIDTH - FRAME_MAX_W,
-      y: BOARD_HEIGHT - FRAME_MAX_H,
-      w: FRAME_MAX_W,
-      h: FRAME_MAX_H,
-      title: "\ud800".repeat(MAX_FRAME_TITLE),
-      color: longest,
-      rev: Number.MAX_SAFE_INTEGER,
-      authorId: "AAAAAAAAAAAAAAAA",
-    };
-    const raw = encodeMessage({ type: "framesSnapshot", frames: Array.from({ length: MAX_FRAMES_PER_ROOM }, () => big) });
-    expect(/^[\x20-\x7e]*$/.test(raw)).toBe(true);
-    // docs/LIMITS.md records this figure; update both together.
-    expect(raw.length).toBeLessThanOrEqual(16 * 1024);
-    expect(raw.length).toBeLessThan(MAX_SERVER_MESSAGE_BYTES / 16);
-    expect(parseMessage(raw, serverMessageSchema, MAX_SERVER_MESSAGE_BYTES).ok).toBe(true);
-  });
+  // The framesSnapshot worst case (with v10's title style) is in frameTitleStyle.test.ts.
 });
