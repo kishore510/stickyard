@@ -531,6 +531,12 @@ export class RoomSession {
     return true;
   }
 
+  /** Shows a notice about the notes (an arrange that couldn't run, say), until the next note action. */
+  showNotice(text: string): void {
+    if (this.stopped) return;
+    this.update({ noteNotice: text });
+  }
+
   /**
    * Deletes several notes here at once, sent as batches of deletes. Once the relay has answered
    * for every one, `deleteReport` says how many went (and why any didn't). Not connected: nothing

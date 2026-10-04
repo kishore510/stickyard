@@ -1,7 +1,7 @@
 import { BOARD_HEIGHT, BOARD_WIDTH, clampNoteRect, type NoteRect } from "@stickyard/shared";
 
 /*
- * Align, distribute and match size for a multi-selection, and the group drag clamp. Pure, as in
+ * Align, distribute, match size and grid for a multi-selection, and the group drag clamp. Pure, as in
  * Chalkline's canvas/arrange.ts: each returns only the notes it changes, as whole-unit rects
  * clamped to the board (clampNoteRect: size first, then position). The server clamps again.
  */
@@ -98,6 +98,106 @@ export function matchSize(rects: readonly Placed[], mode: MatchMode): Map<string
     rects,
     rects.map((r) => ({ ...r, w: mode === "height" ? r.w : ref.w, h: mode === "width" ? r.h : ref.h })),
   );
+}
+
+/** The gap between grid cells, in board units. Mirrored by `--sy-grid-gap` in tokens.css (test checks). */
+export const GRID_GAP = 24;
+
+/** Why a grid can't be laid out: wider than the board, taller, or both. */
+export type GridReason = "wide" | "tall" | "big";
+
+export interface GridResult {
+  changes: Map<string, NoteRect>;
+  reason: GridReason | null;
+}
+
+/**
+ * The notes in reading order: row bands first (a note joins the current band when it overlaps
+ * the band's top-to-bottom extent; touching isn't overlap), top to bottom, then left to right
+ * within a band. Ties go by id, so the order never depends on the input's.
+ */
+export function readingOrder<T extends Placed>(rects: readonly T[]): T[] {
+  const byTop = [...rects].sort((a, b) => a.y - b.y || a.x - b.x || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  const bands: T[][] = [];
+  let bottom = -Infinity;
+  for (const r of byTop) {
+    const band = bands.at(-1);
+    if (band && r.y < bottom) {
+      band.push(r);
+      bottom = Math.max(bottom, r.y + r.h);
+    } else {
+      bands.push([r]);
+      bottom = r.y + r.h;
+    }
+  }
+  return bands.flatMap((band) => band.sort((a, b) => a.x - b.x || a.y - b.y || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)));
+}
+
+/**
+ * Lays the notes out in a grid of `columns` (kept within 1 and the count), in reading order,
+ * row by row. Each column is as wide as its widest note and each row as tall as its tallest,
+ * with `gap` between cells; notes sit at their cell's top-left and keep their size. The grid's
+ * top-left is the selection's top-left, shifted back onto the board if the grid would run off
+ * it. Doing it again changes nothing. A grid larger than the board changes nothing and says why.
+ * Needs 2+ notes.
+ */
+export function grid(rects: readonly Placed[], columns: number, gap: number): GridResult {
+  if (rects.length < 2) return { changes: new Map(), reason: null };
+  const cols = Math.min(Math.max(1, Math.floor(columns)), rects.length);
+  const order = readingOrder(rects);
+  const widths = Array.from({ length: cols }, () => 0);
+  const heights = Array.from({ length: Math.ceil(order.length / cols) }, () => 0);
+  order.forEach((r, i) => {
+    const col = i % cols;
+    const row = Math.floor(i / cols);
+    widths[col] = Math.max(widths[col]!, r.w);
+    heights[row] = Math.max(heights[row]!, r.h);
+  });
+  const total = (sizes: number[]) => sizes.reduce((sum, s) => sum + s, 0) + gap * (sizes.length - 1);
+  const width = total(widths);
+  const height = total(heights);
+  const wide = width > BOARD_WIDTH;
+  const tall = height > BOARD_HEIGHT;
+  if (wide || tall) return { changes: new Map(), reason: wide && tall ? "big" : wide ? "wide" : "tall" };
+  const b = bounds(rects);
+  const left = Math.max(0, Math.min(b.left, BOARD_WIDTH - width));
+  const top = Math.max(0, Math.min(b.top, BOARD_HEIGHT - height));
+  // Each cell's offset from the grid's top-left.
+  const offsets = (sizes: number[]) => sizes.map((_, i) => sizes.slice(0, i).reduce((sum, s) => sum + s + gap, 0));
+  const xs = offsets(widths);
+  const ys = offsets(heights);
+  const placed = new Map(order.map((r, i) => [r.id, { x: left + xs[i % cols]!, y: top + ys[Math.floor(i / cols)]! }]));
+  return { changes: changes(rects, rects.map((r) => ({ ...r, ...placed.get(r.id)! }))), reason: null };
+}
+
+/**
+ * A column count for `grid` (1 to the count): the one whose grid, estimated with the average
+ * note width and height and GRID_GAP between cells, has the aspect ratio (width / height)
+ * closest to the selection's bounding box, compared on a log scale so twice as wide and twice
+ * as tall count the same. A wide spread gets more columns, a tall one fewer, and a pile of
+ * square notes about the square root of the count. Ties go to fewer columns. With notes of
+ * one size, a grid laid out with this count picks the same count again.
+ */
+export function autoColumns(rects: readonly Placed[]): number {
+  const n = rects.length;
+  if (n < 2) return 1;
+  const b = bounds(rects);
+  const target = Math.log((b.right - b.left) / (b.bottom - b.top));
+  const avgW = rects.reduce((sum, r) => sum + r.w, 0) / n;
+  const avgH = rects.reduce((sum, r) => sum + r.h, 0) / n;
+  let best = 1;
+  let bestDistance = Infinity;
+  for (let cols = 1; cols <= n; cols++) {
+    const rows = Math.ceil(n / cols);
+    const aspect = (cols * avgW + (cols - 1) * GRID_GAP) / (rows * avgH + (rows - 1) * GRID_GAP);
+    const distance = Math.abs(Math.log(aspect) - target);
+    // A hair of tolerance so float noise doesn't break a tie the wrong way.
+    if (distance < bestDistance - 1e-9) {
+      best = cols;
+      bestDistance = distance;
+    }
+  }
+  return best;
 }
 
 /**

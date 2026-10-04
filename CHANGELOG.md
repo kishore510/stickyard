@@ -2,6 +2,11 @@
 
 All notable changes to Stickyard, newest first. The format follows Keep a Changelog. Versions are 0.x: a minor bump for each slice and a patch bump for each follow-up fix. This file is shown in the app under **What’s new**, so entries are written for the people using it.
 
+## [0.10.3] - 2026-10-04
+
+### Added
+- Grid: with two or more notes selected on a wider screen, **Arrange > Grid** lays them out in tidy rows and columns, in reading order, with an equal gap. **Columns** picks how many columns, or **Auto** chooses from the shape of the selection. If the grid wouldn't fit on the board, nothing moves and the board says why.
+
 ## [0.10.2] - 2026-10-04
 
 ### Fixed

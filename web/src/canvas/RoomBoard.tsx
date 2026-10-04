@@ -8,7 +8,7 @@ import { readPxToken } from "../lib/cssVar";
 import { useMediaQuery } from "../lib/useMediaQuery";
 import { useWindowWidth } from "../lib/useWindowWidth";
 import { findFrame } from "../frames/board";
-import { findNote, isHeld, type Board } from "../notes/board";
+import { findNote, isHeld, isLocalId, type Board } from "../notes/board";
 import type { InlinePart } from "../notes/inlineEdit";
 import { AddDrawer, CompactPalette, PaletteContent, type PaletteHost } from "../palette/Palette";
 import { cornerLifted, panelWidths, type PanelId } from "../panels/layout";
@@ -328,15 +328,18 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
   };
 
   // The selection bar: md and up, Select tool, two or more notes (in selection order).
-  const selectedNotes: Placed[] =
-    wide && tool === "select" && selection.size >= 2 ? orderedIds(selection).flatMap((id) => findNote(view.board, id)?.note ?? []) : [];
+  const selectedEntries = wide && tool === "select" && selection.size >= 2 ? orderedIds(selection).flatMap((id) => findNote(view.board, id) ?? []) : [];
+  const selectedNotes: Placed[] = selectedEntries.map((e) => e.note);
   const bar =
     selectedNotes.length >= 2 ? (
       <SelectionBar
         notes={selectedNotes}
         live={live}
+        held={selectedEntries.some(isHeld)}
+        unsaved={selectedEntries.some((e) => isLocalId(e.note.id))}
         apply={(rects) => room.applyRects(rects)}
         order={(action) => room.orderNotes(selectedNotes.map((n) => n.id), action)}
+        notice={(text) => room.showNotice(text)}
       />
     ) : null;
 

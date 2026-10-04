@@ -201,6 +201,8 @@
   --sy-select-offset: 3px;
   --sy-select-badge: 22px;
   --sy-selection-pad: 12px;
+  /* Gap between cells of Arrange > Grid, in board units (= GRID_GAP in canvas/arrange.ts, test checks). */
+  --sy-grid-gap: 24px;
   --sy-border-width: 1px;
   /* Downward drag on a phone sheet's header that closes it. Read by src/shell/Sheet.tsx. */
   --sy-swipe-close: 80px;
