@@ -63,6 +63,7 @@ const Notices = memo(function Notices({
   status,
   noteNotice,
   deleteReport,
+  historyReport,
   noteReason,
   onRejoin,
   bar,
@@ -70,6 +71,8 @@ const Notices = memo(function Notices({
   status: RoomView["status"];
   noteNotice: string | null;
   deleteReport: DeleteReport | null;
+  /** A restore running, or how the last undo or redo went. */
+  historyReport: DeleteReport | null;
   noteReason: string | null;
   onRejoin: () => void;
   /** The selection bar, first in the stack (md and up). */
@@ -103,6 +106,15 @@ const Notices = memo(function Notices({
           className={cn("pointer-events-auto rounded-md bg-surface px-ms py-xs text-sm shadow-md", deleteReport.partial && "text-status-warn")}
         >
           {deleteReport.text}
+        </p>
+      )}
+      {historyReport && (
+        <p
+          role="status"
+          data-history-report=""
+          className={cn("pointer-events-auto rounded-md bg-surface px-ms py-xs text-sm shadow-md", historyReport.partial && "text-status-warn")}
+        >
+          {historyReport.text}
         </p>
       )}
       {noteReason && (
@@ -167,7 +179,7 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
   const noteReason = noteToolReason({ live, count: noteCount });
   const frameCount = view.board.frames.length;
   const frameReason = frameToolReason({ live, count: frameCount });
-  const templateReason = templateToolReason({ live, applying: view.template?.state === "applying" });
+  const templateReason = templateToolReason({ live, applying: view.template?.state === "applying", adding: view.adding });
   const sizes = panelWidths(windowWidth, panels);
 
   const latest = useRef({ view, room, wide });
@@ -273,8 +285,12 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
         if (latest.current.wide) addNote(useBoardUi.getState().color);
         else useBoardUi.getState().setAddSheetOpen(true);
       },
+      undo: () => latest.current.room.undo(),
+      redo: () => latest.current.room.redo(),
+      undoReason: view.history.undo,
+      redoReason: view.history.redo,
     }),
-    [tool, setTool, zoom, minimap, noteReason, setMinimap, canvas, addNote],
+    [tool, setTool, zoom, minimap, noteReason, setMinimap, canvas, addNote, view.history.undo, view.history.redo],
   );
 
   const paletteHost = useMemo<PaletteHost>(
@@ -372,8 +388,12 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
     deleteSelected({ board: view.board, live, deleteNote: room.deleteNote, deleteNotes: room.deleteNotes }, selectedEntries.map((e) => e.note.id));
   };
 
-  const commands = useRef<Record<BoardCommand, () => void>>({ duplicate });
-  commands.current = { duplicate };
+  /** Undo or redo (Ctrl+Z, the bar, the ribbon); off says why. */
+  const undo = () => (view.history.undo === null ? room.undo() : room.showNotice(view.history.undo));
+  const redo = () => (view.history.redo === null ? room.redo() : room.showNotice(view.history.redo));
+
+  const commands = useRef<Record<BoardCommand, () => void>>({ duplicate, undo, redo });
+  commands.current = { duplicate, undo, redo };
   const onShortcut = useCallback((command: BoardCommand) => commands.current[command](), []);
 
   const bar = wide ? (
@@ -385,6 +405,10 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
       unsaved={selectedEntries.some((e) => isLocalId(e.note.id))}
       duplicateReason={duplicateReason}
       duplicate={duplicate}
+      undoReason={view.history.undo}
+      redoReason={view.history.redo}
+      undo={() => room.undo()}
+      redo={() => room.redo()}
       remove={removeSelection}
       apply={(rects) => room.applyRects(rects)}
       order={(action) => room.orderNotes(selectedNotes.map((n) => n.id), action)}
@@ -436,7 +460,7 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
           view={canvas}
           onShortcut={onShortcut}
         />
-        <Notices status={view.status} noteNotice={view.noteNotice} deleteReport={view.deleteReport} noteReason={noteReason} onRejoin={rejoin} bar={bar} />
+        <Notices status={view.status} noteNotice={view.noteNotice} deleteReport={view.deleteReport} historyReport={view.historyReport} noteReason={noteReason} onRejoin={rejoin} bar={bar} />
         {wide ? (
           <>
             <ViewBar ctx={ctx} barRef={barRef} />

@@ -88,6 +88,7 @@ import {
   type StylePatch,
 } from "../notes/board";
 import { DUPLICATE_HINTS, duplicateFrameInput, duplicateNoteInputs } from "../canvas/duplicate";
+import { HISTORY_TEXT, History, type Fields, type ItemKind, type Lookup, type Plan } from "../history/history";
 import type { CodeCheck } from "./api";
 import { packItems, type ItemDraft, type ItemsAddMessage } from "./items";
 
@@ -135,8 +136,12 @@ export interface RoomView {
   template: TemplateRun | null;
   /** Everyone seen in this visit (including people who have left), by id: note authors' names. */
   people: ReadonlyMap<string, Participant>;
-  /** itemsAdd messages are still queued or in flight (a duplicate, a template): another waits. */
+  /** itemsAdd messages are still queued or in flight (a duplicate, a template, a restore): another waits. */
   adding: boolean;
+  /** Why Undo and Redo are off right now (null: they work). */
+  history: { undo: string | null; redo: string | null };
+  /** A restore in progress ("Restoring 120 of 200…"), or how the last undo or redo went, until the next note action. */
+  historyReport: DeleteReport | null;
 }
 
 /** A delete's outcome: `partial` when some notes weren't (or may not have been) deleted. */
@@ -160,7 +165,20 @@ export const INITIAL_VIEW: RoomView = {
   template: null,
   people: new Map(),
   adding: false,
+  history: { undo: "Not connected.", redo: "Not connected." },
+  historyReport: null,
 };
+
+/** What Undo and Redo say (with HISTORY_TEXT from the history itself). */
+export const UNDO_TEXT = {
+  offline: "Not connected.",
+  busy: "Wait until the items being added are saved.",
+  order: HISTORY_TEXT.order,
+  restoring: (done: number, total: number) => `Restoring ${done} of ${total}…`,
+  restored: (n: number) => `Restored ${n} ${n === 1 ? "item" : "items"}.`,
+  restoredPartly: (done: number, total: number) => `Restored ${done} of ${total} items.`,
+  restoreLost: (done: number, total: number) => `Restored ${done} of ${total} items. The connection was lost, so the rest weren’t restored.`,
+} as const;
 
 export const JOIN_TIMEOUT_MS = 10_000;
 /** Echoes kept on screen. */
@@ -225,6 +243,8 @@ interface ItemsRun {
   refused: ItemsRefused;
   /** The template it applies, if any (its seq). */
   template: number | null;
+  /** An undo or redo adding items back (its progress is shown). */
+  restore: boolean;
 }
 
 /** One itemsAdd message of a run: queued, then in flight until the relay answers. */
@@ -266,6 +286,9 @@ function itemsNotice({ notesFull, framesFull, invalid, tooQuick }: ItemsRefused)
   if (invalid > 0) parts.push(`${plural(invalid, "item")} because the relay refused ${invalid === 1 ? "it" : "them"}.`);
   return parts.join(" ");
 }
+
+/** Items of a run the relay has added. */
+const restoredCount = (run: ItemsRun) => [...run.ids.values()].filter((id) => id !== null).length;
 
 const refusedTotal = (r: ItemsRefused) => r.notesFull + r.framesFull + r.invalid + r.tooQuick;
 
@@ -371,6 +394,10 @@ export class RoomSession {
   private templateSeq = 0;
   /** The delete of several notes being confirmed, if any (a new one joins it). */
   private deleteRun: DeleteRun | null = null;
+  /** Undo and redo of my own actions (history/history.ts); cleared on resync, disconnect and leaving. */
+  private readonly history = new History();
+  /** Items being added back by an undo or redo, if any. */
+  private restoreRun: ItemsRun | null = null;
 
   constructor(private readonly options: SessionOptions) {}
 
@@ -427,6 +454,7 @@ export class RoomSession {
     const note = findNote(board, localId(clientRef))?.note;
     if (!note) return null;
     this.update({ board, noteNotice: null });
+    this.history.recordAdd("Add note", [{ kind: "note", id: note.id }], Date.now());
     this.send({ type: "noteAdd", clientRef, x: note.x, y: note.y, color, text: clean });
     return note.id;
   }
@@ -443,7 +471,10 @@ export class RoomSession {
     }
     this.update({ board: editLocal(this.view.board, id, clean), noteNotice: null });
     // A note that isn't confirmed yet gets its text sent once it has a server id.
-    if (!isLocalId(id)) this.send({ type: "noteEdit", id, text: clean });
+    if (!isLocalId(id)) {
+      this.record("Edit text", [{ kind: "note", id, after: { text: clean } }]);
+      this.send({ type: "noteEdit", id, text: clean });
+    }
     return true;
   }
 
@@ -472,6 +503,7 @@ export class RoomSession {
     this.update({ board });
     if (final) {
       this.stopMove(id);
+      this.recordRects("Move", ["note"], [id], ["x", "y"], `move:${id}`);
       return this.sendMove(id, true);
     }
     this.throttle(this.moves, id, MOVE_INTERVAL_MS, () => this.sendMove(id, false));
@@ -496,6 +528,7 @@ export class RoomSession {
     this.update({ board });
     if (final) {
       this.stopResize(id);
+      this.recordRects("Resize", ["note"], [id], ["x", "y", "w", "h"], `resize:${id}`);
       return this.sendResize(id, true);
     }
     this.throttle(this.resizes, id, RESIZE_INTERVAL_MS, () => this.sendResize(id, false));
@@ -509,6 +542,7 @@ export class RoomSession {
     const board = resizeLocal(this.view.board, id, { x, y, w, h });
     if (board === this.view.board) return true;
     this.update({ board, noteNotice: null });
+    this.recordRects("Resize", ["note"], [id], ["x", "y", "w", "h"]);
     this.sendResize(id, true);
     return true;
   }
@@ -525,7 +559,10 @@ export class RoomSession {
     if (board === this.view.board) return true;
     const changed = styleChanges(entry.note, findNote(board, id)?.note ?? entry.note);
     this.update({ board, noteNotice: null });
-    if (!isLocalId(id)) this.send({ type: "noteEdit", id, ...changed });
+    if (!isLocalId(id)) {
+      this.record("Style", [{ kind: "note", id, after: changed as Fields }]);
+      this.send({ type: "noteEdit", id, ...changed });
+    }
     return true;
   }
 
@@ -537,8 +574,13 @@ export class RoomSession {
     this.stopMove(id);
     this.stopResize(id);
     this.update({ board: deleteLocal(this.view.board, id), noteNotice: null });
-    if (entry.clientRef !== null) this.abandoned.add(entry.clientRef);
-    else this.send({ type: "noteDelete", id });
+    if (entry.clientRef !== null) {
+      this.abandoned.add(entry.clientRef);
+      this.history.refuse("note", id);
+    } else {
+      this.recordRemoval("Delete note", [entry.note], []);
+      this.send({ type: "noteDelete", id });
+    }
   }
 
   /** Starts dragging several notes together. False if none of them can move now. */
@@ -570,7 +612,9 @@ export class RoomSession {
     this.update({ board });
     if (final) {
       this.stopGroup();
-      this.sendBatch(this.moveEntries(known.map((p) => p.id)), true);
+      const ids = known.map((p) => p.id);
+      this.recordRects("Move", ["note"], ids, ["x", "y"], `move:${[...ids].sort().join(",")}`);
+      this.sendBatch(this.moveEntries(ids), true);
       return;
     }
     this.group = known.map((p) => p.id);
@@ -598,6 +642,7 @@ export class RoomSession {
     }
     if (ops.length === 0) return true;
     this.update({ board, noteNotice: null });
+    this.recordRects("Arrange", ["note"], ops.map((o) => o.id), ["x", "y", "w", "h"]);
     this.sendBatch(ops, true);
     return true;
   }
@@ -619,6 +664,7 @@ export class RoomSession {
     let board = this.view.board;
     const ops: NoteBatchEntry[] = [];
     const run = this.deleteRun ?? { total: 0, ids: new Set<string>(), refs: new Set<string>(), refused: 0, tooQuick: false };
+    const removed: Note[] = [];
     for (const id of ids) {
       const entry = findNote(board, id);
       if (!entry) continue;
@@ -631,11 +677,14 @@ export class RoomSession {
         run.refs.add(entry.clientRef);
       } else {
         ops.push({ op: "delete", id });
+        removed.push(entry.note);
         run.ids.add(id);
       }
     }
     if (run.total > 0) this.deleteRun = run;
     this.update({ board, noteNotice: null });
+    for (const ref of run.refs) this.history.refuse("note", localId(ref));
+    this.recordRemoval(ids.length === 1 ? "Delete note" : "Delete notes", removed, []);
     this.sendBatch(ops, true);
   }
 
@@ -665,6 +714,7 @@ export class RoomSession {
     const ordered = stackOrder(notes).map((n) => n.id);
     const board = reorderLocal(this.view.board, ordered, action);
     if (board !== this.view.board) this.update({ board, noteNotice: null });
+    this.history.recordOrder(Date.now());
     const chunks: string[][] = [];
     for (let i = 0; i < ordered.length; i += MAX_BATCH_ENTRIES) chunks.push(ordered.slice(i, i + MAX_BATCH_ENTRIES));
     for (const chunk of action === "front" ? chunks : chunks.reverse()) this.send({ type: "notesOrder", ids: chunk, action });
@@ -690,6 +740,7 @@ export class RoomSession {
     const frame = findFrame(board, localId(clientRef))?.frame;
     if (!frame) return null;
     this.update({ board, noteNotice: null });
+    this.history.recordAdd("Add frame", [{ kind: "frame", id: frame.id }], Date.now());
     this.send({ type: "frameAdd", clientRef, x: frame.x, y: frame.y, color, title: clean });
     return frame.id;
   }
@@ -709,7 +760,10 @@ export class RoomSession {
     this.update({ board, noteNotice: null });
     if (isLocalId(id)) return true;
     const edit = frameChanges(before, after);
-    if (Object.keys(edit).length > 0) this.send({ type: "frameEdit", id, ...edit });
+    if (Object.keys(edit).length > 0) {
+      this.record("Edit frame", [{ kind: "frame", id, after: edit as Fields }]);
+      this.send({ type: "frameEdit", id, ...edit });
+    }
     return true;
   }
 
@@ -761,6 +815,7 @@ export class RoomSession {
     this.update({ board });
     if (final) {
       this.stopFrameMove(id);
+      this.recordRects("Move frame", ["frame", ...noteIds.map(() => "note" as const)], [id, ...noteIds], ["x", "y"]);
       return this.sendFrameMove(id, noteIds, true);
     }
     this.throttle(this.frameMoves, id, MOVE_INTERVAL_MS, () => this.sendFrameMove(id, noteIds, false));
@@ -781,6 +836,7 @@ export class RoomSession {
     this.update({ board });
     if (final) {
       this.stopFrameResize(id);
+      this.recordRects("Resize frame", ["frame"], [id], ["x", "y", "w", "h"]);
       return this.sendFrameResize(id, true);
     }
     this.throttle(this.frameResizes, id, RESIZE_INTERVAL_MS, () => this.sendFrameResize(id, false));
@@ -799,6 +855,7 @@ export class RoomSession {
     const board = resizeFrameLocal(this.view.board, id, rect);
     if (board === this.view.board) return true;
     this.update({ board, noteNotice: null });
+    this.recordRects("Resize frame", ["frame"], [id], ["x", "y", "w", "h"]);
     this.sendFrameResize(id, true);
     return true;
   }
@@ -813,17 +870,27 @@ export class RoomSession {
    * says how many weren't added and why. Notes stack in the order given (last on top). Their local
    * ids in input order (null for one whose text is too long), or null if not connected.
    */
-  addItems(inputs: readonly ItemInput[]): (string | null)[] | null {
-    const run = this.startItems(inputs, null);
+  addItems(inputs: readonly ItemInput[], label = "Add"): (string | null)[] | null {
+    if (this.restoreRun) return null;
+    const run = this.startItems(inputs, null, { record: label });
     if (!run) return null;
     if (run.pending.size === 0) this.update(this.itemsDone(run, this.view.board));
     return run.refs.map((ref) => (ref === null ? null : localId(ref)));
   }
 
-  private startItems(inputs: readonly ItemInput[], template: number | null): ItemsRun | null {
+  /**
+   * Adds items locally and queues their itemsAdd messages. `record` names the history step (none
+   * for a restore: the undo or redo is the step); `restore` marks an undo or redo's run; `defer`
+   * leaves the sending to the caller (pumpItems), so the history knows the new ids first.
+   */
+  private startItems(
+    inputs: readonly ItemInput[],
+    template: number | null,
+    { record = null, restore = false, defer = false }: { record?: string | null; restore?: boolean; defer?: boolean } = {},
+  ): ItemsRun | null {
     if (!this.live || !this.view.you || inputs.length === 0) return null;
     const authorId = this.view.you.id;
-    const run: ItemsRun = { refs: [], pending: new Set(), ids: new Map(), refused: { notesFull: 0, framesFull: 0, invalid: 0, tooQuick: 0 }, template };
+    const run: ItemsRun = { refs: [], pending: new Set(), ids: new Map(), refused: { notesFull: 0, framesFull: 0, invalid: 0, tooQuick: 0 }, template, restore };
     let board = this.view.board;
     const drafts: ItemDraft[] = [];
     for (const input of inputs) {
@@ -861,8 +928,17 @@ export class RoomSession {
       this.itemBatches.set(message.clientRef, { run, message, sent: false });
       this.itemQueue.push(message.clientRef);
     }
+    if (restore) this.restoreRun = run;
+    if (record !== null) {
+      const kinds = new Map(drafts.map((d) => [d.item.ref, d.kind] as const));
+      this.history.recordAdd(
+        record,
+        run.refs.flatMap((ref) => (ref !== null && run.pending.has(ref) ? [{ kind: kinds.get(ref) ?? "note", id: localId(ref) }] : [])),
+        Date.now(),
+      );
+    }
     this.update({ board, noteNotice: null });
-    this.pumpItems();
+    if (!defer) this.pumpItems();
     return run;
   }
 
@@ -944,6 +1020,7 @@ export class RoomSession {
   /** One item wasn't added: it goes (unless it was deleted here meanwhile, which needs no notice). */
   private itemRefused(board: Board, run: ItemsRun, ref: string, kind: "note" | "frame", reason: ItemRefusalReason | "rate_limited"): Board {
     this.itemSettled(run, ref, null);
+    this.history.refuse(kind, localId(ref));
     const deletedHere = kind === "note" ? this.abandoned.delete(ref) : this.abandonedFrames.delete(ref);
     if (deletedHere) this.deleteRun?.refs.delete(ref);
     else run.refused[refusalKey(reason)]++;
@@ -958,6 +1035,18 @@ export class RoomSession {
    */
   private itemsDone(run: ItemsRun, board: Board): Partial<RoomView> {
     const refused = refusedTotal(run.refused) > 0;
+    if (run.restore) {
+      if (run.pending.size > 0 || this.restoreRun !== run) return { board };
+      this.restoreRun = null;
+      const done = restoredCount(run);
+      const total = run.refs.length;
+      return {
+        board,
+        historyReport: refused
+          ? { text: `${UNDO_TEXT.restoredPartly(done, total)} ${NOTICES.itemsNotAdded(run.refused)}`, partial: true }
+          : { text: UNDO_TEXT.restored(done), partial: false },
+      };
+    }
     if (run.template !== null) {
       if (this.template?.run !== run) return { board };
       if (refused) return { board: this.cancelQueued(run, board), ...this.templateEnd("partial") };
@@ -975,10 +1064,12 @@ export class RoomSession {
       this.itemBatches.delete(clientRef);
       for (const { ref } of batch.message.notes ?? []) {
         this.itemSettled(batch.run, ref, null);
+        this.history.refuse("note", localId(ref));
         board = rejectAdd(board, ref);
       }
       for (const { ref } of batch.message.frames ?? []) {
         this.itemSettled(batch.run, ref, null);
+        this.history.refuse("frame", localId(ref));
         board = rejectFrameAdd(board, ref);
       }
     }
@@ -1005,7 +1096,7 @@ export class RoomSession {
       return null;
     }
     if (this.itemBatches.size > 0) return null;
-    return this.addItems(duplicateNoteInputs(notes))?.flatMap((id) => (id === null ? [] : [id])) ?? null;
+    return this.addItems(duplicateNoteInputs(notes), "Duplicate")?.flatMap((id) => (id === null ? [] : [id])) ?? null;
   }
 
   /** Duplicates a frame alone (never its notes) through addItems, likewise. The copy's local id, or null. */
@@ -1018,7 +1109,211 @@ export class RoomSession {
       return null;
     }
     if (this.itemBatches.size > 0) return null;
-    return this.addItems([duplicateFrameInput(entry.frame)])?.[0] ?? null;
+    return this.addItems([duplicateFrameInput(entry.frame)], "Duplicate")?.[0] ?? null;
+  }
+
+  /* ── Undo and redo (history/history.ts) ─────────────────────────── */
+
+  /** Undoes my last action (what someone else changed since is left as it is). */
+  undo(): void {
+    this.runHistory("undo");
+  }
+
+  /** Redoes what I last undid. */
+  redo(): void {
+    this.runHistory("redo");
+  }
+
+  /** Why undo and redo are off now, or null each. */
+  private historyReasons(): { undo: string | null; redo: string | null } {
+    if (!this.live) return { undo: UNDO_TEXT.offline, redo: UNDO_TEXT.offline };
+    if (this.restoreRun || this.itemBatches.size > 0) return { undo: UNDO_TEXT.busy, redo: UNDO_TEXT.busy };
+    const now = Date.now();
+    return { undo: this.history.undoReason(now), redo: this.history.redoReason(now) };
+  }
+
+  /** An item as the relay last stored it, for the history's rev check. A note being typed into, or held, can't change. */
+  private readonly lookup: Lookup = (kind, id) => {
+    if (kind === "note") {
+      const entry = findNote(this.view.board, id);
+      if (!entry?.confirmed) return null;
+      return { rev: entry.confirmed.rev, held: isHeld(entry) || entry.draft !== null, state: entry.confirmed as unknown as Fields };
+    }
+    const entry = findFrame(this.view.board, id);
+    if (!entry?.confirmed) return null;
+    return { rev: entry.confirmed.rev, held: isFrameHeld(entry) || entry.draft !== null, state: entry.confirmed as unknown as Fields };
+  };
+
+  /**
+   * Runs the history's plan with the existing messages: rects as final batches (notes) or
+   * frameMove/frameResize, other fields as noteEdit/frameEdit, deletes as batch deletes and
+   * frameDelete, and items to add back through a paced addItems run (new ids, me as author). The
+   * history learns the new ids before anything is sent, so the relay's answers find them.
+   */
+  private runHistory(direction: "undo" | "redo"): void {
+    if (this.historyReasons()[direction] !== null) return;
+    const now = Date.now();
+    const plan: Plan = this.history.plan(direction, this.lookup, now);
+    if (plan.type === "none") return;
+    if (plan.type === "order") {
+      this.history.applied(plan, new Map(), now);
+      return this.update({ noteNotice: null, historyReport: { text: plan.message, partial: false } });
+    }
+    let board = this.view.board;
+    // Items to add back: shown at once (local ids); sent once the history knows them.
+    const newIds = new Map<string, string>();
+    let restore: ItemsRun | null = null;
+    if (plan.restores.length > 0) {
+      const inputs = plan.restores.map((r) => ({ kind: r.kind, ...r.content }) as unknown as ItemInput);
+      restore = this.startItems(inputs, null, { restore: true, defer: true });
+      board = this.view.board;
+      plan.restores.forEach((r, i) => {
+        const ref = restore?.refs[i];
+        if (ref) newIds.set(`${r.kind}:${r.id}`, localId(ref));
+      });
+    }
+    this.history.applied(plan, newIds, now);
+
+    const ops: NoteBatchEntry[] = [];
+    const sends: ClientMessage[] = [];
+    for (const { kind, id, values } of plan.changes) {
+      const { x, y, w, h, ...fields } = values as Fields & Partial<NoteRect>;
+      const hasRect = x !== undefined || y !== undefined || w !== undefined || h !== undefined;
+      if (kind === "note") {
+        const before = findNote(board, id)?.note;
+        if (!before) continue;
+        if (hasRect) {
+          const rect = { x: x ?? before.x, y: y ?? before.y, w: w ?? before.w, h: h ?? before.h };
+          board = resizeLocal(board, id, rect);
+          const after = findNote(board, id)?.note ?? before;
+          ops.push(w === undefined && h === undefined ? { op: "move", id, x: after.x, y: after.y } : { op: "resize", id, x: after.x, y: after.y, w: after.w, h: after.h });
+        }
+        const { text, ...style } = fields as Partial<Note>;
+        if (text !== undefined) board = editLocal(board, id, text);
+        if (Object.keys(style).length > 0) board = styleLocal(board, id, style as StylePatch);
+        if (text !== undefined || Object.keys(style).length > 0) sends.push({ type: "noteEdit", id, ...(fields as Partial<Note>) });
+        continue;
+      }
+      const before = findFrame(board, id)?.frame;
+      if (!before) continue;
+      if (w !== undefined || h !== undefined) {
+        board = resizeFrameLocal(board, id, { x: x ?? before.x, y: y ?? before.y, w: w ?? before.w, h: h ?? before.h });
+        const f = findFrame(board, id)?.frame ?? before;
+        sends.push({ type: "frameResize", id, x: f.x, y: f.y, w: f.w, h: f.h, final: true });
+      } else if (hasRect) {
+        board = moveFrameLocal(board, id, x ?? before.x, y ?? before.y);
+        const f = findFrame(board, id)?.frame ?? before;
+        sends.push({ type: "frameMove", id, x: f.x, y: f.y, final: true });
+      }
+      if (Object.keys(fields).length > 0) {
+        board = editFrameLocal(board, id, fields as FrameEdit);
+        sends.push({ type: "frameEdit", id, ...(fields as FrameEdit) });
+      }
+    }
+    for (const { kind, id } of plan.deletes) {
+      if (kind === "note") {
+        this.stopMove(id);
+        this.stopResize(id);
+        board = deleteLocal(board, id);
+        ops.push({ op: "delete", id });
+      } else {
+        this.stopFrameMove(id);
+        this.stopFrameResize(id);
+        board = deleteFrameLocal(board, id);
+        sends.push({ type: "frameDelete", id });
+      }
+    }
+    this.update({
+      board,
+      noteNotice: null,
+      historyReport: plan.skipped > 0 ? { text: HISTORY_TEXT.conflicts(plan.skipped), partial: true } : null,
+    });
+    this.sendBatch(ops, true);
+    for (const message of sends) this.send(message);
+    if (restore) {
+      if (restore.pending.size === 0) this.update(this.itemsDone(restore, this.view.board));
+      this.pumpItems();
+    }
+  }
+
+  /** Records my change to some items (only those the relay has confirmed): `after` is what was sent. */
+  private record(label: string, changes: readonly { kind: ItemKind; id: string; after: Fields }[], coalesce?: string): void {
+    const list = changes.flatMap((c) => {
+      const before = this.storedFields(c.kind, c.id, Object.keys(c.after));
+      return before ? [{ ...c, before }] : [];
+    });
+    this.history.recordChange(label, list, Date.now(), coalesce);
+  }
+
+  /** Records rect fields of items as they're shown now (after a local move or resize). */
+  private recordRects(label: string, kinds: readonly ItemKind[], ids: readonly string[], keys: readonly (keyof NoteRect)[], coalesce?: string): void {
+    const changes = ids.flatMap((id, i) => {
+      const kind = kinds[i] ?? "note";
+      const shown: NoteRect | undefined = kind === "note" ? findNote(this.view.board, id)?.note : findFrame(this.view.board, id)?.frame;
+      return shown ? [{ kind, id, after: Object.fromEntries(keys.map((k) => [k, shown[k]])) }] : [];
+    });
+    this.record(label, changes, coalesce);
+  }
+
+  /** What the relay has (or will have, from my changes in flight) for these fields; null for an unconfirmed item. */
+  private storedFields(kind: ItemKind, id: string, keys: readonly string[]): Fields | null {
+    const confirmed = (kind === "note" ? findNote(this.view.board, id)?.confirmed : findFrame(this.view.board, id)?.confirmed) as unknown as Fields | null | undefined;
+    if (!confirmed) return null;
+    const pending = this.history.pendingValues(kind, id);
+    return Object.fromEntries(keys.flatMap((k) => {
+      const v = pending[k] ?? confirmed[k];
+      return v === undefined ? [] : [[k, v]];
+    }));
+  }
+
+  /** Records items I deleted (confirmed only), with their content and z, to add them back on undo. */
+  private recordRemoval(label: string, notes: readonly Note[], frames: readonly Frame[]): void {
+    const rev = (kind: ItemKind, id: string) =>
+      (kind === "note" ? (findNote(this.view.board, id) ?? this.view.board.removed.find((n) => n.note.id === id))?.confirmed?.rev : (findFrame(this.view.board, id) ?? this.view.board.framesRemoved.find((f) => f.frame.id === id))?.confirmed?.rev) ?? 1;
+    this.history.recordRemove(
+      label,
+      [
+        ...notes.filter((n) => !isLocalId(n.id)).map((n) => ({ kind: "note" as const, id: n.id, content: n as unknown as Fields, z: n.z, rev: rev("note", n.id) })),
+        ...frames.filter((f) => !isLocalId(f.id)).map((f) => ({ kind: "frame" as const, id: f.id, content: f as unknown as Fields, z: 0, rev: rev("frame", f.id) })),
+      ],
+      Date.now(),
+    );
+  }
+
+  /**
+   * Tells the history what the relay stored, by comparing the board before and after a message:
+   * confirmed items whose stored version changed (with whether only z did), and items that left.
+   */
+  private observe(before: Board, after: Board): void {
+    if (before === after) return;
+    const notesBefore = new Map([...before.notes, ...before.removed].map((n) => [n.note.id, n.confirmed] as const));
+    const notesAfter = new Map([...after.notes, ...after.removed].map((n) => [n.note.id, n.confirmed] as const));
+    for (const [id, confirmed] of notesAfter) {
+      const prev = notesBefore.get(id);
+      if (!confirmed || !prev || prev === confirmed) continue;
+      const zOnly = (Object.keys(confirmed) as (keyof Note)[]).every((k) => k === "z" || k === "rev" || confirmed[k] === prev[k]);
+      this.history.observe("note", id, prev.rev, confirmed.rev, confirmed as unknown as Fields, zOnly);
+    }
+    for (const id of notesBefore.keys()) if (!notesAfter.has(id) && !isLocalId(id)) this.history.deleted("note", id);
+    const framesBefore = new Map([...before.frames, ...before.framesRemoved].map((f) => [f.frame.id, f.confirmed] as const));
+    const framesAfter = new Map([...after.frames, ...after.framesRemoved].map((f) => [f.frame.id, f.confirmed] as const));
+    for (const [id, confirmed] of framesAfter) {
+      const prev = framesBefore.get(id);
+      if (!confirmed || !prev || prev === confirmed) continue;
+      this.history.observe("frame", id, prev.rev, confirmed.rev, confirmed as unknown as Fields, false);
+    }
+    for (const id of framesBefore.keys()) if (!framesAfter.has(id) && !isLocalId(id)) this.history.deleted("frame", id);
+    // A change confirmed may make undo or redo possible.
+    this.refreshHistory();
+  }
+
+  /** Reports undo and redo's reasons if they changed (a step recorded, or confirmed). */
+  private refreshHistory(): void {
+    if (this.stopped) return;
+    const reasons = this.historyReasons();
+    if (reasons.undo === this.view.history.undo && reasons.redo === this.view.history.redo) return;
+    this.view = { ...this.view, history: reasons };
+    this.options.onChange(this.view);
   }
 
   /* ── Templates ──────────────────────────────────────────────────── */
@@ -1032,7 +1327,7 @@ export class RoomSession {
    * part-way ends it: what was made stays, one notice says so, nothing is retried.
    */
   applyTemplate(frames: readonly TemplateFramePlan[]): boolean {
-    if (!this.live || this.template || frames.length === 0) return false;
+    if (!this.live || this.template || this.restoreRun || frames.length === 0) return false;
     const free = Math.max(0, MAX_FRAMES_PER_ROOM - this.view.board.frames.length);
     if (frames.length > free) {
       this.update({ noteNotice: NOTICES.templateNoRoom(frames.length, free) });
@@ -1042,6 +1337,7 @@ export class RoomSession {
     const run = this.startItems(
       frames.map((plan) => ({ kind: "frame" as const, x: plan.x, y: plan.y, w: plan.w, h: plan.h, title: plan.title, color: plan.color, ...FRAME_DEFAULTS, ...plan.style })),
       seq,
+      { record: "Template" },
     );
     if (!run) return false;
     this.template = { seq, run };
@@ -1069,8 +1365,13 @@ export class RoomSession {
     this.stopFrameMove(id);
     this.stopFrameResize(id);
     this.update({ board: deleteFrameLocal(this.view.board, id), noteNotice: null });
-    if (entry.clientRef !== null) this.abandonedFrames.add(entry.clientRef);
-    else this.send({ type: "frameDelete", id });
+    if (entry.clientRef !== null) {
+      this.abandonedFrames.add(entry.clientRef);
+      this.history.refuse("frame", id);
+    } else {
+      this.recordRemoval("Delete frame", [], [entry.frame]);
+      this.send({ type: "frameDelete", id });
+    }
   }
 
   private sendFrameMove(id: string, noteIds: readonly string[], final: boolean): void {
@@ -1168,6 +1469,8 @@ export class RoomSession {
     clearTimeout(this.timer);
     clearTimeout(this.itemTimer);
     this.template = null;
+    this.restoreRun = null;
+    this.history.clear();
     this.stopAllMoves();
     this.socket?.close();
   }
@@ -1193,13 +1496,18 @@ export class RoomSession {
       clearTimeout(this.itemTimer);
       this.itemTimer = undefined;
       this.itemQueue = [];
+      const restore = this.restoreRun;
+      this.restoreRun = null;
       const board = this.cancelQueued(null, this.view.board);
       this.itemBatches.clear();
+      // Ids and revs can't be trusted after this: the history goes.
+      this.history.clear();
       // A template cut off part-way: what was made stays, and the notice says so.
       this.update({
         status: "disconnected",
         board,
         ...(run ? { deleteReport: deleteReportFor({ ...run, lost }) } : {}),
+        ...(restore ? { historyReport: { text: UNDO_TEXT.restoreLost(restoredCount(restore), restore.refs.length), partial: true } } : {}),
         ...this.templateEnd("partial"),
       });
       return;
@@ -1215,7 +1523,9 @@ export class RoomSession {
     if (this.stopped) return;
     const parsed = parseMessage(typeof data === "string" ? data : new ArrayBuffer(0), serverMessageSchema, MAX_SERVER_MESSAGE_BYTES);
     if (!parsed.ok) return this.finish("reload");
+    const before = this.view.board;
     this.handle(parsed.value);
+    this.observe(before, this.view.board);
   }
 
   private handle(message: ServerMessage): void {
@@ -1273,6 +1583,8 @@ export class RoomSession {
       }
 
       case "snapshot":
+        // A (re)sync: what the history knows about ids and revs can't be trusted any more.
+        this.history.clear();
         return this.update({ board: applySnapshot(this.view.board, message.notes), synced: true });
 
       case "noteAdded": {
@@ -1396,9 +1708,13 @@ export class RoomSession {
       this.send({ type: "noteDelete", id: note.id });
       if (this.deleteRun?.refs.delete(clientRef)) this.deleteRun.ids.add(note.id);
     } else if (temp) {
+      this.history.confirmAdd("note", temp.note.id, note.id, note.rev);
       // Text, colour or style committed while the add was in flight: one edit with all of it.
       const edit = { ...(temp.note.text !== note.text ? { text: temp.note.text } : {}), ...styleChanges(note, temp.note) };
-      if (Object.keys(edit).length > 0) this.send({ type: "noteEdit", id: note.id, ...edit });
+      if (Object.keys(edit).length > 0) {
+        this.history.expectOwn("note", note.id, edit as Fields, Date.now());
+        this.send({ type: "noteEdit", id: note.id, ...edit });
+      }
     }
     if (temp) this.options.onNoteConfirmed?.(temp.note.id, note.id);
     return next;
@@ -1412,9 +1728,13 @@ export class RoomSession {
       next = deleteFrameLocal(next, frame.id);
       this.send({ type: "frameDelete", id: frame.id });
     } else if (temp) {
+      this.history.confirmAdd("frame", temp.frame.id, frame.id, frame.rev);
       // A title, colour or title style set while the add was in flight: one edit with all of it.
       const edit = frameChanges(frame, temp.frame);
-      if (Object.keys(edit).length > 0) this.send({ type: "frameEdit", id: frame.id, ...edit });
+      if (Object.keys(edit).length > 0) {
+        this.history.expectOwn("frame", frame.id, edit as Fields, Date.now());
+        this.send({ type: "frameEdit", id: frame.id, ...edit });
+      }
     }
     if (temp) this.options.onFrameConfirmed?.(temp.frame.id, frame.id);
     return next;
@@ -1440,12 +1760,15 @@ export class RoomSession {
       }
     }
     if (message.clientRef !== undefined) {
+      this.history.refuse("note", localId(message.clientRef));
+      this.history.refuse("frame", localId(message.clientRef));
       // A clientRef belongs to one add, a note's or a frame's.
       this.abandoned.delete(message.clientRef);
       this.abandonedFrames.delete(message.clientRef);
       board = rejectFrameAdd(rejectAdd(board, message.clientRef), message.clientRef);
     }
     if (message.frameId !== undefined) {
+      this.history.refuse("frame", message.frameId);
       this.stopFrameMove(message.frameId);
       this.stopFrameResize(message.frameId);
       if (this.frameDrag?.id === message.frameId) this.frameDrag = null;
@@ -1454,6 +1777,7 @@ export class RoomSession {
     // One note, or the notes a refused batch named (the rest of the batch stands). Last first, so
     // notes deleted together go back in their old places.
     for (const id of [...noteIds].reverse()) {
+      this.history.refuse("note", id);
       this.stopMove(id);
       this.stopResize(id);
       board = rollback(board, id);
@@ -1495,12 +1819,22 @@ export class RoomSession {
     } catch {
       // The close handler reports the lost connection.
     }
+    // Anything sent may have been recorded just before.
+    this.refreshHistory();
   }
 
   private update(patch: Partial<RoomView>): void {
     // A note action (it clears the notice) also clears the last delete's report.
     if (patch.noteNotice === null && !("deleteReport" in patch)) patch = { ...patch, deleteReport: null };
-    this.view = { ...this.view, ...patch, adding: this.itemBatches.size > 0 };
+    if (patch.noteNotice === null && !("historyReport" in patch)) patch = { ...patch, historyReport: null };
+    const restore = this.restoreRun;
+    this.view = {
+      ...this.view,
+      ...patch,
+      adding: this.itemBatches.size > 0,
+      ...(restore ? { historyReport: { text: UNDO_TEXT.restoring(restoredCount(restore), restore.refs.length), partial: false } } : {}),
+    };
+    this.view = { ...this.view, history: this.historyReasons() };
     this.options.onChange(this.view);
   }
 }

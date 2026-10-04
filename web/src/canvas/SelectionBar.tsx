@@ -14,8 +14,10 @@ import {
   MoveHorizontal,
   MoveVertical,
   Plus,
+  Redo2,
   Scaling,
   Trash2,
+  Undo2,
 } from "lucide-react";
 import type { NoteRect, OrderAction } from "@stickyard/shared";
 import { Button } from "../components/ui/button";
@@ -27,10 +29,10 @@ import { useBoardUi } from "./uiStore";
 
 /*
  * The floating bar at the top of the canvas (md and up), always there, in labelled groups:
- * Edit (Duplicate, Delete), Order (Bring to front, Send to back) and Arrange (Align,
+ * History (Undo, Redo), Edit (Duplicate, Delete), Order (Bring to front, Send to back) and Arrange (Align,
  * Distribute, Grid with its Columns stepper, Match size: Chalkline's ArrangeBar). A command that
  * doesn't apply now is disabled, never hidden, and its group says why as text (each disabled
- * button points at that text with aria-describedby). Edit and Order show their names from lg up.
+ * button points at that text with aria-describedby). History, Edit and Order show their names from lg up.
  */
 
 export interface BarCommand {
@@ -214,6 +216,11 @@ export interface BoardBarProps {
   /** Why Duplicate is off (canvas/duplicate.ts), or null. */
   duplicateReason: string | null;
   duplicate: () => void;
+  /** Why Undo and Redo are off (the room's history), or null each. */
+  undoReason: string | null;
+  redoReason: string | null;
+  undo: () => void;
+  redo: () => void;
   /** Deletes the selection (notes or the frame), asking as the Delete key does. */
   remove: () => void;
   apply: (rects: (NoteRect & { id: string })[]) => void;
@@ -227,7 +234,7 @@ export interface BoardBarProps {
  * `notice` tells why a grid didn't fit. Everything is off while disconnected; Grid also while a
  * note in the selection is held or unsaved.
  */
-export function BoardBar({ notes, frame, live, held, unsaved, duplicateReason, duplicate, remove, apply, order, notice }: BoardBarProps) {
+export function BoardBar({ notes, frame, live, held, unsaved, duplicateReason, duplicate, undoReason, redoReason, undo, redo, remove, apply, order, notice }: BoardBarProps) {
   const send = (changes: Map<string, NoteRect>) => apply([...changes].map(([id, rect]) => ({ id, ...rect })));
   const count = notes.length;
   const canArrange = live && count >= 2;
@@ -245,6 +252,14 @@ export function BoardBar({ notes, frame, live, held, unsaved, duplicateReason, d
     <FloatingBar
       label="Board actions"
       groups={[
+        {
+          label: "History",
+          commands: [
+            { title: "Undo", icon: <Undo2 />, text: true, disabled: undoReason !== null, ...(undoReason ? { hint: undoReason } : {}), run: undo },
+            { title: "Redo", icon: <Redo2 />, text: true, disabled: redoReason !== null, ...(redoReason ? { hint: redoReason } : {}), run: redo },
+          ],
+          hints: [undoReason, redoReason],
+        },
         {
           label: "Edit",
           commands: [
