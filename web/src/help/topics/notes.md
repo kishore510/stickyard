@@ -85,10 +85,11 @@ A frame is a named, coloured area that sits behind the notes, for example Start,
 - A board holds up to 30 frames. Frames are 240 to 2400 wide and 160 to 1600 tall, and always stay on the board.
 - Drag a frame by its title bar or its border. The notes inside it (any note whose middle is inside the frame) move with it and keep their places. Hold **Alt** while you start dragging to move the frame on its own. A frame holding more than 50 notes moves on its own, and the board says so.
 - The inside of a frame lets clicks through: you can select, move and edit the notes in it, and drag across it to select several, as if the frame wasn't there. Notes can be dragged in and out of a frame freely.
-- Click a frame's title bar or border to select it (this clears any selected notes). Small squares at its corners resize it. **Properties** shows its **Title**, **Colour**, **Width** and **Height**, and who added it.
+- Click a frame's title bar or border to select it (this clears any selected notes). Small squares at its corners resize it. **Properties** shows its **Title**, **Colour**, **Title text**, **Width** and **Height**, and who added it.
+- **Title text** styles the frame's title like a note's: **Size**, **Bold** and **Italic**, **Align** (left, centre or right) and **Text colour**. The title bar gets taller for the larger sizes. Frame titles start bold; a bold frame title is a little lighter than a bold note title. Every text colour stays readable on every frame colour, in light and dark.
 - To delete a frame, use the bin in **Properties** or press **Delete** with the frame selected. You're asked first if it has a title or notes inside. Deleting a frame never deletes its notes.
 - Frames are always behind every note; **Bring to front** and **Send to back** only change the order of notes.
-- On a phone, frames are shown but can't be added, moved or changed.
+- On a phone, frames are shown, with their title styles, but can't be added, moved or changed.
 - Others see a frame move as you drag it. If two people change the same frame, the change that reaches the relay last wins.
 
 ## The side panels

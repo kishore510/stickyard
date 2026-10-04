@@ -1,10 +1,13 @@
 import {
+  FRAME_DEFAULTS,
   FRAME_DEFAULT_H,
   FRAME_DEFAULT_W,
+  FRAME_EDIT_FIELDS,
   clampFramePosition,
   clampFrameRect,
   type Frame,
   type FrameColor,
+  type FrameEditField,
   type Note,
   type NoteRect,
 } from "@stickyard/shared";
@@ -68,14 +71,14 @@ export function applyFramesSnapshot(board: Board, frames: readonly Frame[]): Boa
   return { ...board, frames: [...pending, ...merged], framesRemoved: [] };
 }
 
-/** A new frame. With our clientRef, it replaces the temporary one in place (keeping a title or colour set meanwhile). */
+/** A new frame. With our clientRef, it replaces the temporary one in place (keeping a title, colour or title style set meanwhile). */
 export function applyFrameAdded(board: Board, frame: Frame, clientRef?: string): Board {
   if (clientRef !== undefined) {
     const temp = findFrame(board, localId(clientRef));
     if (temp) {
       return patch(board, temp.frame.id, (e) => ({
         ...e,
-        frame: { ...frame, title: e.frame.title, color: e.frame.color },
+        frame: { ...frame, ...editableFields(e.frame) },
         confirmed: frame,
         clientRef: null,
       }));
@@ -85,7 +88,7 @@ export function applyFrameAdded(board: Board, frame: Frame, clientRef?: string):
   return { ...board, frames: [...board.frames, confirmedEntry(frame)] };
 }
 
-/** Title or colour changed (the whole frame). Unknown frames are added (a message before the snapshot). */
+/** Title, colour or title style changed (the whole frame). Unknown frames are added (a message before the snapshot). */
 export function applyFrameUpdated(board: Board, frame: Frame): Board {
   const removed = board.framesRemoved.find((f) => f.frame.id === frame.id);
   if (removed) {
@@ -160,19 +163,35 @@ export function addFrameLocal(board: Board, add: FrameDraft): Board {
     ...clampFrameRect({ x: add.x, y: add.y, w: FRAME_DEFAULT_W, h: FRAME_DEFAULT_H }),
     title: add.title,
     color: add.color,
+    ...FRAME_DEFAULTS,
     rev: 1,
     authorId: add.authorId,
   };
   return { ...board, frames: [...board.frames, { frame, confirmed: null, clientRef: add.clientRef, draft: null, dragging: false, resizing: false }] };
 }
 
-/** A committed title or colour, shown at once; the draft is done. The same board when nothing changes. */
-export function editFrameLocal(board: Board, id: string, change: { title?: string; color?: FrameColor }): Board {
+/** What a frameEdit may change: title, colour and the title style. */
+export type FrameEdit = Partial<Pick<Frame, FrameEditField>>;
+
+/** A frame's editable fields (FRAME_EDIT_FIELDS). */
+export function editableFields(frame: Frame): Pick<Frame, FrameEditField> {
+  const { title, color, titleFontSize, titleBold, titleItalic, titleTextColor, titleAlign } = frame;
+  return { title, color, titleFontSize, titleBold, titleItalic, titleTextColor, titleAlign };
+}
+
+/** The fields of `after` that differ from `before`: what a frameEdit should carry. */
+export function frameChanges(before: Frame, after: Frame): FrameEdit {
+  return Object.fromEntries(FRAME_EDIT_FIELDS.filter((f) => after[f] !== before[f]).map((f) => [f, after[f]])) as FrameEdit;
+}
+
+/** A committed title, colour or title style, shown at once; a title ends the draft. The same board when nothing changes. */
+export function editFrameLocal(board: Board, id: string, change: FrameEdit): Board {
   return patch(board, id, (e) => {
-    const title = change.title ?? e.frame.title;
-    const color = change.color ?? e.frame.color;
-    if (title === e.frame.title && color === e.frame.color && e.draft === null) return e;
-    return { ...e, frame: { ...e.frame, title, color }, draft: change.title !== undefined ? null : e.draft };
+    const defined = Object.fromEntries(Object.entries(change).filter(([, v]) => v !== undefined)) as FrameEdit;
+    const frame = { ...e.frame, ...defined };
+    const draft = change.title !== undefined ? null : e.draft;
+    if (Object.keys(frameChanges(e.frame, frame)).length === 0 && draft === e.draft) return e;
+    return { ...e, frame, draft };
   });
 }
 

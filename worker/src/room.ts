@@ -1,7 +1,10 @@
 import { DurableObject } from "cloudflare:workers";
 import {
+  FRAME_DEFAULTS,
   FRAME_DEFAULT_H,
   FRAME_DEFAULT_W,
+  FRAME_EDIT_FIELDS,
+  FRAME_STYLE_FIELDS,
   MAX_BATCH_ENTRIES,
   MAX_FRAMES_PER_ROOM,
   MAX_NOTES_PER_ROOM,
@@ -363,6 +366,7 @@ export class Room extends DurableObject<Env> {
           ...clampFrameRect({ x: message.x, y: message.y, w: FRAME_DEFAULT_W, h: FRAME_DEFAULT_H }),
           title,
           color: message.color,
+          ...FRAME_DEFAULTS,
           rev: 1,
           authorId: you.id,
         };
@@ -377,9 +381,13 @@ export class Room extends DurableObject<Env> {
         if (!current) return;
         const title = message.title === undefined ? current.title : cleanFrameTitle(message.title);
         if (title === null) return send(ws, error("bad_message", "Frame title is too long.", refOf(message)));
-        const color = message.color ?? current.color;
-        if (title === current.title && color === current.color) return;
-        const frame: Frame = { ...current, title, color, rev: current.rev + 1 };
+        const next: Frame = { ...current, title, color: message.color ?? current.color };
+        for (const field of FRAME_STYLE_FIELDS) {
+          const value = message[field];
+          if (value !== undefined) Object.assign(next, { [field]: value });
+        }
+        if (FRAME_EDIT_FIELDS.every((field) => next[field] === current[field])) return;
+        const frame: Frame = { ...next, rev: current.rev + 1 };
         this.notes.updateFrame(frame);
         this.broadcast({ type: "frameUpdated", frame });
         return;

@@ -19,8 +19,8 @@ const alex = { id: ID_A, name: "Alex", colourIndex: 0 };
 const sam = { id: ID_B, name: "Sam", colourIndex: 1 };
 
 describe("constants", () => {
-  it("PROTOCOL_VERSION is 9", () => {
-    expect(PROTOCOL_VERSION).toBe(9);
+  it("PROTOCOL_VERSION is 10", () => {
+    expect(PROTOCOL_VERSION).toBe(10);
   });
 
   it("limits are the slice 1 defaults", () => {

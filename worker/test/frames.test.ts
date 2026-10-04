@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   BOARD_HEIGHT,
   BOARD_WIDTH,
+  FRAME_DEFAULTS,
   FRAME_DEFAULT_H,
   FRAME_DEFAULT_W,
   FRAME_MAX_H,
@@ -88,7 +89,7 @@ describe("version and join", () => {
   it("a protocol v8 page is refused with version_mismatch (please reload)", async () => {
     const { code } = await newRoom();
     const c = await TestClient.open(code);
-    expect(PROTOCOL_VERSION).toBe(9);
+    expect(PROTOCOL_VERSION).toBeGreaterThanOrEqual(9);
     expect(await c.request({ type: "hello", protocolVersion: 8 })).toMatchObject({ type: "error", code: "version_mismatch" });
     expect(await c.request({ type: "join", name: "Priya" })).toMatchObject({ type: "error", code: "bad_message" });
     c.close();
@@ -342,12 +343,13 @@ describe(`schema migration 5 -> ${SCHEMA_VERSION}`, () => {
       const sql = state.storage.sql;
       loadSchemaV5(sql);
       const store = new NoteStore(sql);
-      expect(SCHEMA_VERSION).toBe(6);
-      expect(version(sql)).toBe(6);
+      expect(SCHEMA_VERSION).toBeGreaterThanOrEqual(6);
+      expect(version(sql)).toBe(SCHEMA_VERSION);
       expect(store.allFrames()).toEqual([]);
       expect(store.all().map((n) => [n.id, n.x, n.y, n.z, n.rev, n.text])).toEqual(V5_NOTES.map((n) => [n.id, n.x, n.y, n.z, n.rev, n.text]));
       const columns = sql.exec<{ name: string; dflt_value: string | null; notnull: number }>("SELECT name, dflt_value, \"notnull\" FROM pragma_table_info('frames')").toArray();
-      expect(columns.map((c) => c.name)).toEqual(["id", "x", "y", "w", "h", "title", "color", "rev", "author_id"]);
+      // Schema 6's columns first (schema 7 adds the title style after them; frameTitleStyle.test.ts).
+      expect(columns.map((c) => c.name).slice(0, 9)).toEqual(["id", "x", "y", "w", "h", "title", "color", "rev", "author_id"]);
       // Every column but the key has a default.
       expect(columns.filter((c) => c.name !== "id" && c.dflt_value === null)).toEqual([]);
     });
@@ -378,7 +380,7 @@ describe(`schema migration 5 -> ${SCHEMA_VERSION}`, () => {
     const c = await TestClient.open(code);
     await c.enter("Priya");
     expect(c.frames?.frames).toEqual([
-      { id: frameId(1), x: BOARD_WIDTH - 640, y: BOARD_HEIGHT - 400, w: 640, h: 400, title: "Continue", color: "blue", rev: 3, authorId: "AAAAAAAAAAAAAAAA" },
+      { id: frameId(1), x: BOARD_WIDTH - 640, y: BOARD_HEIGHT - 400, w: 640, h: 400, title: "Continue", color: "blue", ...FRAME_DEFAULTS, rev: 3, authorId: "AAAAAAAAAAAAAAAA" },
     ]);
     c.close();
   });

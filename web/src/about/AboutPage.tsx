@@ -102,7 +102,7 @@ export function AboutPage() {
             and only where it ends up is stored.
           </li>
           <li>
-            Frames are stored with the room in the same way: each frame’s position, size, title and colour, and the random
+            Frames are stored with the room in the same way: each frame’s position, size, title, colour and title style, and the random
             id the relay gave the visit that added it. Deleting a frame removes only the frame, never its notes.
           </li>
           <li>

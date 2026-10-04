@@ -35,6 +35,7 @@ import {
   deleteFrameLocal,
   editFrameLocal,
   findFrame,
+  frameChanges,
   framedNotes,
   moveFrameLocal,
   rejectFrameAdd,
@@ -43,6 +44,7 @@ import {
   setFrameDraft,
   setFrameDragging,
   setFrameResizing,
+  type FrameEdit,
 } from "../frames/board";
 import {
   EMPTY_BOARD,
@@ -499,18 +501,21 @@ export class RoomSession {
     return frame.id;
   }
 
-  /** A title (cleaned to one line) and/or colour, shown at once; a frame not confirmed yet sends it once it is. False if refused. */
-  editFrame(id: string, change: { title?: string; color?: FrameColor }): boolean {
+  /**
+   * A title (cleaned to one line), colour and/or title style, shown at once; only the fields that
+   * changed are sent. A frame not confirmed yet sends them once it is. False if refused.
+   */
+  editFrame(id: string, change: FrameEdit): boolean {
     if (!this.live) return false;
     const entry = findFrame(this.view.board, id);
     const title = change.title === undefined ? undefined : cleanFrameTitle(change.title);
     if (!entry || title === null) return false;
     const before = entry.frame;
-    const board = editFrameLocal(this.view.board, id, { ...(title !== undefined ? { title } : {}), ...(change.color ? { color: change.color } : {}) });
+    const board = editFrameLocal(this.view.board, id, { ...change, ...(title !== undefined ? { title } : {}) });
     const after = findFrame(board, id)?.frame ?? before;
     this.update({ board, noteNotice: null });
     if (isLocalId(id)) return true;
-    const edit = { ...(after.title !== before.title ? { title: after.title } : {}), ...(after.color !== before.color ? { color: after.color } : {}) };
+    const edit = frameChanges(before, after);
     if (Object.keys(edit).length > 0) this.send({ type: "frameEdit", id, ...edit });
     return true;
   }
@@ -852,8 +857,8 @@ export class RoomSession {
           board = deleteFrameLocal(board, frame.id);
           this.send({ type: "frameDelete", id: frame.id });
         } else if (temp) {
-          // A title or colour set while the add was in flight: one edit with both.
-          const edit = { ...(temp.frame.title !== frame.title ? { title: temp.frame.title } : {}), ...(temp.frame.color !== frame.color ? { color: temp.frame.color } : {}) };
+          // A title, colour or title style set while the add was in flight: one edit with all of it.
+          const edit = frameChanges(frame, temp.frame);
           if (Object.keys(edit).length > 0) this.send({ type: "frameEdit", id: frame.id, ...edit });
         }
         if (temp) this.options.onFrameConfirmed?.(temp.frame.id, frame.id);

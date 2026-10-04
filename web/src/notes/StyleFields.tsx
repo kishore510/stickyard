@@ -12,6 +12,7 @@ import {
   type Note,
   type NoteAlign,
   type NoteFontSize,
+  type NoteTextColor,
 } from "@stickyard/shared";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
@@ -19,7 +20,7 @@ import { cn } from "../lib/utils";
 import type { StylePatch } from "./board";
 import { NOTE_COLOR_CLASSES, NOTE_COLOR_NAMES } from "./colours";
 import { sizeFieldValue } from "./size";
-import { NOTE_FONT_SIZE_NAMES, NOTE_TEXT_COLOR_NAMES, NOTE_TEXT_COLOR_SWATCHES, PART_FIELDS, alignLabel, partStyle, type NotePart } from "./style";
+import { NOTE_FONT_SIZE_NAMES, NOTE_TEXT_COLOR_NAMES, NOTE_TEXT_COLOR_SWATCHES, PART_FIELDS, alignLabel, partStyle, type NotePart, type PartStyle } from "./style";
 
 /*
  * A note's colour, text style and size fields, laid out like Chalkline's Properties sections
@@ -203,27 +204,32 @@ function ToggleButton({
   );
 }
 
+/** One part's text style values that differ between the selected notes (several selected). */
+type Differs = (key: keyof PartStyle) => boolean;
+const SAME: Differs = () => false;
+
 /**
- * One part's text style (the title's or the body's): Size, Bold and Italic, Alignment and text
- * colour, as Chalkline's Text section. Both parts use the same fields, so they look alike.
+ * A text style section (the note title's or body's, or a frame title's): Size, Bold and Italic,
+ * Alignment and text colour, as Chalkline's Text section. Every part uses the same fields,
+ * labels and one-row-per-control layout, so they look alike and nothing wraps at the 232px
+ * panel minimum. `swatch` gives each ink's fill (note inks, or frame inks for frames).
  */
-export function PartTextSection({
+export function TextStyleSection({
   part,
-  note,
+  style,
   live,
-  onStyle,
-  mixed = NONE,
+  onChange,
+  differs = SAME,
+  swatch,
 }: {
   part: NotePart;
-  note: Note;
+  style: PartStyle;
   live: boolean;
-  onStyle: (change: StylePatch) => void;
-  mixed?: MixedFields;
+  onChange: (change: Partial<PartStyle>) => void;
+  differs?: Differs;
+  swatch: (key: NoteTextColor) => { fill: string; fillStyle?: CSSProperties };
 }) {
   const sizeId = useId();
-  const style = partStyle(note, part);
-  const fields = PART_FIELDS[part];
-  const differs = (key: keyof typeof fields) => mixed.has(fields[key]);
   const name = PART_NAMES[part];
   const lower = name.toLowerCase();
   return (
@@ -234,12 +240,12 @@ export function PartTextSection({
         </label>
         <select
           id={sizeId}
-          name={fields.fontSize}
+          name={PART_FIELDS[part].fontSize}
           value={differs("fontSize") ? "mixed" : style.fontSize}
           disabled={!live}
           onChange={(e) => {
             const key = NOTE_FONT_SIZES.find((k) => k === e.target.value);
-            if (key) onStyle({ [fields.fontSize]: key satisfies NoteFontSize });
+            if (key) onChange({ fontSize: key satisfies NoteFontSize });
           }}
           className={cn(
             "h-touch w-full min-w-0 cursor-pointer rounded-md border border-border-strong bg-surface px-ms text-base text-fg transition-colors focus-visible:border-focus",
@@ -265,31 +271,60 @@ export function PartTextSection({
             icon={<Bold />}
             pressed={differs("bold") ? "mixed" : style.bold}
             disabled={!live}
-            onPress={() => onStyle({ [fields.bold]: !style.bold })}
+            onPress={() => onChange({ bold: !style.bold })}
           />
           <ToggleButton
             label={`Italic ${lower}`}
             icon={<Italic />}
             pressed={differs("italic") ? "mixed" : style.italic}
             disabled={!live}
-            onPress={() => onStyle({ [fields.italic]: !style.italic })}
+            onPress={() => onChange({ italic: !style.italic })}
           />
         </div>
       </FieldRow>
-      <AlignGroup part={part} value={differs("align") ? null : style.align} live={live} onChange={(key) => onStyle({ [fields.align]: key })} />
+      <AlignGroup part={part} value={differs("align") ? null : style.align} live={live} onChange={(key) => onChange({ align: key })} />
       <SwatchGroup label="Text colour" groupLabel={`${name} text colour`} current={differs("textColor") ? MIXED : NOTE_TEXT_COLOR_NAMES[style.textColor]}>
         {NOTE_TEXT_COLORS.map((key) => (
           <Swatch
             key={key}
             label={NOTE_TEXT_COLOR_NAMES[key]}
-            fill={NOTE_TEXT_COLOR_SWATCHES[key]}
+            {...swatch(key)}
             pressed={!differs("textColor") && key === style.textColor}
             disabled={!live}
-            onClick={() => onStyle({ [fields.textColor]: key })}
+            onClick={() => onChange({ textColor: key })}
           />
         ))}
       </SwatchGroup>
     </Section>
+  );
+}
+
+const noteSwatch = (key: NoteTextColor) => ({ fill: NOTE_TEXT_COLOR_SWATCHES[key] });
+
+/** One note part's text style (the title's or the body's), mapped onto that part's note fields. */
+export function PartTextSection({
+  part,
+  note,
+  live,
+  onStyle,
+  mixed = NONE,
+}: {
+  part: NotePart;
+  note: Note;
+  live: boolean;
+  onStyle: (change: StylePatch) => void;
+  mixed?: MixedFields;
+}) {
+  const fields = PART_FIELDS[part];
+  return (
+    <TextStyleSection
+      part={part}
+      style={partStyle(note, part)}
+      live={live}
+      differs={(key) => mixed.has(fields[key])}
+      swatch={noteSwatch}
+      onChange={(change) => onStyle(Object.fromEntries(Object.entries(change).map(([key, value]) => [fields[key as keyof PartStyle], value])) as StylePatch)}
+    />
   );
 }
 

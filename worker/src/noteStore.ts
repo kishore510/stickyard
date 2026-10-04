@@ -1,4 +1,4 @@
-import { FRAME_DEFAULT_H, FRAME_DEFAULT_W, NOTE_DEFAULTS, clampFrameRect, clampNoteRect, clampZ, frameSchema, noteSchema, type Frame, type Note } from "@stickyard/shared";
+import { FRAME_DEFAULTS, FRAME_DEFAULT_H, FRAME_DEFAULT_W, NOTE_DEFAULTS, clampFrameRect, clampNoteRect, clampZ, frameSchema, noteSchema, type Frame, type Note } from "@stickyard/shared";
 
 /**
  * A room's notes, in its Durable Object's SQLite. Written only on commits (add, edit, final
@@ -21,8 +21,12 @@ import { FRAME_DEFAULT_H, FRAME_DEFAULT_W, NOTE_DEFAULTS, clampFrameRect, clampN
  *   6 (slice frames): a new frames table (id, x, y, w, h, title, color, rev, author_id), every
  *     column but the key with a DEFAULT. Additive: notes are untouched, and version 5 code (which
  *     never reads frames) keeps working on it.
+ *   7 (slice frame title styling): frames gains title_font_size, title_bold, title_italic,
+ *     title_text_color, title_align (NOT NULL, defaults from FRAME_DEFAULTS, which look like the
+ *     v9 header). Nothing to copy, so existing frames look unchanged; version 6 code still inserts
+ *     and updates frames without them.
  */
-export const SCHEMA_VERSION = 6;
+export const SCHEMA_VERSION = 7;
 
 /** Columns added by version 2, with their SQL definitions. Defaults come from NOTE_DEFAULTS. */
 const V2_COLUMNS: [name: string, definition: string][] = [
@@ -41,6 +45,15 @@ const V4_COLUMNS: [name: string, definition: string, from: string][] = [
   ["title_bold", `INTEGER NOT NULL DEFAULT ${Number(NOTE_DEFAULTS.titleBold)}`, "bold"],
   ["title_italic", `INTEGER NOT NULL DEFAULT ${Number(NOTE_DEFAULTS.titleItalic)}`, "italic"],
   ["title_text_color", `TEXT NOT NULL DEFAULT '${NOTE_DEFAULTS.titleTextColor}'`, "text_color"],
+];
+
+/** Frame columns added by version 7. Defaults come from FRAME_DEFAULTS. */
+const V7_FRAME_COLUMNS: [name: string, definition: string][] = [
+  ["title_font_size", `TEXT NOT NULL DEFAULT '${FRAME_DEFAULTS.titleFontSize}'`],
+  ["title_bold", `INTEGER NOT NULL DEFAULT ${Number(FRAME_DEFAULTS.titleBold)}`],
+  ["title_italic", `INTEGER NOT NULL DEFAULT ${Number(FRAME_DEFAULTS.titleItalic)}`],
+  ["title_text_color", `TEXT NOT NULL DEFAULT '${FRAME_DEFAULTS.titleTextColor}'`],
+  ["title_align", `TEXT NOT NULL DEFAULT '${FRAME_DEFAULTS.titleAlign}'`],
 ];
 
 interface NoteRow extends Record<string, SqlStorageValue> {
@@ -76,9 +89,14 @@ interface FrameRow extends Record<string, SqlStorageValue> {
   color: string;
   rev: number;
   author_id: string;
+  title_font_size: string;
+  title_bold: number;
+  title_italic: number;
+  title_text_color: string;
+  title_align: string;
 }
 
-const FRAME_COLUMNS = "id, x, y, w, h, title, color, rev, author_id";
+const FRAME_COLUMNS = "id, x, y, w, h, title, color, rev, author_id, title_font_size, title_bold, title_italic, title_text_color, title_align";
 
 const COLUMNS =
   "id, x, y, w, h, text, color, font_size, bold, italic, text_color, align, title_align, title_font_size, title_bold, title_italic, title_text_color, z, rev, author_id";
@@ -165,6 +183,12 @@ export class NoteStore {
           author_id TEXT NOT NULL DEFAULT ''
         )`,
       );
+    }
+    if (version < 7) {
+      const existing = new Set(this.sql.exec<{ name: string }>("SELECT name FROM pragma_table_info('frames')").toArray().map((c) => c.name));
+      for (const [name, definition] of V7_FRAME_COLUMNS) {
+        if (!existing.has(name)) this.sql.exec(`ALTER TABLE frames ADD COLUMN ${name} ${definition}`);
+      }
     }
     this.write("INSERT OR REPLACE INTO meta (key, value) VALUES ('schema_version', ?)", SCHEMA_VERSION);
   }
@@ -259,7 +283,7 @@ export class NoteStore {
     this.notes().delete(id);
   }
 
-  /* ── Frames (schema 6) ──────────────────────────────────────────── */
+  /* ── Frames (schema 6; title style since 7) ──────────────────────────────────────────── */
 
   /** Every frame, in creation order. Bad rows are skipped; one off the board at its size is clamped back on. */
   private frames(): Map<string, Frame> {
@@ -271,6 +295,11 @@ export class NoteStore {
         ...clampFrameRect({ x: row.x, y: row.y, w: row.w, h: row.h }),
         title: row.title,
         color: row.color,
+        titleFontSize: row.title_font_size,
+        titleBold: row.title_bold === 1,
+        titleItalic: row.title_italic === 1,
+        titleTextColor: row.title_text_color,
+        titleAlign: row.title_align,
         rev: row.rev,
         authorId: row.author_id,
       });
@@ -325,7 +354,13 @@ export class NoteStore {
   }
 
   private writeFrameUpdate(frame: Frame): void {
-    this.write("UPDATE frames SET x = ?, y = ?, w = ?, h = ?, title = ?, color = ?, rev = ? WHERE id = ?", ...frameValues(frame).slice(1, -1), frame.id);
+    this.write(
+      `UPDATE frames SET x = ?, y = ?, w = ?, h = ?, title = ?, color = ?, rev = ?,
+       title_font_size = ?, title_bold = ?, title_italic = ?, title_text_color = ?, title_align = ?
+       WHERE id = ?`,
+      ...frameUpdateValues(frame),
+      frame.id,
+    );
   }
 
   private write(query: string, ...bindings: SqlStorageValue[]): void {
@@ -347,5 +382,14 @@ function values(n: Note): SqlStorageValue[] {
 
 /** A frame's column values, in FRAME_COLUMNS order. */
 function frameValues(f: Frame): SqlStorageValue[] {
-  return [f.id, f.x, f.y, f.w, f.h, f.title, f.color, f.rev, f.authorId];
+  return [f.id, f.x, f.y, f.w, f.h, f.title, f.color, f.rev, f.authorId, ...frameStyleValues(f)];
+}
+
+/** The values for writeFrameUpdate's SET list, in order. */
+function frameUpdateValues(f: Frame): SqlStorageValue[] {
+  return [f.x, f.y, f.w, f.h, f.title, f.color, f.rev, ...frameStyleValues(f)];
+}
+
+function frameStyleValues(f: Frame): SqlStorageValue[] {
+  return [f.titleFontSize, Number(f.titleBold), Number(f.titleItalic), f.titleTextColor, f.titleAlign];
 }

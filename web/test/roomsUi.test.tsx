@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { MAX_NOTES_PER_ROOM, MAX_NOTE_TEXT, PROTOCOL_VERSION, type Note, NOTE_DEFAULTS, NOTE_MAX_H, type Participant } from "@stickyard/shared";
+import { FRAME_DEFAULTS, MAX_NOTES_PER_ROOM, MAX_NOTE_TEXT, PROTOCOL_VERSION, type Frame, type Note, NOTE_DEFAULTS, NOTE_MAX_H, type Participant } from "@stickyard/shared";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -1903,7 +1903,7 @@ describe("frames (slice frames, protocol v9)", () => {
   const N1 = "NNNNNNNNNNNNNNN1";
   const F1 = "FFFFFFFFFFFFFFF1";
   const inside: Note = { id: N1, x: 200, y: 200, ...NOTE_DEFAULTS, text: "Idea one", color: "yellow", z: -5, rev: 1, authorId: sam.id };
-  const start = { id: F1, x: 100, y: 100, w: 640, h: 400, title: "Start", color: "neutral", rev: 1, authorId: sam.id };
+  const start: Frame = { id: F1, x: 100, y: 100, w: 640, h: 400, title: "Start", color: "neutral", ...FRAME_DEFAULTS, rev: 1, authorId: sam.id };
   const properties = () => document.querySelector<HTMLElement>('aside[aria-label="Properties"]');
   const frameNode = () => document.querySelector<HTMLElement>(`.react-flow__node[data-id="${F1}"]`);
   const noteEl = () => document.querySelector<HTMLElement>('[aria-roledescription="note"]');
@@ -2031,5 +2031,98 @@ describe("frames (slice frames, protocol v9)", () => {
     expect(frameNode()?.querySelector("input[data-frame-title]")).toBeNull();
     await click(document.querySelector<HTMLElement>('[aria-label="Add note"]') ?? undefined);
     expect(document.querySelector('[role="dialog"] [aria-label="Frame"]')).toBeNull();
+  });
+
+  describe("title styling (slice frame title styling, protocol v10)", () => {
+    const styled: Frame = { ...start, titleFontSize: "xl", titleBold: false, titleItalic: true, titleTextColor: "blue", titleAlign: "center" };
+    const header = () => frameNode()?.querySelector<HTMLElement>("[data-frame-handle='header']");
+    const root = () => frameNode()?.querySelector<HTMLElement>("[data-frame-id]");
+    const title = () => frameNode()?.querySelector<HTMLElement>("[data-frame-title]");
+    const section = () => [...(properties()?.querySelectorAll("section") ?? [])].find((el) => el.querySelector("h3")?.textContent === "Title text");
+    const selectFrame = () => press(header());
+
+    it("Properties shows a Title text section like the note one: Size, Style, Align and Text colour, defaults pressed", async () => {
+      await withBoard();
+      await selectFrame();
+      const s = section();
+      expect(s).toBeDefined();
+      expect(s?.querySelector<HTMLSelectElement>('select[name="titleFontSize"]')?.value).toBe("m");
+      expect(s?.querySelector('[aria-label="Bold title"]')?.getAttribute("aria-pressed")).toBe("true");
+      expect(s?.querySelector('[aria-label="Italic title"]')?.getAttribute("aria-pressed")).toBe("false");
+      expect([...(s?.querySelectorAll('[aria-label="Title alignment"] [role="radio"]') ?? [])].map((r) => [r.getAttribute("aria-label"), r.getAttribute("aria-checked")])).toEqual([
+        ["Align title left", "true"],
+        ["Align title centre", "false"],
+        ["Align title right", "false"],
+      ]);
+      const swatches = [...(s?.querySelectorAll<HTMLElement>('[aria-label="Title text colour"] button') ?? [])];
+      expect(swatches.map((b) => b.getAttribute("aria-label"))).toEqual(["Auto", "Red", "Orange", "Green", "Blue", "Purple", "Grey"]);
+      expect(swatches[0]?.getAttribute("aria-pressed")).toBe("true");
+      // Swatches show the frame ink for the current theme (a token, never a value).
+      expect(swatches[0]?.querySelector("span")?.style.backgroundColor).toBe("var(--sy-frame-title)");
+      expect(swatches[1]?.querySelector("span")?.style.backgroundColor).toBe("var(--sy-frame-text-red)");
+    });
+
+    it("a style change is one optimistic frameEdit that reaches the header; a refusal rolls it back", async () => {
+      const socket = await withBoard();
+      await selectFrame();
+      await click(section()?.querySelector<HTMLElement>('[aria-label="Italic title"]') ?? undefined);
+      expect(sentOfType(socket, "frameEdit")).toEqual([{ type: "frameEdit", id: F1, titleItalic: true }]);
+      expect(title()?.className).toContain("italic");
+      await click(section()?.querySelector<HTMLElement>('[aria-label="Align title right"]') ?? undefined);
+      expect(sentOfType(socket, "frameEdit").at(-1)).toEqual({ type: "frameEdit", id: F1, titleAlign: "right" });
+      expect(title()?.className).toContain("text-right");
+      await server(socket, { data: { type: "error", code: "rate_limited", message: "Slow down.", frameId: F1 } });
+      expect(title()?.className).not.toContain("text-right");
+      expect(title()?.className).toContain("text-left");
+    });
+
+    it("the header renders the stored style, and its height follows the size; the drag handle is unchanged", async () => {
+      await withBoard(true, [styled]);
+      const cls = title()?.className ?? "";
+      for (const c of ["text-note-xl", "text-center", "font-normal", "italic"]) expect(cls).toContain(c);
+      expect(cls).not.toContain("font-semibold");
+      expect(header()?.style.color).toBe("var(--sy-frame-text-blue)");
+      expect(root()?.style.getPropertyValue("--sy-frame-header-h")).toBe("var(--sy-frame-header-xl)");
+      // The header and the side strips use the header height token; both still drag the frame.
+      expect(header()?.className).toContain("h-frame-header");
+      expect(header()?.className).toContain("sy-frame-handle");
+      const edges = [...(frameNode()?.querySelectorAll<HTMLElement>("[data-frame-handle='edge']") ?? [])];
+      expect(edges).toHaveLength(3);
+      for (const e of edges) expect(e.className).toContain("sy-frame-handle");
+      expect(edges.filter((e) => e.className.includes("top-frame-header"))).toHaveLength(2);
+    });
+
+    it("typing the title in a styled header is still a draft until Enter", async () => {
+      const socket = await withBoard(true, [styled]);
+      const input = frameNode()?.querySelector<HTMLInputElement>("input[data-frame-title]");
+      if (!input) throw new Error("no title input");
+      await act(async () => input.focus());
+      await type(input, "Stop");
+      expect(sentOfType(socket, "frameEdit")).toEqual([]);
+      await act(async () => {
+        input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+      });
+      await settle();
+      expect(sentOfType(socket, "frameEdit")).toEqual([{ type: "frameEdit", id: F1, title: "Stop" }]);
+    });
+
+    it("phones show the styled title but can't edit it", async () => {
+      await withBoard(false, [styled]);
+      expect(frameNode()?.querySelector("input")).toBeNull();
+      const cls = title()?.className ?? "";
+      for (const c of ["text-note-xl", "text-center", "font-normal", "italic"]) expect(cls).toContain(c);
+      expect(header()?.style.color).toBe("var(--sy-frame-text-blue)");
+      expect(header()?.className).not.toContain("sy-frame-handle");
+    });
+
+    it("disconnected: every title style control is disabled (and dimmed)", async () => {
+      const socket = await withBoard();
+      await selectFrame();
+      await server(socket, "close");
+      const controls = [...(section()?.querySelectorAll<HTMLButtonElement | HTMLSelectElement>("button, select") ?? [])];
+      expect(controls.length).toBe(1 + 2 + 3 + 7);
+      expect(controls.every((c) => c.disabled)).toBe(true);
+      expect(controls.every((c) => c.className.includes("disabled:opacity-50"))).toBe(true);
+    });
   });
 });

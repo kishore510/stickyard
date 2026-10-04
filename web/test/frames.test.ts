@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   FRAME_COLORS,
+  FRAME_DEFAULTS,
   FRAME_DEFAULT_H,
   FRAME_DEFAULT_W,
   FRAME_MAX_H,
@@ -65,6 +66,7 @@ const frame = (i: number, extra: Partial<Frame> = {}): Frame => ({
   h: FRAME_DEFAULT_H,
   title: "Start",
   color: "neutral",
+  ...FRAME_DEFAULTS,
   rev: 1,
   authorId: sam.id,
   ...extra,
