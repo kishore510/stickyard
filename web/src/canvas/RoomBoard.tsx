@@ -1,6 +1,6 @@
 import { ReactFlowProvider, useStore } from "@xyflow/react";
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { RotateCcw, SlidersHorizontal } from "lucide-react";
+import { RotateCcw, SlidersHorizontal, WifiOff } from "lucide-react";
 import {
   FRAME_DEFAULT_H,
   FRAME_DEFAULT_W,
@@ -24,7 +24,9 @@ import { cornerLifted, panelWidths, type PanelId } from "../panels/layout";
 import { usePanels } from "../panels/panelStore";
 import { SidePanel } from "../panels/SidePanel";
 import { PropertiesContent } from "../properties/PropertiesPanel";
-import type { DeleteReport, RoomView } from "../rooms/session";
+import { connectionMessage } from "../rooms/connectionText";
+import type { OrphanDraft } from "../rooms/resync";
+import type { DeleteReport, ReconnectView, RoomView } from "../rooms/session";
 import { cn } from "../lib/utils";
 import type { useRoom } from "../rooms/useRoom";
 import { MEDIA } from "../styles/breakpoints";
@@ -58,43 +60,98 @@ export interface RoomBoardProps {
   onRejoin: () => void;
 }
 
+/**
+ * The connection's state while disconnected: reconnecting (with the try), offline, the session
+ * full, or the relay perhaps over its daily limit, with Rejoin when automatic tries aren't running.
+ * A polite status (never an alert): it changes as tries go by.
+ */
+function ConnectionBar({ reconnect, onRejoin }: { reconnect: ReconnectView | null; onRejoin: () => void }) {
+  const message = connectionMessage(reconnect);
+  return (
+    <div
+      role="status"
+      data-connection-status=""
+      className="pointer-events-auto flex w-full max-w-content flex-wrap items-center gap-sm rounded-md border border-status-warn bg-surface p-sm pl-md shadow-md"
+    >
+      <WifiOff aria-hidden="true" className="shrink-0 text-status-warn" />
+      <p className="min-w-0 flex-1">
+        <span className="font-medium">{message.title}</span> <span className="text-sm text-fg-muted">{message.detail}</span>
+      </p>
+      {message.rejoin && (
+        <Button variant="primary" onClick={onRejoin}>
+          <RotateCcw />
+          Rejoin
+        </Button>
+      )}
+    </div>
+  );
+}
+
+/** Text typed into a note that's gone after a drop: offered back as a new note (plain text). */
+function OrphanDraftOffer({ draft, live, onRestore, onDismiss }: { draft: OrphanDraft; live: boolean; onRestore: () => void; onDismiss: () => void }) {
+  return (
+    <div role="status" data-orphan-draft="" className="pointer-events-auto flex w-full max-w-content flex-col gap-xs rounded-md bg-surface p-sm pl-md text-sm shadow-md">
+      <p>
+        The note you were typing in isn’t on the board any more. Your text was kept:{" "}
+        <q className="break-words whitespace-pre-wrap">{draft.text}</q>
+      </p>
+      <div className="flex flex-wrap gap-sm">
+        <Button variant="primary" onClick={onRestore} disabled={!live}>
+          Add as a new note
+        </Button>
+        <Button variant="ghost" onClick={onDismiss}>
+          Dismiss
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 /** Notices over the top of the board: connection, refused changes, why notes can't be added. */
 const Notices = memo(function Notices({
   status,
+  reconnect,
   noteNotice,
   deleteReport,
   historyReport,
+  dropReport,
+  orphanDraft,
+  presenceToast,
   noteReason,
   onRejoin,
+  onRestoreDraft,
+  onDismissDraft,
   bar,
 }: {
   status: RoomView["status"];
+  reconnect: ReconnectView | null;
   noteNotice: string | null;
   deleteReport: DeleteReport | null;
   /** A restore running, or how the last undo or redo went. */
   historyReport: DeleteReport | null;
+  /** What may not have been saved when the connection dropped. */
+  dropReport: string | null;
+  orphanDraft: OrphanDraft | null;
+  /** Who joined or left (plain text). */
+  presenceToast: string | null;
   noteReason: string | null;
   onRejoin: () => void;
+  onRestoreDraft: () => void;
+  onDismissDraft: () => void;
   /** The selection bar, first in the stack (md and up). */
   bar?: ReactNode;
 }) {
   const live = status === "joined";
   return (
     <div className="pointer-events-none absolute inset-x-0 top-sm z-20 flex flex-col items-center gap-xs px-gutter">
+      {!live && <ConnectionBar reconnect={reconnect} onRejoin={onRejoin} />}
       {bar}
-      {!live && (
-        <div role="alert" className="pointer-events-auto flex flex-wrap items-center gap-sm rounded-md border border-status-error bg-surface p-sm pl-md shadow-md">
-          <p className="font-medium">
-            {status === "connecting" ? "Rejoining…" : "Connection lost. You’re no longer in the session."}
-          </p>
-          {status !== "connecting" && (
-            <Button variant="primary" onClick={onRejoin}>
-              <RotateCcw />
-              Rejoin
-            </Button>
-          )}
-        </div>
+      {dropReport && (
+        <p role="status" data-drop-report="" className="pointer-events-auto rounded-md bg-surface px-ms py-xs text-sm text-status-warn shadow-md">
+          {dropReport}
+        </p>
       )}
+      {orphanDraft && <OrphanDraftOffer draft={orphanDraft} live={live} onRestore={onRestoreDraft} onDismiss={onDismissDraft} />}
       {noteNotice && (
         <p role="status" className="pointer-events-auto rounded-md bg-surface px-ms py-xs text-sm text-status-warn shadow-md">
           {noteNotice}
@@ -122,6 +179,11 @@ const Notices = memo(function Notices({
           {noteReason}
         </p>
       )}
+      {/* Join and leave toasts: always in the page so the live region is ready; no focus, no
+          buttons, never over the top bar or the phone ribbon; fade only without reduced motion. */}
+      <div role="status" aria-live="polite" data-presence-toasts="" className="flex flex-col items-center">
+        {presenceToast && <p className="sy-fade-in max-w-content rounded-md bg-surface px-ms py-xs text-sm break-words shadow-md">{presenceToast}</p>}
+      </div>
     </div>
   );
 });
@@ -188,6 +250,7 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
   // Notes deleted (here or by someone else) leave the selection; after a rejoin, only notes that
   // are still on the board stay selected.
   useLayoutEffect(() => {
+    // Also the note being edited in place or asked for in Properties (a resync may remove it).
     useBoardUi.getState().pruneSelected((id) => findNote(view.board, id) !== undefined);
     useBoardUi.getState().pruneFrame((id) => findFrame(view.board, id) !== undefined);
   }, [view.board]);
@@ -309,6 +372,8 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
   const rejoinRef = useRef(onRejoin);
   rejoinRef.current = onRejoin;
   const rejoin = useCallback(() => rejoinRef.current(), []);
+  const restoreDraft = useCallback(() => void latest.current.room.restoreDraft(), []);
+  const dismissDraft = useCallback(() => latest.current.room.dismissDraft(), []);
   const ctxRef = useRef(ctx);
   ctxRef.current = ctx;
 
@@ -460,7 +525,21 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
           view={canvas}
           onShortcut={onShortcut}
         />
-        <Notices status={view.status} noteNotice={view.noteNotice} deleteReport={view.deleteReport} historyReport={view.historyReport} noteReason={noteReason} onRejoin={rejoin} bar={bar} />
+        <Notices
+          status={view.status}
+          reconnect={view.reconnect}
+          noteNotice={view.noteNotice}
+          deleteReport={view.deleteReport}
+          historyReport={view.historyReport}
+          dropReport={view.dropReport}
+          orphanDraft={view.orphanDraft}
+          presenceToast={view.presenceToast?.text ?? null}
+          noteReason={noteReason}
+          onRejoin={rejoin}
+          onRestoreDraft={restoreDraft}
+          onDismissDraft={dismissDraft}
+          bar={bar}
+        />
         {wide ? (
           <>
             <ViewBar ctx={ctx} barRef={barRef} />
@@ -493,6 +572,7 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
                 board: view.board,
                 live,
                 you: view.you,
+                yourIds: view.yourIds,
                 people: view.people,
                 participants: view.participants,
                 setDraft: room.setDraft,

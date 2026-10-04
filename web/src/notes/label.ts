@@ -34,9 +34,10 @@ export function confirmDeleteNotes(count: number, confirm: (message: string) => 
  */
 export function authorName(
   authorId: string,
-  room: { you: Participant | null; people: ReadonlyMap<string, Participant>; participants: readonly Participant[] },
+  room: { you: Participant | null; people: ReadonlyMap<string, Participant>; participants: readonly Participant[]; yourIds?: ReadonlySet<string> },
 ): string {
-  if (room.you?.id === authorId) return `${room.you.name} (you)`;
+  // Your notes stay yours across a reconnect (which gives you a new id).
+  if (room.you && (room.you.id === authorId || room.yourIds?.has(authorId))) return `${room.you.name} (you)`;
   const person = room.people.get(authorId);
   if (!person) return "someone not in the session now";
   return room.participants.some((p) => p.id === authorId) ? person.name : `${person.name} (left)`;

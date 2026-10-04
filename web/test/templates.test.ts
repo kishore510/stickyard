@@ -292,18 +292,21 @@ describe("session: applying a template", () => {
     expect(t.session.applyTemplate(placeTemplate(byId("start-stop-continue"), { x: 0, y: 1000 }))).toBe(true);
   });
 
-  it("is refused while disconnected; a disconnect part-way ends it as partly applied, and the frames in flight stay shown", async () => {
+  it("is refused while disconnected; a disconnect part-way ends it as partly applied, and the frames not confirmed are discarded (since reconnect)", async () => {
     const t = session();
     t.sock().handlers.onClose();
     expect(t.session.applyTemplate(plan)).toBe(false);
     const u = session();
     u.session.applyTemplate(plan);
-    u.sock().handlers.onClose();
-    const count = u.out().length;
+    const dropped = u.sock();
+    dropped.handlers.onClose();
+    const count = dropped.sent.length;
     await vi.advanceTimersByTimeAsync(ITEMS_STEP_MS * 30);
-    expect(u.out()).toHaveLength(count);
+    expect(dropped.sent).toHaveLength(count);
+    if (u.sock() !== dropped) expect(u.sock().sent).toEqual([]);
     expect(u.view().template).toMatchObject({ state: "partial", frameIds: [] });
-    expect(u.view().board.frames).toHaveLength(3);
+    // No offline queue: the board shows what the relay confirmed (none of them yet).
+    expect(u.view().board.frames).toHaveLength(0);
   });
 });
 

@@ -25,6 +25,7 @@ export function InlineText({
   note,
   text,
   request,
+  readOnly = false,
   onDraft,
   onCommit,
 }: {
@@ -33,6 +34,8 @@ export function InlineText({
   text: string;
   /** Which part to put the caret in; a new `n` asks again. */
   request: { part: InlinePart; n: number };
+  /** Disconnected: the text stays (and keeps focus) but can't change until the connection is back. */
+  readOnly?: boolean;
   onDraft: (text: string) => void;
   /** `refocus`: give focus back to the note (a key ended it, not a click elsewhere). */
   onCommit: (refocus: boolean) => void;
@@ -107,6 +110,8 @@ export function InlineText({
       aria-label={part === "title" ? "Note title" : "Note body"}
       rows={1}
       value={value}
+      readOnly={readOnly}
+      aria-readonly={readOnly || undefined}
       placeholder={INLINE_PLACEHOLDERS[part]}
       spellCheck
       onChange={(e) => change(part, e.target.value)}

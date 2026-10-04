@@ -12,7 +12,7 @@ import {
 } from "@stickyard/shared";
 import type { SocketFactory, SocketHandlers } from "../../src/connection/socket";
 import { findNote } from "../../src/notes/board";
-import { RoomSession, type RoomView } from "../../src/rooms/session";
+import { RoomSession, type RoomView, type SessionOptions } from "../../src/rooms/session";
 
 /*
  * A small fake relay for session tests: stores and answers like the Worker (rev + 1 per stored
@@ -41,6 +41,18 @@ export class Relay {
   private batches = 0;
   /** Frames whose delete is refused. */
   refuseFrameDeletes = new Set<string>();
+  /** Who joins (the name comes from the join message), and who else is in the room. */
+  you: Participant = alex;
+  others: Participant[] = [sam];
+  /** An error code to answer the next joins with (room_full, version_mismatch...). */
+  joinError: string | null = null;
+  /** The protocol version the welcome claims. */
+  welcomeVersion = PROTOCOL_VERSION;
+  /** Hold the framesSnapshot until sendFrames() (a late frames message). */
+  holdFrames = false;
+  /** Sockets opened so far, and how many of them this page closed. */
+  sockets = 0;
+  closes = 0;
   constructor(notes: Note[], frames: Frame[]) {
     for (const n of notes) this.notes.set(n.id, n);
     for (const f of frames) this.frames.set(f.id, f);
@@ -52,17 +64,51 @@ export class Relay {
   private topZ = () => Math.max(-1, ...[...this.notes.values()].map((n) => n.z)) + 1;
   socket = (handlers: SocketHandlers) => {
     this.handlers = handlers;
+    this.sockets++;
+    const mine = handlers;
     return {
       send: (data: string) => {
         const message = JSON.parse(data) as Record<string, unknown>;
         expect(clientMessageSchema.safeParse(message).success, JSON.stringify(message)).toBe(true);
+        // A closed socket's sends go nowhere.
+        if (this.handlers !== mine) return;
         this.received.push(message);
         if (this.paused) this.queue.push(message);
         else this.handle(message);
       },
-      close: () => {},
+      close: () => {
+        this.closes++;
+      },
     };
   };
+  /** The socket opens (the relay accepted the upgrade). */
+  open() {
+    this.handlers?.onOpen();
+  }
+  /** The connection drops: answers not sent yet are lost. */
+  drop() {
+    this.queue = [];
+    const h = this.handlers;
+    this.handlers = null;
+    h?.onClose();
+  }
+  /** A socket that never opens (the upgrade failed). */
+  failOpen() {
+    this.drop();
+  }
+  /** Sends the held framesSnapshot. */
+  sendFrames() {
+    this.out({ type: "framesSnapshot", frames: [...this.frames.values()] });
+  }
+  /** Someone else joins or leaves. */
+  arrive(p: Participant) {
+    this.others = [...this.others.filter((o) => o.id !== p.id), p];
+    this.out({ type: "participant_joined", participant: p });
+  }
+  leave(id: string) {
+    this.others = this.others.filter((o) => o.id !== id);
+    this.out({ type: "participant_left", id });
+  }
   resume() {
     this.paused = false;
     const queued = this.queue;
@@ -79,11 +125,17 @@ export class Relay {
   private handle(m: Record<string, unknown>) {
     switch (m.type) {
       case "hello":
-        return this.out({ type: "welcome", protocolVersion: PROTOCOL_VERSION });
-      case "join":
-        this.out({ type: "joined", you: alex, participants: [alex, sam] });
+        return this.out({ type: "welcome", protocolVersion: this.welcomeVersion });
+      case "join": {
+        if (this.joinError) return this.out({ type: "error", code: this.joinError, message: "No." });
+        const you = { ...this.you, name: m.name as string };
+        this.out({ type: "joined", you, participants: [you, ...this.others] });
         this.out({ type: "snapshot", notes: [...this.notes.values()] });
+        if (this.holdFrames) return;
         return this.out({ type: "framesSnapshot", frames: [...this.frames.values()] });
+      }
+      case "say":
+        return this.out({ type: "echo", from: this.you.id, text: m.text });
       case "noteMove": {
         const c = this.notes.get(m.id as string);
         if (!c || !m.final) return;
@@ -205,15 +257,21 @@ export class Relay {
   }
 }
 
-export function room(notes: Note[] = [], frames: Frame[] = []) {
+export function room(notes: Note[] = [], frames: Frame[] = [], options: Partial<SessionOptions> = {}) {
   const relay = new Relay(notes, frames);
   const views: RoomView[] = [];
   const createSocket: SocketFactory = (_url, handlers) => relay.socket(handlers);
-  const session = new RoomSession({ url: "wss://relay.example.test/ws?room=CODE", createSocket, checkCode: () => Promise.resolve("valid"), onChange: (v) => views.push(v) });
+  const session = new RoomSession({
+    url: "wss://relay.example.test/ws?room=CODE",
+    createSocket,
+    checkCode: () => Promise.resolve("valid"),
+    onChange: (v) => views.push(v),
+    ...options,
+  });
   session.join("Alex");
   relay.handlers!.onOpen();
   const view = () => views.at(-1)!;
   const sent = (type: string) => relay.received.filter((m) => m.type === type);
   const shown = (id: string) => findNote(view().board, id)?.note;
-  return { session, relay, view, sent, shown };
+  return { session, relay, view, views, sent, shown };
 }

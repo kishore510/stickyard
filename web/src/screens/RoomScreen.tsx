@@ -34,11 +34,12 @@ function PublishRoom({ code, view, room }: { code: string; view: RoomView; room:
   const latest = useRef(room);
   latest.current = room;
   const live = view.status === "joined";
-  const { you, participants, messages, rateLimited } = view;
+  const { you, yourIds, participants, messages, rateLimited } = view;
   useEffect(() => {
     publish({
       code,
       you,
+      yourIds,
       participants,
       live,
       messages,
@@ -46,7 +47,7 @@ function PublishRoom({ code, view, room }: { code: string; view: RoomView; room:
       say: (text) => latest.current.say(text),
       leave: () => latest.current.leave(),
     });
-  }, [publish, code, you, participants, live, messages, rateLimited]);
+  }, [publish, code, you, yourIds, participants, live, messages, rateLimited]);
   useEffect(() => () => publish(null), [publish]);
   return null;
 }
@@ -139,7 +140,6 @@ export function RoomScreen({ code }: { code: string }) {
   const room = useRoom(code);
   const { view } = room;
   const [everJoined, setEverJoined] = useState(false);
-  const lastName = useRef("");
   // From md up the Properties panel is the note editor; the sheet is for phones.
   const wide = useMediaQuery(MEDIA.tablet);
 
@@ -174,10 +174,7 @@ export function RoomScreen({ code }: { code: string }) {
     );
   }
 
-  const join = (name: string) => {
-    lastName.current = name;
-    room.join(name);
-  };
+  const join = (name: string) => room.join(name);
 
   if (!everJoined) {
     const error = view.nameError
@@ -200,16 +197,13 @@ export function RoomScreen({ code }: { code: string }) {
 
   return (
     <>
-      <p aria-live="polite" className="sr-only">
-        {view.announcement}
-      </p>
       <PublishRoom code={code} view={view} room={room} />
       <Suspense fallback={<div className="absolute inset-0 bg-canvas" />}>
         <RoomBoard
           view={view}
           room={room}
           editing={editing !== undefined}
-          onRejoin={() => room.rejoin(lastName.current || (view.you?.name ?? ""))}
+          onRejoin={() => room.rejoin()}
         />
       </Suspense>
       {editing && (

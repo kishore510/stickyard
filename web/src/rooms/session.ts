@@ -32,6 +32,19 @@ import {
   type Participant,
   type ServerMessage,
 } from "@stickyard/shared";
+import {
+  LIMIT_MAX_PROBES,
+  LIMIT_RETRY_MS,
+  MIN_TRY_GAP_MS,
+  RECONNECT_MAX_ATTEMPTS,
+  STATIC_ENV,
+  afterFailedTry,
+  backoffDelay,
+  mayTryWhileHidden,
+  shouldProbe,
+  type ConnectionEnv,
+  type ProbeResult,
+} from "../connection/reconnect";
 import type { SocketFactory, SocketLike } from "../connection/socket";
 import {
   addFrameItemLocal,
@@ -91,6 +104,8 @@ import { DUPLICATE_HINTS, duplicateFrameInput, duplicateNoteInputs } from "../ca
 import { HISTORY_TEXT, History, type Fields, type ItemKind, type Lookup, type Plan } from "../history/history";
 import type { CodeCheck } from "./api";
 import { packItems, type ItemDraft, type ItemsAddMessage } from "./items";
+import { LEAVE_GRACE_MS, RESYNC_QUIET_MS, TOAST_BATCH_MS, TOAST_GAP_MS, TOAST_SHOW_MS, summarizePresence, type PresenceEvent } from "../presence/toasts";
+import { discardUnconfirmed, resyncFrames, resyncNotes, unsavedKeys, type OrphanDraft } from "./resync";
 
 /*
  * One visit to a room: connect, hello, join, then follow participants, echoes and notes.
@@ -99,10 +114,29 @@ import { packItems, type ItemDraft, type ItemsAddMessage } from "./items";
  * strings and only ever rendered as text.
  *
  * Notes are optimistic: local changes show at once and roll back if the server refuses them
- * (see notes/board.ts). Editing needs a live connection; there's no offline queue yet.
+ * (see notes/board.ts). Editing needs a live connection; there's no offline queue (decided).
+ *
+ * Reconnect: once joined, a dropped connection is retried on its own (connection/reconnect.ts:
+ * backoff with jitter, a cap on tries, a slow health probe when the relay looks down) in this same
+ * session, so the board stays on screen, read-only. At the drop the board goes back to what the
+ * relay last confirmed (one notice counts what may not have been saved); on reconnect the
+ * relay's snapshots replace it (rooms/resync.ts). Drafts being typed are kept.
  */
 
 export type RoomStatus = "idle" | "connecting" | "joined" | "invalid" | "full" | "reload" | "unreachable" | "disconnected";
+
+/**
+ * While disconnected after having joined: `reconnecting` (try `attempt` of `max` is waiting or
+ * running), `network` (the browser says it's offline: waiting for it), `offline` (automatic tries
+ * used up: Rejoin), `full` (the session filled up meanwhile: Rejoin), `limit` (the relay may be
+ * unreachable or over its daily limit: a probe a minute, and Rejoin).
+ */
+export type ReconnectPhase = "reconnecting" | "network" | "offline" | "full" | "limit";
+export interface ReconnectView {
+  phase: ReconnectPhase;
+  attempt: number;
+  max: number;
+}
 
 export interface EchoEntry {
   key: number;
@@ -123,8 +157,8 @@ export interface RoomView {
   nameError: boolean;
   /** The server said we're sending too fast. Cleared by our next accepted message. */
   rateLimited: boolean;
-  /** For an aria-live region: "<name> joined" / "<name> left". */
-  announcement: string;
+  /** A join/leave toast (plain text, batched; presence/toasts.ts), until it times out. */
+  presenceToast: { seq: number; text: string } | null;
   board: Board;
   /** A short message about a refused note change, until the next note action. */
   noteNotice: string | null;
@@ -144,6 +178,14 @@ export interface RoomView {
   historyReport: DeleteReport | null;
   /** Clear board is still deleting (another waits); its outcome is `deleteReport`. */
   clearing: boolean;
+  /** Reconnecting after a drop (null while joined, and before the first join). */
+  reconnect: ReconnectView | null;
+  /** How many changes may not have been saved when the connection dropped, until the next note action. */
+  dropReport: string | null;
+  /** Text typed into a note that's gone (it was still being added at the drop, or the resync didn't have it). */
+  orphanDraft: OrphanDraft | null;
+  /** Every participant id you've had in this visit (a reconnect gives a new one): your notes stay yours. */
+  yourIds: ReadonlySet<string>;
 }
 
 /** A delete's outcome: `partial` when some notes weren't (or may not have been) deleted. */
@@ -159,7 +201,7 @@ export const INITIAL_VIEW: RoomView = {
   messages: [],
   nameError: false,
   rateLimited: false,
-  announcement: "",
+  presenceToast: null,
   board: EMPTY_BOARD,
   noteNotice: null,
   deleteReport: null,
@@ -170,7 +212,16 @@ export const INITIAL_VIEW: RoomView = {
   history: { undo: "Not connected.", redo: "Not connected." },
   historyReport: null,
   clearing: false,
+  reconnect: null,
+  dropReport: null,
+  orphanDraft: null,
+  yourIds: new Set(),
 };
+
+/** What a dropped connection says about changes it may have lost. */
+export const DROP_TEXT = {
+  unsaved: (n: number) => `${n} ${n === 1 ? "change" : "changes"} may not have been saved because the connection dropped.`,
+} as const;
 
 /** What Undo and Redo say (with HISTORY_TEXT from the history itself). */
 export const UNDO_TEXT = {
@@ -405,6 +456,33 @@ export interface SessionOptions {
   onNoteConfirmed?(localId: string, id: string): void;
   /** A frame added here got its server id. */
   onFrameConfirmed?(localId: string, id: string): void;
+  /** The browser's network and visibility (connection/reconnect.ts); always online and visible if not given. */
+  env?: ConnectionEnv;
+  /** GET /health, asked when sockets keep failing to open: is the relay there at all? */
+  checkHealth?(): Promise<ProbeResult>;
+  /** The name to rejoin with (stickyard:name); the name it joined with if none. */
+  storedName?(): string | null;
+  /** For the backoff's jitter (0..1). */
+  random?(): number;
+}
+
+/** Reconnecting: which try, why it waits, and its timer. */
+interface Retry {
+  phase: ReconnectPhase;
+  /** The try waiting or running (1-based). */
+  attempt: number;
+  /** Sockets in a row that never opened. */
+  failedOpens: number;
+  /** Health probes while the relay looked down. */
+  probes: number;
+  timer: ReturnType<typeof setTimeout> | undefined;
+  /** A socket is open or opening for this try. */
+  trying: boolean;
+  /** A try (or a probe) is due but waits for the tab to be visible. */
+  due: boolean;
+  lastTryAt: number;
+  /** Bumped by a new sequence: answers to older probes are ignored. */
+  gen: number;
 }
 
 /** A frame being dragged here: where it and the notes it carries started. */
@@ -456,8 +534,40 @@ export class RoomSession {
   /** Clear board in flight, and its frame-delete pacing timer. */
   private clearRun: ClearRun | null = null;
   private clearTimer: ReturnType<typeof setTimeout> | undefined;
+  /** Refreshes undo and redo when a change waiting for the relay is given up on. */
+  private expiryTimer: ReturnType<typeof setTimeout> | undefined;
+  private expiryAt: number | null = null;
+  /** Reconnecting after a drop (null while joined or before the first join). */
+  private retry: Retry | null = null;
+  private retryGen = 0;
+  /** A reconnect got `joined`: the snapshot makes it live. Then frames replace the old ones. */
+  private resyncing = false;
+  private framesResync = false;
+  /** Each socket's events carry its number; a replaced socket's late events are ignored. */
+  private socketGen = 0;
+  private joinedName: string | null = null;
+  private readonly yourIds = new Set<string>();
+  private readonly env: ConnectionEnv;
+  private unlisten: (() => void) | null = null;
+  /** When the tab was hidden (null while visible). */
+  private hiddenSince: number | null = null;
+  /** Join/leave events waiting for the next toast, its timer, and the toast's hide timer. */
+  private presenceEvents: PresenceEvent[] = [];
+  private presenceTimer: ReturnType<typeof setTimeout> | undefined;
+  private presenceDue = 0;
+  private batchStart = 0;
+  /** Names whose leave was shown, and when: back soon after isn't news. */
+  private readonly recentlyLeft = new Map<string, number>();
+  private toastTimer: ReturnType<typeof setTimeout> | undefined;
+  private lastToastAt = -Infinity;
+  private toastSeq = 0;
+  /** After my own reconnect: names that were here before the drop, quiet until `quietUntil`. */
+  private quietNames = new Set<string>();
+  private quietUntil = 0;
 
-  constructor(private readonly options: SessionOptions) {}
+  constructor(private readonly options: SessionOptions) {
+    this.env = options.env ?? STATIC_ENV;
+  }
 
   /** Joins with `name`, connecting first if needed. Refuses a name that is empty after cleaning. */
   join(name: string): void {
@@ -471,18 +581,393 @@ export class RoomSession {
       if (this.welcomed) this.send({ type: "join", name: clean });
       return;
     }
+    this.listen();
+    if (!this.openSocket()) this.finish("unreachable");
+  }
+
+  /** Opens a socket (its events tagged, so a replaced socket's late ones are ignored). False if it couldn't be made. */
+  private openSocket(): boolean {
+    const gen = ++this.socketGen;
+    this.opened = false;
+    this.welcomed = false;
+    const mine = <A extends unknown[]>(fn: (...args: A) => void) => (...args: A) => {
+      if (gen === this.socketGen) fn(...args);
+    };
     try {
       this.socket = this.options.createSocket(this.options.url, {
-        onOpen: () => this.onOpen(),
-        onMessage: (data) => this.onMessage(data),
-        onClose: () => this.onClose(),
+        onOpen: mine(() => this.onOpen()),
+        onMessage: mine((data: unknown) => this.onMessage(data)),
+        onClose: mine(() => this.onClose()),
         onError: () => {
           // A close event always follows.
         },
       });
+      return true;
     } catch {
-      this.finish("unreachable");
+      this.socket = null;
+      return false;
     }
+  }
+
+  /** Lets go of the socket (closing it); its later events are ignored. */
+  private detach(close: boolean): void {
+    this.socketGen++;
+    if (close) {
+      try {
+        this.socket?.close();
+      } catch {
+        // Already closed.
+      }
+    }
+    this.socket = null;
+    this.opened = false;
+    this.welcomed = false;
+  }
+
+  /* ── Reconnect (connection/reconnect.ts) ───────────────────────── */
+
+  /** Starts following the browser's network and visibility (once). */
+  private listen(): void {
+    if (this.unlisten) return;
+    this.hiddenSince = this.env.hidden() ? Date.now() : null;
+    this.unlisten = this.env.listen({
+      online: () => this.onOnline(),
+      offline: () => this.onOffline(),
+      visibility: () => this.onVisibility(),
+    });
+  }
+
+  /** Rejoin: tries again now, with the backoff from the start (after a drop only). */
+  rejoin(): void {
+    if (this.stopped || !this.retry) return;
+    this.restartRetry();
+    this.tryNow();
+  }
+
+  /** What the page shows about reconnecting. */
+  private retryView(): ReconnectView | null {
+    const r = this.retry;
+    return r ? { phase: r.phase, attempt: r.attempt, max: RECONNECT_MAX_ATTEMPTS } : null;
+  }
+
+  private restartRetry(): void {
+    const r = this.retry;
+    if (!r) return;
+    clearTimeout(r.timer);
+    if (r.trying) this.detach(true);
+    clearTimeout(this.timer);
+    Object.assign(r, { phase: "reconnecting", attempt: 1, failedOpens: 0, probes: 0, timer: undefined, trying: false, due: false, gen: ++this.retryGen });
+    this.resyncing = false;
+  }
+
+  private stopRetry(): void {
+    if (!this.retry) return;
+    clearTimeout(this.retry.timer);
+    this.retry = null;
+    this.retryGen++;
+  }
+
+  /** The name to rejoin with: the stored one, else the one it joined with. */
+  private rejoinName(): string | null {
+    return cleanName(this.options.storedName?.() ?? "") ?? this.joinedName ?? this.pendingName;
+  }
+
+  /** Opens a socket for the current try. */
+  private tryNow(): void {
+    const r = this.retry;
+    if (!r || this.stopped) return;
+    clearTimeout(r.timer);
+    r.timer = undefined;
+    r.due = false;
+    if (!this.env.online()) {
+      r.phase = "network";
+      return this.update({});
+    }
+    r.phase = "reconnecting";
+    r.trying = true;
+    r.lastTryAt = Date.now();
+    this.resyncing = false;
+    this.pendingName = this.rejoinName();
+    this.startTimer();
+    if (!this.openSocket()) return this.tryFailed(false);
+    this.update({});
+  }
+
+  /** The try's socket closed, timed out or never opened. */
+  private tryFailed(opened: boolean): void {
+    const r = this.retry;
+    if (!r) return;
+    clearTimeout(this.timer);
+    this.detach(true);
+    r.trying = false;
+    this.resyncing = false;
+    r.failedOpens = opened ? 0 : r.failedOpens + 1;
+    if (!opened && shouldProbe(r.failedOpens)) return this.probe();
+    this.nextTry();
+  }
+
+  /** Schedules the next try with backoff, or gives up (Rejoin). */
+  private nextTry(): void {
+    const r = this.retry;
+    if (!r) return;
+    if (afterFailedTry(r.attempt) === "give-up") {
+      r.phase = "offline";
+      return this.update({});
+    }
+    r.attempt++;
+    r.phase = "reconnecting";
+    this.schedule(backoffDelay(r.attempt, this.options.random ?? Math.random));
+  }
+
+  private schedule(ms: number): void {
+    const r = this.retry;
+    if (!r) return;
+    clearTimeout(r.timer);
+    r.timer = setTimeout(() => {
+      r.timer = undefined;
+      this.due();
+    }, ms);
+    this.update({});
+  }
+
+  /** A try (or a probe) is due: run it, unless the browser is offline or the tab has been hidden for long. */
+  private due(): void {
+    const r = this.retry;
+    if (!r || this.stopped) return;
+    if (!this.env.online()) {
+      r.phase = "network";
+      return this.update({});
+    }
+    if (r.phase === "limit") {
+      if (this.env.hidden()) {
+        r.due = true;
+        return;
+      }
+      return this.limitProbe();
+    }
+    if (!mayTryWhileHidden(this.hiddenSince, Date.now())) {
+      r.due = true;
+      return;
+    }
+    this.tryNow();
+  }
+
+  /** Sockets keep failing to open: is the relay there (and is the link valid)? */
+  private probe(): void {
+    const r = this.retry;
+    const check = this.options.checkHealth;
+    if (!r || !check) return this.nextTry();
+    const gen = r.gen;
+    const stale = () => this.stopped || this.retry !== r || r.gen !== gen;
+    void check()
+      .catch((): ProbeResult => "down")
+      .then(async (result) => {
+        if (stale()) return;
+        if (result === "reload") return this.finish("reload");
+        if (result === "down") return this.enterLimit();
+        const code = await this.options.checkCode().catch((): CodeCheck => "unreachable");
+        if (stale()) return;
+        if (code === "invalid") return this.finish("invalid");
+        this.nextTry();
+      });
+  }
+
+  /** The relay looks down or over its daily limit: one probe a minute (while visible), no sockets. */
+  private enterLimit(): void {
+    const r = this.retry;
+    if (!r) return;
+    r.phase = "limit";
+    r.probes = 1;
+    this.schedule(LIMIT_RETRY_MS);
+  }
+
+  private limitProbe(): void {
+    const r = this.retry;
+    const check = this.options.checkHealth;
+    if (!r || !check) return;
+    r.probes++;
+    const gen = r.gen;
+    void check()
+      .catch((): ProbeResult => "down")
+      .then((result) => {
+        if (this.stopped || this.retry !== r || r.gen !== gen || r.phase !== "limit") return;
+        if (result === "reload") return this.finish("reload");
+        if (result === "ok") {
+          Object.assign(r, { attempt: 1, failedOpens: 0, probes: 0 });
+          return this.tryNow();
+        }
+        if (r.probes >= LIMIT_MAX_PROBES) {
+          r.phase = "offline";
+          return this.update({});
+        }
+        this.schedule(LIMIT_RETRY_MS);
+      });
+  }
+
+  /** The browser is back online: a fresh sequence, now (not for a full session: that needs Rejoin). */
+  private onOnline(): void {
+    const r = this.retry;
+    if (this.stopped || !r || r.trying || r.phase === "full") return;
+    if (Date.now() - r.lastTryAt < MIN_TRY_GAP_MS) return;
+    this.restartRetry();
+    this.tryNow();
+  }
+
+  /** The browser went offline: drop at once (no waiting for the socket to notice), then wait for online. */
+  private onOffline(): void {
+    if (this.stopped) return;
+    if (this.view.status === "joined") {
+      this.detach(true);
+      return this.dropped();
+    }
+    const r = this.retry;
+    if (!r || r.phase === "full") return;
+    clearTimeout(r.timer);
+    r.timer = undefined;
+    if (r.trying) {
+      clearTimeout(this.timer);
+      this.detach(true);
+      r.trying = false;
+      this.resyncing = false;
+    }
+    r.phase = "network";
+    this.update({});
+  }
+
+  /** Visible again: what was due runs now; a waiting try doesn't wait any longer. */
+  private onVisibility(): void {
+    if (this.stopped) return;
+    if (this.env.hidden()) {
+      this.hiddenSince ??= Date.now();
+      return;
+    }
+    this.hiddenSince = null;
+    const r = this.retry;
+    if (!r || r.trying) return;
+    if (r.phase === "limit") {
+      if (r.due) {
+        r.due = false;
+        this.limitProbe();
+      }
+      return;
+    }
+    if (r.phase !== "reconnecting") return;
+    if (Date.now() - r.lastTryAt < MIN_TRY_GAP_MS) return;
+    this.tryNow();
+  }
+
+  /** The connection dropped while joined: settle what was in flight, go back to what's confirmed, start reconnecting. */
+  private dropped(): void {
+    clearTimeout(this.timer);
+    this.stopAllMoves();
+    this.socket = null;
+    // Joins and leaves not shown yet are forgotten; people here now aren't news when they come back.
+    clearTimeout(this.presenceTimer);
+    this.presenceTimer = undefined;
+    this.presenceEvents = [];
+    this.quietNames = new Set(this.view.participants.filter((p) => !this.yourIds.has(p.id)).map((p) => p.name));
+    // What was in flight, counted before anything is cleared. Runs report their own losses.
+    const excluded = new Set<string>();
+    const both = (id: string) => {
+      excluded.add(`note:${id}`);
+      excluded.add(`frame:${id}`);
+    };
+    for (const run of [this.template?.run, this.restoreRun]) for (const ref of run?.refs ?? []) if (ref !== null) both(localId(ref));
+    const run = this.deleteRun;
+    for (const id of run?.ids ?? []) excluded.add(`note:${id}`);
+    for (const ref of run?.refs ?? []) excluded.add(`note:${localId(ref)}`);
+    const clear = this.clearRun;
+    for (const id of clear?.notes.ids ?? []) excluded.add(`note:${id}`);
+    for (const ref of clear?.notes.refs ?? []) excluded.add(`note:${localId(ref)}`);
+    for (const id of clear?.frames.ids ?? []) excluded.add(`frame:${id}`);
+    for (const ref of clear?.frames.refs ?? []) excluded.add(`frame:${localId(ref)}`);
+    const unsaved = unsavedKeys(this.view.board, this.history.pendingKeys(), excluded).size;
+
+    this.deleteRun = null;
+    const lost = run ? run.ids.size + run.refs.size : 0;
+    // Nothing queued is sent later: there's no offline queue.
+    clearTimeout(this.itemTimer);
+    this.itemTimer = undefined;
+    this.itemQueue = [];
+    this.itemBatches.clear();
+    const restore = this.restoreRun;
+    this.restoreRun = null;
+    this.clearRun = null;
+    clearTimeout(this.clearTimer);
+    this.clearTimer = undefined;
+    this.abandoned.clear();
+    this.abandonedFrames.clear();
+    // Ids and revs can't be trusted after this: the history goes.
+    this.history.clear();
+    const { board, orphans } = discardUnconfirmed(this.view.board);
+    this.retry = { phase: this.env.online() ? "reconnecting" : "network", attempt: 1, failedOpens: 0, probes: 0, timer: undefined, trying: false, due: false, lastTryAt: -Infinity, gen: ++this.retryGen };
+    this.update({
+      status: "disconnected",
+      board,
+      dropReport: unsaved > 0 ? DROP_TEXT.unsaved(unsaved) : null,
+      ...(orphans.length > 0 ? { orphanDraft: orphans.at(-1) ?? null } : {}),
+      ...(run ? { deleteReport: deleteReportFor({ ...run, lost }) } : {}),
+      ...(clear
+        ? {
+            deleteReport: clearReportFor(
+              { ...clear.notes, lost: clear.notes.ids.size + clear.notes.refs.size },
+              { ...clear.frames, lost: clear.frames.ids.size + clear.frames.refs.size + clear.frames.queue.length },
+            ),
+          }
+        : {}),
+      ...(restore ? { historyReport: { text: UNDO_TEXT.restoreLost(restoredCount(restore), restore.refs.length), partial: true } } : {}),
+      // A template cut off part-way: what was made stays, and the notice says so.
+      ...this.templateEnd("partial"),
+    });
+    if (this.retry.phase === "reconnecting") this.schedule(backoffDelay(1, this.options.random ?? Math.random));
+  }
+
+  /* ── Presence toasts (presence/toasts.ts) ───────────────────────── */
+
+  /** A join or leave: shown in the next toast, after the batch window and at least the gap after the last one. */
+  private presence(event: PresenceEvent): void {
+    const now = Date.now();
+    if (this.presenceEvents.length === 0) this.batchStart = now;
+    this.presenceEvents.push(event);
+    // After the batch window, a leave's grace (a quick reconnect cancels it) and the gap after the last toast.
+    const due = Math.max(this.batchStart + TOAST_BATCH_MS, event.kind === "left" ? now + LEAVE_GRACE_MS : 0, this.lastToastAt + TOAST_GAP_MS);
+    if (this.presenceTimer !== undefined && due <= this.presenceDue) return;
+    clearTimeout(this.presenceTimer);
+    this.presenceDue = due;
+    this.presenceTimer = setTimeout(() => {
+      this.presenceTimer = undefined;
+      this.showToast();
+    }, due - now);
+  }
+
+  private showToast(): void {
+    const events = this.presenceEvents;
+    const text = summarizePresence(events);
+    this.presenceEvents = [];
+    for (const e of events) if (e.kind === "left") this.recentlyLeft.set(e.name, Date.now());
+    if (this.stopped || text === null) return;
+    const seq = ++this.toastSeq;
+    this.lastToastAt = Date.now();
+    clearTimeout(this.toastTimer);
+    this.toastTimer = setTimeout(() => {
+      if (this.view.presenceToast?.seq === seq) this.update({ presenceToast: null });
+    }, TOAST_SHOW_MS);
+    this.update({ presenceToast: { seq, text } });
+  }
+
+  /** Adds the orphaned draft back as a new note where its note was. Its local id, or null. */
+  restoreDraft(): string | null {
+    const draft = this.view.orphanDraft;
+    if (!draft || !this.live) return null;
+    const id = this.addNote({ x: draft.x, y: draft.y, color: draft.color, text: draft.text });
+    if (id) this.update({ orphanDraft: null });
+    return id;
+  }
+
+  /** Forgets the orphaned draft. */
+  dismissDraft(): void {
+    if (this.stopped || !this.view.orphanDraft) return;
+    this.update({ orphanDraft: null });
   }
 
   /** Sends text to the room. False if not joined or the text is empty after cleaning. */
@@ -1462,6 +1947,7 @@ export class RoomSession {
   private refreshHistory(): void {
     if (this.stopped) return;
     const reasons = this.historyReasons();
+    this.armExpiry();
     if (reasons.undo === this.view.history.undo && reasons.redo === this.view.history.redo) return;
     this.view = { ...this.view, history: reasons };
     this.options.onChange(this.view);
@@ -1618,6 +2104,12 @@ export class RoomSession {
   close(): void {
     this.stopped = true;
     clearTimeout(this.timer);
+    this.stopRetry();
+    this.unlisten?.();
+    this.unlisten = null;
+    clearTimeout(this.expiryTimer);
+    clearTimeout(this.presenceTimer);
+    clearTimeout(this.toastTimer);
     clearTimeout(this.itemTimer);
     this.template = null;
     this.restoreRun = null;
@@ -1638,46 +2130,15 @@ export class RoomSession {
     if (this.stopped) return;
     const { status } = this.view;
     if (status === "invalid" || status === "full" || status === "reload" || status === "unreachable") return;
+    if (status === "joined") {
+      this.detach(false);
+      return this.dropped();
+    }
+    // A reconnect's try that closed (or never opened).
+    if (this.retry) return this.tryFailed(this.opened);
     clearTimeout(this.timer);
     this.stopAllMoves();
     this.socket = null;
-    if (status === "joined") {
-      const run = this.deleteRun;
-      this.deleteRun = null;
-      const lost = run ? run.ids.size + run.refs.size : 0;
-      // Items not sent yet never will be: they go. Those in flight stay, like any add in flight.
-      clearTimeout(this.itemTimer);
-      this.itemTimer = undefined;
-      this.itemQueue = [];
-      const restore = this.restoreRun;
-      this.restoreRun = null;
-      // A clear cut off: frames not sent yet stay; what was in flight may not have gone.
-      const clear = this.clearRun;
-      this.clearRun = null;
-      clearTimeout(this.clearTimer);
-      this.clearTimer = undefined;
-      const board = this.cancelQueued(null, this.view.board);
-      this.itemBatches.clear();
-      // Ids and revs can't be trusted after this: the history goes.
-      this.history.clear();
-      // A template cut off part-way: what was made stays, and the notice says so.
-      this.update({
-        status: "disconnected",
-        board,
-        ...(run ? { deleteReport: deleteReportFor({ ...run, lost }) } : {}),
-        ...(clear
-          ? {
-              deleteReport: clearReportFor(
-                { ...clear.notes, lost: clear.notes.ids.size + clear.notes.refs.size },
-                { ...clear.frames, lost: clear.frames.ids.size + clear.frames.refs.size + clear.frames.queue.length },
-              ),
-            }
-          : {}),
-        ...(restore ? { historyReport: { text: UNDO_TEXT.restoreLost(restoredCount(restore), restore.refs.length), partial: true } } : {}),
-        ...this.templateEnd("partial"),
-      });
-      return;
-    }
     if (this.opened) return this.update({ status: "unreachable" });
     // Never opened: the relay refused the upgrade. Find out whether the code is the reason.
     void this.options.checkCode().then((check) => {
@@ -1704,10 +2165,19 @@ export class RoomSession {
         return;
 
       case "joined":
-        clearTimeout(this.timer);
         for (const p of message.participants) this.known.set(p.id, p);
         this.known.set(message.you.id, message.you);
+        this.yourIds.add(message.you.id);
+        this.joinedName = message.you.name;
+        if (this.retry) {
+          // A reconnect: live once the snapshot has replaced the board (the join timer runs till then).
+          this.resyncing = true;
+          this.quietUntil = Date.now() + RESYNC_QUIET_MS;
+          return this.update({ you: message.you, participants: message.participants, nameError: false, people: new Map(this.known), yourIds: new Set(this.yourIds) });
+        }
+        clearTimeout(this.timer);
         return this.update({
+          yourIds: new Set(this.yourIds),
           status: "joined",
           you: message.you,
           participants: message.participants,
@@ -1719,16 +2189,27 @@ export class RoomSession {
         const p = message.participant;
         this.known.set(p.id, p);
         const others = this.view.participants.filter((q) => q.id !== p.id);
-        return this.update({ participants: [...others, p], announcement: `${p.name} joined`, people: new Map(this.known) });
+        // Not news: yourself, or someone back after your own reconnect.
+        // Back soon after their leave was shown, or back before the relay noticed they'd gone.
+        const back = Date.now() - (this.recentlyLeft.get(p.name) ?? -Infinity) < RESYNC_QUIET_MS || others.some((q) => q.name === p.name);
+        const quiet = (Date.now() < this.quietUntil && this.quietNames.has(p.name)) || back;
+        if (this.yourIds.has(p.id)) {
+          // Yourself: never a toast.
+        } else if (!quiet) this.presence({ kind: "joined", id: p.id, name: p.name });
+        else {
+          // Not news, but it still cancels their leave waiting to be shown (a quick reconnect).
+          const leave = this.presenceEvents.findIndex((e) => e.kind === "left" && e.name === p.name);
+          if (leave >= 0) this.presenceEvents.splice(leave, 1);
+        }
+        return this.update({ participants: [...others, p], people: new Map(this.known) });
       }
 
       case "participant_left": {
         const gone = this.view.participants.find((p) => p.id === message.id);
         if (!gone) return;
-        return this.update({
-          participants: this.view.participants.filter((p) => p.id !== message.id),
-          announcement: `${gone.name} left`,
-        });
+        // An old socket of someone who is back already (same name, new id) isn't news.
+        if (!this.view.participants.some((p) => p.id !== gone.id && p.name === gone.name)) this.presence({ kind: "left", id: gone.id, name: gone.name });
+        return this.update({ participants: this.view.participants.filter((p) => p.id !== message.id) });
       }
 
       case "echo": {
@@ -1749,10 +2230,18 @@ export class RoomSession {
         });
       }
 
-      case "snapshot":
+      case "snapshot": {
         // A (re)sync: what the history knows about ids and revs can't be trusted any more.
         this.history.clear();
-        return this.update({ board: applySnapshot(this.view.board, message.notes), synced: true });
+        if (!this.resyncing) return this.update({ board: applySnapshot(this.view.board, message.notes), synced: true });
+        // After a reconnect the relay's notes replace the board; its frames follow (framesSnapshot).
+        clearTimeout(this.timer);
+        this.resyncing = false;
+        this.framesResync = true;
+        this.stopRetry();
+        const { board, orphans } = resyncNotes(this.view.board, message.notes);
+        return this.update({ status: "joined", board, synced: true, ...(orphans.length > 0 ? { orphanDraft: orphans.at(-1) ?? null } : {}) });
+      }
 
       case "noteAdded": {
         const { note, clientRef } = message;
@@ -1795,6 +2284,10 @@ export class RoomSession {
 
       case "framesSnapshot":
         // Right after the notes snapshot. The board is already joined and drawn; frames slot in behind.
+        if (this.framesResync) {
+          this.framesResync = false;
+          return this.update({ board: resyncFrames(this.view.board, message.frames) });
+        }
         return this.update({ board: applyFramesSnapshot(this.view.board, message.frames) });
 
       case "frameAdded": {
@@ -1843,9 +2336,12 @@ export class RoomSession {
           case "version_mismatch":
             return this.finish("reload");
           case "room_full":
+            if (this.retry) return this.retryStopped("full");
             return this.finish("full");
           case "invalid_name":
             clearTimeout(this.timer);
+            // The stored name was refused on a reconnect: stop and offer Rejoin (with the name that worked).
+            if (this.retry) return this.retryStopped("offline");
             return this.update({ status: "idle", nameError: true });
           case "rate_limited":
             return this.update({ rateLimited: true });
@@ -1990,13 +2486,29 @@ export class RoomSession {
   private startTimer(): void {
     clearTimeout(this.timer);
     this.timer = setTimeout(() => {
+      if (this.retry?.trying) return this.tryFailed(this.opened);
       if (this.view.status === "connecting") this.finish("unreachable");
     }, JOIN_TIMEOUT_MS);
+  }
+
+  /** A reconnect stops without retrying by itself (the session filled up, or the name was refused): Rejoin. */
+  private retryStopped(phase: "full" | "offline"): void {
+    const r = this.retry;
+    if (!r) return;
+    clearTimeout(this.timer);
+    clearTimeout(r.timer);
+    r.timer = undefined;
+    this.detach(true);
+    r.trying = false;
+    this.resyncing = false;
+    r.phase = phase;
+    this.update({});
   }
 
   /** A final state: report it and close the socket. */
   private finish(status: RoomStatus): void {
     clearTimeout(this.timer);
+    this.stopRetry();
     this.update({ status });
     this.socket?.close();
     this.socket = null;
@@ -2016,15 +2528,37 @@ export class RoomSession {
     // A note action (it clears the notice) also clears the last delete's report.
     if (patch.noteNotice === null && !("deleteReport" in patch)) patch = { ...patch, deleteReport: null };
     if (patch.noteNotice === null && !("historyReport" in patch)) patch = { ...patch, historyReport: null };
+    if (patch.noteNotice === null && !("dropReport" in patch)) patch = { ...patch, dropReport: null };
     const restore = this.restoreRun;
     this.view = {
       ...this.view,
       ...patch,
       adding: this.itemBatches.size > 0,
       clearing: this.clearRun !== null,
+      reconnect: this.retryView(),
       ...(restore ? { historyReport: { text: UNDO_TEXT.restoring(restoredCount(restore), restore.refs.length), partial: false } } : {}),
     };
     this.view = { ...this.view, history: this.historyReasons() };
+    this.armExpiry();
     this.options.onChange(this.view);
+  }
+
+  /**
+   * A change waiting for the relay is given up on after EXPECT_TIMEOUT_MS, which can make undo
+   * or redo possible again: a timer refreshes their reasons then, even with nothing else happening.
+   */
+  private armExpiry(): void {
+    const at = this.stopped ? null : this.history.nextExpiry();
+    if (at === this.expiryAt) return;
+    clearTimeout(this.expiryTimer);
+    this.expiryTimer = undefined;
+    this.expiryAt = at;
+    if (at === null) return;
+    this.expiryTimer = setTimeout(() => {
+      this.expiryTimer = undefined;
+      this.expiryAt = null;
+      this.refreshHistory();
+      this.armExpiry();
+    }, Math.max(0, at - Date.now()));
   }
 }
