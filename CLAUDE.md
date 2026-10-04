@@ -191,6 +191,8 @@ npm run typecheck   # tsc --noEmit in shared, web, worker
 npm test            # vitest in shared, web, worker
 npm run build       # web + worker (wrangler dry-run)
 ```
+- On the Raspberry Pi, run the worker tests one file at a time if memory is short; the Pi may not be able to run a browser.
+- GitHub runners run the full suites normally.
 
 ## Definition of done
 tsc, tests and build green; CI green; every message validates against the shared schema; works at 360/768/1280px in light and dark; primary actions reachable by touch; CHANGELOG.md updated and version bumped; summary of what was built, what differed from assumptions, what was left out.
