@@ -6,7 +6,7 @@ import type { FrameFlowNode } from "../canvas/nodes";
 import { useBoardUi } from "../canvas/uiStore";
 import { isLocalId } from "../notes/board";
 import { cn } from "../lib/utils";
-import { frameColourStyle, frameHeaderStyle } from "./style";
+import { frameHeaderStyle, frameRootStyle, frameTitleClasses } from "./style";
 
 export interface FrameActions {
   /** Selects just this frame (clears the note selection). */
@@ -36,8 +36,9 @@ const EDGES = [
  * through (React Flow gives the node no pointer events; see nodes.ts), so clicks, marquees and
  * pans start on the canvas and notes inside stay usable. The title bar and the border take
  * presses: a click selects the frame, a drag moves it (with the notes inside, unless Alt is held).
- * The title is a plain one-line field in the header, a draft until Enter, Esc or leaving it.
- * Phones show the frame and its title only. The title is untrusted text, rendered as text.
+ * The title is a plain one-line field in the header, a draft until Enter, Esc or leaving it,
+ * in the frame's title style (v10); the header's height follows the title size (tokens), and
+ * the side strips start below it. Phones show the frame and its styled title only. The title is untrusted text, rendered as text.
  */
 export const FrameNode = memo(function FrameNode({ id, data }: NodeProps<FrameFlowNode>) {
   const actions = useContext(FrameActionsContext);
@@ -94,12 +95,12 @@ export const FrameNode = memo(function FrameNode({ id, data }: NodeProps<FrameFl
           entry.confirmed === null && "border-dashed opacity-75",
           selected && "ring-2 ring-accent ring-offset-2 ring-offset-board",
         )}
-        style={frameColourStyle(frame.color)}
+        style={frameRootStyle(frame)}
       >
         <div
           data-frame-handle="header"
           className={cn("flex h-frame-header items-center gap-xs rounded-t-md px-sm", handle)}
-          style={frameHeaderStyle(frame.color)}
+          style={frameHeaderStyle(frame)}
           onClick={select}
         >
           {editable && <GripHorizontal aria-hidden="true" className="size-icon-sm shrink-0 opacity-60" />}
@@ -116,10 +117,15 @@ export const FrameNode = memo(function FrameNode({ id, data }: NodeProps<FrameFl
               onChange={(e) => actions?.setDraft(id, e.target.value)}
               onKeyDown={onKeyDown}
               onBlur={() => actions?.commitTitle(id)}
-              className="nodrag nopan min-w-0 flex-1 cursor-text rounded-sm bg-transparent text-sm font-semibold text-inherit placeholder:text-inherit placeholder:opacity-60"
+              className={cn(
+                "nodrag nopan min-w-0 flex-1 cursor-text rounded-sm bg-transparent text-inherit placeholder:text-inherit placeholder:opacity-60",
+                frameTitleClasses(frame),
+              )}
             />
           ) : (
-            <span className="min-w-0 truncate text-sm font-semibold">{frame.title}</span>
+            <span data-frame-title className={cn("min-w-0 flex-1 truncate", frameTitleClasses(frame))}>
+              {frame.title}
+            </span>
           )}
         </div>
         {editable && EDGES.map((edge) => <div key={edge} aria-hidden="true" data-frame-handle="edge" className={cn("absolute", edge, handle)} onClick={select} />)}

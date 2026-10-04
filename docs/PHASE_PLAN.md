@@ -22,6 +22,7 @@ Draft roadmap. When a slice starts, rewrite its prompt against the real code (se
 | Z-order | Bring to front / send to back (a z field). Protocol v8 + stored-schema migration (4 -> 5) | Done (v0.8.0) |
 | Welcome screen | Start page becomes a welcome screen with the new Stickyard mark (inline SVG, brand tokens), tagline and three points; Start and Join unchanged. Web only | Done (v0.8.1) |
 | Frames | Named, resizable, coloured areas behind notes; dragging one carries the notes inside. Protocol v9 + stored schema 6 (new frames table) | Done (v0.9.0) |
+| Frame title styling | Title size, bold, italic, alignment and ink for frames, in Properties. Protocol v10 + stored schema 7 (five columns with defaults); framesSnapshot test cap 16 -> 20 KiB | Done (v0.9.1) |
 | Templates | Retro, start/stop/continue, 2x2, sprint planning, built from frames and labelled notes | Not started |
 | 6 (part) Timer and lock board | Cut-down slice 6: shared timer and lock board only | Not started |
 | 4 Reconnect | Resync after drops, offline queue | Not started |
@@ -45,7 +46,7 @@ Draft roadmap. When a slice starts, rewrite its prompt against the real code (se
 - Test on the live deployment; merge and deploy each slice, roll back if needed (single user).
 - Every new object type (frame, timer, text box, group box) needs its own protocol/schema change with a version bump, caps and tests. The palette gets its tile with one registry entry; no placeholder tiles for things that don't exist.
 - Each protocol or stored-schema change is its own slice and branch (2.7, 2.7.1, 2.7.2, 2.8, z-order, frames, 3b are separate for that reason).
-- Protocol numbers are assigned when each slice starts, not in advance (v9 is the current one, since frames). Templates are expected to be next.
+- Protocol numbers are assigned when each slice starts, not in advance (v10 is the current one, since frame title styling). Templates are expected to be next.
 - Order after 2.9 (decided 3 October 2026): Z-order, Frames, Templates, Timer and lock board (cut-down 6), Reconnect (4), 3a, Persistence and expiry (5), remaining facilitation (6), 3b cursors, 7a, 7b, 7c (remaining), 8, 9, 10. Slice numbers are kept as names; the table above is in build order.
 
 ## Slice notes
@@ -137,7 +138,7 @@ Draft roadmap. When a slice starts, rewrite its prompt against the real code (se
 - Detect drop, show state, reconnect with backoff, full resync on rejoin, queue changes made offline and reconcile.
 - Show a clear "relay is over its daily limit" state instead of reconnecting in a loop.
 - A full snapshot is up to about 395 KiB (404,229 bytes, worst case for 200 notes since protocol v8; see LIMITS.md) per reconnect; note the request budget impact.
-- A reconnect sends two messages: the notes `snapshot`, then `framesSnapshot` (up to 15,096 bytes); resync must apply both, and treat the board as joined after the first.
+- A reconnect sends two messages: the notes `snapshot`, then `framesSnapshot` (up to 18,306 bytes since v10); resync must apply both, and treat the board as joined after the first.
 
 ### 5 Persistence and expiry
 - Rooms expire after a set idle time; clear messaging about it. (Basic note persistence already exists.)
@@ -157,6 +158,10 @@ Draft roadmap. When a slice starts, rewrite its prompt against the real code (se
 - Decided: dragging a frame carries the notes whose centre is inside it (computed when the drag starts, never stored), by one delta clamped for the whole group, in one transaction with one `frameMoved`; Alt moves it alone; more than 50 inside moves it alone with a notice.
 - Frames come in their own `framesSnapshot` right after the notes snapshot (the notes snapshot was too close to its 400 KiB tripwire to carry them). See CLAUDE.md "Frames, protocol v9".
 
+
+### Frame title styling (protocol v10) — done, v0.9.1
+- A frame's title gets the note title's style keys (size, bold, italic, ink, alignment) in a Properties "Title text" section. Stored schema 7 adds five columns with defaults that look like the v9 header, so existing frames are unchanged. Header height follows the size. Frame-only ink tokens, because frame headers are dark in the dark theme.
+- Decided 4 October 2026: the framesSnapshot test cap goes from 16 to 20 KiB (worst case 18,306 bytes); a new per-frame field within 10% of the cap needs a decision first. See docs/LIMITS.md.
 ### Templates
 - Retro, start/stop/continue, 2x2, sprint planning. Built from frames and labelled notes, so no new object type is expected; how a template is applied (one batch, caps, an empty board only or anywhere) is decided when the slice starts.
 

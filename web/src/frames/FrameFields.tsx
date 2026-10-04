@@ -2,13 +2,14 @@ import { useId, type KeyboardEvent } from "react";
 import { FRAME_COLORS, FRAME_MAX_H, FRAME_MAX_W, FRAME_MIN_H, FRAME_MIN_W, MAX_FRAME_TITLE, codePointLength, type FrameColor } from "@stickyard/shared";
 import { FieldError, Label } from "../components/ui/field";
 import { Input } from "../components/ui/input";
-import { READ_ONLY, Section, SizeField, Swatch, SwatchGroup } from "../notes/StyleFields";
-import type { BoardFrame } from "./board";
-import { FRAME_COLOR_NAMES, frameSwatchStyle } from "./style";
+import { READ_ONLY, Section, SizeField, Swatch, SwatchGroup, TextStyleSection } from "../notes/StyleFields";
+import type { BoardFrame, FrameEdit } from "./board";
+import { FRAME_COLOR_NAMES, FRAME_INK_SWATCHES, frameSwatchStyle, frameTitleStyle } from "./style";
 
 /**
  * A frame's fields in the Properties panel (md and up): Title (one line, a draft until Enter or
- * leaving the field, like the header), Colour, Width and Height, and who added it. Delete is in
+ * leaving the field, like the header), Colour, Title text (size, bold, italic, alignment and ink,
+ * the note Title text fields; v10), Width and Height, and who added it. Delete is in
  * the panel's header. Phones have no frame editor. Read-only while disconnected.
  */
 export function FrameFields({
@@ -18,6 +19,7 @@ export function FrameFields({
   onDraft,
   onCommit,
   onColour,
+  onStyle,
   onSize,
 }: {
   entry: BoardFrame;
@@ -26,6 +28,7 @@ export function FrameFields({
   onDraft: (title: string) => void;
   onCommit: () => void;
   onColour: (color: FrameColor) => void;
+  onStyle: (change: FrameEdit) => void;
   onSize: (w: number, h: number) => void;
 }) {
   const id = useId();
@@ -86,6 +89,22 @@ export function FrameFields({
           ))}
         </SwatchGroup>
       </Section>
+
+      <TextStyleSection
+        part="title"
+        style={frameTitleStyle(frame)}
+        live={live}
+        swatch={(key) => ({ fill: "", fillStyle: FRAME_INK_SWATCHES[key] })}
+        onChange={(change) =>
+          onStyle({
+            ...(change.fontSize !== undefined ? { titleFontSize: change.fontSize } : {}),
+            ...(change.bold !== undefined ? { titleBold: change.bold } : {}),
+            ...(change.italic !== undefined ? { titleItalic: change.italic } : {}),
+            ...(change.textColor !== undefined ? { titleTextColor: change.textColor } : {}),
+            ...(change.align !== undefined ? { titleAlign: change.align } : {}),
+          })
+        }
+      />
 
       <Section title="Size">
         <div className="flex gap-ms">

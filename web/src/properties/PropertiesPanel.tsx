@@ -5,7 +5,7 @@ import { Button } from "../components/ui/button";
 import { useBoardUi } from "../canvas/uiStore";
 import { onlySelected, orderedIds } from "../canvas/selection";
 import { confirmFrameDelete } from "../frames/label";
-import { findFrame, framedNotes } from "../frames/board";
+import { findFrame, framedNotes, type FrameEdit } from "../frames/board";
 import { FrameFields } from "../frames/FrameFields";
 import { findNote, type Board, type StylePatch } from "../notes/board";
 import { NOTE_COLOR_NAMES } from "../notes/colours";
@@ -38,7 +38,7 @@ export interface PropertiesRoom {
   deleteNotes(ids: readonly string[]): void;
   orderNotes(ids: readonly string[], action: OrderAction): boolean;
   setFrameDraft(id: string, draft: string | null): void;
-  editFrame(id: string, change: { title?: string; color?: FrameColor }): boolean;
+  editFrame(id: string, change: FrameEdit): boolean;
   setFrameSize(id: string, w: number, h: number): boolean;
   deleteFrame(id: string): void;
 }
@@ -166,6 +166,7 @@ export function PropertiesContent({ room, collapse }: { room: PropertiesRoom; co
               if (frame.draft !== null) room.editFrame(frame.frame.id, { title: frame.draft });
             }}
             onColour={(color) => room.editFrame(frame.frame.id, { color })}
+            onStyle={(change) => room.editFrame(frame.frame.id, change)}
             onSize={(w, h) => room.setFrameSize(frame.frame.id, w, h)}
           />
         ) : many.length > 1 ? (

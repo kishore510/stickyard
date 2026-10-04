@@ -67,6 +67,14 @@
   /* Frames (protocol v9 keys): a translucent fill so the board shows through, a clear border,
      and an opaque header strip the title sits on (4.5:1 for --sy-frame-title, tested). */
   --sy-frame-title: #1d2327;
+  /* Frame title inks (protocol v10 keys; "auto" is --sy-frame-title). The note inks' values here;
+     4.5:1 on every frame header, tested. */
+  --sy-frame-text-red: #a3201a;
+  --sy-frame-text-orange: #8a4000;
+  --sy-frame-text-green: #1d6b30;
+  --sy-frame-text-blue: #1d4f9c;
+  --sy-frame-text-purple: #6a2aa8;
+  --sy-frame-text-grey: #4a5257;
   --sy-frame-neutral-fill: #8a857a14;
   --sy-frame-neutral-border: #a8a397;
   --sy-frame-neutral-header: #e8e6df;
@@ -142,6 +150,13 @@
   --sy-note-text-grey: #3a4045;
   /* Frames: darker tints in dark mode, light title text. */
   --sy-frame-title: #ebede6;
+  /* Frame headers are dark here (notes stay light paper), so frames get light inks. */
+  --sy-frame-text-red: #ffaaa3;
+  --sy-frame-text-orange: #f7bd80;
+  --sy-frame-text-green: #9ddca8;
+  --sy-frame-text-blue: #a8caff;
+  --sy-frame-text-purple: #d2b5ff;
+  --sy-frame-text-grey: #c3cacd;
   --sy-frame-neutral-fill: #9aa7ad14;
   --sy-frame-neutral-border: #5c6a70;
   --sy-frame-neutral-header: #2c3539;
@@ -231,6 +246,12 @@
   --sy-frame-max-h: 1600px;
   /* The frame header strip (its title bar, where it's dragged from) and the draggable border. */
   --sy-frame-header-h: 44px;
+  /* The header strip's height by title size (protocol v10 keys), never below --sy-touch-min. A
+     frame's node sets --sy-frame-header-h to its size's value, so the strips under it follow. */
+  --sy-frame-header-s: 44px;
+  --sy-frame-header-m: 44px;
+  --sy-frame-header-l: 48px;
+  --sy-frame-header-xl: 56px;
   --sy-frame-edge: 12px;
   /* Note font sizes, one per protocol key (s, m, l, xl); m is the slice 2 size. */
   --sy-note-font-s: 0.75rem;

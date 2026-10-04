@@ -2,6 +2,18 @@
 
 All notable changes to Stickyard, newest first. The format follows Keep a Changelog. Versions are 0.x: a minor bump for each slice and a patch bump for each follow-up fix. This file is shown in the app under **What’s new**, so entries are written for the people using it.
 
+## [0.9.1] - 2026-10-04
+
+### Added
+- Style a frame's title: select the frame and use Title text in Properties to change its size, make it bold or italic, align it left, centre or right, and pick a text colour. The title bar gets taller for the larger sizes.
+
+### Changed
+- Frame titles look the same as before until you change them. A bold frame title is a little lighter than a bold note title.
+- Every text colour is readable on every frame colour, in light and dark. In the dark theme, frame titles use lighter versions of the note text colours.
+- On a phone, frames show their title styles, but still can't be changed there.
+- About's Privacy now says that a frame's title style is stored with it.
+- Pages from before this update show Please reload when they join a session.
+
 ## [0.9.0] - 2026-10-04
 
 ### Added

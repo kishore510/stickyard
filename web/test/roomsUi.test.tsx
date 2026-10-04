@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { FRAME_DEFAULTS, MAX_NOTES_PER_ROOM, MAX_NOTE_TEXT, PROTOCOL_VERSION, type Note, NOTE_DEFAULTS, NOTE_MAX_H, type Participant } from "@stickyard/shared";
+import { FRAME_DEFAULTS, MAX_NOTES_PER_ROOM, MAX_NOTE_TEXT, PROTOCOL_VERSION, type Frame, type Note, NOTE_DEFAULTS, NOTE_MAX_H, type Participant } from "@stickyard/shared";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -1903,7 +1903,7 @@ describe("frames (slice frames, protocol v9)", () => {
   const N1 = "NNNNNNNNNNNNNNN1";
   const F1 = "FFFFFFFFFFFFFFF1";
   const inside: Note = { id: N1, x: 200, y: 200, ...NOTE_DEFAULTS, text: "Idea one", color: "yellow", z: -5, rev: 1, authorId: sam.id };
-  const start = { id: F1, x: 100, y: 100, w: 640, h: 400, title: "Start", color: "neutral", ...FRAME_DEFAULTS, rev: 1, authorId: sam.id };
+  const start: Frame = { id: F1, x: 100, y: 100, w: 640, h: 400, title: "Start", color: "neutral", ...FRAME_DEFAULTS, rev: 1, authorId: sam.id };
   const properties = () => document.querySelector<HTMLElement>('aside[aria-label="Properties"]');
   const frameNode = () => document.querySelector<HTMLElement>(`.react-flow__node[data-id="${F1}"]`);
   const noteEl = () => document.querySelector<HTMLElement>('[aria-roledescription="note"]');
@@ -2034,7 +2034,7 @@ describe("frames (slice frames, protocol v9)", () => {
   });
 
   describe("title styling (slice frame title styling, protocol v10)", () => {
-    const styled = { ...start, titleFontSize: "xl", titleBold: false, titleItalic: true, titleTextColor: "blue", titleAlign: "center" };
+    const styled: Frame = { ...start, titleFontSize: "xl", titleBold: false, titleItalic: true, titleTextColor: "blue", titleAlign: "center" };
     const header = () => frameNode()?.querySelector<HTMLElement>("[data-frame-handle='header']");
     const root = () => frameNode()?.querySelector<HTMLElement>("[data-frame-id]");
     const title = () => frameNode()?.querySelector<HTMLElement>("[data-frame-title]");

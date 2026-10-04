@@ -35,7 +35,7 @@ async function room() {
 }
 
 const rowsWritten = (stub: DurableObjectStub<Room>) => runInDurableObject(stub, (r: Room) => r.rowsWritten);
-interface StyleRow {
+type StyleRow = {
   id: string;
   title: string;
   title_font_size: string;
@@ -44,7 +44,7 @@ interface StyleRow {
   title_text_color: string;
   title_align: string;
   rev: number;
-}
+};
 const storedFrames = (stub: DurableObjectStub<Room>) =>
   runInDurableObject(stub, (_r, state) =>
     state.storage.sql.exec<StyleRow>("SELECT id, title, title_font_size, title_bold, title_italic, title_text_color, title_align, rev FROM frames ORDER BY rowid").toArray(),

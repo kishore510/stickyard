@@ -16,8 +16,10 @@ import { NOTE_Z_LIMIT, ORDER_ACTIONS } from "./stack";
  *   front, send to back) and notesOrdered.
  * v9 (slice frames): frames (frameAdd/Edit/Move/Resize/Delete and their server messages); a
  *   final frameMove may carry notes; joining sends snapshot (notes, unchanged) then framesSnapshot.
+ * v10 (slice frame title styling): frames carry titleFontSize, titleBold, titleItalic,
+ *   titleTextColor and titleAlign (the note key sets), also optional frameEdit fields.
  */
-export const PROTOCOL_VERSION = 9;
+export const PROTOCOL_VERSION = 10;
 
 /**
  * Hard cap on a single client-to-server WebSocket message, in UTF-8 bytes. Checked before JSON.parse.
@@ -168,6 +170,31 @@ export const FRAME_MAX_H = 1600;
 export const FRAME_COLORS = ["neutral", "yellow", "pink", "blue", "green", "orange", "purple"] as const;
 export const frameColorSchema = z.enum(FRAME_COLORS);
 export type FrameColor = z.infer<typeof frameColorSchema>;
+
+/**
+ * A frame title's style (v10): the note key sets, keys only. What a new frame gets (frameAdd
+ * carries none) and what storage fills in for older rows. Together they look like the v9 header:
+ * medium, bold (drawn semibold), upright, the usual ink, left.
+ */
+export const FRAME_DEFAULTS = {
+  titleFontSize: "m",
+  titleBold: true,
+  titleItalic: false,
+  titleTextColor: "auto",
+  titleAlign: "left",
+} as const satisfies {
+  titleFontSize: NoteFontSize;
+  titleBold: boolean;
+  titleItalic: boolean;
+  titleTextColor: NoteTextColor;
+  titleAlign: NoteAlign;
+};
+
+/** The frame title style fields. */
+export const FRAME_STYLE_FIELDS = ["titleFontSize", "titleBold", "titleItalic", "titleTextColor", "titleAlign"] as const;
+/** The fields a frameEdit may change. Everything but id is optional; at least one must be there. */
+export const FRAME_EDIT_FIELDS = ["title", "color", ...FRAME_STYLE_FIELDS] as const;
+export type FrameEditField = (typeof FRAME_EDIT_FIELDS)[number];
 
 /** Rounds and clamps a position so the whole frame (default size unless given) is on the board. */
 export function clampFramePosition(
@@ -441,8 +468,13 @@ export const frameEditSchema = z
     id: frameIdSchema,
     title: frameTitleIn.optional(),
     color: frameColorSchema.optional(),
+    titleFontSize: noteFontSizeSchema.optional(),
+    titleBold: z.boolean().optional(),
+    titleItalic: z.boolean().optional(),
+    titleTextColor: noteTextColorSchema.optional(),
+    titleAlign: noteAlignSchema.optional(),
   })
-  .refine((edit) => edit.title !== undefined || edit.color !== undefined, { message: "Nothing to change." });
+  .refine((edit) => FRAME_EDIT_FIELDS.some((field) => edit[field] !== undefined), { message: "Nothing to change." });
 
 /**
  * A frame's new position. `noteIds` names the notes it carries (computed by the sender when the
@@ -686,6 +718,11 @@ export const frameSchema = z
     h: frameH,
     title: z.string().refine((title) => cleanFrameTitle(title) === title),
     color: frameColorSchema,
+    titleFontSize: noteFontSizeSchema,
+    titleBold: z.boolean(),
+    titleItalic: z.boolean(),
+    titleTextColor: noteTextColorSchema,
+    titleAlign: noteAlignSchema,
     /** Server-assigned; starts at 1 and goes up by one on every stored change. */
     rev: z.number().int().min(1),
     /** The participant who added it, from their socket. */
@@ -707,7 +744,7 @@ export const frameAddedSchema = z.object({
   clientRef: clientRefSchema.optional(),
 });
 
-/** Title or colour changed. Carries the whole frame. */
+/** Title, colour or title style changed. Carries the whole frame. */
 export const frameUpdatedSchema = z.object({
   type: z.literal("frameUpdated"),
   frame: frameSchema,
