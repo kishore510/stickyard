@@ -21,7 +21,7 @@ Draft roadmap. When a slice starts, rewrite its prompt against the real code (se
 | 2.9 Inline note editing | Type on the note itself from md up (two styled textareas), double-click/Enter/new note start it; web only, no protocol change | Done (v0.7.1) |
 | Z-order | Bring to front / send to back (a z field). Protocol v8 + stored-schema migration (4 -> 5) | Done (v0.8.0) |
 | Welcome screen | Start page becomes a welcome screen with the new Stickyard mark (inline SVG, brand tokens), tagline and three points; Start and Join unchanged. Web only | Done (v0.8.1) |
-| Frames | Named, resizable, coloured areas behind notes. Own protocol and stored-schema change, after z-order | Not started |
+| Frames | Named, resizable, coloured areas behind notes; dragging one carries the notes inside. Protocol v9 + stored schema 6 (new frames table) | Done (v0.9.0) |
 | Templates | Retro, start/stop/continue, 2x2, sprint planning, built from frames and labelled notes | Not started |
 | 6 (part) Timer and lock board | Cut-down slice 6: shared timer and lock board only | Not started |
 | 4 Reconnect | Resync after drops, offline queue | Not started |
@@ -45,7 +45,7 @@ Draft roadmap. When a slice starts, rewrite its prompt against the real code (se
 - Test on the live deployment; merge and deploy each slice, roll back if needed (single user).
 - Every new object type (frame, timer, text box, group box) needs its own protocol/schema change with a version bump, caps and tests. The palette gets its tile with one registry entry; no placeholder tiles for things that don't exist.
 - Each protocol or stored-schema change is its own slice and branch (2.7, 2.7.1, 2.7.2, 2.8, z-order, frames, 3b are separate for that reason).
-- Protocol numbers are assigned when each slice starts, not in advance (v8 is the current one, since z-order). Frames are expected to be next.
+- Protocol numbers are assigned when each slice starts, not in advance (v9 is the current one, since frames). Templates are expected to be next.
 - Order after 2.9 (decided 3 October 2026): Z-order, Frames, Templates, Timer and lock board (cut-down 6), Reconnect (4), 3a, Persistence and expiry (5), remaining facilitation (6), 3b cursors, 7a, 7b, 7c (remaining), 8, 9, 10. Slice numbers are kept as names; the table above is in build order.
 
 ## Slice notes
@@ -137,6 +137,7 @@ Draft roadmap. When a slice starts, rewrite its prompt against the real code (se
 - Detect drop, show state, reconnect with backoff, full resync on rejoin, queue changes made offline and reconcile.
 - Show a clear "relay is over its daily limit" state instead of reconnecting in a loop.
 - A full snapshot is up to about 395 KiB (404,229 bytes, worst case for 200 notes since protocol v8; see LIMITS.md) per reconnect; note the request budget impact.
+- A reconnect sends two messages: the notes `snapshot`, then `framesSnapshot` (up to 15,096 bytes); resync must apply both, and treat the board as joined after the first.
 
 ### 5 Persistence and expiry
 - Rooms expire after a set idle time; clear messaging about it. (Basic note persistence already exists.)
@@ -151,9 +152,10 @@ Draft roadmap. When a slice starts, rewrite its prompt against the real code (se
 - Bring to front / send to back, because frames and shapes will overlap notes. Notes gain a server-assigned `z` (bounded ±100,000; renumbered at the bound); stored schema 4 -> 5 backfills z from creation order, so nothing looks different. One `notesOrder` message (front | back, up to 50 ids, chunked in stacking order beyond that), one transaction, one `notesOrdered` broadcast; only notes whose z changes are written. Selecting, dragging and resizing no longer raise a note (React Flow's elevate-on-select off). Order buttons in Properties, the phone editor and the selection bar; no shortcut. See CLAUDE.md "Z-order, protocol v8".
 - Not in it: forward/backward one step, a layers panel (backlog). Tab order and the minimap still follow creation order.
 
-### Frames
-- A named, resizable, coloured area that always sits behind notes. Its own protocol and stored-schema change, after z-order. Reuses the 2.7 sizing and colour work and the 2.8 selection and batch work where it can; its palette tile is one registry entry.
-- Open design question: does moving a frame move the notes inside it (and what counts as inside: fully or partly covered)? Decide when the slice starts.
+### Frames (protocol v9) — done, v0.9.0
+- A named, resizable, coloured area that always sits behind notes, in its own `frames` table (schema 6). Palette tile (md and up), title typed in the header, colour and size in Properties, delete never removes notes. Phones show frames only.
+- Decided: dragging a frame carries the notes whose centre is inside it (computed when the drag starts, never stored), by one delta clamped for the whole group, in one transaction with one `frameMoved`; Alt moves it alone; more than 50 inside moves it alone with a notice.
+- Frames come in their own `framesSnapshot` right after the notes snapshot (the notes snapshot was too close to its 400 KiB tripwire to carry them). See CLAUDE.md "Frames, protocol v9".
 
 ### Templates
 - Retro, start/stop/continue, 2x2, sprint planning. Built from frames and labelled notes, so no new object type is expected; how a template is applied (one batch, caps, an empty board only or anywhere) is decided when the slice starts.

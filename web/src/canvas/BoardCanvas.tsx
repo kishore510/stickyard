@@ -4,6 +4,10 @@ import { BOARD_HEIGHT, BOARD_WIDTH, type NoteRect } from "@stickyard/shared";
 import { readPxToken } from "../lib/cssVar";
 import { useMediaQuery } from "../lib/useMediaQuery";
 import { cn } from "../lib/utils";
+import { findFrame } from "../frames/board";
+import { confirmFrameDelete } from "../frames/label";
+import { FrameActionsContext, FrameNode, type FrameActions } from "../frames/FrameNode";
+import { frameMinimapColour } from "../frames/style";
 import { findNote, type Board } from "../notes/board";
 import { confirmDelete } from "../notes/label";
 import { DEFAULT_NOTE_SIZE, noteSize } from "../notes/size";
@@ -11,6 +15,7 @@ import { NoteActionsContext, NoteHelpContext, NoteNode, type EditorRequest, type
 import { groupOffset } from "./arrange";
 import { MAX_ZOOM, MIN_ZOOM, WHEEL_BEHAVIOUR, dragThreshold, panExtent } from "./geometry";
 import { FLOW_STACKING, createDragHandlers, createNoteNodeMapper, type CanvasNode } from "./nodes";
+import { framedNotes } from "../frames/board";
 import { dragSelection } from "./pointer";
 import { orderedIds } from "./selection";
 import { useBoardUi } from "./uiStore";
@@ -22,7 +27,7 @@ function BoardSurface() {
   return <div className="sy-board-dots size-full rounded-lg border border-border-strong shadow-md" />;
 }
 
-const nodeTypes = { note: NoteNode, board: BoardSurface };
+const nodeTypes = { note: NoteNode, frame: FrameNode, board: BoardSurface };
 /** Where the view can go (the board plus a margin), and where notes can go (the board). */
 const VIEW_EXTENT = panExtent();
 const BOARD_EXTENT: [[number, number], [number, number]] = [
@@ -31,7 +36,7 @@ const BOARD_EXTENT: [[number, number], [number, number]] = [
 ];
 
 const minimapColour = (node: CanvasNode) =>
-  node.type === "board" ? "var(--sy-board)" : `var(--sy-note-${node.data.entry.note.color})`;
+  node.type === "board" ? "var(--sy-board)" : node.type === "frame" ? frameMinimapColour(node.data.entry.frame.color) : `var(--sy-note-${node.data.entry.note.color})`;
 
 /** After the last arrow key press on a selection, its position is committed (stored) this much later. */
 const KEY_COMMIT_MS = 400;
@@ -58,7 +63,15 @@ export interface BoardRoom {
   startGroupDrag(ids: readonly string[]): boolean;
   moveGroup(positions: readonly { id: string; x: number; y: number }[], final: boolean): void;
   deleteNotes(ids: readonly string[]): void;
+  startFrameDrag(id: string, carry: boolean): boolean;
+  moveFrame(id: string, x: number, y: number, final: boolean): void;
+  setFrameDraft(id: string, draft: string | null): void;
+  editFrame(id: string, change: { title?: string }): boolean;
+  startFrameResize(id: string): boolean;
+  resizeFrame(id: string, rect: NoteRect, final: boolean): void;
+  deleteFrame(id: string): void;
 }
+
 
 /**
  * The board canvas: React Flow, controlled. Notes come from the room's board as memoised nodes;
@@ -88,6 +101,7 @@ export function BoardCanvas({
   const helpId = useId();
   const tool = useBoardUi((s) => s.tool);
   const selection = useBoardUi((s) => s.selection);
+  const frameSelected = useBoardUi((s) => s.frameSelected);
   const [spaceHeld, setSpaceHeld] = useState(false);
   const panOnly = tool === "hand" || spaceHeld;
   const latest = useRef(room);
@@ -99,7 +113,10 @@ export function BoardCanvas({
   useEffect(() => () => clearTimeout(keyCommit.current), []);
 
   const map = useMemo(createNoteNodeMapper, []);
-  const nodes = useMemo(() => map(room.board, editable, !panOnly, selection), [map, room.board, editable, panOnly, selection]);
+  const nodes = useMemo(
+    () => map(room.board, editable, !panOnly, selection, { selected: frameSelected, wide: multiSelect }),
+    [map, room.board, editable, panOnly, selection, frameSelected, multiSelect],
+  );
   const drag = useMemo(
     () =>
       createDragHandlers({
@@ -122,7 +139,25 @@ export function BoardCanvas({
         },
         startGroupDrag: (ids) => latest.current.startGroupDrag(ids),
         moveGroup: (positions, final) => latest.current.moveGroup(positions, final),
+        startFrameDrag: (id, carry) => {
+          useBoardUi.getState().selectFrame(id);
+          return latest.current.startFrameDrag(id, carry);
+        },
+        moveFrame: (id, x, y, final) => latest.current.moveFrame(id, x, y, final),
       }),
+    [],
+  );
+  const frameActions = useMemo<FrameActions>(
+    () => ({
+      selectFrame: (id) => useBoardUi.getState().selectFrame(id),
+      setDraft: (id, draft) => latest.current.setFrameDraft(id, draft),
+      commitTitle: (id) => {
+        const draft = findFrame(latest.current.board, id)?.draft;
+        if (draft != null) latest.current.editFrame(id, { title: draft });
+      },
+      startResize: (id) => latest.current.startFrameResize(id),
+      resize: (id, rect, final) => latest.current.resizeFrame(id, rect, final),
+    }),
     [],
   );
   const actions = useMemo<NoteActions>(
@@ -191,10 +226,8 @@ export function BoardCanvas({
   useEffect(() => {
     if (fitted.current || !synced || width === 0 || height === 0) return;
     fitted.current = true;
-    view.fit(
-      latest.current.board.notes.map((n) => n.note),
-      false,
-    );
+    // Notes, and any frames already here (they arrive right after the notes snapshot).
+    view.fit([...latest.current.board.notes.map((n) => n.note), ...latest.current.board.frames.map((f) => f.frame)], false);
   }, [synced, width, height, view]);
 
   // A panel opened, closed or was resized (or the window changed): the canvas is a new size.
@@ -234,7 +267,18 @@ export function BoardCanvas({
         useBoardUi.getState().selectAll(latest.current.board.notes.map((n) => n.note.id));
         return;
       }
-      if (e.key === "Escape" && useBoardUi.getState().selection.size > 0) useBoardUi.getState().clearSelection();
+      const ui = useBoardUi.getState();
+      if (e.key === "Escape" && (ui.selection.size > 0 || ui.frameSelected !== null)) ui.clearSelection();
+      // Delete (or Backspace) on a selected frame deletes it, asking first; its notes stay.
+      if ((e.key === "Delete" || e.key === "Backspace") && ui.frameSelected !== null && multi.current) {
+        const entry = findFrame(latest.current.board, ui.frameSelected);
+        if (!entry) return;
+        e.preventDefault();
+        const inside = framedNotes(entry.frame, latest.current.board.notes.map((n) => n.note)).length;
+        if (!confirmFrameDelete(entry.frame.title, inside)) return;
+        latest.current.deleteFrame(entry.frame.id);
+        ui.clearSelection();
+      }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -277,11 +321,12 @@ export function BoardCanvas({
       </p>
       <NoteHelpContext.Provider value={helpId}>
         <NoteActionsContext.Provider value={actions}>
+          <FrameActionsContext.Provider value={frameActions}>
           <ReactFlow<CanvasNode>
             nodes={nodes}
             nodeTypes={nodeTypes}
             onNodesChange={drag.onNodesChange}
-            onNodeDragStart={(_, node) => drag.onNodeDragStart(node)}
+            onNodeDragStart={(event, node) => drag.onNodeDragStart(node, event)}
             onNodeDragStop={(_, node) => drag.onNodeDragStop(node)}
             // A click on empty space (the board or around it) clears the selection. A mouse press
             // there was already handled by the marquee (useMarquee); taps come through here.
@@ -333,6 +378,7 @@ export function BoardCanvas({
               />
             )}
           </ReactFlow>
+          </FrameActionsContext.Provider>
         </NoteActionsContext.Provider>
       </NoteHelpContext.Provider>
       {marquee.box && (

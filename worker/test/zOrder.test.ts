@@ -55,7 +55,7 @@ describe("version", () => {
   it("a protocol v7 page is refused with version_mismatch (please reload)", async () => {
     const { code } = await newRoom();
     const c = await TestClient.open(code);
-    expect(PROTOCOL_VERSION).toBe(8);
+    expect(PROTOCOL_VERSION).toBeGreaterThanOrEqual(8);
     expect(await c.request({ type: "hello", protocolVersion: 7 })).toMatchObject({ type: "error", code: "version_mismatch" });
     expect(await c.request({ type: "join", name: "Alex" })).toMatchObject({ type: "error", code: "bad_message" });
     c.close();
@@ -270,8 +270,8 @@ describe(`schema migration 4 -> ${SCHEMA_VERSION}`, () => {
       const sql = state.storage.sql;
       loadSchemaV4(sql);
       const notes = new NoteStore(sql).all();
-      expect(SCHEMA_VERSION).toBe(5);
-      expect(version(sql)).toBe(5);
+      expect(SCHEMA_VERSION).toBeGreaterThanOrEqual(5);
+      expect(version(sql)).toBe(SCHEMA_VERSION);
       expect(notes.map((n) => [n.id, n.z])).toEqual(V4_NOTES.map((n, i) => [n.id, i]));
       expect(stackOrder(notes).map((n) => n.id)).toEqual(V4_NOTES.map((n) => n.id));
       // Nothing else changed, revs included.

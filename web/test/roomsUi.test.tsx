@@ -703,7 +703,8 @@ describe("board layout: palette and Properties panels from md up, ribbon on phon
   const note = () => document.querySelector<HTMLElement>('[aria-roledescription="note"]');
   const palette = () => document.querySelector<HTMLElement>('aside[aria-label="Palette"]');
   const properties = () => document.querySelector<HTMLElement>('aside[aria-label="Properties"]');
-  const tiles = () => [...(palette()?.querySelectorAll<HTMLButtonElement>("[data-palette-item]") ?? [])];
+  // The note tiles (the Frames tile has its own reason; see the frames tests).
+  const tiles = () => [...(palette()?.querySelectorAll<HTMLButtonElement>("[data-palette-item]") ?? [])].filter((t) => t.getAttribute("aria-label")?.endsWith(" note"));
   const propTitle = () => properties()?.querySelector<HTMLInputElement>('input[name="title"]') ?? null;
   async function withNotes(...list: Note[]) {
     const socket = await inRoom();
@@ -932,6 +933,8 @@ describe("the palette (md up)", () => {
       "Green note",
       "Orange note",
       "Purple note",
+      // Slice frames: the Frames category follows Notes.
+      "Frame",
     ]);
     expect(tiles()[1]?.querySelector('[data-preview]')?.className).toContain("bg-note-pink");
     expect(tiles()[1]?.textContent).toContain("Pink");
@@ -973,7 +976,7 @@ describe("the palette (md up)", () => {
     expect(palette()?.querySelector("h3")).toBeNull();
     expect(palette()?.textContent).toContain("No matches");
     await type(search() as HTMLInputElement, "");
-    expect(tiles()).toHaveLength(6);
+    expect(tiles()).toHaveLength(7);
   });
 
   it("collapses to a strip with an expand button and compact tiles (as in Chalkline), from the header or with [, and remembers it", async () => {
@@ -982,7 +985,7 @@ describe("the palette (md up)", () => {
     expect(search()).toBeNull();
     expect(palette()?.querySelector("h3")).toBeNull();
     // Collapsing never takes adding away: the strip keeps one compact tile per colour.
-    expect(tiles().map((t) => t.getAttribute("aria-label"))).toEqual(["Yellow note", "Pink note", "Blue note", "Green note", "Orange note", "Purple note"]);
+    expect(tiles().map((t) => t.getAttribute("aria-label"))).toEqual(["Yellow note", "Pink note", "Blue note", "Green note", "Orange note", "Purple note", "Frame"]);
     await click(tiles()[2]);
     expect(sentOfType(socket, "noteAdd")[0]).toMatchObject({ color: "blue" });
     expect(palette()?.querySelector('[aria-label="Expand palette"]')?.getAttribute("aria-expanded")).toBe("false");
@@ -990,7 +993,7 @@ describe("the palette (md up)", () => {
     await act(async () => (document.activeElement as HTMLElement | null)?.blur());
     await press("[");
     expect(search()).not.toBeNull();
-    expect(tiles()).toHaveLength(6);
+    expect(tiles()).toHaveLength(7);
     expect(saved("stickyard:palette-panel")).toEqual({ width: null, collapsed: false });
   });
 
@@ -1356,7 +1359,7 @@ describe("phone: add sheet and editor sheet", () => {
     expect(drawer?.getAttribute("aria-modal")).toBeNull();
     expect(drawer?.querySelector('input[type="search"]')).not.toBeNull();
     const labels = [...(drawer?.querySelectorAll<HTMLElement>("[data-palette-item]") ?? [])].map((t) => t.getAttribute("aria-label"));
-    const expected = paletteSections(PALETTE_CATEGORIES, "add", { live: true, noteCount: 0 }, "").flatMap((s) => s.items.map((i) => i.label));
+    const expected = paletteSections(PALETTE_CATEGORIES, "add", { live: true, noteCount: 0 }, "", "drawer").flatMap((s) => s.items.map((i) => i.label));
     expect(labels).toEqual(expected);
     // One sideways-scrolling row per category.
     expect(drawer?.querySelector("[data-palette-item]")?.parentElement?.className).toContain("overflow-x-auto");

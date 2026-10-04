@@ -102,6 +102,10 @@ export function AboutPage() {
             and only where it ends up is stored.
           </li>
           <li>
+            Frames are stored with the room in the same way: each frame’s position, size, title and colour, and the random
+            id the relay gave the visit that added it. Deleting a frame removes only the frame, never its notes.
+          </li>
+          <li>
             The create passcode is sent only to the relay, only when you start a session, and is never stored in your
             browser.
           </li>

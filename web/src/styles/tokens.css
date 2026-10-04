@@ -64,6 +64,30 @@
   --sy-note-text-blue: #1d4f9c;
   --sy-note-text-purple: #6a2aa8;
   --sy-note-text-grey: #4a5257;
+  /* Frames (protocol v9 keys): a translucent fill so the board shows through, a clear border,
+     and an opaque header strip the title sits on (4.5:1 for --sy-frame-title, tested). */
+  --sy-frame-title: #1d2327;
+  --sy-frame-neutral-fill: #8a857a14;
+  --sy-frame-neutral-border: #a8a397;
+  --sy-frame-neutral-header: #e8e6df;
+  --sy-frame-yellow-fill: #e0b80024;
+  --sy-frame-yellow-border: #c9a82e;
+  --sy-frame-yellow-header: #fbefb0;
+  --sy-frame-pink-fill: #e0507e1c;
+  --sy-frame-pink-border: #d27c9c;
+  --sy-frame-pink-header: #f9d6e2;
+  --sy-frame-blue-fill: #3d7fd11c;
+  --sy-frame-blue-border: #7aa3d8;
+  --sy-frame-blue-header: #d5e4f8;
+  --sy-frame-green-fill: #3ea54e1c;
+  --sy-frame-green-border: #78b884;
+  --sy-frame-green-header: #d5efd8;
+  --sy-frame-orange-fill: #e8801c1f;
+  --sy-frame-orange-border: #dc9a5c;
+  --sy-frame-orange-header: #fbdfc4;
+  --sy-frame-purple-fill: #8a5cd61c;
+  --sy-frame-purple-border: #a88ad8;
+  --sy-frame-purple-header: #e5daf7;
 }
 
 /* ── Dark: deep slate ──────────────────────────────────────────────── */
@@ -116,6 +140,29 @@
   --sy-note-text-blue: #173e80;
   --sy-note-text-purple: #55218a;
   --sy-note-text-grey: #3a4045;
+  /* Frames: darker tints in dark mode, light title text. */
+  --sy-frame-title: #ebede6;
+  --sy-frame-neutral-fill: #9aa7ad14;
+  --sy-frame-neutral-border: #5c6a70;
+  --sy-frame-neutral-header: #2c3539;
+  --sy-frame-yellow-fill: #e8d6791a;
+  --sy-frame-yellow-border: #8a7a35;
+  --sy-frame-yellow-header: #463f1e;
+  --sy-frame-pink-fill: #e88aaa1a;
+  --sy-frame-pink-border: #8a4a62;
+  --sy-frame-pink-header: #482a36;
+  --sy-frame-blue-fill: #7fa8e01a;
+  --sy-frame-blue-border: #46689a;
+  --sy-frame-blue-header: #22344c;
+  --sy-frame-green-fill: #7fcf8f1a;
+  --sy-frame-green-border: #4a7d56;
+  --sy-frame-green-header: #223e2a;
+  --sy-frame-orange-fill: #e8a76a1a;
+  --sy-frame-orange-border: #8a5f38;
+  --sy-frame-orange-header: #46301f;
+  --sy-frame-purple-fill: #b89ae81a;
+  --sy-frame-purple-border: #6a52a0;
+  --sy-frame-purple-header: #36294a;
 }
 
 /* ── Theme-independent tokens ──────────────────────────────────────── */
@@ -175,6 +222,16 @@
   --sy-note-size: 160px;
   --sy-note-min: 96px;
   --sy-note-max: 480px;
+  /* Frames: must match FRAME_* in shared/src/protocol.ts (tests check). */
+  --sy-frame-default-w: 640px;
+  --sy-frame-default-h: 400px;
+  --sy-frame-min-w: 240px;
+  --sy-frame-min-h: 160px;
+  --sy-frame-max-w: 2400px;
+  --sy-frame-max-h: 1600px;
+  /* The frame header strip (its title bar, where it's dragged from) and the draggable border. */
+  --sy-frame-header-h: 44px;
+  --sy-frame-edge: 12px;
   /* Note font sizes, one per protocol key (s, m, l, xl); m is the slice 2 size. */
   --sy-note-font-s: 0.75rem;
   --sy-note-font-m: 0.875rem;
@@ -393,6 +450,8 @@
   --spacing-sheet: var(--sy-sheet-width);
   --spacing-content: var(--sy-content-max);
   --spacing-note: var(--sy-note-size);
+  --spacing-frame-header: var(--sy-frame-header-h);
+  --spacing-frame-edge: var(--sy-frame-edge);
   --spacing-board-w: var(--sy-board-width);
   --spacing-board-h: var(--sy-board-height);
   --spacing-swatch: var(--sy-swatch);

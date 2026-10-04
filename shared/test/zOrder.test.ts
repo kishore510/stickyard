@@ -42,8 +42,8 @@ const apply = (items: readonly Stacked[], changes: readonly Stacked[]) => {
 const five = (): Stacked[] => [0, 1, 2, 3, 4].map((i) => ({ id: id(i), z: i }));
 
 describe("protocol v8", () => {
-  it("is protocol 8, with a bounded z and two actions", () => {
-    expect(PROTOCOL_VERSION).toBe(8);
+  it("z arrived in protocol 8, with a bounded z and two actions", () => {
+    expect(PROTOCOL_VERSION).toBeGreaterThanOrEqual(8);
     expect(NOTE_Z_LIMIT).toBe(100_000);
     expect(ORDER_ACTIONS).toEqual(["front", "back"]);
   });

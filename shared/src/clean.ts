@@ -1,4 +1,4 @@
-import { MAX_NAME_LENGTH, MAX_NOTE_TEXT, MAX_TEXT_LENGTH } from "./protocol";
+import { MAX_FRAME_TITLE, MAX_NAME_LENGTH, MAX_NOTE_TEXT, MAX_TEXT_LENGTH } from "./protocol";
 
 /*
  * Cleaning for untrusted display text (names, echoed messages and note text). Both sides use it:
@@ -56,4 +56,14 @@ export function cleanNoteText(raw: string): string | null {
     .replace(CONTROLS_EXCEPT_NEWLINE, "")
     .trim();
   return codePointLength(value) > MAX_NOTE_TEXT ? null : value;
+}
+
+/**
+ * A frame title: one line (line breaks and other whitespace collapse to single spaces), controls
+ * and invisible characters removed, trimmed. May be empty. Null if longer than MAX_FRAME_TITLE
+ * characters after cleaning.
+ */
+export function cleanFrameTitle(raw: string): string | null {
+  const value = raw.replace(INVISIBLE, "").replace(WHITESPACE, " ").replace(CONTROLS, "").replace(WHITESPACE, " ").trim();
+  return codePointLength(value) > MAX_FRAME_TITLE ? null : value;
 }

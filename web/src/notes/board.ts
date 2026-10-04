@@ -10,6 +10,7 @@ import {
   type NoteStyle,
   type OrderAction,
 } from "@stickyard/shared";
+import type { BoardFrame } from "../frames/board";
 
 /*
  * The board as this page sees it: the server's notes plus optimistic local changes.
@@ -51,9 +52,13 @@ export interface Board {
   notes: BoardNote[];
   /** Deleted here, waiting for the server to confirm; restored (at `index`) if it refuses. */
   removed: (BoardNote & { index: number })[];
+  /** Frames (protocol v9; frames/board.ts), in creation order, always behind notes. */
+  frames: BoardFrame[];
+  /** Frames deleted here, waiting for the server; restored (at `index`) if it refuses. */
+  framesRemoved: (BoardFrame & { index: number })[];
 }
 
-export const EMPTY_BOARD: Board = { notes: [], removed: [] };
+export const EMPTY_BOARD: Board = { notes: [], removed: [], frames: [], framesRemoved: [] };
 
 /** The id a note has until the server assigns one. Never sent to the server. */
 export const localId = (clientRef: string) => `local:${clientRef}`;
@@ -89,8 +94,9 @@ const isStale = (entry: BoardNote | undefined, rev: number) => entry?.confirmed 
 /* ── From the server ────────────────────────────────────────────────── */
 
 /** The full board after joining. Replaces everything. */
-export function applySnapshot(_board: Board, notes: Note[]): Board {
-  return { notes: notes.map(confirmedEntry), removed: [] };
+export function applySnapshot(board: Board, notes: Note[]): Board {
+  // Frames come in their own message right after (applyFramesSnapshot); keep what's here till then.
+  return { ...board, notes: notes.map(confirmedEntry), removed: [] };
 }
 
 /** A new note. With our clientRef, it replaces the temporary note in place. */
@@ -181,7 +187,7 @@ export function applyDeleted(board: Board, id: string): Board {
   const inNotes = board.notes.some((n) => n.note.id === id);
   const inRemoved = board.removed.some((n) => n.note.id === id);
   if (!inNotes && !inRemoved) return board;
-  return { notes: board.notes.filter((n) => n.note.id !== id), removed: board.removed.filter((n) => n.note.id !== id) };
+  return { ...board, notes: board.notes.filter((n) => n.note.id !== id), removed: board.removed.filter((n) => n.note.id !== id) };
 }
 
 /** The server refused an add: remove the temporary note. */
@@ -198,7 +204,7 @@ export function rollback(board: Board, id: string): Board {
     const { index, ...entry } = removed;
     const notes = [...board.notes];
     notes.splice(Math.min(index, notes.length), 0, entry.confirmed ? { ...entry, note: entry.confirmed } : entry);
-    return { notes, removed: board.removed.filter((n) => n !== removed) };
+    return { ...board, notes, removed: board.removed.filter((n) => n !== removed) };
   }
   return patch(board, id, (e) => (e.confirmed ? { ...e, note: e.confirmed, dragging: false, resizing: false } : e));
 }
@@ -305,6 +311,7 @@ export function deleteLocal(board: Board, id: string): Board {
   const entry = board.notes[index];
   if (!entry) return board;
   return {
+    ...board,
     notes: board.notes.filter((n) => n !== entry),
     removed: [...board.removed, { ...entry, dragging: false, resizing: false, index }],
   };

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { NoteColor, NoteRect, OrderAction } from "@stickyard/shared";
+import type { FrameColor, NoteColor, NoteRect, OrderAction } from "@stickyard/shared";
 import { WORKER_URL, toWebSocketUrl } from "../config";
 import { browserSocketFactory } from "../connection/socket";
 import { useBoardUi } from "../canvas/uiStore";
@@ -35,6 +35,7 @@ export function useRoom(code: string) {
       checkCode: () => checkRoom(WORKER_URL, code, browserFetch),
       onChange: setView,
       onNoteConfirmed: (from, to) => useBoardUi.getState().renameSelected(from, to),
+      onFrameConfirmed: (from, to) => useBoardUi.getState().renameFrame(from, to),
     });
     session.current = next;
     next.join(name);
@@ -61,6 +62,15 @@ export function useRoom(code: string) {
     applyRects: (rects: readonly (NoteRect & { id: string })[]) => session.current?.applyRects(rects) ?? false,
     deleteNotes: (ids: readonly string[]) => session.current?.deleteNotes(ids),
     orderNotes: (ids: readonly string[], action: OrderAction) => session.current?.orderNotes(ids, action) ?? false,
+    addFrame: (at: { x: number; y: number; color: FrameColor; title?: string }) => session.current?.addFrame(at) ?? null,
+    editFrame: (id: string, change: { title?: string; color?: FrameColor }) => session.current?.editFrame(id, change) ?? false,
+    setFrameDraft: (id: string, draft: string | null) => session.current?.setFrameDraft(id, draft),
+    startFrameDrag: (id: string, carry: boolean) => session.current?.startFrameDrag(id, carry) ?? false,
+    moveFrame: (id: string, x: number, y: number, final: boolean) => session.current?.moveFrame(id, x, y, final),
+    startFrameResize: (id: string) => session.current?.startFrameResize(id) ?? false,
+    resizeFrame: (id: string, rect: NoteRect, final: boolean) => session.current?.resizeFrame(id, rect, final),
+    setFrameSize: (id: string, w: number, h: number) => session.current?.setFrameSize(id, w, h) ?? false,
+    deleteFrame: (id: string) => session.current?.deleteFrame(id),
     leave: () => session.current?.close(),
   };
 }

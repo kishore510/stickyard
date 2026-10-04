@@ -102,14 +102,9 @@ export function matchSize(rects: readonly Placed[], mode: MatchMode): Map<string
 
 /**
  * A group drag's offset, clamped once for the whole group so the arrangement is kept at the
- * board's edges (the server still clamps each note as a backstop).
+ * board's edges. Shared with the relay, which clamps a frame and its carried notes the same way.
  */
-export function groupOffset(rects: readonly NoteRect[], dx: number, dy: number): { dx: number; dy: number } {
-  if (rects.length === 0) return { dx: 0, dy: 0 };
-  const b = bounds(rects.map((r) => ({ ...r, id: "" })));
-  const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, Math.round(v)));
-  return { dx: clamp(dx, -b.left, BOARD_WIDTH - b.right), dy: clamp(dy, -b.top, BOARD_HEIGHT - b.bottom) };
-}
+export { groupOffset } from "@stickyard/shared";
 
 /** The rects with `changed` applied, in the same order. */
 export function applyRects(rects: readonly Placed[], changed: ReadonlyMap<string, NoteRect>): Placed[] {

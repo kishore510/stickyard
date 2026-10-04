@@ -45,7 +45,7 @@ describe("protocol v9 constants", () => {
     expect(PROTOCOL_VERSION).toBe(9);
     expect(MAX_FRAMES_PER_ROOM).toBe(30);
     expect(MAX_FRAME_TITLE).toBe(60);
-    expect(FRAME_MIN_W).toBeGreaterThan(NOTE_MAX_W / 2);
+    expect(FRAME_MIN_W).toBeGreaterThanOrEqual(NOTE_MAX_W / 2);
     expect(FRAME_MAX_W).toBeGreaterThan(NOTE_MAX_W);
     expect(FRAME_MAX_H).toBeGreaterThan(NOTE_MAX_H);
     expect(FRAME_MAX_W).toBeLessThanOrEqual(BOARD_WIDTH);

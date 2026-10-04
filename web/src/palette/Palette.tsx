@@ -1,7 +1,7 @@
 import { Search, X } from "lucide-react";
 import { useEffect, useId, useRef, useState, type ReactNode, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from "react";
 import { createPortal } from "react-dom";
-import type { XY } from "../canvas/geometry";
+import type { Size, XY } from "../canvas/geometry";
 import { Button } from "../components/ui/button";
 import { readPxToken } from "../lib/cssVar";
 import { cn } from "../lib/utils";
@@ -16,6 +16,7 @@ import {
   type PaletteItem,
   type PalettePreview,
   type PaletteRoomState,
+  type PaletteSurface,
 } from "./registry";
 
 /*
@@ -35,8 +36,8 @@ export interface PaletteHost {
   state: PaletteRoomState;
   /** Adds the item (at a board position, or the viewport centre). */
   activate(item: PaletteItem, at?: XY): void;
-  /** Screen point -> board position for a drop, or null when it's off the board. */
-  dropAt(client: XY): XY | null;
+  /** Screen point -> board position for a drop (of something `size` big, a note if not given), or null when it's off the board. */
+  dropAt(client: XY, size?: Size): XY | null;
 }
 
 /** Pointer travel (CSS px) before a press on a tile becomes a drag. */
@@ -134,7 +135,7 @@ function usePaletteDrag(host: PaletteHost, mode: DragMode, hooks: DragHooks = {}
         const h = latest.current.host;
         if (item.disabled(h.ctx) !== null) return;
         if (!wasDragging) return h.activate(item);
-        const at = h.dropAt({ x: ev.clientX, y: ev.clientY });
+        const at = h.dropAt({ x: ev.clientX, y: ev.clientY }, item.dropSize);
         if (at) h.activate(item, at);
       };
       const cancel = (ev: PointerEvent) => {
@@ -208,7 +209,7 @@ function Sections({
   rows?: boolean;
 }) {
   const id = useId();
-  const sections = paletteSections(PALETTE_CATEGORIES, tab, host.state, query);
+  const sections = paletteSections(PALETTE_CATEGORIES, tab, host.state, query, rows ? "drawer" : "panel");
   if (sections.length === 0) {
     return <p className="text-sm text-fg-muted">No matches for “{query.trim()}”.</p>;
   }
@@ -278,9 +279,9 @@ function SearchField({ value, onChange }: { value: string; onChange: (value: str
 }
 
 /** The registry's tabs that have something in them, and the one showing. */
-function useTabs(host: PaletteHost) {
+function useTabs(host: PaletteHost, surface: PaletteSurface) {
   const [tab, setTab] = useState("add");
-  const tabs = visibleTabs(PALETTE_TABS, PALETTE_CATEGORIES, host.state);
+  const tabs = visibleTabs(PALETTE_TABS, PALETTE_CATEGORIES, host.state, surface);
   const current = tabs.some((t) => t.id === tab) ? tab : (tabs[0]?.id ?? "add");
   return { tabs, current, setTab };
 }
@@ -288,7 +289,7 @@ function useTabs(host: PaletteHost) {
 /** md and up: the palette panel's content (inside the SidePanel frame). */
 export function PaletteContent({ host, width, collapse }: { host: PaletteHost; width: number; collapse: ReactNode }) {
   const [query, setQuery] = useState("");
-  const { tabs, current, setTab } = useTabs(host);
+  const { tabs, current, setTab } = useTabs(host, "panel");
   const { tileProps, ghostElement } = usePaletteDrag(host, "panel");
   const reason = host.ctx.noteReason;
 
@@ -369,7 +370,7 @@ export function AddDrawer({ host, open, onClose }: { host: PaletteHost; open: bo
   const headingId = useId();
   const [query, setQuery] = useState("");
   const [dragging, setDragging] = useState(false);
-  const { tabs, current, setTab } = useTabs(host);
+  const { tabs, current, setTab } = useTabs(host, "drawer");
   const { tileProps, ghostElement } = usePaletteDrag(host, "drawer", {
     onDragStart: () => setDragging(true),
     // Runs on drop and on cancel, so the drawer can never stay hidden.

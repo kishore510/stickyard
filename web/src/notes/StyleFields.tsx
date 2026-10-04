@@ -1,4 +1,4 @@
-import { useEffect, useId, useState, type ReactNode } from "react";
+import { useEffect, useId, useState, type CSSProperties, type ReactNode } from "react";
 import { AlignCenter, AlignLeft, AlignRight, Bold, Italic } from "lucide-react";
 import {
   NOTE_ALIGNS,
@@ -50,15 +50,18 @@ export function Section({ title, children, id }: { title: string; children: Reac
   );
 }
 
-function Swatch({
+export function Swatch({
   label,
   fill,
+  fillStyle,
   pressed,
   disabled,
   onClick,
 }: {
   label: string;
   fill: string;
+  /** Token var() colours (frames), alongside or instead of `fill` classes. */
+  fillStyle?: CSSProperties;
   pressed: boolean;
   disabled: boolean;
   onClick: () => void;
@@ -79,13 +82,14 @@ function Swatch({
       <span
         aria-hidden="true"
         className={cn("size-swatch rounded-full border border-border-strong", fill, pressed && "ring-2 ring-accent ring-offset-2 ring-offset-surface")}
+        style={fillStyle}
       />
     </button>
   );
 }
 
 /** A labelled group of swatches, with the current choice named beside the label (as in Chalkline). */
-function SwatchGroup({ label, groupLabel = label, current, children }: { label: string; groupLabel?: string; current: string; children: ReactNode }) {
+export function SwatchGroup({ label, groupLabel = label, current, children }: { label: string; groupLabel?: string; current: string; children: ReactNode }) {
   const id = useId();
   return (
     <div role="group" aria-label={groupLabel} className="flex flex-col gap-xs">
@@ -290,7 +294,7 @@ export function PartTextSection({
 }
 
 /** A number field that only commits valid values, on Enter or blur; anything else is put back. */
-function SizeField({
+export function SizeField({
   label,
   name,
   value,

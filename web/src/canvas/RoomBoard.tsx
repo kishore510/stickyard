@@ -1,12 +1,13 @@
 import { ReactFlowProvider, useStore } from "@xyflow/react";
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { RotateCcw, SlidersHorizontal } from "lucide-react";
-import type { NoteColor } from "@stickyard/shared";
+import { FRAME_DEFAULT_H, FRAME_DEFAULT_W, clampFramePosition, type FrameColor, type NoteColor } from "@stickyard/shared";
 import { ChatDock } from "../chat/ChatDock";
 import { Button } from "../components/ui/button";
 import { readPxToken } from "../lib/cssVar";
 import { useMediaQuery } from "../lib/useMediaQuery";
 import { useWindowWidth } from "../lib/useWindowWidth";
+import { findFrame } from "../frames/board";
 import { findNote, isHeld } from "../notes/board";
 import type { InlinePart } from "../notes/inlineEdit";
 import { AddDrawer, CompactPalette, PaletteContent, type PaletteHost } from "../palette/Palette";
@@ -23,7 +24,7 @@ import { SelectionBar } from "./SelectionBar";
 import { orderedIds } from "./selection";
 import { newNotePosition, type XY } from "./geometry";
 import { Ribbon, ViewBar } from "./ToolBars";
-import { noteToolReason, toolForKey, type ToolContext } from "./tools";
+import { frameToolReason, noteToolReason, toolForKey, type ToolContext } from "./tools";
 import { useBoardUi } from "./uiStore";
 import { useCanvasView } from "./useCanvasView";
 
@@ -139,6 +140,8 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
   const minimap = wide && (minimapPref ?? true);
   const noteCount = view.board.notes.length;
   const noteReason = noteToolReason({ live, count: noteCount });
+  const frameCount = view.board.frames.length;
+  const frameReason = frameToolReason({ live, count: frameCount });
   const sizes = panelWidths(windowWidth, panels);
 
   const latest = useRef({ view, room, wide });
@@ -148,6 +151,7 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
   // are still on the board stay selected.
   useLayoutEffect(() => {
     useBoardUi.getState().pruneSelected((id) => findNote(view.board, id) !== undefined);
+    useBoardUi.getState().pruneFrame((id) => findFrame(view.board, id) !== undefined);
   }, [view.board]);
 
   /**
@@ -189,6 +193,17 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
     [canvas, openEditor],
   );
 
+  /** Adds a frame of this colour at `at` (a board position) or centred in the view, its title ready to type. */
+  const addFrame = useCallback(
+    (color: FrameColor, at?: XY) => {
+      const centre = canvas.centre();
+      const position = at ?? clampFramePosition(centre.x - FRAME_DEFAULT_W / 2, centre.y - FRAME_DEFAULT_H / 2);
+      const id = latest.current.room.addFrame({ ...position, color });
+      if (id) useBoardUi.getState().requestFrameEdit(id);
+    },
+    [canvas],
+  );
+
   // Rebuilt only when what the tools show changes, so remote moves don't re-render the bars.
   const ctx = useMemo<ToolContext>(
     () => ({
@@ -198,7 +213,8 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
       minimap,
       noteReason,
       toggleMinimap: () => setMinimap(!minimap),
-      fit: () => canvas.fit(latest.current.view.board.notes.map((n) => n.note)),
+      // Fit to notes includes frames.
+      fit: () => canvas.fit([...latest.current.view.board.notes.map((n) => n.note), ...latest.current.view.board.frames.map((f) => f.frame)]),
       zoomIn: canvas.zoomIn,
       zoomOut: canvas.zoomOut,
       resetZoom: canvas.resetZoom,
@@ -212,15 +228,15 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
 
   const paletteHost = useMemo<PaletteHost>(
     () => ({
-      ctx: { noteReason },
+      ctx: { noteReason, frameReason },
       state: { live, noteCount },
       activate: (item, at) => {
         useBoardUi.getState().setAddSheetOpen(false);
-        item.create({ addNote }, at);
+        item.create({ addNote, addFrame }, at);
       },
       dropAt: canvas.dropAt,
     }),
-    [noteReason, live, noteCount, addNote, canvas],
+    [noteReason, frameReason, live, noteCount, addNote, addFrame, canvas],
   );
 
   const rejoinRef = useRef(onRejoin);
@@ -262,6 +278,13 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
     startGroupDrag: room.startGroupDrag,
     moveGroup: room.moveGroup,
     deleteNotes: room.deleteNotes,
+    startFrameDrag: room.startFrameDrag,
+    moveFrame: room.moveFrame,
+    setFrameDraft: room.setFrameDraft,
+    editFrame: room.editFrame,
+    startFrameResize: room.startFrameResize,
+    resizeFrame: room.resizeFrame,
+    deleteFrame: room.deleteFrame,
   };
 
   // The selection bar: md and up, Select tool, two or more notes (in selection order).
@@ -362,6 +385,10 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
                 deleteNote: room.deleteNote,
                 deleteNotes: room.deleteNotes,
                 orderNotes: room.orderNotes,
+                setFrameDraft: room.setFrameDraft,
+                editFrame: room.editFrame,
+                setFrameSize: room.setFrameSize,
+                deleteFrame: room.deleteFrame,
               }}
             />
           )}

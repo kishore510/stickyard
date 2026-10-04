@@ -86,6 +86,7 @@ Keep tsc, tests and build green. Stop for review with a summary of what was buil
 | 2.9 | Inline note editing | Done (v0.7.1, web only) |
 | Z-order | Bring to front / send to back | Done (v0.8.0, protocol v8, stored schema 5) |
 | Welcome | Welcome screen with the new logo mark | Done (v0.8.1, web only) |
+| Frames | Named areas behind notes that carry their notes | Done (v0.9.0, protocol v9, stored schema 6) |
 | 3 onwards | See PHASE_PLAN.md | See PHASE_PLAN.md |
 
 ## 7. Open decisions

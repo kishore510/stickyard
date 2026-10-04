@@ -67,11 +67,11 @@ export function useCanvasView() {
       },
       /** The whole note is on screen (or the canvas has no size yet). */
       visible: (note: Placed) => size().width === 0 || inView(note),
-      /** Where a palette tile dropped at this screen point puts a new note, or null if it's off the canvas. */
-      dropAt: (client: XY): XY | null => {
+      /** Where a palette tile dropped at this screen point puts a new note (or something `size` big), or null if it's off the canvas. */
+      dropAt: (client: XY, size: Size = DEFAULT_NOTE_SIZE): XY | null => {
         const rect = store.getState().domNode?.getBoundingClientRect();
         if (!rect || rect.width === 0) return null;
-        return dropPosition(client, { x: rect.left, y: rect.top, width: rect.width, height: rect.height }, viewport(), DEFAULT_NOTE_SIZE);
+        return dropPosition(client, { x: rect.left, y: rect.top, width: rect.width, height: rect.height }, viewport(), size);
       },
     };
   }, [flow, store]);

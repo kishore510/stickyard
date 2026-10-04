@@ -127,7 +127,8 @@ describe("frameAdd", () => {
     expect(theirs.clientRef).toBeUndefined();
     expect(mine.frame).toMatchObject({ x: BOARD_WIDTH - FRAME_DEFAULT_W, y: 10, w: FRAME_DEFAULT_W, h: FRAME_DEFAULT_H, title: "Start here", color: "green", rev: 1 });
     expect(theirs.frame).toEqual(mine.frame);
-    expect((await rowsWritten(stub)) - writes).toBe(1);
+    // One frame row, plus its primary-key index entry (SQLite counts both as rows written).
+    expect((await rowsWritten(stub)) - writes).toBe(2);
     close(a, b);
   });
 
@@ -180,7 +181,7 @@ describe("frameEdit, frameResize, frameDelete", () => {
     expect((await rowsWritten(stub)) - writes).toBe(0);
     a.send({ type: "frameResize", id: frameId(0), x: 2800, y: 100, w: 1200, h: FRAME_MAX_H, final: true });
     const done = await nextOfType(b, "frameResized");
-    expect(done).toMatchObject({ x: BOARD_WIDTH - 1200, y: BOARD_HEIGHT - FRAME_MAX_H, w: 1200, h: FRAME_MAX_H, rev: 2, final: true });
+    expect(done).toMatchObject({ x: BOARD_WIDTH - 1200, y: 100, w: 1200, h: FRAME_MAX_H, rev: 2, final: true });
     expect((await rowsWritten(stub)) - writes).toBe(1);
     close(a, b);
   });

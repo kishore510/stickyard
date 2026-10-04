@@ -1,5 +1,5 @@
 import { Hand, Map as MapIcon, Maximize, MousePointer2, Plus, ZoomIn, ZoomOut, type LucideIcon } from "lucide-react";
-import { MAX_NOTES_PER_ROOM } from "@stickyard/shared";
+import { MAX_FRAMES_PER_ROOM, MAX_NOTES_PER_ROOM } from "@stickyard/shared";
 import { MAX_ZOOM, MIN_ZOOM } from "./geometry";
 
 /*
@@ -62,6 +62,12 @@ export const NOTE_TOOL_REASONS = {
 export function noteToolReason({ live, count }: { live: boolean; count: number }): string | null {
   if (!live) return NOTE_TOOL_REASONS.disconnected;
   return count >= MAX_NOTES_PER_ROOM ? NOTE_TOOL_REASONS.full : null;
+}
+
+/** Why the palette's Frame tile is off right now, or null when frames can be added. */
+export function frameToolReason({ live, count }: { live: boolean; count: number }): string | null {
+  if (!live) return NOTE_TOOL_REASONS.disconnected;
+  return count >= MAX_FRAMES_PER_ROOM ? `The board has the maximum of ${MAX_FRAMES_PER_ROOM} frames.` : null;
 }
 
 export const TOOLS: readonly Tool[] = [
