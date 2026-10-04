@@ -755,7 +755,7 @@ export class Room extends DurableObject<Env> {
 }
 
 /** Entries a message spends from BATCH_LIMITS: batch ops, restack ids, and the notes a final frame move carries. */
-function entriesOf(message: ClientMessage): number {
+export function entriesOf(message: ClientMessage): number {
   switch (message.type) {
     case "noteBatch":
       return message.ops.length;
