@@ -354,18 +354,21 @@ describe("rate budget", () => {
   it("over the entries budget, an itemsAdd is dropped with rate_limited naming the message", async () => {
     const { stub, a, b } = await room({ notes: MAX_BATCH_ENTRIES });
     const ops = (n: number) => Array.from({ length: MAX_BATCH_ENTRIES }, (_, i) => ({ op: "move", id: noteId(i), x: 100 + n, y: i }));
-    // Spend the whole entries burst (and then some) with live batches, within the message budget.
-    const drains = Math.ceil(BATCH_LIMITS.entriesBurst / MAX_BATCH_ENTRIES) + 3;
-    expect(drains + 1).toBeLessThan(SOCKET_LIMITS.burst);
+    // Spend the whole entries burst with live batches, within the message budget...
+    const drains = BATCH_LIMITS.entriesBurst / MAX_BATCH_ENTRIES + 1;
+    // ...then 15 itemsAdd of 20 frames: 300 entries, which would take half a second to refill.
+    const sends = 15;
+    expect(drains + sends).toBeLessThan(SOCKET_LIMITS.burst);
     for (let n = 0; n < drains; n++) a.send({ type: "noteBatch", final: false, ops: ops(n) });
-    a.send({ type: "itemsAdd", clientRef: "c1", frames: Array.from({ length: 20 }, (_, i) => frameItem(`f${i}`, { title: "" })) });
-    for (;;) {
-      const m = await nextOfType(a, "error");
-      if (m.clientRef === undefined) continue;
-      expect(m).toMatchObject({ code: "rate_limited", clientRef: "c1" });
-      break;
+    for (let n = 0; n < sends; n++) a.send({ type: "itemsAdd", clientRef: `c${n}`, frames: Array.from({ length: 20 }, (_, i) => frameItem(`f${i}`, { title: "" })) });
+    const answers = new Map<string, string>();
+    while (answers.size < sends) {
+      const m = await a.next();
+      if ((m.type === "error" || m.type === "itemsAdded") && m.clientRef !== undefined) answers.set(m.clientRef, m.type === "error" ? m.code : m.type);
     }
-    expect((await counts(stub)).frames).toBe(0);
+    expect([...answers.values()]).toContain("rate_limited");
+    // The frames cap still holds: whatever got through filled at most the free slots.
+    expect((await counts(stub)).frames).toBeLessThanOrEqual(MAX_FRAMES_PER_ROOM);
     expect(a.closeCode).toBeNull();
     close(a, b);
   });

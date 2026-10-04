@@ -16,6 +16,7 @@ import {
   clampFrameRect,
   clampNotePosition,
   checkBatch,
+  checkItems,
   checkOrder,
   clampNoteRect,
   clientMessageSchema,
@@ -32,6 +33,7 @@ import {
   type ClientMessage,
   type ErrorCode,
   type Frame,
+  type ItemRefusal,
   type Note,
   type NoteBatchResult,
   type Participant,
@@ -95,6 +97,7 @@ function refOf(message: ClientMessage): ErrorRef {
       return noteIds.length > 0 ? { noteIds } : {};
     }
     case "frameAdd":
+    case "itemsAdd":
       return { clientRef: message.clientRef };
     case "frameEdit":
     case "frameResize":
@@ -112,6 +115,7 @@ type NoteMessage = Extract<ClientMessage, { type: "noteAdd" | "noteEdit" | "note
 type BatchMessage = Extract<ClientMessage, { type: "noteBatch" }>;
 type OrderMessage = Extract<ClientMessage, { type: "notesOrder" }>;
 type FrameMessage = Extract<ClientMessage, { type: "frameAdd" | "frameEdit" | "frameMove" | "frameResize" | "frameDelete" }>;
+type ItemsMessage = Extract<ClientMessage, { type: "itemsAdd" }>;
 
 /** Drags and resizes in progress (a note, a group or a frame): relayed (coalesced), never stored. */
 const isPreview = (message: ClientMessage) =>
@@ -343,7 +347,97 @@ export class Room extends DurableObject<Env> {
         this.handleFrame(ws, state.participant, message);
         return;
       }
+
+      case "itemsAdd": {
+        ws.serializeAttachment(state);
+        if (!state.participant) return send(ws, error("not_joined", "Join the room first.", refOf(message)));
+        this.handleItems(ws, state.participant, message);
+        return;
+      }
     }
+  }
+
+  /**
+   * Notes and frames with their full content (protocol v11). Each entry is checked on its own; a
+   * message using a ref twice is refused whole. Valid entries fill the room's free note and frame
+   * slots in order and the rest are refused (notes_full, frames_full). Text is cleaned and rects
+   * clamped as for noteAdd and frameAdd; ids, z, rev (1) and author are the server's. New notes go
+   * on top in array order (zForNew, one at a time); a renumbering at the bound is broadcast first
+   * as notesOrdered. Everything is written in one transaction and sent as one itemsAdded (refs and
+   * refusals only in the sender's copy). Nothing added: no broadcast, only an error to the sender.
+   * Content is untrusted text: cleaned, never logged.
+   */
+  private handleItems(ws: WebSocket, you: Participant, message: ItemsMessage): void {
+    const check = checkItems(message.notes, message.frames);
+    if (check.duplicate) return send(ws, error("bad_message", "An item is named twice.", refOf(message)));
+    const refused: ItemRefusal[] = [...check.invalid];
+    const refuse = (kind: ItemRefusal["kind"], index: number, ref: string, reason: ItemRefusal["reason"]) => refused.push({ kind, index, ref, reason });
+
+    // Notes: free slots in order, each on top of the last.
+    let stack: Stacked[] = this.notes.all().map(({ id, z }) => ({ id, z }));
+    const notes: { ref: string; note: Note }[] = [];
+    let noteSlots = MAX_NOTES_PER_ROOM - this.notes.count;
+    for (const { index, entry } of check.notes) {
+      const text = cleanNoteText(entry.text);
+      if (text === null) {
+        refuse("note", index, entry.ref, "invalid");
+        continue;
+      }
+      if (noteSlots <= 0) {
+        refuse("note", index, entry.ref, "notes_full");
+        continue;
+      }
+      noteSlots--;
+      const { ref, x, y, w, h, text: _, ...style } = entry;
+      const id = randomBase64url(12);
+      const { z, changes } = zForNew(stack);
+      if (changes.length > 0) {
+        const renumbered = new Map(changes.map((c) => [c.id, c.z]));
+        stack = stack.map((s) => ({ id: s.id, z: renumbered.get(s.id) ?? s.z }));
+      }
+      stack.push({ id, z });
+      notes.push({ ref, note: { id, ...clampNoteRect({ x, y, w, h }), text, ...style, z, rev: 1, authorId: you.id } });
+    }
+    // A renumbering may have moved notes added earlier in this message too: they take their final z.
+    const finalZ = new Map(stack.map((s) => [s.id, s.z]));
+    for (const added of notes) added.note = { ...added.note, z: finalZ.get(added.note.id) ?? added.note.z };
+    const renumbered = this.restacked(stack.filter((s) => this.notes.get(s.id)));
+
+    const frames: { ref: string; frame: Frame }[] = [];
+    let frameSlots = MAX_FRAMES_PER_ROOM - this.notes.frameCount;
+    for (const { index, entry } of check.frames) {
+      const title = cleanFrameTitle(entry.title);
+      if (title === null) {
+        refuse("frame", index, entry.ref, "invalid");
+        continue;
+      }
+      if (frameSlots <= 0) {
+        refuse("frame", index, entry.ref, "frames_full");
+        continue;
+      }
+      frameSlots--;
+      const { ref, x, y, w, h, title: _, ...rest } = entry;
+      frames.push({ ref, frame: { id: randomBase64url(12), ...clampFrameRect({ x, y, w, h }), title, ...rest, rev: 1, authorId: you.id } });
+    }
+    refused.sort((a, b) => (a.kind === b.kind ? a.index - b.index : a.kind === "note" ? -1 : 1));
+
+    if (notes.length === 0 && frames.length === 0) {
+      const reasons = new Set(refused.map((r) => r.reason));
+      const code: ErrorCode = reasons.size === 1 && !reasons.has("invalid") ? (reasons.has("notes_full") ? "notes_full" : "frames_full") : "bad_message";
+      return send(ws, { type: "error", code, message: "Nothing was added.", clientRef: message.clientRef, refused });
+    }
+
+    this.notes.applyAdds(
+      renumbered,
+      notes.map((n) => n.note),
+      frames.map((f) => f.frame),
+    );
+    if (renumbered.length > 0) this.broadcast({ type: "notesOrdered", results: renumbered.map((n) => ({ id: n.id, z: n.z, rev: n.rev })) });
+    send(ws, { type: "itemsAdded", clientRef: message.clientRef, notes, frames, refused });
+    this.broadcast(
+      { type: "itemsAdded", notes: notes.map(({ note }) => ({ note })), frames: frames.map(({ frame }) => ({ frame })), refused: [] },
+      ws,
+    );
   }
 
   /**
@@ -754,9 +848,11 @@ export class Room extends DurableObject<Env> {
   }
 }
 
-/** Entries a message spends from BATCH_LIMITS: batch ops, restack ids, and the notes a final frame move carries. */
+/** Entries a message spends from BATCH_LIMITS: batch ops, restack ids, the notes a final frame move carries, and added items. */
 export function entriesOf(message: ClientMessage): number {
   switch (message.type) {
+    case "itemsAdd":
+      return (message.notes?.length ?? 0) + (message.frames?.length ?? 0);
     case "noteBatch":
       return message.ops.length;
     case "notesOrder":
