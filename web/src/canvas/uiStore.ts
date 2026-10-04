@@ -41,6 +41,8 @@ interface BoardUi {
   inlineEdit: { id: string; part: InlinePart; n: number } | null;
   /** Phones: the add drawer (palette tiles) is open. */
   addSheetOpen: boolean;
+  /** Arrange > Grid's column count; null = automatic (arrange.ts autoColumns). Kept for the session, across rooms. */
+  gridColumns: number | null;
   setTool(tool: Mode): void;
   setColor(color: NoteColor): void;
   setMinimap(shown: boolean): void;
@@ -67,6 +69,7 @@ interface BoardUi {
   startInlineEdit(id: string, part: InlinePart): void;
   endInlineEdit(): void;
   setAddSheetOpen(open: boolean): void;
+  setGridColumns(columns: number | null): void;
   /** Leaving a room: nothing selected or pending. */
   resetRoom(): void;
 }
@@ -81,6 +84,7 @@ export const useBoardUi = create<BoardUi>()((set, get) => ({
   editRequest: null,
   inlineEdit: null,
   addSheetOpen: false,
+  gridColumns: null,
   setTool: (tool) => set({ tool }),
   setColor: (color) => set({ color }),
   setMinimap: (minimap) => set({ minimap }),
@@ -129,5 +133,6 @@ export const useBoardUi = create<BoardUi>()((set, get) => ({
     if (get().inlineEdit) set({ inlineEdit: null });
   },
   setAddSheetOpen: (addSheetOpen) => set({ addSheetOpen }),
+  setGridColumns: (gridColumns) => set({ gridColumns }),
   resetRoom: () => set({ selection: EMPTY_SELECTION, frameSelected: null, frameEditRequest: null, editRequest: null, inlineEdit: null, addSheetOpen: false }),
 }));

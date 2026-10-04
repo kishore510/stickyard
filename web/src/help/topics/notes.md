@@ -2,7 +2,7 @@
 title: Notes
 order: 3
 summary: Add notes from the palette, edit, colour, style and resize them in Properties, bring them to the front or send them to the back, group them in frames, start from a template, select several to move, arrange or delete together; pan, zoom and fit the board.
-keywords: tick, outline, template, templates, retro, retrospective, start stop continue, 2x2, matrix, impact, effort, sprint, planning, kanban, frame, frames, area, section, title, carry, front, back, order, stack, overlap, behind, top, bottom, inline, place, double-click, marquee, multi, several, many, group, arrange, align, distribute, match, right-click, middle, note, notes, sticky, board, add, edit, move, drag, delete, colour, color, text, title, body, size, width, height, bigger, smaller, handle, corner, font, bold, italic, align, alignment, left, centre, center, right, style, palette, tile, properties, panel, select, selection, collapse, resize, pan, hand, zoom, pinch, wheel, fit, overview, map, shortcut, full, saved
+keywords: tick, outline, template, templates, retro, retrospective, start stop continue, 2x2, matrix, impact, effort, sprint, planning, kanban, frame, frames, area, section, title, carry, front, back, order, stack, overlap, behind, top, bottom, inline, place, double-click, marquee, multi, several, many, group, arrange, align, distribute, grid, columns, rows, tidy, layout, match, right-click, middle, note, notes, sticky, board, add, edit, move, drag, delete, colour, color, text, title, body, size, width, height, bigger, smaller, handle, corner, font, bold, italic, align, alignment, left, centre, center, right, style, palette, tile, properties, panel, select, selection, collapse, resize, pan, hand, zoom, pinch, wheel, fit, overview, map, shortcut, full, saved
 ---
 Every session has one shared **board**. Everyone in the session sees the same notes, and changes show up for everyone as they happen. The board fills the screen; its edge is the outline around the dotted area, and notes always stay inside it.
 
@@ -40,6 +40,7 @@ With two or more notes selected (and **Select** on), a bar appears at the top of
 
 - **Align**: line them up on their left edges, centres or right edges, or their top edges, middles or bottom edges.
 - **Distribute**: space three or more evenly across or down, with equal gaps between them. The outermost two stay where they are.
+- **Grid** (under **Arrange**): lay them out in tidy rows and columns, in reading order (top row first, left to right). Each column is as wide as its widest note and each row as tall as its tallest, with an equal gap; sizes don't change. The grid starts at the top-left of the selection. **Columns** sets how many columns (**Auto** picks a count from the selection's shape); your choice is kept until you close the page. If the grid wouldn't fit on the board, nothing moves and the board says why. Grid doesn't fit notes inside a frame.
 - **Match size**: give them the width, height, or both, of the first selected note (within the usual 96 to 480).
 - Notes always stay on the board. Everyone sees the change at once.
 
