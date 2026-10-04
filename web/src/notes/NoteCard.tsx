@@ -1,6 +1,7 @@
 import { createContext, memo, useContext, useEffect, useRef, type KeyboardEvent, type PointerEvent } from "react";
 import { useBoardUi } from "../canvas/uiStore";
 import { NodeResizer, type NodeProps } from "@xyflow/react";
+import { Check } from "lucide-react";
 import { NOTE_MAX_H, NOTE_MAX_W, NOTE_MIN_H, NOTE_MIN_W, type NoteRect } from "@stickyard/shared";
 import type { NoteFlowNode } from "../canvas/nodes";
 import { noteClick } from "../canvas/pointer";
@@ -212,7 +213,7 @@ export function NoteCard({ entry, editable, selected }: { entry: BoardNote; edit
         editable ? "cursor-grab" : "cursor-default",
         dragging && "cursor-grabbing shadow-lg",
         pending && "border-dashed opacity-75",
-        selected && "ring-2 ring-accent ring-offset-2 ring-offset-board",
+        selected && "sy-selected",
         // Editing in place: a focus ring, a text cursor, and React Flow leaves it alone (no drag).
         editing && "nodrag cursor-text ring-4 ring-focus ring-offset-2 ring-offset-board",
       )}
@@ -260,6 +261,7 @@ const rectOf = (p: { x: number; y: number; width: number; height: number }): Not
  */
 export const NoteNode = memo(function NoteNode({ id, data }: NodeProps<NoteFlowNode>) {
   const actions = useContext(NoteActionsContext);
+  const several = useBoardUi((s) => s.selection.size > 1);
   return (
     <>
       <NodeResizer
@@ -275,6 +277,11 @@ export const NoteNode = memo(function NoteNode({ id, data }: NodeProps<NoteFlowN
         onResizeEnd={(_, p) => actions?.resizeNote(id, rectOf(p), true)}
       />
       <NoteCard entry={data.entry} editable={data.editable} selected={data.selected} />
+      {data.selected && several && (
+        <span data-select-badge aria-hidden="true" className="sy-select-badge">
+          <Check strokeWidth={3} />
+        </span>
+      )}
     </>
   );
 });

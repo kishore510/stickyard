@@ -139,6 +139,42 @@
   transition: none;
 }
 
+/* Selection: an outline (not a ring, so it shows alongside the inline-editing ring), a check
+   badge on each note when several are selected (selection isn't shown by colour alone), and a
+   dashed box round them all. */
+.sy-selected {
+  outline: var(--sy-select-width) solid var(--sy-accent);
+  outline-offset: var(--sy-select-offset);
+}
+
+.sy-select-badge {
+  position: absolute;
+  top: calc(var(--sy-select-badge) / -2);
+  right: calc(var(--sy-select-badge) / -2);
+  z-index: 3;
+  display: grid;
+  place-items: center;
+  width: var(--sy-select-badge);
+  height: var(--sy-select-badge);
+  border-radius: 9999px;
+  background: var(--sy-accent);
+  color: var(--sy-accent-fg);
+  box-shadow: 0 0 0 var(--sy-focus-width) var(--sy-board);
+  pointer-events: none;
+}
+
+.sy-select-badge svg {
+  width: var(--sy-icon-sm);
+  height: var(--sy-icon-sm);
+}
+
+.sy-selection-box {
+  position: absolute;
+  border: var(--sy-focus-width) dashed var(--sy-accent);
+  border-radius: var(--sy-radius-md);
+  pointer-events: none;
+}
+
 /* Resize handles (after Chalkline's): a small visible square in token colours, with a hit area
    around it that is a full touch target on touch screens. Corner handles only; the edge lines
    resize one side. */

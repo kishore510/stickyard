@@ -1,4 +1,4 @@
-import { MiniMap, ReactFlow, useStore } from "@xyflow/react";
+import { MiniMap, ReactFlow, ViewportPortal, useStore } from "@xyflow/react";
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { BOARD_HEIGHT, BOARD_WIDTH, type NoteRect } from "@stickyard/shared";
 import { readPxToken } from "../lib/cssVar";
@@ -13,10 +13,10 @@ import { confirmDelete, confirmDeleteNotes } from "../notes/label";
 import { DEFAULT_NOTE_SIZE, noteSize } from "../notes/size";
 import { NoteActionsContext, NoteHelpContext, NoteNode, type EditorRequest, type NoteActions } from "../notes/NoteCard";
 import { groupOffset } from "./arrange";
-import { MAX_ZOOM, MIN_ZOOM, WHEEL_BEHAVIOUR, dragThreshold, panExtent } from "./geometry";
+import { MAX_ZOOM, MIN_ZOOM, WHEEL_BEHAVIOUR, dragThreshold, notesBounds, panExtent } from "./geometry";
 import { FLOW_STACKING, createDragHandlers, createNoteNodeMapper, type CanvasNode } from "./nodes";
 import { framedNotes } from "../frames/board";
-import { deleteKeyTarget, inField } from "./deleteKey";
+import { deleteKeyTarget, inField, onBoard } from "./deleteKey";
 import { dragSelection } from "./pointer";
 import { orderedIds } from "./selection";
 import { useBoardUi } from "./uiStore";
@@ -129,6 +129,11 @@ export function BoardCanvas({
   useEffect(() => () => clearTimeout(keyCommit.current), []);
 
   const map = useMemo(createNoteNodeMapper, []);
+  // Several notes selected: a dashed box round them (board units; it follows a group drag).
+  const selectionBox = useMemo(
+    () => (selection.size > 1 ? notesBounds([...selection].flatMap((id) => findNote(room.board, id)?.note ?? [])) : null),
+    [selection, room.board],
+  );
   const nodes = useMemo(
     () => map(room.board, editable, !panOnly, selection, { selected: frameSelected, wide: multiSelect }),
     [map, room.board, editable, panOnly, selection, frameSelected, multiSelect],
@@ -290,6 +295,12 @@ export function BoardCanvas({
         modal: document.querySelector('[aria-modal="true"]') !== null,
         board: sectionRef.current,
       });
+      // Enter on a selected frame (nothing else focused) edits its title.
+      if (e.key === "Enter" && multi.current && ui.frameSelected !== null && !ownsSpace(e.target) && onBoard(e.target, sectionRef.current)) {
+        e.preventDefault();
+        ui.requestFrameEdit(ui.frameSelected);
+        return;
+      }
       // Delete with the selection but no note focused (after Ctrl+A or a marquee): delete the selection.
       if (target === "notes") {
         e.preventDefault();
@@ -392,6 +403,21 @@ export function BoardCanvas({
             attributionPosition="top-right"
             aria-label="Board canvas"
           >
+            {selectionBox && (
+              <ViewportPortal>
+                <div
+                  data-selection-box
+                  aria-hidden="true"
+                  className="sy-selection-box"
+                  style={{
+                    left: `calc(${selectionBox.x}px - var(--sy-selection-pad))`,
+                    top: `calc(${selectionBox.y}px - var(--sy-selection-pad))`,
+                    width: `calc(${selectionBox.width}px + 2 * var(--sy-selection-pad))`,
+                    height: `calc(${selectionBox.height}px + 2 * var(--sy-selection-pad))`,
+                  }}
+                />
+              </ViewportPortal>
+            )}
             {minimap && (
               <MiniMap<CanvasNode>
                 className={cn("sy-minimap", minimapLifted && "sy-minimap-lifted")}

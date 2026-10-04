@@ -1,4 +1,4 @@
-import { createContext, memo, useContext, useEffect, useRef, type KeyboardEvent } from "react";
+import { createContext, memo, useContext, useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { NodeResizer, type NodeProps } from "@xyflow/react";
 import { GripHorizontal } from "lucide-react";
 import { FRAME_MAX_H, FRAME_MAX_W, FRAME_MIN_H, FRAME_MIN_W, MAX_FRAME_TITLE, type NoteRect } from "@stickyard/shared";
@@ -59,8 +59,17 @@ export const FrameNode = memo(function FrameNode({ id, data }: NodeProps<FrameFl
     if (!isLocalId(id)) useBoardUi.setState({ frameEditRequest: null });
   }, [request, editable, id]);
 
+  // The title takes presses only while it's being edited: a click on it selects the frame (so
+  // Delete deletes it) and drags with the header; double-click (or Enter, or Tab) edits it.
+  const [titleFocused, setTitleFocused] = useState(false);
   const select = () => {
     if (editable) actions?.selectFrame(id);
+  };
+  const editTitle = () => {
+    const el = input.current;
+    if (!editable || !el) return;
+    el.focus();
+    el.setSelectionRange(el.value.length, el.value.length);
   };
   const onKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
     e.stopPropagation();
@@ -93,7 +102,7 @@ export const FrameNode = memo(function FrameNode({ id, data }: NodeProps<FrameFl
         className={cn(
           "relative size-full rounded-lg border-2",
           entry.confirmed === null && "border-dashed opacity-75",
-          selected && "ring-2 ring-accent ring-offset-2 ring-offset-board",
+          selected && "sy-selected",
         )}
         style={frameRootStyle(frame)}
       >
@@ -102,6 +111,7 @@ export const FrameNode = memo(function FrameNode({ id, data }: NodeProps<FrameFl
           className={cn("flex h-frame-header items-center gap-xs rounded-t-md px-sm", handle)}
           style={frameHeaderStyle(frame)}
           onClick={select}
+          onDoubleClick={editTitle}
         >
           {editable && <GripHorizontal aria-hidden="true" className="size-icon-sm shrink-0 opacity-60" />}
           {editable ? (
@@ -113,12 +123,20 @@ export const FrameNode = memo(function FrameNode({ id, data }: NodeProps<FrameFl
               autoComplete="off"
               maxLength={MAX_FRAME_TITLE * 2}
               value={entry.draft ?? frame.title}
-              onFocus={select}
+              data-editing={titleFocused || undefined}
+              onFocus={() => {
+                setTitleFocused(true);
+                select();
+              }}
               onChange={(e) => actions?.setDraft(id, e.target.value)}
               onKeyDown={onKeyDown}
-              onBlur={() => actions?.commitTitle(id)}
+              onBlur={() => {
+                setTitleFocused(false);
+                actions?.commitTitle(id);
+              }}
               className={cn(
                 "nodrag nopan min-w-0 flex-1 cursor-text rounded-sm bg-transparent text-inherit placeholder:text-inherit placeholder:opacity-60",
+                !titleFocused && "pointer-events-none",
                 frameTitleClasses(frame),
               )}
             />
