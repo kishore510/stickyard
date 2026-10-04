@@ -18,8 +18,10 @@ import { NOTE_Z_LIMIT, ORDER_ACTIONS } from "./stack";
  *   final frameMove may carry notes; joining sends snapshot (notes, unchanged) then framesSnapshot.
  * v10 (slice frame title styling): frames carry titleFontSize, titleBold, titleItalic,
  *   titleTextColor and titleAlign (the note key sets), also optional frameEdit fields.
+ * v11 (slice create with content): itemsAdd (notes and frames with their full content in one
+ *   message) and itemsAdded; errors may carry `refused` (which items, and why).
  */
-export const PROTOCOL_VERSION = 10;
+export const PROTOCOL_VERSION = 11;
 
 /**
  * Hard cap on a single client-to-server WebSocket message, in UTF-8 bytes. Checked before JSON.parse.
@@ -293,22 +295,31 @@ type NoteStyleField = Exclude<(typeof NOTE_EDIT_FIELDS)[number], "text">;
 /** The style fields (colour, and each part's text style): every noteEdit field but text. */
 export const NOTE_STYLE_FIELDS: readonly NoteStyleField[] = NOTE_EDIT_FIELDS.filter((f): f is NoteStyleField => f !== "text");
 
+/**
+ * Each note style field's inbound schema: keys only, never CSS. The one list noteEdit (all
+ * optional) and itemsAdd's note entries (all required) are built from; the type check keeps it
+ * in step with NOTE_STYLE_FIELDS.
+ */
+const noteStyleShape = {
+  color: noteColorSchema,
+  fontSize: noteFontSizeSchema,
+  bold: z.boolean(),
+  italic: z.boolean(),
+  textColor: noteTextColorSchema,
+  align: noteAlignSchema,
+  titleAlign: noteAlignSchema,
+  titleFontSize: noteFontSizeSchema,
+  titleBold: z.boolean(),
+  titleItalic: z.boolean(),
+  titleTextColor: noteTextColorSchema,
+} satisfies Record<NoteStyleField, z.ZodType>;
+
 export const noteEditSchema = z
   .strictObject({
     type: z.literal("noteEdit"),
     id: noteIdSchema,
     text: noteTextIn.optional(),
-    color: noteColorSchema.optional(),
-    fontSize: noteFontSizeSchema.optional(),
-    bold: z.boolean().optional(),
-    italic: z.boolean().optional(),
-    textColor: noteTextColorSchema.optional(),
-    align: noteAlignSchema.optional(),
-    titleAlign: noteAlignSchema.optional(),
-    titleFontSize: noteFontSizeSchema.optional(),
-    titleBold: z.boolean().optional(),
-    titleItalic: z.boolean().optional(),
-    titleTextColor: noteTextColorSchema.optional(),
+    ...z.object(noteStyleShape).partial().shape,
   })
   .refine((edit) => NOTE_EDIT_FIELDS.some((field) => edit[field] !== undefined), { message: "Nothing to change." });
 
@@ -462,17 +473,22 @@ export const frameAddSchema = z.strictObject({
   title: frameTitleIn,
 });
 
+/** A frame title's style fields: the note title's schemas (the same key sets), for frameEdit and itemsAdd. */
+const frameStyleShape = {
+  titleFontSize: noteStyleShape.titleFontSize,
+  titleBold: noteStyleShape.titleBold,
+  titleItalic: noteStyleShape.titleItalic,
+  titleTextColor: noteStyleShape.titleTextColor,
+  titleAlign: noteStyleShape.titleAlign,
+} satisfies Record<(typeof FRAME_STYLE_FIELDS)[number], z.ZodType>;
+
 export const frameEditSchema = z
   .strictObject({
     type: z.literal("frameEdit"),
     id: frameIdSchema,
     title: frameTitleIn.optional(),
     color: frameColorSchema.optional(),
-    titleFontSize: noteFontSizeSchema.optional(),
-    titleBold: z.boolean().optional(),
-    titleItalic: z.boolean().optional(),
-    titleTextColor: noteTextColorSchema.optional(),
-    titleAlign: noteAlignSchema.optional(),
+    ...z.object(frameStyleShape).partial().shape,
   })
   .refine((edit) => FRAME_EDIT_FIELDS.some((field) => edit[field] !== undefined), { message: "Nothing to change." });
 
@@ -510,6 +526,105 @@ export const frameDeleteSchema = z.strictObject({
   id: frameIdSchema,
 });
 
+
+/* ── Create with content (v11) ──────────────────────────────────────── */
+
+/**
+ * An item's ref: the sender's name for one entry of an itemsAdd, unique within the message (the
+ * web uses a random one per item, unique in its visit). Echoed only to the sender.
+ */
+export const itemRefSchema = clientRefSchema;
+
+/** A note with its full content. No id, rev, z or author: the server assigns them. Clamped and cleaned by the server. */
+export const noteItemSchema = z.strictObject({
+  ref: itemRefSchema,
+  x: boardX,
+  y: boardY,
+  w: noteW,
+  h: noteH,
+  text: noteTextIn,
+  ...noteStyleShape,
+});
+export type NoteItem = z.infer<typeof noteItemSchema>;
+
+/** A frame with its full content (size, title, colour, title style). No id, rev or author. */
+export const frameItemSchema = z.strictObject({
+  ref: itemRefSchema,
+  x: boardX,
+  y: boardY,
+  w: frameW,
+  h: frameH,
+  title: frameTitleIn,
+  color: frameColorSchema,
+  ...frameStyleShape,
+});
+export type FrameItem = z.infer<typeof frameItemSchema>;
+
+export const ITEM_KINDS = ["note", "frame"] as const;
+export type ItemKind = (typeof ITEM_KINDS)[number];
+/** Why one item was refused: it didn't validate (or clean), or the room has its notes or frames already. */
+export const ITEM_REFUSALS = ["invalid", "notes_full", "frames_full"] as const;
+export type ItemRefusalReason = (typeof ITEM_REFUSALS)[number];
+
+const itemCount = (m: { notes?: readonly unknown[] | undefined; frames?: readonly unknown[] | undefined }) => (m.notes?.length ?? 0) + (m.frames?.length ?? 0);
+
+/**
+ * Notes and frames with their content, in one message (duplicate, undo and templates). The
+ * envelope is strict; entries are checked one by one (checkItems), so the good ones are added and
+ * the bad ones named back. 1 to MAX_BATCH_ENTRIES items in total, and the whole message must fit
+ * MAX_MESSAGE_BYTES (the web packs by size). Notes' array order is their stacking order (last on
+ * top). Send entries typed as NoteItem and FrameItem.
+ */
+export const itemsAddSchema = z
+  .strictObject({
+    type: z.literal("itemsAdd"),
+    clientRef: clientRefSchema,
+    notes: z.array(z.unknown()).max(MAX_BATCH_ENTRIES).optional(),
+    frames: z.array(z.unknown()).max(MAX_BATCH_ENTRIES).optional(),
+  })
+  .refine((m) => itemCount(m) >= 1 && itemCount(m) <= MAX_BATCH_ENTRIES, { message: "1 to 50 items." });
+
+/** One refused item: which list (`kind`), its index there, its ref when readable, and why. */
+export const itemRefusalSchema = z.strictObject({
+  kind: z.enum(ITEM_KINDS),
+  index: z.number().int().min(0).max(MAX_BATCH_ENTRIES - 1),
+  ref: itemRefSchema.optional(),
+  reason: z.enum(ITEM_REFUSALS),
+});
+export type ItemRefusal = z.infer<typeof itemRefusalSchema>;
+
+export interface ItemsCheck {
+  notes: { index: number; entry: NoteItem }[];
+  frames: { index: number; entry: FrameItem }[];
+  /** Entries that didn't validate, in order (notes first). */
+  invalid: ItemRefusal[];
+  /** Some ref appears twice (across both lists): the whole message is refused. */
+  duplicate: boolean;
+}
+
+const readableRef = (entry: unknown): string | undefined => {
+  if (typeof entry !== "object" || entry === null || !("ref" in entry)) return undefined;
+  const parsed = itemRefSchema.safeParse(entry.ref);
+  return parsed.success ? parsed.data : undefined;
+};
+
+/** Checks each entry of an itemsAdd. A message that uses any ref twice is refused whole. */
+export function checkItems(notes: readonly unknown[] = [], frames: readonly unknown[] = []): ItemsCheck {
+  const refs = [...notes, ...frames].map(readableRef).filter((r): r is string => r !== undefined);
+  const result: ItemsCheck = { notes: [], frames: [], invalid: [], duplicate: new Set(refs).size !== refs.length };
+  if (result.duplicate) return result;
+  const check = <T>(kind: ItemKind, entries: readonly unknown[], schema: z.ZodType<T>, valid: { index: number; entry: T }[]) =>
+    entries.forEach((entry, index) => {
+      const parsed = schema.safeParse(entry);
+      if (parsed.success) return valid.push({ index, entry: parsed.data });
+      const ref = readableRef(entry);
+      result.invalid.push({ kind, index, ...(ref !== undefined ? { ref } : {}), reason: "invalid" });
+    });
+  check("note", notes, noteItemSchema, result.notes);
+  check("frame", frames, frameItemSchema, result.frames);
+  return result;
+}
+
 export const clientMessageSchema = z.discriminatedUnion("type", [
   helloSchema,
   joinSchema,
@@ -526,6 +641,7 @@ export const clientMessageSchema = z.discriminatedUnion("type", [
   frameMoveSchema,
   frameResizeSchema,
   frameDeleteSchema,
+  itemsAddSchema,
 ]);
 export type ClientMessage = z.infer<typeof clientMessageSchema>;
 
@@ -573,6 +689,8 @@ export const errorMessageSchema = z.object({
   noteIds: z.array(noteIdSchema).max(MAX_BATCH_ENTRIES).optional(),
   /** The frame a refused frame edit, move, resize or delete was about. */
   frameId: frameIdSchema.optional(),
+  /** An itemsAdd where nothing was added (its `clientRef` names it): each refused item and why. */
+  refused: z.array(itemRefusalSchema).max(MAX_BATCH_ENTRIES).optional(),
 });
 
 /** The whole note on the board at its size. */
@@ -790,6 +908,22 @@ export const frameDeletedSchema = z.object({
   id: frameIdSchema,
 });
 
+/**
+ * Items added by one itemsAdd, in one message (one view update). Notes in their stacking order
+ * (bottom first); any renumbering at the bound was sent before it as notesOrdered. To everyone;
+ * `clientRef`, each `ref` and `refused` (items that weren't added) only mean something to the
+ * sender, so the others' copies have no refs and an empty `refused`. Never sent with nothing added.
+ */
+export const itemsAddedSchema = z
+  .object({
+    type: z.literal("itemsAdded"),
+    clientRef: clientRefSchema.optional(),
+    notes: z.array(z.object({ ref: itemRefSchema.optional(), note: noteSchema })).max(MAX_BATCH_ENTRIES),
+    frames: z.array(z.object({ ref: itemRefSchema.optional(), frame: frameSchema })).max(MAX_BATCH_ENTRIES),
+    refused: z.array(itemRefusalSchema).max(MAX_BATCH_ENTRIES),
+  })
+  .refine((m) => itemCount(m) >= 1 && itemCount(m) + m.refused.length <= MAX_BATCH_ENTRIES);
+
 export const serverMessageSchema = z.discriminatedUnion("type", [
   welcomeSchema,
   errorMessageSchema,
@@ -811,5 +945,6 @@ export const serverMessageSchema = z.discriminatedUnion("type", [
   frameMovedSchema,
   frameResizedSchema,
   frameDeletedSchema,
+  itemsAddedSchema,
 ]);
 export type ServerMessage = z.infer<typeof serverMessageSchema>;

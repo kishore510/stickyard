@@ -25,7 +25,7 @@ import type { SocketFactory, SocketHandlers } from "../src/connection/socket";
 import { findFrame } from "../src/frames/board";
 import { findNote } from "../src/notes/board";
 import { PALETTE_CATEGORIES, paletteSections } from "../src/palette/registry";
-import { NOTICES, RoomSession, TEMPLATE_MESSAGES_PER_SECOND, TEMPLATE_STEP_MS, type RoomView } from "../src/rooms/session";
+import { ITEMS_STEP_MS, NOTICES, RoomSession, type RoomView } from "../src/rooms/session";
 import { clampTemplateOrigin, placeTemplate, templateBounds, templateOrigin } from "../src/templates/place";
 import { TEMPLATES, type Template } from "../src/templates/registry";
 
@@ -182,30 +182,18 @@ function session({ frames = [] as Frame[], notes = [] as Note[] } = {}) {
   /** Messages the template sent (after joining). */
   const out = () => sock().sent.slice(start);
   const types = () => out().map((m) => m.message.type);
-  /** Confirms every frameAdd sent so far that isn't confirmed yet, as server ids 100, 101, ... */
+  /** Confirms every itemsAdd sent so far that isn't answered yet: each frame gets server id 100, 101, ... */
   let next = 100;
-  const confirmed = new Set<string>();
+  const answered = new Set<string>();
   const confirmAdds = () => {
     for (const { message } of out()) {
-      if (message.type !== "frameAdd" || confirmed.has(message.clientRef as string)) continue;
-      confirmed.add(message.clientRef as string);
-      const id = frameId(next++);
-      sock().receive({
-        type: "frameAdded",
-        frame: frame(Number(id.slice(5)), { x: message.x as number, y: message.y as number, title: message.title as string, color: message.color as Frame["color"] }),
-        clientRef: message.clientRef,
-      });
+      if (message.type !== "itemsAdd" || answered.has(message.clientRef as string)) continue;
+      answered.add(message.clientRef as string);
+      const frames = (message.frames as (Omit<Frame, "id" | "rev" | "authorId"> & { ref: string })[]).map(({ ref, ...f }) => ({ ref, frame: frame(next++, f) }));
+      sock().receive({ type: "itemsAdded", clientRef: message.clientRef, notes: [], frames, refused: [] });
     }
   };
   return { session: s, sock, view, out, types, confirmAdds };
-}
-
-/** Runs the template to the end: confirms adds as they're sent, step by step. */
-async function runAll(t: ReturnType<typeof session>) {
-  for (let i = 0; i < 40; i++) {
-    t.confirmAdds();
-    await vi.advanceTimersByTimeAsync(TEMPLATE_STEP_MS);
-  }
 }
 
 beforeEach(() => vi.useFakeTimers());
@@ -215,44 +203,40 @@ describe("session: applying a template", () => {
   const retro = byId("retro");
   const plan = placeTemplate(retro, { x: 200, y: 200 });
 
-  it("adds each frame (position, colour, title), and only after the server confirms it, one resize and one style edit", async () => {
+  it("sends every frame with its place, size, title, colour and title style in one itemsAdd: no resizes, no edits, no settling", async () => {
     const t = session();
     expect(t.session.applyTemplate(plan)).toBe(true);
     expect(t.view().template).toMatchObject({ state: "applying" });
-    // Nothing but adds until a confirmation arrives.
-    await vi.advanceTimersByTimeAsync(TEMPLATE_STEP_MS * 10);
-    expect(t.types()).toEqual(["frameAdd", "frameAdd", "frameAdd"]);
-    expect(t.out().map((m) => m.message)).toEqual(
-      plan.map((f) => ({ type: "frameAdd", clientRef: expect.any(String), x: expect.any(Number), y: f.y, color: f.color, title: f.title })),
+    expect(t.types()).toEqual(["itemsAdd"]);
+    const sent = t.out()[0]!.message;
+    expect(sent.notes).toBeUndefined();
+    expect(sent.frames).toEqual(plan.map((f) => ({ ref: expect.any(String), x: f.x, y: f.y, w: f.w, h: f.h, title: f.title, color: f.color, ...f.style })));
+    // Shown at once, at full size and style, before the relay answers.
+    expect(t.view().board.frames.map((f) => ({ ...f.frame, id: "", authorId: "" }))).toEqual(
+      plan.map((f) => ({ id: "", x: f.x, y: f.y, w: f.w, h: f.h, title: f.title, color: f.color, ...f.style, rev: 1, authorId: "" })),
     );
-    await runAll(t);
-    expect(t.types()).toEqual(["frameAdd", "frameAdd", "frameAdd", "frameResize", "frameEdit", "frameResize", "frameEdit", "frameResize", "frameEdit"]);
-    const resizes = t.out().filter((m) => m.message.type === "frameResize").map((m) => m.message);
-    expect(resizes).toEqual(plan.map((f, i) => ({ type: "frameResize", id: frameId(100 + i), x: f.x, y: f.y, w: f.w, h: f.h, final: true })));
-    const edits = t.out().filter((m) => m.message.type === "frameEdit").map((m) => m.message);
-    expect(edits[0]).toEqual({ type: "frameEdit", id: frameId(100), titleFontSize: retro.frames[0]!.style.titleFontSize, titleAlign: "center" });
+    t.confirmAdds();
     expect(t.view().template).toMatchObject({ state: "done", frameIds: [frameId(100), frameId(101), frameId(102)] });
+    await vi.advanceTimersByTimeAsync(ITEMS_STEP_MS * 30);
+    expect(t.types()).toEqual(["itemsAdd"]);
     for (const [i, f] of plan.entries()) expect(findFrame(t.view().board, frameId(100 + i))?.frame).toMatchObject({ x: f.x, y: f.y, w: f.w, h: f.h, title: f.title, ...f.style });
   });
 
-  it(`pacing: never more than ${TEMPLATE_MESSAGES_PER_SECOND} template messages in any second, well under the relay's 30 a second`, async () => {
-    expect(TEMPLATE_MESSAGES_PER_SECOND).toBeLessThanOrEqual(10);
-    expect(TEMPLATE_STEP_MS).toBe(1000 / TEMPLATE_MESSAGES_PER_SECOND);
-    const t = session();
-    t.session.applyTemplate(placeTemplate(byId("sprint-planning"), { x: 0, y: 0 }));
-    await runAll(t);
-    const times = t.out().map((m) => m.at);
-    expect(times).toHaveLength(12);
-    for (const at of times) expect(times.filter((x) => x >= at && x < at + 1000).length).toBeLessThanOrEqual(TEMPLATE_MESSAGES_PER_SECOND);
+  it("every template fits in one message", () => {
+    for (const template of TEMPLATES) {
+      const t = session();
+      t.session.applyTemplate(placeTemplate(template, { x: 0, y: 0 }));
+      expect(t.types(), template.label).toEqual(["itemsAdd"]);
+    }
   });
 
   it("never moves, resizes or deletes existing frames and notes", async () => {
     const existing = frame(1, { x: 300, y: 300, title: "Mine" });
     const t = session({ frames: [existing], notes: [note(0, 400, 400)] });
     t.session.applyTemplate(plan);
-    await runAll(t);
-    const touched = t.out().map((m) => m.message).filter((m) => m.id === existing.id || m.id === noteId(0) || m.type === "noteBatch" || m.type === "noteMove");
-    expect(touched).toEqual([]);
+    t.confirmAdds();
+    await vi.advanceTimersByTimeAsync(ITEMS_STEP_MS * 10);
+    expect(t.types()).toEqual(["itemsAdd"]);
     expect(findFrame(t.view().board, existing.id)?.frame).toEqual(existing);
     expect(findNote(t.view().board, noteId(0))?.note).toMatchObject({ x: 400, y: 400 });
   });
@@ -266,67 +250,60 @@ describe("session: applying a template", () => {
     expect(t.view().template).toBeNull();
   });
 
-  it("a refusal part-way: one notice, frames already made stay, the rest isn't sent, no retry", async () => {
+  it("a refusal part-way (someone else filled the board): one notice, the frames made stay, the refused ones go, no retry", async () => {
     const t = session();
     t.session.applyTemplate(plan);
-    await vi.advanceTimersByTimeAsync(TEMPLATE_STEP_MS * 3);
-    const adds = t.out().map((m) => m.message);
-    // The first is confirmed; the second is refused (someone else filled the board meanwhile).
-    t.sock().receive({ type: "frameAdded", frame: frame(100, { x: adds[0]!.x as number, y: adds[0]!.y as number, title: adds[0]!.title as string, color: adds[0]!.color as Frame["color"] }), clientRef: adds[0]!.clientRef });
-    t.sock().receive({ type: "error", code: "frames_full", message: "Full.", clientRef: adds[1]!.clientRef });
-    await vi.advanceTimersByTimeAsync(TEMPLATE_STEP_MS * 30);
+    const sent = t.out()[0]!.message;
+    const items = sent.frames as { ref: string }[];
+    const made = { ref: items[0]!.ref, frame: frame(100, { ...plan[0]!, ...plan[0]!.style }) };
+    t.sock().receive({
+      type: "itemsAdded",
+      clientRef: sent.clientRef,
+      notes: [],
+      frames: [made],
+      refused: [
+        { kind: "frame", index: 1, ref: items[1]!.ref, reason: "frames_full" },
+        { kind: "frame", index: 2, ref: items[2]!.ref, reason: "frames_full" },
+      ],
+    });
     expect(t.view().noteNotice).toBe(NOTICES.templatePartial);
-    expect(t.view().template).toMatchObject({ state: "partial" });
-    expect(findFrame(t.view().board, frameId(100))).toBeDefined();
-    const sentAfter = t.out().slice(3).map((m) => m.message.type);
-    expect(sentAfter).toEqual([]);
-    // The third add was already out: when it's confirmed it stays, and nothing more is sent.
-    t.sock().receive({ type: "frameAdded", frame: frame(102, { x: adds[2]!.x as number, y: adds[2]!.y as number, title: adds[2]!.title as string, color: adds[2]!.color as Frame["color"] }), clientRef: adds[2]!.clientRef });
-    await vi.advanceTimersByTimeAsync(TEMPLATE_STEP_MS * 30);
-    expect(findFrame(t.view().board, frameId(102))).toBeDefined();
-    expect(t.out().slice(3)).toEqual([]);
-    expect(t.view().noteNotice).toBe(NOTICES.templatePartial);
+    expect(t.view().template).toMatchObject({ state: "partial", frameIds: [frameId(100)] });
+    expect(t.view().board.frames.map((f) => f.frame.id)).toEqual([frameId(100)]);
+    await vi.advanceTimersByTimeAsync(ITEMS_STEP_MS * 30);
+    expect(t.types()).toEqual(["itemsAdd"]);
   });
 
-  it("a refused resize or edit also ends it as partly applied (frames stay)", async () => {
+  it("a whole refusal (rate limited) ends it as partly applied, with nothing made", () => {
     const t = session();
     t.session.applyTemplate(plan);
-    for (let i = 0; i < 5; i++) {
-      t.confirmAdds();
-      await vi.advanceTimersByTimeAsync(TEMPLATE_STEP_MS);
-    }
-    const resize = t.out().find((m) => m.message.type === "frameResize")?.message;
-    expect(resize).toBeDefined();
-    t.sock().receive({ type: "error", code: "rate_limited", message: "Slow down.", frameId: resize!.id });
-    const count = t.out().length;
-    await vi.advanceTimersByTimeAsync(TEMPLATE_STEP_MS * 30);
-    expect(t.out()).toHaveLength(count);
+    t.sock().receive({ type: "error", code: "rate_limited", message: "Slow down.", clientRef: t.out()[0]!.message.clientRef });
+    expect(t.view().template).toMatchObject({ state: "partial", frameIds: [] });
     expect(t.view().noteNotice).toBe(NOTICES.templatePartial);
-    expect(t.view().board.frames).toHaveLength(3);
+    expect(t.view().board.frames).toEqual([]);
   });
 
-  it("can't be applied twice at once", async () => {
+  it("can't be applied twice at once", () => {
     const t = session();
     expect(t.session.applyTemplate(plan)).toBe(true);
     expect(t.session.applyTemplate(plan)).toBe(false);
-    await runAll(t);
-    expect(t.out().filter((m) => m.message.type === "frameAdd")).toHaveLength(3);
+    t.confirmAdds();
+    expect(t.out().filter((m) => m.message.type === "itemsAdd")).toHaveLength(1);
     // Once it's done, another may be applied.
     expect(t.session.applyTemplate(placeTemplate(byId("start-stop-continue"), { x: 0, y: 1000 }))).toBe(true);
   });
 
-  it("is refused while disconnected; a disconnect part-way ends it as partly applied", async () => {
+  it("is refused while disconnected; a disconnect part-way ends it as partly applied, and the frames in flight stay shown", async () => {
     const t = session();
     t.sock().handlers.onClose();
     expect(t.session.applyTemplate(plan)).toBe(false);
     const u = session();
     u.session.applyTemplate(plan);
-    await vi.advanceTimersByTimeAsync(TEMPLATE_STEP_MS);
     u.sock().handlers.onClose();
     const count = u.out().length;
-    await vi.advanceTimersByTimeAsync(TEMPLATE_STEP_MS * 30);
+    await vi.advanceTimersByTimeAsync(ITEMS_STEP_MS * 30);
     expect(u.out()).toHaveLength(count);
-    expect(u.view().template).toMatchObject({ state: "partial" });
+    expect(u.view().template).toMatchObject({ state: "partial", frameIds: [] });
+    expect(u.view().board.frames).toHaveLength(3);
   });
 });
 

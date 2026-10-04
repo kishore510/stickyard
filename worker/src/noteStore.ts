@@ -241,9 +241,13 @@ export class NoteStore {
   }
 
   insert(note: Note): void {
+    this.writeInsert(note);
+    this.notes().set(note.id, note);
+  }
+
+  private writeInsert(note: Note): void {
     const row = values(note);
     this.write(`INSERT INTO notes (${COLUMNS}) VALUES (${row.map(() => "?").join(", ")})`, ...row);
-    this.notes().set(note.id, note);
   }
 
   /** Saves a changed note (everything but its id and author). Keeps its place in creation order. */
@@ -266,6 +270,25 @@ export class NoteStore {
     const cache = this.notes();
     for (const note of updates) cache.set(note.id, note);
     for (const id of deletes) cache.delete(id);
+  }
+
+  /**
+   * An itemsAdd: any renumbered notes (updates), then the new notes and frames, in one
+   * transaction. Each insert writes 2 rows (the row and its primary-key index entry), as insert
+   * and insertFrame do. Caches change once it has committed.
+   */
+  applyAdds(updates: readonly Note[], notes: readonly Note[], frames: readonly Frame[]): void {
+    if (updates.length === 0 && notes.length === 0 && frames.length === 0) return;
+    this.transact(() => {
+      for (const note of updates) this.writeUpdate(note);
+      for (const note of notes) this.writeInsert(note);
+      for (const frame of frames) this.writeFrameInsert(frame);
+    });
+    this.transactions += 1;
+    const cache = this.notes();
+    for (const note of [...updates, ...notes]) cache.set(note.id, note);
+    const frameCache = this.frames();
+    for (const frame of frames) frameCache.set(frame.id, frame);
   }
 
   private writeUpdate(note: Note): void {
@@ -322,9 +345,13 @@ export class NoteStore {
   }
 
   insertFrame(frame: Frame): void {
+    this.writeFrameInsert(frame);
+    this.frames().set(frame.id, frame);
+  }
+
+  private writeFrameInsert(frame: Frame): void {
     const row = frameValues(frame);
     this.write(`INSERT INTO frames (${FRAME_COLUMNS}) VALUES (${row.map(() => "?").join(", ")})`, ...row);
-    this.frames().set(frame.id, frame);
   }
 
   updateFrame(frame: Frame): void {

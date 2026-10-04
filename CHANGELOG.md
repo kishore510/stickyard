@@ -2,6 +2,12 @@
 
 All notable changes to Stickyard, newest first. The format follows Keep a Changelog. Versions are 0.x: a minor bump for each slice and a patch bump for each follow-up fix. This file is shown in the app under **What’s new**, so entries are written for the people using it.
 
+## [0.11.0] - 2026-10-04
+
+### Changed
+- Templates now appear all at once: every frame lands straight away at its size, with its title style, for you and everyone else in the room. Before, the frames went up one at a time and took about a second to settle.
+- This version changes how the app talks to the relay. If a page that was already open says to reload, reload it.
+
 ## [0.10.3] - 2026-10-04
 
 ### Added

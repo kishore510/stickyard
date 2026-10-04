@@ -8,6 +8,7 @@ import {
   type Frame,
   type FrameColor,
   type FrameEditField,
+  type FrameItem,
   type Note,
   type NoteRect,
 } from "@stickyard/shared";
@@ -167,7 +168,17 @@ export function addFrameLocal(board: Board, add: FrameDraft): Board {
     rev: 1,
     authorId: add.authorId,
   };
-  return { ...board, frames: [...board.frames, { frame, confirmed: null, clientRef: add.clientRef, draft: null, dragging: false, resizing: false }] };
+  return withPending(board, frame, add.clientRef);
+}
+
+/** A frame with its full content (an itemsAdd entry, title already cleaned), clamped as the server will; its ref stands in for a clientRef. */
+export function addFrameItemLocal(board: Board, item: FrameItem, authorId: string): Board {
+  const { ref, x, y, w, h, ...content } = item;
+  return withPending(board, { id: localId(ref), ...content, ...clampFrameRect({ x, y, w, h }), rev: 1, authorId }, ref);
+}
+
+function withPending(board: Board, frame: Frame, clientRef: string): Board {
+  return { ...board, frames: [...board.frames, { frame, confirmed: null, clientRef, draft: null, dragging: false, resizing: false }] };
 }
 
 /** What a frameEdit may change: title, colour and the title style. */

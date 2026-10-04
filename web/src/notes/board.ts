@@ -6,6 +6,7 @@ import {
   restack,
   type Note,
   type NoteColor,
+  type NoteItem,
   type NoteRect,
   type NoteStyle,
   type OrderAction,
@@ -221,15 +222,28 @@ export function addLocal(
     ...clampNotePosition(add.x, add.y),
     text: add.text,
     color: add.color,
-    // On top, as the server will put it (its z replaces this once confirmed).
-    z: Math.max(-1, ...board.notes.map((n) => n.note.z)) + 1,
+    z: topZ(board),
     rev: 1,
     authorId: add.authorId,
   };
-  return {
-    ...board,
-    notes: [...board.notes, { note, confirmed: null, clientRef: add.clientRef, draft: null, dragging: false, resizing: false }],
-  };
+  return withPending(board, note, add.clientRef);
+}
+
+/**
+ * A note with its full content (an itemsAdd entry, text already cleaned), shown at once, clamped
+ * as the server will. Its ref stands in for a clientRef until the server confirms it.
+ */
+export function addItemLocal(board: Board, item: NoteItem, authorId: string): Board {
+  const { ref, x, y, w, h, ...content } = item;
+  const note: Note = { id: localId(ref), ...content, ...clampNoteRect({ x, y, w, h }), z: topZ(board), rev: 1, authorId };
+  return withPending(board, note, ref);
+}
+
+/** On top, as the server will put a new note (its z replaces this once confirmed). */
+const topZ = (board: Board) => Math.max(-1, ...board.notes.map((n) => n.note.z)) + 1;
+
+function withPending(board: Board, note: Note, clientRef: string): Board {
+  return { ...board, notes: [...board.notes, { note, confirmed: null, clientRef, draft: null, dragging: false, resizing: false }] };
 }
 
 /** A committed edit: shown at once, and the draft is done. */

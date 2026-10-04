@@ -107,7 +107,7 @@ A template adds a ready-made set of frames, with their titles, colours and sizes
 - On a wider screen, find them under **Templates** in the palette (search finds them too, for example "retro" or "matrix"). Click a template to place it in the middle of the part of the board you can see, or drag it onto the board to centre it where you let go. It always lands fully on the board.
 - Nothing already on the board is moved, resized or deleted, so there's nothing to confirm. When it's done, the view fits the new frames and the first one is selected.
 - A template needs one free frame slot per frame (a board holds up to 30 frames). If there aren't enough, nothing is added and the board says how many it needs and how many are free.
-- The frames go up one at a time and take about a second to settle: others see each one appear, then take its size and title style. While a template is being added, the template tiles are off.
+- All of a template's frames appear at once, already at their sizes and with their title styles, for you and everyone else in the room. While a template is being added, the template tiles are off.
 - If the relay refuses part of a template (for example someone else filled the board's last frame slots at the same moment), the frames already added stay, and the board says the template was only partly added. Delete any you don't want.
 - Templates can't be added on a phone.
 

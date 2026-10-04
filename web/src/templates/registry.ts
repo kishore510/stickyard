@@ -3,8 +3,9 @@ import { FRAME_STYLE_FIELDS, type Frame, type FrameColor } from "@stickyard/shar
 /*
  * Templates: ready-made sets of frames, as plain data (trusted, written here). A new template is
  * one entry in TEMPLATES; its palette tile follows from it (palette/registry.ts). Applying one
- * goes through the normal frame path (RoomSession.applyTemplate): each frame is added, then
- * resized and styled once the relay confirms it, so titles are cleaned like any other.
+ * goes through RoomSession.applyTemplate, which sends every frame with its size, title and title
+ * style in one itemsAdd (protocol v11), so titles are cleaned like any other and the frames appear
+ * at once.
  *
  * Template units are board units, with the template's top-left at 0, 0. Every template fits on
  * the board, and every frame is within the frame size limits (test/templates.test.ts).

@@ -20,6 +20,11 @@ function byteLength(raw: string, cap: number): number {
   return bytes;
 }
 
+/** A string's length in UTF-8 bytes, as the relay's size cap counts it. */
+export function utf8Length(raw: string): number {
+  return byteLength(raw, Number.POSITIVE_INFINITY);
+}
+
 /**
  * Size-cap, JSON-parse and validate one inbound message. Never throws.
  * Binary frames are not part of the protocol and are rejected.
