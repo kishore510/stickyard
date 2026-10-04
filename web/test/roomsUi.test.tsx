@@ -12,6 +12,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 const CODE = `${"a".repeat(22)}.${"B".repeat(22)}`;
+/** A fake host token (43 base64url characters), never a real one. */
+const HOST_TOKEN = "fakeHostToken".padEnd(43, "x");
 const PASSCODE = "test-passcode-in-the-ui";
 const alex: Participant = { id: "AAAAAAAAAAAAAAAA", name: "Alex", colourIndex: 0, host: false };
 const sam: Participant = { id: "BBBBBBBBBBBBBBBB", name: "Sam", colourIndex: 9, host: false };
@@ -221,7 +223,7 @@ describe("home", () => {
 describe("start a session", () => {
   it("creates a room, goes to it, clears the passcode, and stores nothing", async () => {
     routes = (url, init) =>
-      url.endsWith("/rooms") && init?.method === "POST" ? jsonResponse(200, { code: CODE }) : healthy(url, init);
+      url.endsWith("/rooms") && init?.method === "POST" ? jsonResponse(200, { code: CODE, hostToken: HOST_TOKEN }) : healthy(url, init);
     const setItem = vi.spyOn(Storage.prototype, "setItem");
     await mount();
     const before = storageSnapshot();

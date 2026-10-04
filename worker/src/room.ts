@@ -11,7 +11,9 @@ import {
   MAX_PARTICIPANTS,
   NOTE_DEFAULTS,
   NOTE_EDIT_FIELDS,
+  BOARD_WRITES,
   PROTOCOL_VERSION,
+  ROOM_ENDED_CLOSE_CODE,
   ROOM_EXPIRED_CLOSE_CODE,
   clampFramePosition,
   clampFrameRect,
@@ -40,10 +42,13 @@ import {
   type Participant,
   type ServerMessage,
   type Stacked,
+  type TimerState,
 } from "@stickyard/shared";
 import { z } from "zod";
 import { randomBase64url } from "./crypto";
-import { EXPIRED_REASON, nextExpiryAlarm, readTombstone, writeTombstone } from "./expiry";
+import type { Secrets } from "./env";
+import { ENDED_REASON, EXPIRED_REASON, clearToTombstone, nextExpiryAlarm, readTombstone, writeTombstone, type Tombstone, type TombstoneKind } from "./expiry";
+import { verifyHostToken } from "./hostToken";
 import { BATCH_LIMITS, SOCKET_LIMITS } from "./limits";
 import { NoteStore } from "./noteStore";
 
@@ -51,11 +56,22 @@ import { NoteStore } from "./noteStore";
  * Per-socket state, kept in the WebSocket attachment so it survives hibernation.
  * Notes and frames live in the room's SQLite (see noteStore.ts); nothing about people is stored.
  */
+/**
+ * The header the Worker sets (replacing any the client sent) to tell the room its id, which
+ * claimHost needs to check a host token. Never read from anywhere else.
+ */
+export const ROOM_ID_HEADER = "x-stickyard-room-id";
+
 const socketStateSchema = z.object({
   /** Said hello with our protocol version. */
   hello: z.boolean(),
-  /** Set once joined. Server-assigned; never taken from a message. */
-  participant: participantSchema.nullable(),
+  /**
+   * Set once joined. Server-assigned; never taken from a message. `host` is set only by a verified
+   * claimHost (protocol v12); it defaults to false for attachments from before v12.
+   */
+  participant: participantSchema.extend({ host: z.boolean().default(false) }).nullable(),
+  /** The room id, from the Worker (ROOM_ID_HEADER). "" for sockets from before v12: they can't claim host. */
+  roomId: z.string().default(""),
   /** Token bucket. */
   tokens: z.number(),
   at: z.number(),
@@ -148,11 +164,15 @@ interface Pending {
  * socket to close sets the alarm, and `alarm` deletes the room and leaves a tombstone.
  */
 export class Room extends DurableObject<Env> {
-  /** The notes and frames; null once the room has expired (nothing may read or write them). */
+  /** The notes and frames; null once the room has expired or ended (nothing may read or write them). */
   private store: NoteStore | null;
-  /** When the room expired (its tombstone), or null. */
-  private expiredAt: number | null;
-  /** Rows written outside the current store: alarm sets, the tombstone, and a store dropped at expiry. */
+  /** Why and when the room went (expired or ended), or null while it is alive. */
+  private tombstone: Tombstone | null;
+  /** The board lock (protocol v12), from meta. */
+  private locked = false;
+  /** The timer (protocol v12), from meta: start by the server's clock, and length. */
+  private timer: { startedAt: number; durationMs: number } | null = null;
+  /** Rows written outside the current store: alarm sets, tombstones, and a store dropped at burial. */
   private otherRows = 0;
   /** Non-final moves and resizes waiting to be relayed, latest per note and kind. Never stored. */
   private readonly pendingMoves = new Map<string, Pending>();
@@ -162,15 +182,26 @@ export class Room extends DurableObject<Env> {
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
-    // An expired room never runs the normal init: that would create a fresh board under the tombstone.
-    this.expiredAt = readTombstone(ctx.storage.sql);
-    this.store = this.expiredAt === null ? new NoteStore(ctx.storage.sql, (fn) => ctx.storage.transactionSync(fn)) : null;
+    // An expired or ended room never runs the normal init: that would create a fresh board under the tombstone.
+    this.tombstone = readTombstone(ctx.storage.sql);
+    this.store = this.tombstone === null ? new NoteStore(ctx.storage.sql, (fn) => ctx.storage.transactionSync(fn)) : null;
+    if (this.store) {
+      this.locked = this.store.getMeta("locked") === 1;
+      const startedAt = this.store.getMeta("timer_started_at");
+      const durationMs = this.store.getMeta("timer_duration_ms");
+      this.timer = startedAt !== null && durationMs !== null ? { startedAt, durationMs } : null;
+    }
   }
 
-  /** Only reached from joined sockets, which an expired room never has (see fetch and webSocketMessage). */
+  /** Only reached from joined sockets, which a buried room never has (see fetch and webSocketMessage). */
   private get notes(): NoteStore {
-    if (!this.store) throw new Error("room expired");
+    if (!this.store) throw new Error("room gone");
     return this.store;
+  }
+
+  /** The timer as sent: with the server's clock now, so pages can work out their offset. */
+  private timerView(): TimerState | null {
+    return this.timer ? { ...this.timer, serverNow: Date.now() } : null;
   }
 
   /**
@@ -181,9 +212,14 @@ export class Room extends DurableObject<Env> {
     return this.otherRows + (this.store?.rowsWritten ?? 0);
   }
 
-  /** The room has expired (it has a tombstone). */
+  /** The room has expired (an expired_at tombstone). */
   get expired(): boolean {
-    return this.expiredAt !== null;
+    return this.tombstone?.kind === "expired";
+  }
+
+  /** A host ended the room (an ended_at tombstone). */
+  get ended(): boolean {
+    return this.tombstone?.kind === "ended";
   }
 
   /** Batch transactions committed by this instance (tests check a final batch is one). */
@@ -191,17 +227,18 @@ export class Room extends DurableObject<Env> {
     return this.store?.transactions ?? 0;
   }
 
-  override async fetch(_request: Request): Promise<Response> {
+  override async fetch(request: Request): Promise<Response> {
     const pair = new WebSocketPair();
     this.ctx.acceptWebSocket(pair[1]);
-    if (this.expiredAt !== null) {
+    if (this.tombstone !== null) {
       // Room links stay validly signed, so this close is how a visitor learns the room has gone.
-      safeClose(pair[1], ROOM_EXPIRED_CLOSE_CODE, EXPIRED_REASON);
+      this.closeGone(pair[1]);
       return new Response(null, { status: 101, webSocket: pair[0] });
     }
     const state: SocketState = {
       hello: false,
       participant: null,
+      roomId: request.headers.get(ROOM_ID_HEADER) ?? "",
       tokens: SOCKET_LIMITS.burst,
       at: Date.now(),
       strikes: 0,
@@ -213,9 +250,15 @@ export class Room extends DurableObject<Env> {
     return new Response(null, { status: 101, webSocket: pair[0] });
   }
 
+  /** Closes a socket to a buried room with its code: 4410 expired, 4411 ended. */
+  private closeGone(ws: WebSocket): void {
+    if (this.tombstone?.kind === "ended") safeClose(ws, ROOM_ENDED_CLOSE_CODE, ENDED_REASON);
+    else safeClose(ws, ROOM_EXPIRED_CLOSE_CODE, EXPIRED_REASON);
+  }
+
   override async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): Promise<void> {
-    if (this.expiredAt !== null) {
-      safeClose(ws, ROOM_EXPIRED_CLOSE_CODE, EXPIRED_REASON);
+    if (this.tombstone !== null) {
+      this.closeGone(ws);
       return;
     }
     const state = readState(ws);
@@ -258,14 +301,20 @@ export class Room extends DurableObject<Env> {
       }
       state.entryTokens -= entries;
     }
-    this.handle(ws, state, parsed.value);
+    await this.handle(ws, state, parsed.value);
+  }
+
+  /** A message over a rate budget is dropped with rate_limited (naming its notes), as a violation. */
+  private async overLimit(ws: WebSocket, state: SocketState, now: number, ref: ErrorRef): Promise<void> {
+    await this.violation(ws, state, now, error("rate_limited", "Slow down a little.", ref));
   }
 
   /**
-   * A message over a rate budget is dropped with rate_limited (naming its notes). Violations are
-   * counted per window, not consecutively, so a sender at twice the rate still gets closed.
+   * A violation (over a rate budget, or a wrong host token): answered with `reply`, and counted.
+   * Violations are counted per window, not consecutively, so a sender at twice the rate still
+   * gets closed.
    */
-  private async overLimit(ws: WebSocket, state: SocketState, now: number, ref: ErrorRef): Promise<void> {
+  private async violation(ws: WebSocket, state: SocketState, now: number, reply: ServerMessage): Promise<void> {
     if (now - state.strikeAt > SOCKET_LIMITS.violationWindowMs) {
       state.strikes = 0;
       state.strikeAt = now;
@@ -278,7 +327,7 @@ export class Room extends DurableObject<Env> {
       return;
     }
     ws.serializeAttachment(state);
-    send(ws, error("rate_limited", "Slow down a little.", ref));
+    send(ws, reply);
   }
 
   override async webSocketClose(ws: WebSocket, code: number, _reason: string, _wasClean: boolean): Promise<void> {
@@ -302,7 +351,7 @@ export class Room extends DurableObject<Env> {
    * ALARM_RESET_SLACK_MS of that (nextExpiryAlarm). Joining never touches the alarm.
    */
   private async armExpiry(closing: WebSocket): Promise<void> {
-    if (this.expiredAt !== null) return;
+    if (this.tombstone !== null) return;
     if (this.openSockets(closing) > 0) return;
     const at = nextExpiryAlarm(await this.ctx.storage.getAlarm(), Date.now());
     if (at === null) return;
@@ -317,27 +366,54 @@ export class Room extends DurableObject<Env> {
 
   /**
    * The expiry alarm. With anyone connected (joined or not), nothing happens and nothing is
-   * written; the next last close sets a new alarm. Otherwise everything goes (deleteAll, which
-   * at our compatibility date also deletes the alarm), the in-memory state is dropped so this
-   * instance can't serve old notes, and then the tombstone is written (after deleteAll, which
-   * would remove it). Already expired: nothing to do.
+   * written; the next last close sets a new alarm. Otherwise the room is buried as expired.
+   * Already buried (expired or ended): nothing to do.
    */
   override async alarm(): Promise<void> {
-    if (this.expiredAt !== null || this.openSockets() > 0) return;
-    await this.ctx.storage.deleteAll();
-    this.otherRows += this.store?.rowsWritten ?? 0;
-    this.store = null;
-    this.pendingMoves.clear();
-    this.pendingFrames.clear();
-    const at = Date.now();
-    this.otherRows += writeTombstone(this.ctx.storage.sql, at);
-    this.expiredAt = at;
+    if (this.tombstone !== null || this.openSockets() > 0) return;
+    const at = this.buryNow("expired");
+    await this.finishBurial(at);
   }
 
-  private handle(ws: WebSocket, state: SocketState, message: ClientMessage): void {
+  /**
+   * Burial, step 1 (synchronous, see expiry.ts): in one transaction every table but meta is
+   * dropped, meta emptied and the tombstone written; then the in-memory state goes, so this
+   * instance can't serve old notes or settings. From here every socket message and every new
+   * socket is closed with the tombstone's code. Returns the tombstone.
+   */
+  private buryNow(kind: TombstoneKind): Tombstone {
+    const tombstone: Tombstone = { kind, at: Date.now() };
+    let rows = 0;
+    this.ctx.storage.transactionSync(() => {
+      rows = clearToTombstone(this.ctx.storage.sql, tombstone);
+    });
+    this.otherRows += rows + (this.store?.rowsWritten ?? 0);
+    this.store = null;
+    this.tombstone = tombstone;
+    this.locked = false;
+    this.timer = null;
+    this.pendingMoves.clear();
+    this.pendingFrames.clear();
+    return tombstone;
+  }
+
+  /** Burial, steps 2 and 3: deleteAll() for everything else (it removes the tombstone too), then the tombstone again. */
+  private async finishBurial(tombstone: Tombstone): Promise<void> {
+    await this.ctx.storage.deleteAll();
+    this.otherRows += writeTombstone(this.ctx.storage.sql, tombstone);
+  }
+
+  private async handle(ws: WebSocket, state: SocketState, message: ClientMessage): Promise<void> {
     // Anything other than a drag or resize in progress relays pending ones first, so everyone
     // sees changes in arrival order.
     if (!isPreview(message)) this.flushMoves();
+
+    // A locked board refuses a non-host's changes (protocol v12): nothing written or relayed, and
+    // the refusal names what to roll back. BOARD_WRITES classifies every message type.
+    if (BOARD_WRITES[message.type] && this.locked && state.participant && !state.participant.host) {
+      ws.serializeAttachment(state);
+      return send(ws, error("board_locked", "The host has locked the board.", refOf(message)));
+    }
 
     switch (message.type) {
       case "hello": {
@@ -368,7 +444,8 @@ export class Room extends DurableObject<Env> {
         state.participant = you;
         ws.serializeAttachment(state);
 
-        send(ws, { type: "joined", you, participants: this.participants().map(({ participant }) => participant), locked: false, timer: null });
+        // Lock and timer ride on joined, in this same step as the snapshots: nothing can land between them.
+        send(ws, { type: "joined", you, participants: this.participants().map(({ participant }) => participant), locked: this.locked, timer: this.timerView() });
         // Notes, then frames, in this same step: nothing else can be sent to this socket between them.
         send(ws, { type: "snapshot", notes: this.notes.all() });
         send(ws, { type: "framesSnapshot", frames: this.notes.allFrames() });
@@ -427,6 +504,76 @@ export class Room extends DurableObject<Env> {
         if (!state.participant) return send(ws, error("not_joined", "Join the room first.", refOf(message)));
         this.handleItems(ws, state.participant, message);
         return;
+      }
+
+      case "claimHost":
+        return this.claimHost(ws, state, message.token);
+
+      case "lockSet":
+      case "timerStart":
+      case "timerStop":
+      case "endSession": {
+        ws.serializeAttachment(state);
+        if (!state.participant) return send(ws, error("not_joined", "Join the room first."));
+        if (!state.participant.host) return send(ws, error("not_host", "Only the host can do that."));
+        return this.handleHost(ws, message);
+      }
+    }
+  }
+
+  /**
+   * claimHost (protocol v12): the token is checked against this room's id in constant time. Right:
+   * the socket's participant becomes host (in its attachment, so it survives hibernation), it gets
+   * hostGranted and the others get participantUpdated. Wrong: bad_host_token, counted as a
+   * violation. The token is never stored, echoed or logged.
+   */
+  private async claimHost(ws: WebSocket, state: SocketState, token: string): Promise<void> {
+    if (!state.participant) {
+      ws.serializeAttachment(state);
+      return send(ws, error("not_joined", "Join the room first."));
+    }
+    const ok = await verifyHostToken(token, state.roomId, (this.env as Env & Secrets).ROOM_SIGNING_KEY ?? "");
+    // Other messages from this socket may have been handled while that was checked: start from its latest state.
+    const latest = readState(ws) ?? state;
+    if (!ok) return this.violation(ws, latest, Date.now(), error("bad_host_token", "That host key isn't valid for this session."));
+    const participant = latest.participant;
+    if (!participant) return;
+    const already = participant.host;
+    participant.host = true;
+    ws.serializeAttachment(latest);
+    send(ws, { type: "hostGranted" });
+    if (!already) this.broadcast({ type: "participantUpdated", participant }, ws);
+  }
+
+  /** Host-only messages (protocol v12), from a host. Each writes only when something changes. */
+  private async handleHost(ws: WebSocket, message: Extract<ClientMessage, { type: "lockSet" | "timerStart" | "timerStop" | "endSession" }>): Promise<void> {
+    switch (message.type) {
+      case "lockSet": {
+        if (message.locked === this.locked) return send(ws, { type: "lockChanged", locked: this.locked });
+        this.notes.setMeta({ locked: message.locked ? 1 : 0 });
+        this.locked = message.locked;
+        return this.broadcast({ type: "lockChanged", locked: this.locked });
+      }
+      case "timerStart": {
+        // Starting while one runs replaces it. The server's clock, never the client's.
+        const timer = { startedAt: Date.now(), durationMs: message.durationMs };
+        this.notes.setMeta({ timer_started_at: timer.startedAt, timer_duration_ms: timer.durationMs });
+        this.timer = timer;
+        return this.broadcast({ type: "timerChanged", timer: this.timerView() });
+      }
+      case "timerStop": {
+        if (!this.timer) return send(ws, { type: "timerChanged", timer: null });
+        this.notes.setMeta({ timer_started_at: null, timer_duration_ms: null });
+        this.timer = null;
+        return this.broadcast({ type: "timerChanged", timer: null });
+      }
+      case "endSession": {
+        // Everyone hears it, the room is buried (step 1 is synchronous, so nothing can be written
+        // after it), every socket is closed with 4411, then the rest of the storage goes.
+        this.broadcast({ type: "sessionEnded" });
+        const tombstone = this.buryNow("ended");
+        for (const socket of this.ctx.getWebSockets()) safeClose(socket, ROOM_ENDED_CLOSE_CODE, ENDED_REASON);
+        return this.finishBurial(tombstone);
       }
     }
   }

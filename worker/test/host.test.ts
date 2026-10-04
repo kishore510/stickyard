@@ -136,6 +136,8 @@ describe("claimHost", () => {
     const jc = await c.enter("Priya");
     expect(jc.participants.find((p) => p.id === ja.you.id)?.host).toBe(true);
     expect(jc.you.host).toBe(false);
+    await nextOfType(a, "participant_joined");
+    await nextOfType(b, "participant_joined");
     // Claiming again is fine and quiet for the others.
     expect(await a.request({ type: "claimHost", token })).toEqual({ type: "hostGranted" });
     expect(await b.quiet()).toBe(true);
@@ -149,12 +151,13 @@ describe("claimHost", () => {
     const b = await TestClient.open(code);
     await a.enter("Alex");
     await b.enter("Sam");
+    await nextOfType(a, "participant_joined");
     const before = await rowsWritten(stub);
     expect(await a.request({ type: "claimHost", token: await specHostToken(other.id) })).toMatchObject({ type: "error", code: "bad_host_token" });
     expect(await a.request({ type: "claimHost", token: "A".repeat(43) })).toMatchObject({ type: "error", code: "bad_host_token" });
     expect(await a.request({ type: "lockSet", locked: true })).toMatchObject({ type: "error", code: "not_host" });
     expect(await rowsWritten(stub)).toBe(before);
-    expect(await nextOfType(b, "participant_joined").catch(() => null)).toBeNull();
+    expect(await b.quiet()).toBe(true);
     closeAll(a, b);
   });
 
@@ -181,6 +184,7 @@ describe("claimHost", () => {
     await a.request({ type: "hello", protocolVersion: PROTOCOL_VERSION });
     const joined = await a.request({ type: "join", name: "host", host: true, participant: { host: true } });
     expect(joined).toMatchObject({ type: "joined", you: { host: false } });
+    await nextOfType(a, "framesSnapshot");
     expect(await a.request({ type: "lockSet", locked: true })).toMatchObject({ type: "error", code: "not_host" });
     a.close();
   });
@@ -191,8 +195,10 @@ describe("claimHost", () => {
     const b = await TestClient.open(code);
     await a.enter("Alex");
     await b.enter("Alex");
+    await nextOfType(a, "participant_joined");
     expect(await a.request({ type: "claimHost", token })).toEqual({ type: "hostGranted" });
-    expect(await b.request({ type: "claimHost", token })).toMatchObject({ type: "hostGranted" });
+    b.send({ type: "claimHost", token });
+    expect(await nextOfType(b, "hostGranted")).toEqual({ type: "hostGranted" });
     await nextOfType(a, "participantUpdated");
     expect(await a.request({ type: "lockSet", locked: true })).toEqual({ type: "lockChanged", locked: true });
     expect(await nextOfType(b, "lockChanged")).toEqual({ type: "lockChanged", locked: true });
@@ -303,16 +309,20 @@ describe("the lock", () => {
   });
 
   it("refused messages still spend the rate budget", async () => {
-    const { host, guest } = await hostedRoom();
+    const { host, guest, stub } = await hostedRoom();
     await lock(host, guest);
-    for (let i = 0; i < 45; i++) guest.send({ type: "noteAdd", clientRef: `r${i}`, x: 10, y: 10, color: "yellow", text: "x" });
-    const codes: string[] = [];
-    for (let i = 0; i < 45; i++) {
+    for (let i = 0; i < 40; i++) guest.send({ type: "noteAdd", clientRef: `r${i}`, x: 10, y: 10, color: "yellow", text: "x" });
+    const codes = new Set<string>();
+    for (let i = 0; i < 40; i++) {
       const m = await guest.next();
-      if (m.type === "error") codes.push(m.code);
+      if (m.type === "error") codes.add(m.code);
     }
-    expect(codes).toContain("board_locked");
-    expect(codes).toContain("rate_limited");
+    expect(codes.has("board_locked")).toBe(true);
+    // Each refusal took a token like any message: the guest's bucket is far below its burst of 40.
+    const tokens = await runInDurableObject(stub, (_r, state) =>
+      Math.min(...state.getWebSockets().map((ws) => (ws.deserializeAttachment() as { participant: { name: string } | null; tokens: number })).filter((a) => a.participant?.name === "Sam").map((a) => a.tokens)),
+    );
+    expect(tokens).toBeLessThan(20);
     closeAll(host, guest);
   });
 
@@ -438,12 +448,15 @@ describe("End session", () => {
       expect(await c.waitClose()).toBe(ROOM_ENDED_CLOSE_CODE);
       expect(await reason).toBe(ENDED_REASON);
     }
+    await new Promise((r) => setTimeout(r, 50));
+    expect(await rowsWritten(stub)).toBe(before);
+    // After a wake, too: nothing is set up again and nothing is written.
     await evictDurableObject(stub);
     const c = await TestClient.open(code);
     expect(await c.waitClose()).toBe(ROOM_ENDED_CLOSE_CODE);
     await new Promise((r) => setTimeout(r, 50));
     expect(await allRows(stub)).toEqual(rows);
-    expect(await rowsWritten(stub)).toBe(before);
+    expect(await rowsWritten(stub)).toBe(0);
   });
 
   it("an ended room's alarm (if one fires) does nothing", async () => {
