@@ -23,7 +23,7 @@ Draft roadmap. When a slice starts, rewrite its prompt against the real code (se
 | Welcome screen | Start page becomes a welcome screen with the new Stickyard mark (inline SVG, brand tokens), tagline and three points; Start and Join unchanged. Web only | Done (v0.8.1) |
 | Frames | Named, resizable, coloured areas behind notes; dragging one carries the notes inside. Protocol v9 + stored schema 6 (new frames table) | Done (v0.9.0) |
 | Frame title styling | Title size, bold, italic, alignment and ink for frames, in Properties. Protocol v10 + stored schema 7 (five columns with defaults); framesSnapshot test cap 16 -> 20 KiB | Done (v0.9.1) |
-| Templates | Retro, start/stop/continue, 2x2, sprint planning, built from frames and labelled notes | Not started |
+| Templates | Retro, Start Stop Continue, 2x2 Impact and Effort, Sprint planning, built from frames (web only, no protocol change) | Done (v0.10.0) |
 | 6 (part) Timer and lock board | Cut-down slice 6: shared timer and lock board only | Not started |
 | 4 Reconnect | Resync after drops, offline queue | Not started |
 | 3a Presence: avatars and toasts | Avatar stack in the top bar, join/leave toasts. Probably no protocol change (uses `participant_joined`/`participant_left`) | Not started |
@@ -46,7 +46,7 @@ Draft roadmap. When a slice starts, rewrite its prompt against the real code (se
 - Test on the live deployment; merge and deploy each slice, roll back if needed (single user).
 - Every new object type (frame, timer, text box, group box) needs its own protocol/schema change with a version bump, caps and tests. The palette gets its tile with one registry entry; no placeholder tiles for things that don't exist.
 - Each protocol or stored-schema change is its own slice and branch (2.7, 2.7.1, 2.7.2, 2.8, z-order, frames, 3b are separate for that reason).
-- Protocol numbers are assigned when each slice starts, not in advance (v10 is the current one, since frame title styling). Templates are expected to be next.
+- Protocol numbers are assigned when each slice starts, not in advance (v10 is the current one, since frame title styling; templates were web only).
 - Order after 2.9 (decided 3 October 2026): Z-order, Frames, Templates, Timer and lock board (cut-down 6), Reconnect (4), 3a, Persistence and expiry (5), remaining facilitation (6), 3b cursors, 7a, 7b, 7c (remaining), 8, 9, 10. Slice numbers are kept as names; the table above is in build order.
 
 ## Slice notes
@@ -162,8 +162,11 @@ Draft roadmap. When a slice starts, rewrite its prompt against the real code (se
 ### Frame title styling (protocol v10) — done, v0.9.1
 - A frame's title gets the note title's style keys (size, bold, italic, ink, alignment) in a Properties "Title text" section. Stored schema 7 adds five columns with defaults that look like the v9 header, so existing frames are unchanged. Header height follows the size. Frame-only ink tokens, because frame headers are dark in the dark theme.
 - Decided 4 October 2026: the framesSnapshot test cap goes from 16 to 20 KiB (worst case 18,306 bytes); a new per-frame field within 10% of the cap needs a decision first. See docs/LIMITS.md.
-### Templates
-- Retro, start/stop/continue, 2x2, sprint planning. Built from frames and labelled notes, so no new object type is expected; how a template is applied (one batch, caps, an empty board only or anywhere) is decided when the slice starts.
+
+### Templates (web only) — done, v0.10.0
+- Retro, Start Stop Continue, 2x2 Impact and Effort, Sprint planning, as plain data (`web/src/templates/registry.ts`), frames only (no starter notes). A Templates palette category (md and up). Applied anywhere on the board, centred on the view or the drop point and clamped; nothing existing is touched; needs enough free frame slots up front.
+- Each frame is a `frameAdd`, then after the relay confirms it a final `frameResize` and one `frameEdit` for the title style, paced at 10 messages a second. A refusal part-way leaves what was made and says so; no retry. Others see each frame appear at the default size, then settle.
+- Possible later change: one message that adds a template's frames at their size and style in one step (a protocol change), so others see no settling and it can't be partly applied.
 
 ### 7a Text box and basic shapes
 - Text box, and a small fixed set of shapes: rectangle, oval, diamond. Reuses the sizing and colour work from 2.7.

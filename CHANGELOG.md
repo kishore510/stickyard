@@ -2,6 +2,16 @@
 
 All notable changes to Stickyard, newest first. The format follows Keep a Changelog. Versions are 0.x: a minor bump for each slice and a patch bump for each follow-up fix. This file is shown in the app under **What’s new**, so entries are written for the people using it.
 
+## [0.10.0] - 2026-10-04
+
+### Added
+- Templates: start a board from a ready-made set of frames. On a wider screen, the palette has a Templates section with Retro, Start Stop Continue, 2x2 Impact and Effort, and Sprint planning.
+- Click a template to place it in the middle of your view, or drag it onto the board to place it where you let go. It always lands fully on the board, and nothing already there is moved or changed.
+- When a template is in, the view fits its frames and the first one is selected. Search the palette for words like retro, matrix or sprint to find them.
+
+### Changed
+- If the board hasn't enough free frames for a template, nothing is added and the board says how many it needs and how many are free. If only part of a template could be added, the frames that were added stay and the board says so.
+
 ## [0.9.1] - 2026-10-04
 
 ### Added

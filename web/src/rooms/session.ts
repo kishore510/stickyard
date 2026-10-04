@@ -114,6 +114,8 @@ export interface RoomView {
   noteNotice: string | null;
   /** The board snapshot has arrived (the first view can be fitted to the notes). */
   synced: boolean;
+  /** The template being applied here (template tiles are off meanwhile), or how the last one ended. */
+  template: TemplateRun | null;
   /** Everyone seen in this visit (including people who have left), by id: note authors' names. */
   people: ReadonlyMap<string, Participant>;
 }
@@ -129,6 +131,7 @@ export const INITIAL_VIEW: RoomView = {
   board: EMPTY_BOARD,
   noteNotice: null,
   synced: false,
+  template: null,
   people: new Map(),
 };
 
@@ -145,6 +148,45 @@ export const RESIZE_INTERVAL_MS = 50;
  */
 export const GROUP_MOVE_INTERVAL_MS = 100;
 
+/**
+ * A template is sent at most this many messages a second: a third of the relay's SOCKET_LIMITS
+ * (30 a second, burst 40), so typing or dragging at the same time still fits.
+ */
+export const TEMPLATE_MESSAGES_PER_SECOND = 10;
+/** The gap between a template's messages. */
+export const TEMPLATE_STEP_MS = 1000 / TEMPLATE_MESSAGES_PER_SECOND;
+
+/** A template run: `frameIds` are the frames it made (server ids, in template order) once it ends. */
+export interface TemplateRun {
+  seq: number;
+  state: "applying" | "done" | "partial";
+  frameIds: readonly string[];
+}
+
+/** One frame of a template to apply: where it goes, its size, title, colour and title style. */
+export interface TemplateFramePlan {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  title: string;
+  color: FrameColor;
+  style: FrameEdit;
+}
+
+/** A template being applied: its steps (one message each, paced) and each frame's id so far. */
+interface TemplateApply {
+  seq: number;
+  plans: readonly TemplateFramePlan[];
+  /** Local id once added, server id once confirmed; null before it's added or if it was deleted meanwhile. */
+  ids: (string | null)[];
+  confirmed: boolean[];
+  steps: (() => boolean)[];
+  timer: ReturnType<typeof setTimeout> | undefined;
+  /** When the next message may go. */
+  nextAt: number;
+}
+
 export const NOTICES = {
   full: `The board is full (${MAX_NOTES_PER_ROOM} notes). Delete a note to add another.`,
   tooQuick: "That change was too quick and wasn’t saved. Try again.",
@@ -152,6 +194,8 @@ export const NOTICES = {
   deletedWhileEditing: "Someone else deleted the note you were editing.",
   framesFull: `The board has the maximum of ${MAX_FRAMES_PER_ROOM} frames. Delete a frame to add another.`,
   frameTooFull: `This frame holds more than ${MAX_BATCH_ENTRIES} notes, so it moved on its own.`,
+  templatePartial: "The template was only partly added. The frames that were added stay on the board; delete any you don’t want.",
+  templateNoRoom: (needs: number, free: number) => `This template needs ${needs} frames, but the board has room for ${free} more.`,
 } as const;
 
 const randomRef = (): string => {
@@ -210,6 +254,9 @@ export class RoomSession {
   private readonly frameResizes = new Map<string, Throttle>();
   private readonly abandonedFrames = new Set<string>();
   private frameDrag: FrameDrag | null = null;
+  /** The template being applied, if any (one at a time). */
+  private template: TemplateApply | null = null;
+  private templateSeq = 0;
 
   constructor(private readonly options: SessionOptions) {}
 
@@ -596,12 +643,108 @@ export class RoomSession {
   /** The Width/Height fields: one final resize at the same position. */
   setFrameSize(id: string, w: number, h: number): boolean {
     const entry = findFrame(this.view.board, id);
-    if (!this.live || isLocalId(id) || !entry) return false;
-    const board = resizeFrameLocal(this.view.board, id, { x: entry.frame.x, y: entry.frame.y, w, h });
+    if (!entry) return false;
+    return this.setFrameRect(id, { x: entry.frame.x, y: entry.frame.y, w, h });
+  }
+
+  /** One final resize to this position and size (clamped). */
+  setFrameRect(id: string, rect: NoteRect): boolean {
+    if (!this.live || isLocalId(id) || !findFrame(this.view.board, id)) return false;
+    const board = resizeFrameLocal(this.view.board, id, rect);
     if (board === this.view.board) return true;
     this.update({ board, noteNotice: null });
     this.sendFrameResize(id, true);
     return true;
+  }
+
+  /* ── Templates ──────────────────────────────────────────────────── */
+
+  /**
+   * Applies a template: for each frame, frameAdd (position, colour, title); once the relay
+   * confirms it, one final resize to its size and one edit for its title style. One message
+   * every TEMPLATE_STEP_MS at most. Existing frames and notes are never touched. Refused (and
+   * nothing sent) while disconnected, while another template is being applied, or when the
+   * board hasn't enough free frame slots (a notice says how many it needs and has). A refusal
+   * part-way ends it: what was made stays, one notice says so, nothing is retried.
+   */
+  applyTemplate(frames: readonly TemplateFramePlan[]): boolean {
+    if (!this.live || this.template || frames.length === 0) return false;
+    const free = Math.max(0, MAX_FRAMES_PER_ROOM - this.view.board.frames.length);
+    if (frames.length > free) {
+      this.update({ noteNotice: NOTICES.templateNoRoom(frames.length, free) });
+      return false;
+    }
+    const run: TemplateApply = {
+      seq: ++this.templateSeq,
+      plans: frames,
+      ids: frames.map(() => null),
+      confirmed: frames.map(() => false),
+      steps: [],
+      timer: undefined,
+      nextAt: 0,
+    };
+    frames.forEach((plan, i) =>
+      run.steps.push(() => {
+        const id = this.addFrame({ x: plan.x, y: plan.y, color: plan.color, title: plan.title });
+        run.ids[i] = id;
+        return id !== null;
+      }),
+    );
+    this.template = run;
+    this.update({ template: { seq: run.seq, state: "applying", frameIds: [] }, noteNotice: null });
+    this.templateStep();
+    return true;
+  }
+
+  /** Sends the template's next step, if any, then waits TEMPLATE_STEP_MS; done once every frame is confirmed and nothing is left. */
+  private templateStep(): void {
+    const run = this.template;
+    if (!run) return;
+    run.timer = undefined;
+    const step = run.steps.shift();
+    if (!step) {
+      if (run.confirmed.every(Boolean)) this.endTemplate("done");
+      return;
+    }
+    if (!step()) return this.endTemplate("partial");
+    run.nextAt = Date.now() + TEMPLATE_STEP_MS;
+    run.timer = setTimeout(() => this.templateStep(), TEMPLATE_STEP_MS);
+  }
+
+  /** A template frame got its server id (or was deleted here before that): queue its resize and style edit. */
+  private templateConfirmed(local: string, id: string, gone: boolean): void {
+    const run = this.template;
+    const i = run ? run.ids.indexOf(local) : -1;
+    if (!run || i < 0) return;
+    run.confirmed[i] = true;
+    run.ids[i] = gone ? null : id;
+    const plan = run.plans[i];
+    if (!gone && plan) {
+      run.steps.push(() => {
+        this.setFrameRect(id, plan);
+        return this.live;
+      });
+      run.steps.push(() => {
+        this.editFrame(id, plan.style);
+        return this.live;
+      });
+    }
+    if (run.timer === undefined) run.timer = setTimeout(() => this.templateStep(), Math.max(0, run.nextAt - Date.now()));
+  }
+
+  /** Does this refusal belong to the template being applied? */
+  private templateOwns(message: Extract<ServerMessage, { type: "error" }>): boolean {
+    const ids = this.template?.ids ?? [];
+    return (message.clientRef !== undefined && ids.includes(localId(message.clientRef))) || (message.frameId !== undefined && ids.includes(message.frameId));
+  }
+
+  private endTemplate(state: "done" | "partial"): void {
+    const run = this.template;
+    if (!run) return;
+    clearTimeout(run.timer);
+    this.template = null;
+    const frameIds = run.ids.filter((id, i): id is string => id !== null && run.confirmed[i] === true);
+    this.update({ template: { seq: run.seq, state, frameIds }, ...(state === "partial" ? { noteNotice: NOTICES.templatePartial } : {}) });
   }
 
   /** Deletes a frame here at once. Never its notes. */
@@ -709,6 +852,8 @@ export class RoomSession {
   close(): void {
     this.stopped = true;
     clearTimeout(this.timer);
+    clearTimeout(this.template?.timer);
+    this.template = null;
     this.stopAllMoves();
     this.socket?.close();
   }
@@ -726,7 +871,11 @@ export class RoomSession {
     clearTimeout(this.timer);
     this.stopAllMoves();
     this.socket = null;
-    if (status === "joined") return this.update({ status: "disconnected" });
+    if (status === "joined") {
+      this.update({ status: "disconnected" });
+      // Cut off part-way: what was made stays, and the notice says so.
+      return this.endTemplate("partial");
+    }
     if (this.opened) return this.update({ status: "unreachable" });
     // Never opened: the relay refused the upgrade. Find out whether the code is the reason.
     void this.options.checkCode().then((check) => {
@@ -862,7 +1011,9 @@ export class RoomSession {
           if (Object.keys(edit).length > 0) this.send({ type: "frameEdit", id: frame.id, ...edit });
         }
         if (temp) this.options.onFrameConfirmed?.(temp.frame.id, frame.id);
-        return this.update({ board, ...(clientRef !== undefined ? { rateLimited: false } : {}) });
+        this.update({ board, ...(clientRef !== undefined ? { rateLimited: false } : {}) });
+        if (temp) this.templateConfirmed(temp.frame.id, frame.id, findFrame(board, frame.id) === undefined);
+        return;
       }
 
       case "frameUpdated":
@@ -895,7 +1046,11 @@ export class RoomSession {
 
       case "error":
         if (message.clientRef !== undefined || message.noteId !== undefined || message.noteIds !== undefined || message.frameId !== undefined) {
-          return this.noteRefused(message);
+          const template = this.templateOwns(message);
+          this.noteRefused(message);
+          // A refused part of a template ends it; what it made stays (no rollback, no retry).
+          if (template) this.endTemplate("partial");
+          return;
         }
         switch (message.code) {
           case "version_mismatch":

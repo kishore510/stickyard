@@ -272,7 +272,7 @@ describe("session: applying a template", () => {
     await vi.advanceTimersByTimeAsync(TEMPLATE_STEP_MS * 3);
     const adds = t.out().map((m) => m.message);
     // The first is confirmed; the second is refused (someone else filled the board meanwhile).
-    t.sock().receive({ type: "frameAdded", frame: frame(100, { x: adds[0]!.x as number, y: adds[0]!.y as number }), clientRef: adds[0]!.clientRef });
+    t.sock().receive({ type: "frameAdded", frame: frame(100, { x: adds[0]!.x as number, y: adds[0]!.y as number, title: adds[0]!.title as string, color: adds[0]!.color as Frame["color"] }), clientRef: adds[0]!.clientRef });
     t.sock().receive({ type: "error", code: "frames_full", message: "Full.", clientRef: adds[1]!.clientRef });
     await vi.advanceTimersByTimeAsync(TEMPLATE_STEP_MS * 30);
     expect(t.view().noteNotice).toBe(NOTICES.templatePartial);
@@ -281,7 +281,7 @@ describe("session: applying a template", () => {
     const sentAfter = t.out().slice(3).map((m) => m.message.type);
     expect(sentAfter).toEqual([]);
     // The third add was already out: when it's confirmed it stays, and nothing more is sent.
-    t.sock().receive({ type: "frameAdded", frame: frame(102, { x: adds[2]!.x as number, y: adds[2]!.y as number }), clientRef: adds[2]!.clientRef });
+    t.sock().receive({ type: "frameAdded", frame: frame(102, { x: adds[2]!.x as number, y: adds[2]!.y as number, title: adds[2]!.title as string, color: adds[2]!.color as Frame["color"] }), clientRef: adds[2]!.clientRef });
     await vi.advanceTimersByTimeAsync(TEMPLATE_STEP_MS * 30);
     expect(findFrame(t.view().board, frameId(102))).toBeDefined();
     expect(t.out().slice(3)).toEqual([]);
@@ -376,6 +376,7 @@ describe("fitting to a new template", () => {
     expect(view).toMatch(/readPxToken\("--sy-duration-base"/);
     // The board fits to the new frames with the animated fit (not an instant jump).
     const board = readFileSync(new URL("../src/canvas/RoomBoard.tsx", import.meta.url), "utf8");
-    expect(board).toMatch(/canvas\.fit\(templateFrames\(/);
+    expect(board).toMatch(/const frames = templateFrames\(/);
+    expect(board).toMatch(/canvas\.fit\(frames\);/);
   });
 });

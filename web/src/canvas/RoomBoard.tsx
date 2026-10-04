@@ -1,14 +1,14 @@
 import { ReactFlowProvider, useStore } from "@xyflow/react";
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { RotateCcw, SlidersHorizontal } from "lucide-react";
-import { FRAME_DEFAULT_H, FRAME_DEFAULT_W, clampFramePosition, type FrameColor, type NoteColor } from "@stickyard/shared";
+import { FRAME_DEFAULT_H, FRAME_DEFAULT_W, clampFramePosition, type Frame, type FrameColor, type NoteColor } from "@stickyard/shared";
 import { ChatDock } from "../chat/ChatDock";
 import { Button } from "../components/ui/button";
 import { readPxToken } from "../lib/cssVar";
 import { useMediaQuery } from "../lib/useMediaQuery";
 import { useWindowWidth } from "../lib/useWindowWidth";
 import { findFrame } from "../frames/board";
-import { findNote, isHeld } from "../notes/board";
+import { findNote, isHeld, type Board } from "../notes/board";
 import type { InlinePart } from "../notes/inlineEdit";
 import { AddDrawer, CompactPalette, PaletteContent, type PaletteHost } from "../palette/Palette";
 import { cornerLifted, panelWidths, type PanelId } from "../panels/layout";
@@ -24,7 +24,9 @@ import { SelectionBar } from "./SelectionBar";
 import { orderedIds } from "./selection";
 import { newNotePosition, type XY } from "./geometry";
 import { Ribbon, ViewBar } from "./ToolBars";
-import { frameToolReason, noteToolReason, toolForKey, type ToolContext } from "./tools";
+import { placeTemplate, templateOrigin } from "../templates/place";
+import type { Template } from "../templates/registry";
+import { frameToolReason, noteToolReason, templateToolReason, toolForKey, type ToolContext } from "./tools";
 import { useBoardUi } from "./uiStore";
 import { useCanvasView } from "./useCanvasView";
 
@@ -142,6 +144,7 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
   const noteReason = noteToolReason({ live, count: noteCount });
   const frameCount = view.board.frames.length;
   const frameReason = frameToolReason({ live, count: frameCount });
+  const templateReason = templateToolReason({ live, applying: view.template?.state === "applying" });
   const sizes = panelWidths(windowWidth, panels);
 
   const latest = useRef({ view, room, wide });
@@ -204,6 +207,31 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
     [canvas],
   );
 
+  /**
+   * Applies a template: centred on `at`'s box (a drop gives its top-left) or on the viewport
+   * centre, clamped onto the board. Nothing existing is touched, so there's no confirmation.
+   */
+  const applyTemplate = useCallback(
+    (template: Template, at?: XY) => {
+      const origin = at ?? templateOrigin(template, canvas.centre());
+      latest.current.room.applyTemplate(placeTemplate(template, origin));
+    },
+    [canvas],
+  );
+
+  // A template that finished: fit the view to its frames (animated; instant with reduced motion)
+  // and select the first. Once per run.
+  const fitted = useRef(0);
+  const run = view.template;
+  useEffect(() => {
+    if (!run || run.state !== "done" || run.seq === fitted.current) return;
+    fitted.current = run.seq;
+    const frames = templateFrames(latest.current.view.board, run.frameIds);
+    if (frames.length === 0) return;
+    canvas.fit(frames);
+    useBoardUi.getState().selectFrame(frames[0]!.id);
+  }, [run, canvas]);
+
   // Rebuilt only when what the tools show changes, so remote moves don't re-render the bars.
   const ctx = useMemo<ToolContext>(
     () => ({
@@ -228,15 +256,15 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
 
   const paletteHost = useMemo<PaletteHost>(
     () => ({
-      ctx: { noteReason, frameReason },
+      ctx: { noteReason, frameReason, templateReason },
       state: { live, noteCount },
       activate: (item, at) => {
         useBoardUi.getState().setAddSheetOpen(false);
-        item.create({ addNote, addFrame }, at);
+        item.create({ addNote, addFrame, applyTemplate }, at);
       },
       dropAt: canvas.dropAt,
     }),
-    [noteReason, frameReason, live, noteCount, addNote, addFrame, canvas],
+    [noteReason, frameReason, templateReason, live, noteCount, addNote, addFrame, applyTemplate, canvas],
   );
 
   const rejoinRef = useRef(onRejoin);
@@ -405,4 +433,9 @@ export default function RoomBoard(props: RoomBoardProps) {
       <BoardArea {...props} />
     </ReactFlowProvider>
   );
+}
+
+/** A template run's frames that are still on the board, in template order. */
+function templateFrames(board: Board, ids: readonly string[]): Frame[] {
+  return ids.flatMap((id) => findFrame(board, id)?.frame ?? []);
 }

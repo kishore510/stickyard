@@ -22,7 +22,7 @@ import {
  */
 
 const state: PaletteRoomState = { live: true, noteCount: 0 };
-const actions = (): PaletteActions => ({ addNote: vi.fn(), addFrame: vi.fn() });
+const actions = (): PaletteActions => ({ addNote: vi.fn(), addFrame: vi.fn(), applyTemplate: vi.fn() });
 const ids = (items: readonly PaletteItem[]) => items.map((i) => i.id);
 
 describe("palette registry", () => {

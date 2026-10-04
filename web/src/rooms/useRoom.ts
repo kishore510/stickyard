@@ -5,8 +5,9 @@ import { browserSocketFactory } from "../connection/socket";
 import { useBoardUi } from "../canvas/uiStore";
 import { STORAGE_KEYS, writeKey } from "../storage";
 import { browserFetch, checkRoom } from "./api";
+import type { FrameEdit } from "../frames/board";
 import type { StylePatch } from "../notes/board";
-import { INITIAL_VIEW, RoomSession, type RoomView } from "./session";
+import { INITIAL_VIEW, RoomSession, type RoomView, type TemplateFramePlan } from "./session";
 
 /** One room visit for the room screen. A new socket per join attempt; closed on unmount. */
 export function useRoom(code: string) {
@@ -63,7 +64,7 @@ export function useRoom(code: string) {
     deleteNotes: (ids: readonly string[]) => session.current?.deleteNotes(ids),
     orderNotes: (ids: readonly string[], action: OrderAction) => session.current?.orderNotes(ids, action) ?? false,
     addFrame: (at: { x: number; y: number; color: FrameColor; title?: string }) => session.current?.addFrame(at) ?? null,
-    editFrame: (id: string, change: { title?: string; color?: FrameColor }) => session.current?.editFrame(id, change) ?? false,
+    editFrame: (id: string, change: FrameEdit) => session.current?.editFrame(id, change) ?? false,
     setFrameDraft: (id: string, draft: string | null) => session.current?.setFrameDraft(id, draft),
     startFrameDrag: (id: string, carry: boolean) => session.current?.startFrameDrag(id, carry) ?? false,
     moveFrame: (id: string, x: number, y: number, final: boolean) => session.current?.moveFrame(id, x, y, final),
@@ -71,6 +72,7 @@ export function useRoom(code: string) {
     resizeFrame: (id: string, rect: NoteRect, final: boolean) => session.current?.resizeFrame(id, rect, final),
     setFrameSize: (id: string, w: number, h: number) => session.current?.setFrameSize(id, w, h) ?? false,
     deleteFrame: (id: string) => session.current?.deleteFrame(id),
+    applyTemplate: (frames: readonly TemplateFramePlan[]) => session.current?.applyTemplate(frames) ?? false,
     leave: () => session.current?.close(),
   };
 }

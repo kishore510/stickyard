@@ -1,8 +1,8 @@
 ---
 title: Notes
 order: 3
-summary: Add notes from the palette, edit, colour, style and resize them in Properties, bring them to the front or send them to the back, group them in frames, select several to move, arrange or delete together; pan, zoom and fit the board.
-keywords: frame, frames, area, section, title, carry, front, back, order, stack, overlap, behind, top, bottom, inline, place, double-click, marquee, multi, several, many, group, arrange, align, distribute, match, right-click, middle, note, notes, sticky, board, add, edit, move, drag, delete, colour, color, text, title, body, size, width, height, bigger, smaller, handle, corner, font, bold, italic, align, alignment, left, centre, center, right, style, palette, tile, properties, panel, select, selection, collapse, resize, pan, hand, zoom, pinch, wheel, fit, overview, map, shortcut, full, saved
+summary: Add notes from the palette, edit, colour, style and resize them in Properties, bring them to the front or send them to the back, group them in frames, start from a template, select several to move, arrange or delete together; pan, zoom and fit the board.
+keywords: template, templates, retro, retrospective, start stop continue, 2x2, matrix, impact, effort, sprint, planning, kanban, frame, frames, area, section, title, carry, front, back, order, stack, overlap, behind, top, bottom, inline, place, double-click, marquee, multi, several, many, group, arrange, align, distribute, match, right-click, middle, note, notes, sticky, board, add, edit, move, drag, delete, colour, color, text, title, body, size, width, height, bigger, smaller, handle, corner, font, bold, italic, align, alignment, left, centre, center, right, style, palette, tile, properties, panel, select, selection, collapse, resize, pan, hand, zoom, pinch, wheel, fit, overview, map, shortcut, full, saved
 ---
 Every session has one shared **board**. Everyone in the session sees the same notes, and changes show up for everyone as they happen. The board fills the screen; its edge is the outline around the dotted area, and notes always stay inside it.
 
@@ -91,6 +91,22 @@ A frame is a named, coloured area that sits behind the notes, for example Start,
 - Frames are always behind every note; **Bring to front** and **Send to back** only change the order of notes.
 - On a phone, frames are shown, with their title styles, but can't be added, moved or changed.
 - Others see a frame move as you drag it. If two people change the same frame, the change that reaches the relay last wins.
+
+## Templates
+
+A template adds a ready-made set of frames, with their titles, colours and sizes. There are four:
+
+- **Retro**: three columns, Went well, Didn't go well and Actions.
+- **Start Stop Continue**: three columns, Start, Stop and Continue.
+- **2x2 Impact and Effort**: four squares, Quick wins, Major projects, Fill-ins and Thankless tasks.
+- **Sprint planning**: a wide Sprint goal frame on top, then Candidates, Committed, and Risks and questions.
+
+- On a wider screen, find them under **Templates** in the palette (search finds them too, for example "retro" or "matrix"). Click a template to place it in the middle of the part of the board you can see, or drag it onto the board to centre it where you let go. It always lands fully on the board.
+- Nothing already on the board is moved, resized or deleted, so there's nothing to confirm. When it's done, the view fits the new frames and the first one is selected.
+- A template needs one free frame slot per frame (a board holds up to 30 frames). If there aren't enough, nothing is added and the board says how many it needs and how many are free.
+- The frames go up one at a time and take about a second to settle: others see each one appear, then take its size and title style. While a template is being added, the template tiles are off.
+- If the relay refuses part of a template (for example someone else filled the board's last frame slots at the same moment), the frames already added stay, and the board says the template was only partly added. Delete any you don't want.
+- Templates can't be added on a phone.
 
 ## The side panels
 
