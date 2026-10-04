@@ -2,6 +2,18 @@
 
 All notable changes to Stickyard, newest first. The format follows Keep a Changelog. Versions are 0.x: a minor bump for each slice and a patch bump for each follow-up fix. This file is shown in the app under **What’s new**, so entries are written for the people using it.
 
+## [0.10.1] - 2026-10-04
+
+### Fixed
+- After selecting all notes (Ctrl+A) or drawing a box round some, pressing Delete now deletes them. Before, it could do nothing.
+- If a note had focus outside the notes you selected, Delete now deletes the selection, never that other note.
+- Pressing Delete while you type in a note, or in the menu or chat, never deletes notes.
+
+### Changed
+- Deleting several notes always asks first and says how many, even when they’re empty.
+- After deleting several notes, the board says how many were deleted. If some weren’t (because it was too quick, or the connection was lost), it says how many and why.
+- When you’re not connected, Delete doesn’t ask; the board says nothing was deleted.
+
 ## [0.10.0] - 2026-10-04
 
 ### Added

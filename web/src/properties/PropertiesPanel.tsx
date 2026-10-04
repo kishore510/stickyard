@@ -9,7 +9,7 @@ import { findFrame, framedNotes, type FrameEdit } from "../frames/board";
 import { FrameFields } from "../frames/FrameFields";
 import { findNote, type Board, type StylePatch } from "../notes/board";
 import { NOTE_COLOR_NAMES } from "../notes/colours";
-import { authorName, confirmDelete } from "../notes/label";
+import { authorName, confirmDelete, confirmDeleteNotes } from "../notes/label";
 import { NoteFields } from "../notes/NoteFields";
 import { OrderSection } from "../notes/OrderFields";
 import { ColourSection, PartTextSection, SizeSection, type MixedFields } from "../notes/StyleFields";
@@ -130,7 +130,7 @@ export function PropertiesContent({ room, collapse }: { room: PropertiesRoom; co
             title={`Delete ${many.length} notes (Del)`}
             disabled={!room.live}
             onClick={() => {
-              if (!confirmDelete(many.map((n) => n.text).join(""))) return;
+              if (!confirmDeleteNotes(many.length)) return;
               room.deleteNotes(many.map((n) => n.id));
               useBoardUi.getState().clearSelection();
             }}

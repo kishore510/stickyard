@@ -9,7 +9,7 @@ import { isHeld, type BoardNote } from "./board";
 import { InlineText } from "./InlineText";
 import type { InlinePart } from "./inlineEdit";
 import { NOTE_COLOR_CLASSES } from "./colours";
-import { confirmDelete, noteLabel } from "./label";
+import { noteLabel } from "./label";
 import { keyResize } from "./size";
 import { splitTitleBody } from "./titleBody";
 import { partTextClasses } from "./style";
@@ -53,8 +53,8 @@ export interface NoteActions {
   groupOf(id: string): string[] | null;
   /** Arrow keys on a multi-selection: moves it all (clamped as a group), committed shortly after. */
   moveSelection(dx: number, dy: number): void;
-  /** Delete on a multi-selection: asks first if any has text. */
-  deleteSelection(): void;
+  /** The Delete key on this note: the note, or the selection when there is one (asks first). */
+  deleteFromKey(id: string): void;
 }
 
 /** Stable for the life of the board (the provider's value never changes), so notes don't re-render for it. */
@@ -151,8 +151,7 @@ export function NoteCard({ entry, editable, selected }: { entry: BoardNote; edit
     }
     if (e.key === "Delete" || e.key === "Backspace") {
       e.preventDefault();
-      if (group) actions.deleteSelection();
-      else if (confirmDelete(note.text)) actions.deleteNote(note.id);
+      actions.deleteFromKey(note.id);
     }
   };
 

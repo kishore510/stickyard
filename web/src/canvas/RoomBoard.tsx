@@ -15,7 +15,8 @@ import { cornerLifted, panelWidths, type PanelId } from "../panels/layout";
 import { usePanels } from "../panels/panelStore";
 import { SidePanel } from "../panels/SidePanel";
 import { PropertiesContent } from "../properties/PropertiesPanel";
-import type { RoomView } from "../rooms/session";
+import type { DeleteReport, RoomView } from "../rooms/session";
+import { cn } from "../lib/utils";
 import type { useRoom } from "../rooms/useRoom";
 import { MEDIA } from "../styles/breakpoints";
 import type { Placed } from "./arrange";
@@ -50,12 +51,14 @@ export interface RoomBoardProps {
 const Notices = memo(function Notices({
   status,
   noteNotice,
+  deleteReport,
   noteReason,
   onRejoin,
   bar,
 }: {
   status: RoomView["status"];
   noteNotice: string | null;
+  deleteReport: DeleteReport | null;
   noteReason: string | null;
   onRejoin: () => void;
   /** The selection bar, first in the stack (md and up). */
@@ -81,6 +84,14 @@ const Notices = memo(function Notices({
       {noteNotice && (
         <p role="status" className="pointer-events-auto rounded-md bg-surface px-ms py-xs text-sm text-status-warn shadow-md">
           {noteNotice}
+        </p>
+      )}
+      {deleteReport && (
+        <p
+          role="status"
+          className={cn("pointer-events-auto rounded-md bg-surface px-ms py-xs text-sm shadow-md", deleteReport.partial && "text-status-warn")}
+        >
+          {deleteReport.text}
         </p>
       )}
       {noteReason && (
@@ -295,6 +306,7 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
 
   const boardRoom: BoardRoom = {
     board: view.board,
+    live,
     startDrag: room.startDrag,
     moveNote: room.moveNote,
     startResize: room.startResize,
@@ -371,7 +383,7 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
           minimapLifted={lifted}
           view={canvas}
         />
-        <Notices status={view.status} noteNotice={view.noteNotice} noteReason={noteReason} onRejoin={rejoin} bar={bar} />
+        <Notices status={view.status} noteNotice={view.noteNotice} deleteReport={view.deleteReport} noteReason={noteReason} onRejoin={rejoin} bar={bar} />
         {wide ? (
           <>
             <ViewBar ctx={ctx} barRef={barRef} />
