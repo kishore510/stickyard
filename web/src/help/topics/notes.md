@@ -1,8 +1,8 @@
 ---
 title: Notes
 order: 3
-summary: Add notes from the palette, edit, colour, style and resize them in Properties, bring them to the front or send them to the back, group them in frames, start from a template, select several to move, arrange or delete together; pan, zoom and fit the board.
-keywords: tick, outline, template, templates, retro, retrospective, start stop continue, 2x2, matrix, impact, effort, sprint, planning, kanban, frame, frames, area, section, title, carry, front, back, order, stack, overlap, behind, top, bottom, inline, place, double-click, marquee, multi, several, many, group, arrange, align, distribute, grid, columns, rows, tidy, layout, match, right-click, middle, note, notes, sticky, board, add, edit, move, drag, delete, colour, color, text, title, body, size, width, height, bigger, smaller, handle, corner, font, bold, italic, align, alignment, left, centre, center, right, style, palette, tile, properties, panel, select, selection, collapse, resize, pan, hand, zoom, pinch, wheel, fit, overview, map, shortcut, full, saved
+summary: Add notes from the palette, duplicate them, undo and redo your changes, clear the board, edit, colour, style and resize them in Properties, bring them to the front or send them to the back, group them in frames, start from a template, select several to move, arrange or delete together; pan, zoom and fit the board.
+keywords: undo, redo, history, duplicate, copy, clear, clear board, empty, restore, ctrl+z, ctrl+y, ctrl+d, tick, outline, template, templates, retro, retrospective, start stop continue, 2x2, matrix, impact, effort, sprint, planning, kanban, frame, frames, area, section, title, carry, front, back, order, stack, overlap, behind, top, bottom, inline, place, double-click, marquee, multi, several, many, group, arrange, align, distribute, grid, columns, rows, tidy, layout, match, right-click, middle, note, notes, sticky, board, add, edit, move, drag, delete, colour, color, text, title, body, size, width, height, bigger, smaller, handle, corner, font, bold, italic, align, alignment, left, centre, center, right, style, palette, tile, properties, panel, select, selection, collapse, resize, pan, hand, zoom, pinch, wheel, fit, overview, map, shortcut, full, saved
 ---
 Every session has one shared **board**. Everyone in the session sees the same notes, and changes show up for everyone as they happen. The board fills the screen; its edge is the outline around the dotted area, and notes always stay inside it.
 
@@ -34,9 +34,30 @@ On a wider screen, with a mouse:
 - Others see the notes move as you drag (for big selections, the first 50 move live and the rest catch up when you let go).
 - On a phone (or with a finger or pen), you select one note at a time, and dragging an empty part of the board moves around it.
 
+## The bar at the top of the board
+
+On a wider screen a bar sits at the top of the board all the time. Its buttons are grouped: **History** (**Undo**, **Redo**), **Edit** (**Duplicate**, **Delete**), **Order** (**Bring to front**, **Send to back**) and **Arrange** (below). A button that can't be used right now is greyed out, and the bar says why next to it (for example "Select notes or a frame first."). On a phone, **Undo** and **Redo** are in the bar at the bottom instead.
+
+## Duplicate
+
+- Select notes (or one frame) and choose **Duplicate** in the bar, or press **Ctrl+D** (**Cmd+D** on a Mac) on the board.
+- The copies have everything the originals have: text, colour, text style and size. They land a little to the right of and below the originals, keep their arrangement and the order of which is in front, and go in front of everything else. The copies are selected afterwards.
+- Duplicating a frame copies the frame alone (its title, colour, title style and size), not the notes inside it.
+- If the board hasn't room for every copy (200 notes, 30 frames), nothing is copied and the bar says how many are needed and how many are free. Duplicate is also off while you're not connected, while a selected note is being moved or hasn't been saved yet, and while other items are still being added.
+- **Ctrl+D** never does anything while you type in a note or a field. Duplicate isn't on phones.
+
+## Undo and redo
+
+- **Undo** (**Ctrl+Z**, **Cmd+Z** on a Mac) takes back your last change; **Redo** (**Ctrl+Shift+Z**, **Cmd+Shift+Z**, or **Ctrl+Y**) puts it back. The shortcuts work when the board has focus; while you're typing in a note or a field, they undo your typing instead, as usual.
+- You can undo moving, resizing and arranging notes (a whole drag, or a burst of arrow-key moves, is one step), text, colour and style changes, moving, resizing and editing frames, adding notes and frames, **Duplicate**, a template, deleting, and **Clear board**.
+- Only your own changes are undone, never anyone else's. If someone else changed a note or frame after you, undo leaves that one as it is and says how many were left.
+- Deleted notes and frames come back as new copies, with you as the one who added them. Large undos come back in steps, and the board shows how far it's got ("Restoring 120 of 200…").
+- **Bring to front** and **Send to back** can't be undone. When the last thing you did was one of them, Undo says so; press it again to undo what you did before.
+- Undo history is kept for this visit only, up to 50 steps. It's cleared when you leave, rejoin or lose the connection. It's kept in this tab and never stored or sent anywhere.
+
 ## Arranging notes
 
-With two or more notes selected (and **Select** on), a bar appears at the top of the board:
+With two or more notes selected, use the **Arrange** group in the bar at the top of the board:
 
 - **Align**: line them up on their left edges, centres or right edges, or their top edges, middles or bottom edges.
 - **Distribute**: space three or more evenly across or down, with equal gaps between them. The outermost two stay where they are.
@@ -141,12 +162,17 @@ When you're not typing in a box:
 - **V** is Select, **H** is Hand, **N** adds a note (on a wider screen, in the colour you last added), and **M** shows or hides the overview map.
 - **[** collapses or expands the palette, and **]** collapses or expands Properties.
 - **Ctrl+A** (**Cmd+A**) selects every note, and **Esc** clears the selection.
+- **Ctrl+D** (**Cmd+D**) duplicates the selection, **Ctrl+Z** (**Cmd+Z**) undoes, and **Ctrl+Shift+Z** (**Cmd+Shift+Z**) or **Ctrl+Y** redoes.
 
 With a note focused: **arrow keys** move it (and the rest of the selection, if several are selected), **Alt+arrow keys** resize it when it's the only one selected (add **Shift** for bigger steps), **Enter** edits it, **Delete** deletes it (or the whole selection) and **Esc** clears the selection.
 
 ## Deleting a note
 
-Select the note and choose the bin (**Delete note**) at the top of Properties (on a phone, **Delete note** in its editor), or focus it and press **Delete**. If the note has text, you're asked first. Deleting removes the note for everyone, and it can't be undone.
+Select the note and choose the bin (**Delete note**) at the top of Properties (on a phone, **Delete note** in its editor), or focus it and press **Delete**. If the note has text, you're asked first. Deleting removes the note for everyone; **Undo** brings it back as a new copy.
+
+## Clearing the board
+
+On a wider screen, with nothing selected, **Properties** has **Clear board**. It deletes every note and frame, for everyone. You're asked once, with how many notes and frames. When it's done, the board says how many were deleted, or how many weren't and why (nothing is tried again). One **Undo** brings the whole board back, until you leave or reconnect. Clear board is off while you're not connected, when the board is empty, and while a template, duplicate or undo is still being added. It isn't on phones.
 
 ## When something goes wrong
 

@@ -21,7 +21,7 @@ keywords: touch, tap, swipe, keyboard, tab, escape, esc, arrow, alt, resize, sho
 - On the board, **Tab** moves between notes and selects the one you reach. **Enter** edits it, the **arrow keys** move it, **Alt+arrow keys** resize it (**Shift** for bigger steps with either), **Delete** deletes it (or every selected note, asking once) and **Esc** clears the selection. With a frame selected, **Enter** edits its title and **Delete** deletes the frame (never its notes).
 - A selected note's corners can be dragged with a finger to resize it; the grab area is a full fingertip wide.
 - A side panel's edge is focusable: the **arrow keys** resize it (**Shift** for bigger steps), **Home** and **End** go to the narrowest and widest.
-- Board shortcuts: **+** and **-** zoom, **0** goes to 100%, **F** fits to the notes, **V** is Select, **H** is Hand, **N** adds a note, **M** shows the overview map, and **[** and **]** collapse or expand the palette and Properties. **Ctrl+A** selects every note. Hold **Space** and drag (or drag with the right or middle mouse button) to move around; a left drag on an empty part of the board draws a marquee to select notes. See [Notes](help:notes).
+- Board shortcuts: **+** and **-** zoom, **0** goes to 100%, **F** fits to the notes, **V** is Select, **H** is Hand, **N** adds a note, **M** shows the overview map, and **[** and **]** collapse or expand the palette and Properties. **Ctrl+A** selects every note, **Ctrl+D** duplicates the selection, **Ctrl+Z** undoes and **Ctrl+Shift+Z** or **Ctrl+Y** redoes. Hold **Space** and drag (or drag with the right or middle mouse button) to move around; a left drag on an empty part of the board draws a marquee to select notes. See [Notes](help:notes).
 
 ## Links and the Back button
 
