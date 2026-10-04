@@ -33,11 +33,14 @@ export const isDeleteKey = (key: string) => key === "Delete" || key === "Backspa
 export const inField = (target: EventTarget | null) =>
   target instanceof Element && target.closest('input, textarea, select, [contenteditable="true"]') !== null;
 
-/** Focus on nothing (the page itself) or inside the board: the key is the board's. */
-const onBoard = (target: EventTarget | null, board: Element | null) =>
+/**
+ * Focus inside the board, or on nothing in particular: the page, or an element round the board
+ * (a click on the canvas focuses the app's focusable <main>). The key is then the board's.
+ */
+export const onBoard = (target: EventTarget | null, board: Element | null) =>
   target === null ||
   (typeof document !== "undefined" && (target === document.body || target === document.documentElement)) ||
-  (target instanceof Node && board !== null && board.contains(target));
+  (target instanceof Node && board !== null && (board.contains(target) || target.contains(board)));
 
 export function deleteKeyTarget(e: DeleteKeyEvent, state: DeleteKeyState): DeleteKeyTarget {
   if (!isDeleteKey(e.key) || e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey) return null;

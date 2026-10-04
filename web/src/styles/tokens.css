@@ -194,6 +194,13 @@
   /* Touch and focus */
   --sy-touch-min: 44px;
   --sy-focus-width: 2px;
+  /* Selected notes and frames: an accent outline, a check badge on each of several selected
+     notes, and a dashed box round the whole selection (index.css .sy-selected, .sy-select-badge,
+     .sy-selection-box). */
+  --sy-select-width: 3px;
+  --sy-select-offset: 3px;
+  --sy-select-badge: 22px;
+  --sy-selection-pad: 12px;
   --sy-border-width: 1px;
   /* Downward drag on a phone sheet's header that closes it. Read by src/shell/Sheet.tsx. */
   --sy-swipe-close: 80px;

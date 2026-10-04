@@ -220,6 +220,16 @@ describe("the Delete key outside a note card", () => {
     expect(deleteKeyTarget(key(el, { key: "Backspace" }), state(el))).toBe("notes");
   });
 
+  it("focus on an element round the board (a click on the canvas focuses the app's <main>) is the board's", () => {
+    const main = document.createElement("main");
+    main.tabIndex = -1;
+    const el = document.createElement("section");
+    main.append(el);
+    document.body.append(main);
+    expect(deleteKeyTarget(key(main), state(el))).toBe("notes");
+    expect(deleteKeyTarget(key(main), state(el, { selection: 0, frameSelected: true }))).toBe("frame");
+  });
+
   it("never inside a text field (a note edited in place, a Properties field), a modal, or with nothing selected", () => {
     const el = board();
     expect(deleteKeyTarget(key(el.querySelector("textarea")), state(el))).toBeNull();

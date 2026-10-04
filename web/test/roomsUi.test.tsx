@@ -1087,7 +1087,7 @@ describe("the Properties panel (md up)", () => {
     await withNotes(one, two);
     await selectNote(0);
     expect(notes()[0]?.getAttribute("aria-current")).toBe("true");
-    expect(notes()[0]?.className).toContain("ring-accent");
+    expect(notes()[0]?.className).toContain("sy-selected");
     expect(propTitle()?.value).toBe("Idea one");
     expect(propBody()?.value).toBe("The details");
     const swatches = [...(properties()?.querySelectorAll<HTMLButtonElement>('[aria-label="Note colour"] button') ?? [])];
@@ -1737,6 +1737,8 @@ describe("selection and delete polish (md up)", () => {
     await pointer(window, "pointerup", at(500, 100));
     await settle();
     expect(selected()).toEqual([nid(0), nid(1)]);
+    // A real click on the canvas focuses the app's <main>.
+    await act(async () => document.querySelector<HTMLElement>("main")?.focus());
     vi.stubGlobal("confirm", () => true);
     await press("Delete");
     expect(batches(socket).map((b) => b.ops.map((o) => o.id))).toEqual([[nid(0), nid(1)]]);
@@ -1812,6 +1814,28 @@ describe("selection and delete polish (md up)", () => {
     expect(confirm).not.toHaveBeenCalled();
     expect(batches(socket)).toEqual([]);
     expect(sentOfType(socket, "noteDelete")).toEqual([]);
+  });
+
+  const badges = () => [...document.querySelectorAll<HTMLElement>(".react-flow__node [data-select-badge]")].map((b) => b.closest<HTMLElement>(".react-flow__node")?.dataset.id);
+  const box = () => document.querySelector<HTMLElement>("[data-selection-box]");
+
+  it("several selected: each has the outline and a check badge, and a dashed box surrounds them all", async () => {
+    await withNotes([make(0), make(1), make(2)]);
+    await act(async () => notes()[0]?.focus());
+    expect(badges()).toEqual([]);
+    expect(box()).toBeNull();
+    expect(notes()[0]?.classList.contains("sy-selected")).toBe(true);
+    await press("a", { ctrlKey: true });
+    expect(notes().every((n) => n.classList.contains("sy-selected"))).toBe(true);
+    expect(badges()).toEqual([nid(0), nid(1), nid(2)]);
+    // Notes at x 40, 240, 440 (y 60), default size 160: the box spans 40..600 by 60..220, padded.
+    expect(box()?.style.left).toBe("calc(40px - var(--sy-selection-pad))");
+    expect(box()?.style.top).toBe("calc(60px - var(--sy-selection-pad))");
+    expect(box()?.style.width).toBe("calc(560px + 2 * var(--sy-selection-pad))");
+    expect(box()?.style.height).toBe("calc(160px + 2 * var(--sy-selection-pad))");
+    await press("Escape");
+    expect(badges()).toEqual([]);
+    expect(box()).toBeNull();
   });
 
   it("Delete from a control outside the board (the top bar) does nothing", async () => {
@@ -2169,6 +2193,65 @@ describe("frames (slice frames, protocol v9)", () => {
     });
     await settle();
     expect(sentOfType(socket, "frameDelete")).toEqual([{ type: "frameDelete", id: F1 }]);
+  });
+
+  /** A key press where a real keyboard sends it: the focused element (or the body). */
+  async function key(k: string) {
+    await act(async () => {
+      (document.activeElement ?? document.body).dispatchEvent(new KeyboardEvent("keydown", { key: k, bubbles: true, cancelable: true }));
+    });
+    await settle();
+  }
+  const titleInput = () => frameNode()?.querySelector<HTMLInputElement>("input[data-frame-title]");
+
+  it("clicking the header (the title too) selects the frame without entering the title, so Delete deletes it", async () => {
+    const socket = await withBoard();
+    // The title takes no presses until it's being edited: they land on the header (select, drag).
+    expect(titleInput()?.className).toContain("pointer-events-none");
+    await press(frameNode()?.querySelector("[data-frame-handle='header']"));
+    expect(document.activeElement).not.toBe(titleInput());
+    // A real click there focuses the app's <main> (happy-dom leaves the body).
+    const main = document.querySelector<HTMLElement>("main");
+    expect(main?.contains(document.querySelector('section[aria-label="Board"]'))).toBe(true);
+    await act(async () => main?.focus());
+    vi.stubGlobal("confirm", () => true);
+    await key("Delete");
+    expect(sentOfType(socket, "frameDelete")).toEqual([{ type: "frameDelete", id: F1 }]);
+  });
+
+  it("double-click on the header edits the title (its own presses back); Delete there is the text's", async () => {
+    const socket = await withBoard();
+    const header = frameNode()?.querySelector("[data-frame-handle='header']");
+    await press(header);
+    await act(async () => header?.dispatchEvent(new MouseEvent("dblclick", { bubbles: true, cancelable: true })));
+    await settle();
+    expect(document.activeElement).toBe(titleInput());
+    expect(titleInput()?.className).not.toContain("pointer-events-none");
+    const confirm = vi.fn(() => true);
+    vi.stubGlobal("confirm", confirm);
+    await key("Delete");
+    expect(confirm).not.toHaveBeenCalled();
+    expect(sentOfType(socket, "frameDelete")).toEqual([]);
+  });
+
+  it("Enter on a selected frame edits its title; Enter there ends it with the frame still selected, then Delete deletes it", async () => {
+    const socket = await withBoard();
+    await press(frameNode()?.querySelector("[data-frame-handle='header']"));
+    await key("Enter");
+    for (let i = 0; i < 20 && document.activeElement !== titleInput(); i++) await settle();
+    expect(document.activeElement).toBe(titleInput());
+    await key("Enter");
+    expect(document.activeElement).not.toBe(titleInput());
+    expect(properties()?.querySelector("h3")?.textContent).toBe("Frame");
+    vi.stubGlobal("confirm", () => true);
+    await key("Delete");
+    expect(sentOfType(socket, "frameDelete")).toEqual([{ type: "frameDelete", id: F1 }]);
+  });
+
+  it("a selected frame has the selection outline", async () => {
+    await withBoard();
+    await press(frameNode()?.querySelector("[data-frame-handle='header']"));
+    expect(frameNode()?.querySelector(`[data-frame-id="${F1}"]`)?.classList.contains("sy-selected")).toBe(true);
   });
 
   it("the palette has a Frames tile from md up; a click adds a frame with its title ready to type", async () => {

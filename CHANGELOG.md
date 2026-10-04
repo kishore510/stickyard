@@ -2,6 +2,16 @@
 
 All notable changes to Stickyard, newest first. The format follows Keep a Changelog. Versions are 0.x: a minor bump for each slice and a patch bump for each follow-up fix. This file is shown in the app under **What’s new**, so entries are written for the people using it.
 
+## [0.10.2] - 2026-10-04
+
+### Fixed
+- Clicking a frame’s title bar now selects the frame, so pressing Delete deletes it. Before, the click went into the title and Delete did nothing.
+- Delete after Ctrl+A, after drawing a box round notes, or with a frame selected now works in the browser after you’ve clicked the board. In 0.10.1 it could still do nothing.
+
+### Changed
+- To change a frame’s title, double-click it, or select the frame and press Enter. Press Enter or Escape when you’re done; the frame stays selected. You can still drag a frame by its title.
+- Selected notes and frames have a thicker outline. When several notes are selected, each one shows a tick in its corner and a dashed box surrounds them all, so it’s clear what’s selected.
+
 ## [0.10.1] - 2026-10-04
 
 ### Fixed
