@@ -1,10 +1,10 @@
 import { truncateName } from "./avatars";
 
 /*
- * Join and leave toasts (pure text). The session batches the events (TOAST_BATCH_MS), keeps
- * toasts apart (TOAST_GAP_MS) and leaves out yourself, the list you get on joining and the people
- * who come back after your own reconnect (RESYNC_QUIET_MS). Names are untrusted: plain text only,
- * truncated.
+ * Join and leave toasts (pure text). The session batches the events (TOAST_BATCH_MS; a leave
+ * waits LEAVE_GRACE_MS), keeps toasts apart (TOAST_GAP_MS) and leaves out yourself, the list you
+ * get on joining, the people who come back after your own reconnect, and someone back soon after
+ * their leave was shown (RESYNC_QUIET_MS). Names are untrusted: plain text only, truncated.
  */
 
 export interface PresenceEvent {
@@ -17,6 +17,8 @@ export interface PresenceEvent {
 export const TOAST_BATCH_MS = 1000;
 /** Toasts are at least this far apart; events meanwhile wait for the next one. */
 export const TOAST_GAP_MS = 2000;
+/** A leave waits this long before it's shown, so someone reconnecting (left, then back) shows nothing. */
+export const LEAVE_GRACE_MS = 3000;
 /** How long a toast stays. */
 export const TOAST_SHOW_MS = 5000;
 /** After your own reconnect, people who were here before coming back aren't news for this long. */

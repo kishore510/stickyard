@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Participant } from "@stickyard/shared";
 import { AVATAR_MAX, NAME_MAX_SHOWN, avatarStack, initials, peopleLabel, truncateName } from "../src/presence/avatars";
-import { RESYNC_QUIET_MS, TOAST_BATCH_MS, TOAST_GAP_MS, TOAST_SHOW_MS, summarizePresence, type PresenceEvent } from "../src/presence/toasts";
+import { LEAVE_GRACE_MS, RESYNC_QUIET_MS, TOAST_BATCH_MS, TOAST_GAP_MS, TOAST_SHOW_MS, summarizePresence, type PresenceEvent } from "../src/presence/toasts";
 import { alex, room, sam } from "./helpers/fakeRelay";
 
 /*
@@ -125,6 +125,45 @@ describe("toasts from the session", () => {
     expect(t.views.every((v) => v.presenceToast === null)).toBe(true);
   });
 
+  it("someone else's reconnect a second or two later shows nothing (leaves wait a short grace)", async () => {
+    expect(LEAVE_GRACE_MS).toBe(3000);
+    const t = room();
+    t.relay.leave(sam.id);
+    await vi.advanceTimersByTimeAsync(1500);
+    t.relay.arrive({ ...sam, id: "SSSSSSSSSSSSSSS2" });
+    await vi.advanceTimersByTimeAsync(LEAVE_GRACE_MS * 2);
+    expect(t.views.every((v) => v.presenceToast === null)).toBe(true);
+  });
+
+  it("a leave shows after the grace; the same name back soon after isn't news", async () => {
+    const t = room();
+    t.relay.leave(sam.id);
+    await vi.advanceTimersByTimeAsync(LEAVE_GRACE_MS - 1);
+    expect(t.view().presenceToast).toBeNull();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(t.view().presenceToast?.text).toBe("Sam left");
+    t.relay.arrive({ ...sam, id: "SSSSSSSSSSSSSSS2" });
+    await vi.advanceTimersByTimeAsync(TOAST_GAP_MS * 2);
+    expect(t.view().presenceToast?.seq).toBe(1);
+    // Much later, the name is news again.
+    await vi.advanceTimersByTimeAsync(RESYNC_QUIET_MS);
+    t.relay.leave("SSSSSSSSSSSSSSS2");
+    t.relay.arrive({ ...sam, id: "SSSSSSSSSSSSSSS3" });
+    await vi.advanceTimersByTimeAsync(LEAVE_GRACE_MS * 2);
+    // Never a second toast (the first has timed out by now).
+    expect(Math.max(...t.views.map((v) => v.presenceToast?.seq ?? 0))).toBe(1);
+  });
+
+  it("someone back before the relay noticed they'd gone (join first, old leave later) shows nothing", async () => {
+    const t = room();
+    t.relay.arrive({ ...sam, id: "SSSSSSSSSSSSSSS2" });
+    await vi.advanceTimersByTimeAsync(TOAST_BATCH_MS * 2);
+    t.relay.leave(sam.id);
+    await vi.advanceTimersByTimeAsync(LEAVE_GRACE_MS * 2);
+    expect(t.views.every((v) => v.presenceToast === null)).toBe(true);
+    expect(t.view().participants.map((p) => p.id)).toEqual([alex.id, "SSSSSSSSSSSSSSS2"]);
+  });
+
   it("rate-limited: toasts are at least the gap apart, later events wait and are summed", async () => {
     const t = room();
     t.relay.arrive(kai);
@@ -173,8 +212,19 @@ describe("toasts from the session", () => {
     // After the quiet period a returning name is news again.
     await vi.advanceTimersByTimeAsync(RESYNC_QUIET_MS);
     t.relay.leave("SSSSSSSSSSSSSSS2");
-    await vi.advanceTimersByTimeAsync(TOAST_BATCH_MS + TOAST_GAP_MS);
+    await vi.advanceTimersByTimeAsync(LEAVE_GRACE_MS);
     expect(t.view().presenceToast?.text).toBe("Sam left");
+  });
+
+  it("right after your own reconnect, someone else's quick reconnect still cancels their leave", async () => {
+    const t = room([], [], { random: () => 0.5 });
+    t.relay.drop();
+    await vi.advanceTimersByTimeAsync(1000);
+    t.relay.open();
+    t.relay.leave(sam.id);
+    t.relay.arrive({ ...sam, id: "SSSSSSSSSSSSSSS2" });
+    await vi.advanceTimersByTimeAsync(LEAVE_GRACE_MS * 2);
+    expect(t.views.every((v) => v.presenceToast === null)).toBe(true);
   });
 
   it("events waiting at a drop are forgotten; nothing shows while disconnected", async () => {

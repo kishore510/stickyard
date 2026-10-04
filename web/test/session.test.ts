@@ -3,7 +3,7 @@ import { MAX_NOTES_PER_ROOM, PROTOCOL_VERSION, type Note, NOTE_DEFAULTS, NOTE_MA
 import type { SocketFactory, SocketHandlers } from "../src/connection/socket";
 import type { CodeCheck } from "../src/rooms/api";
 import { findNote, localId } from "../src/notes/board";
-import { TOAST_BATCH_MS } from "../src/presence/toasts";
+import { LEAVE_GRACE_MS } from "../src/presence/toasts";
 import { JOIN_TIMEOUT_MS, MAX_MESSAGES, MOVE_INTERVAL_MS, RESIZE_INTERVAL_MS, RoomSession, type RoomView } from "../src/rooms/session";
 
 class FakeSocket {
@@ -176,7 +176,7 @@ describe("in the room", () => {
     expect(t.view().participants).toEqual([sam, alex, kai]);
     t.sock().receive({ type: "participant_left", id: sam.id });
     expect(t.view().participants).toEqual([alex, kai]);
-    vi.advanceTimersByTime(TOAST_BATCH_MS);
+    vi.advanceTimersByTime(LEAVE_GRACE_MS);
     expect(t.view().presenceToast?.text).toBe("Kai joined, Sam left");
   });
 

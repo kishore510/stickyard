@@ -422,7 +422,8 @@ describe("the room", () => {
     await server(socket, { data: { type: "participant_joined", participant: { id: "CCCCCCCCCCCCCCCC", name: "Kai", colourIndex: 2 } } });
     await server(socket, { data: { type: "participant_left", id: sam.id } });
     expect(live()).not.toContain("Kai joined");
-    await act(() => new Promise((resolve) => setTimeout(resolve, 1100)));
+    // A leave waits a short grace (a quick reconnect cancels it), so the toast comes after it.
+    await act(() => new Promise((resolve) => setTimeout(resolve, 3100)));
     expect(live()).toContain("Kai joined, Sam left");
   });
 

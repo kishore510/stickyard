@@ -104,7 +104,7 @@ import { DUPLICATE_HINTS, duplicateFrameInput, duplicateNoteInputs } from "../ca
 import { HISTORY_TEXT, History, type Fields, type ItemKind, type Lookup, type Plan } from "../history/history";
 import type { CodeCheck } from "./api";
 import { packItems, type ItemDraft, type ItemsAddMessage } from "./items";
-import { RESYNC_QUIET_MS, TOAST_BATCH_MS, TOAST_GAP_MS, TOAST_SHOW_MS, summarizePresence, type PresenceEvent } from "../presence/toasts";
+import { LEAVE_GRACE_MS, RESYNC_QUIET_MS, TOAST_BATCH_MS, TOAST_GAP_MS, TOAST_SHOW_MS, summarizePresence, type PresenceEvent } from "../presence/toasts";
 import { discardUnconfirmed, resyncFrames, resyncNotes, unsavedKeys, type OrphanDraft } from "./resync";
 
 /*
@@ -554,6 +554,10 @@ export class RoomSession {
   /** Join/leave events waiting for the next toast, its timer, and the toast's hide timer. */
   private presenceEvents: PresenceEvent[] = [];
   private presenceTimer: ReturnType<typeof setTimeout> | undefined;
+  private presenceDue = 0;
+  private batchStart = 0;
+  /** Names whose leave was shown, and when: back soon after isn't news. */
+  private readonly recentlyLeft = new Map<string, number>();
   private toastTimer: ReturnType<typeof setTimeout> | undefined;
   private lastToastAt = -Infinity;
   private toastSeq = 0;
@@ -922,18 +926,25 @@ export class RoomSession {
 
   /** A join or leave: shown in the next toast, after the batch window and at least the gap after the last one. */
   private presence(event: PresenceEvent): void {
+    const now = Date.now();
+    if (this.presenceEvents.length === 0) this.batchStart = now;
     this.presenceEvents.push(event);
-    if (this.presenceTimer !== undefined) return;
-    const wait = Math.max(TOAST_BATCH_MS, this.lastToastAt + TOAST_GAP_MS - Date.now());
+    // After the batch window, a leave's grace (a quick reconnect cancels it) and the gap after the last toast.
+    const due = Math.max(this.batchStart + TOAST_BATCH_MS, event.kind === "left" ? now + LEAVE_GRACE_MS : 0, this.lastToastAt + TOAST_GAP_MS);
+    if (this.presenceTimer !== undefined && due <= this.presenceDue) return;
+    clearTimeout(this.presenceTimer);
+    this.presenceDue = due;
     this.presenceTimer = setTimeout(() => {
       this.presenceTimer = undefined;
       this.showToast();
-    }, wait);
+    }, due - now);
   }
 
   private showToast(): void {
-    const text = summarizePresence(this.presenceEvents);
+    const events = this.presenceEvents;
+    const text = summarizePresence(events);
     this.presenceEvents = [];
+    for (const e of events) if (e.kind === "left") this.recentlyLeft.set(e.name, Date.now());
     if (this.stopped || text === null) return;
     const seq = ++this.toastSeq;
     this.lastToastAt = Date.now();
@@ -2179,15 +2190,25 @@ export class RoomSession {
         this.known.set(p.id, p);
         const others = this.view.participants.filter((q) => q.id !== p.id);
         // Not news: yourself, or someone back after your own reconnect.
-        const quiet = Date.now() < this.quietUntil && this.quietNames.has(p.name);
-        if (!this.yourIds.has(p.id) && !quiet) this.presence({ kind: "joined", id: p.id, name: p.name });
+        // Back soon after their leave was shown, or back before the relay noticed they'd gone.
+        const back = Date.now() - (this.recentlyLeft.get(p.name) ?? -Infinity) < RESYNC_QUIET_MS || others.some((q) => q.name === p.name);
+        const quiet = (Date.now() < this.quietUntil && this.quietNames.has(p.name)) || back;
+        if (this.yourIds.has(p.id)) {
+          // Yourself: never a toast.
+        } else if (!quiet) this.presence({ kind: "joined", id: p.id, name: p.name });
+        else {
+          // Not news, but it still cancels their leave waiting to be shown (a quick reconnect).
+          const leave = this.presenceEvents.findIndex((e) => e.kind === "left" && e.name === p.name);
+          if (leave >= 0) this.presenceEvents.splice(leave, 1);
+        }
         return this.update({ participants: [...others, p], people: new Map(this.known) });
       }
 
       case "participant_left": {
         const gone = this.view.participants.find((p) => p.id === message.id);
         if (!gone) return;
-        this.presence({ kind: "left", id: gone.id, name: gone.name });
+        // An old socket of someone who is back already (same name, new id) isn't news.
+        if (!this.view.participants.some((p) => p.id !== gone.id && p.name === gone.name)) this.presence({ kind: "left", id: gone.id, name: gone.name });
         return this.update({ participants: this.view.participants.filter((p) => p.id !== message.id) });
       }
 
