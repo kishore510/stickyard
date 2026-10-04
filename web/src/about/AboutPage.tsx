@@ -106,6 +106,10 @@ export function AboutPage() {
             id the relay gave the visit that added it. Deleting a frame removes only the frame, never its notes.
           </li>
           <li>
+            Undo and redo history is kept only in this tab’s memory: it’s never stored or sent anywhere, and it’s gone when you
+            leave or reconnect. Notes and frames that undo brings back are added again as new ones, recorded as added by your visit.
+          </li>
+          <li>
             The create passcode is sent only to the relay, only when you start a session, and is never stored in your
             browser.
           </li>

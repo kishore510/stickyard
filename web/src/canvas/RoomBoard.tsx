@@ -1,13 +1,22 @@
 import { ReactFlowProvider, useStore } from "@xyflow/react";
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { RotateCcw, SlidersHorizontal } from "lucide-react";
-import { FRAME_DEFAULT_H, FRAME_DEFAULT_W, clampFramePosition, type Frame, type FrameColor, type NoteColor } from "@stickyard/shared";
+import {
+  FRAME_DEFAULT_H,
+  FRAME_DEFAULT_W,
+  MAX_FRAMES_PER_ROOM,
+  MAX_NOTES_PER_ROOM,
+  clampFramePosition,
+  type Frame,
+  type FrameColor,
+  type NoteColor,
+} from "@stickyard/shared";
 import { ChatDock } from "../chat/ChatDock";
 import { Button } from "../components/ui/button";
 import { readPxToken } from "../lib/cssVar";
 import { useMediaQuery } from "../lib/useMediaQuery";
 import { useWindowWidth } from "../lib/useWindowWidth";
-import { findFrame } from "../frames/board";
+import { findFrame, isFrameHeld } from "../frames/board";
 import { findNote, isHeld, isLocalId, type Board } from "../notes/board";
 import type { InlinePart } from "../notes/inlineEdit";
 import { AddDrawer, CompactPalette, PaletteContent, type PaletteHost } from "../palette/Palette";
@@ -20,8 +29,10 @@ import { cn } from "../lib/utils";
 import type { useRoom } from "../rooms/useRoom";
 import { MEDIA } from "../styles/breakpoints";
 import type { Placed } from "./arrange";
-import { BoardCanvas, type BoardRoom } from "./BoardCanvas";
-import { SelectionBar } from "./SelectionBar";
+import { BoardCanvas, deleteFrameAsking, deleteSelected, type BoardRoom } from "./BoardCanvas";
+import { duplicateDisabledReason } from "./duplicate";
+import { BoardBar } from "./SelectionBar";
+import type { BoardCommand } from "./shortcuts";
 import { orderedIds } from "./selection";
 import { newNotePosition, type XY } from "./geometry";
 import { Ribbon, ViewBar } from "./ToolBars";
@@ -52,6 +63,7 @@ const Notices = memo(function Notices({
   status,
   noteNotice,
   deleteReport,
+  historyReport,
   noteReason,
   onRejoin,
   bar,
@@ -59,6 +71,8 @@ const Notices = memo(function Notices({
   status: RoomView["status"];
   noteNotice: string | null;
   deleteReport: DeleteReport | null;
+  /** A restore running, or how the last undo or redo went. */
+  historyReport: DeleteReport | null;
   noteReason: string | null;
   onRejoin: () => void;
   /** The selection bar, first in the stack (md and up). */
@@ -92,6 +106,15 @@ const Notices = memo(function Notices({
           className={cn("pointer-events-auto rounded-md bg-surface px-ms py-xs text-sm shadow-md", deleteReport.partial && "text-status-warn")}
         >
           {deleteReport.text}
+        </p>
+      )}
+      {historyReport && (
+        <p
+          role="status"
+          data-history-report=""
+          className={cn("pointer-events-auto rounded-md bg-surface px-ms py-xs text-sm shadow-md", historyReport.partial && "text-status-warn")}
+        >
+          {historyReport.text}
         </p>
       )}
       {noteReason && (
@@ -146,6 +169,7 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
   const setMinimap = useBoardUi((s) => s.setMinimap);
   const addSheetOpen = useBoardUi((s) => s.addSheetOpen);
   const selection = useBoardUi((s) => s.selection);
+  const frameSelected = useBoardUi((s) => s.frameSelected);
   const panels = usePanels();
   const zoom = useStore((s) => s.transform[2]);
   const free = useStore((s) => s.width);
@@ -155,7 +179,7 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
   const noteReason = noteToolReason({ live, count: noteCount });
   const frameCount = view.board.frames.length;
   const frameReason = frameToolReason({ live, count: frameCount });
-  const templateReason = templateToolReason({ live, applying: view.template?.state === "applying" });
+  const templateReason = templateToolReason({ live, applying: view.template?.state === "applying", adding: view.adding });
   const sizes = panelWidths(windowWidth, panels);
 
   const latest = useRef({ view, room, wide });
@@ -261,8 +285,12 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
         if (latest.current.wide) addNote(useBoardUi.getState().color);
         else useBoardUi.getState().setAddSheetOpen(true);
       },
+      undo: () => latest.current.room.undo(),
+      redo: () => latest.current.room.redo(),
+      undoReason: view.history.undo,
+      redoReason: view.history.redo,
     }),
-    [tool, setTool, zoom, minimap, noteReason, setMinimap, canvas, addNote],
+    [tool, setTool, zoom, minimap, noteReason, setMinimap, canvas, addNote, view.history.undo, view.history.redo],
   );
 
   const paletteHost = useMemo<PaletteHost>(
@@ -327,21 +355,66 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
     deleteFrame: room.deleteFrame,
   };
 
-  // The selection bar: md and up, Select tool, two or more notes (in selection order).
-  const selectedEntries = wide && tool === "select" && selection.size >= 2 ? orderedIds(selection).flatMap((id) => findNote(view.board, id) ?? []) : [];
+  // The bar: md and up, always there. Notes in selection order (the first is Match size's reference).
+  const selectedEntries = wide ? orderedIds(selection).flatMap((id) => findNote(view.board, id) ?? []) : [];
   const selectedNotes: Placed[] = selectedEntries.map((e) => e.note);
-  const bar =
-    selectedNotes.length >= 2 ? (
-      <SelectionBar
-        notes={selectedNotes}
-        live={live}
-        held={selectedEntries.some(isHeld)}
-        unsaved={selectedEntries.some((e) => isLocalId(e.note.id))}
-        apply={(rects) => room.applyRects(rects)}
-        order={(action) => room.orderNotes(selectedNotes.map((n) => n.id), action)}
-        notice={(text) => room.showNotice(text)}
-      />
-    ) : null;
+  const frameEntry = wide && frameSelected !== null ? findFrame(view.board, frameSelected) : undefined;
+  const duplicateReason = duplicateDisabledReason({
+    notes: selectedEntries.length,
+    frame: frameEntry !== undefined,
+    live,
+    held: selectedEntries.some(isHeld) || (frameEntry !== undefined && isFrameHeld(frameEntry)),
+    unsaved: selectedEntries.some((e) => e.confirmed === null) || frameEntry?.confirmed === null,
+    busy: view.adding,
+    freeNotes: Math.max(0, MAX_NOTES_PER_ROOM - noteCount),
+    freeFrames: Math.max(0, MAX_FRAMES_PER_ROOM - frameCount),
+  });
+
+  /** Duplicates the selection (notes, or the frame alone) and selects the copies. */
+  const duplicate = () => {
+    if (duplicateReason !== null) return room.showNotice(duplicateReason);
+    if (frameEntry) {
+      const id = room.duplicateFrame(frameEntry.frame.id);
+      if (id) useBoardUi.getState().selectFrame(id);
+      return;
+    }
+    const ids = room.duplicateNotes(selectedEntries.map((e) => e.note.id));
+    if (ids && ids.length > 0) useBoardUi.getState().setSelection(new Set(ids));
+  };
+
+  /** Deletes the selection as the Delete key does (same confirms and report). */
+  const removeSelection = () => {
+    if (frameEntry) return deleteFrameAsking({ board: view.board, deleteFrame: room.deleteFrame }, frameEntry.frame.id);
+    deleteSelected({ board: view.board, live, deleteNote: room.deleteNote, deleteNotes: room.deleteNotes }, selectedEntries.map((e) => e.note.id));
+  };
+
+  /** Undo or redo (Ctrl+Z, the bar, the ribbon); off says why. */
+  const undo = () => (view.history.undo === null ? room.undo() : room.showNotice(view.history.undo));
+  const redo = () => (view.history.redo === null ? room.redo() : room.showNotice(view.history.redo));
+
+  const commands = useRef<Record<BoardCommand, () => void>>({ duplicate, undo, redo });
+  commands.current = { duplicate, undo, redo };
+  const onShortcut = useCallback((command: BoardCommand) => commands.current[command](), []);
+
+  const bar = wide ? (
+    <BoardBar
+      notes={selectedNotes}
+      frame={frameEntry !== undefined}
+      live={live}
+      held={selectedEntries.some(isHeld)}
+      unsaved={selectedEntries.some((e) => isLocalId(e.note.id))}
+      duplicateReason={duplicateReason}
+      duplicate={duplicate}
+      undoReason={view.history.undo}
+      redoReason={view.history.redo}
+      undo={() => room.undo()}
+      redo={() => room.redo()}
+      remove={removeSelection}
+      apply={(rects) => room.applyRects(rects)}
+      order={(action) => room.orderNotes(selectedNotes.map((n) => n.id), action)}
+      notice={(text) => room.showNotice(text)}
+    />
+  ) : null;
 
   // The minimap and chat button share the free area's bottom-right corner with the centred view
   // bar: when there isn't room for both side by side, they move up above it.
@@ -385,8 +458,9 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
           minimap={minimap}
           minimapLifted={lifted}
           view={canvas}
+          onShortcut={onShortcut}
         />
-        <Notices status={view.status} noteNotice={view.noteNotice} deleteReport={view.deleteReport} noteReason={noteReason} onRejoin={rejoin} bar={bar} />
+        <Notices status={view.status} noteNotice={view.noteNotice} deleteReport={view.deleteReport} historyReport={view.historyReport} noteReason={noteReason} onRejoin={rejoin} bar={bar} />
         {wide ? (
           <>
             <ViewBar ctx={ctx} barRef={barRef} />
@@ -432,6 +506,9 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
                 editFrame: room.editFrame,
                 setFrameSize: room.setFrameSize,
                 deleteFrame: room.deleteFrame,
+                clearBoard: room.clearBoard,
+                adding: view.adding,
+                clearing: view.clearing,
               }}
             />
           )}

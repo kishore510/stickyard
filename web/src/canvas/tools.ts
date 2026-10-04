@@ -1,4 +1,4 @@
-import { Hand, Map as MapIcon, Maximize, MousePointer2, Plus, ZoomIn, ZoomOut, type LucideIcon } from "lucide-react";
+import { Hand, Map as MapIcon, Maximize, MousePointer2, Plus, Redo2, Undo2, ZoomIn, ZoomOut, type LucideIcon } from "lucide-react";
 import { MAX_FRAMES_PER_ROOM, MAX_NOTES_PER_ROOM } from "@stickyard/shared";
 import { MAX_ZOOM, MIN_ZOOM } from "./geometry";
 
@@ -28,6 +28,11 @@ export interface ToolContext {
   zoom: number;
   /** Why notes can't be added right now, or null. */
   noteReason: string | null;
+  /** Undo and redo (the room's history); phones get them in the ribbon, md and up in the floating bar. */
+  undo(): void;
+  redo(): void;
+  undoReason: string | null;
+  redoReason: string | null;
 }
 
 export interface Tool {
@@ -71,9 +76,10 @@ export function frameToolReason({ live, count }: { live: boolean; count: number 
 }
 
 /** Why the palette's template tiles are off right now, or null. Too few free frames is a notice when one is tried. */
-export function templateToolReason({ live, applying }: { live: boolean; applying: boolean }): string | null {
+export function templateToolReason({ live, applying, adding = false }: { live: boolean; applying: boolean; adding?: boolean }): string | null {
   if (!live) return NOTE_TOOL_REASONS.disconnected;
-  return applying ? "A template is being added. Wait for it to finish." : null;
+  if (applying) return "A template is being added. Wait for it to finish.";
+  return adding ? "Wait until the items being added are saved." : null;
 }
 
 export const TOOLS: readonly Tool[] = [
@@ -142,6 +148,23 @@ export const TOOLS: readonly Tool[] = [
     shortcut: "F",
     slots: { viewbar: 4, ribbon: 4 },
     run: (c) => c.fit(),
+  },
+  {
+    id: "undo",
+    label: "Undo",
+    icon: Undo2,
+    // Phones only: from md up Undo is in the floating bar (Ctrl+Z).
+    slots: { ribbon: 5 },
+    run: (c) => c.undo(),
+    disabled: (c) => c.undoReason,
+  },
+  {
+    id: "redo",
+    label: "Redo",
+    icon: Redo2,
+    slots: { ribbon: 6 },
+    run: (c) => c.redo(),
+    disabled: (c) => c.redoReason,
   },
   {
     id: "minimap",

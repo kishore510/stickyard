@@ -18,6 +18,7 @@ import { FLOW_STACKING, createDragHandlers, createNoteNodeMapper, type CanvasNod
 import { framedNotes } from "../frames/board";
 import { deleteKeyTarget, inField, onBoard } from "./deleteKey";
 import { dragSelection } from "./pointer";
+import { boardShortcut, type BoardCommand } from "./shortcuts";
 import { orderedIds } from "./selection";
 import { useBoardUi } from "./uiStore";
 import { useMarquee } from "./useMarquee";
@@ -75,7 +76,7 @@ export interface BoardRoom {
  * Deletes these selected notes, asking once (one note: only if it has text) and clearing the
  * selection. Not connected: asks nothing, and the room says nothing was deleted.
  */
-function deleteSelected(room: BoardRoom, ids: readonly string[]): void {
+export function deleteSelected(room: Pick<BoardRoom, "board" | "live" | "deleteNote" | "deleteNotes">, ids: readonly string[]): void {
   const [only] = ids;
   if (only === undefined) return;
   if (!room.live) return room.deleteNotes(ids);
@@ -86,6 +87,16 @@ function deleteSelected(room: BoardRoom, ids: readonly string[]): void {
     if (!confirmDeleteNotes(ids.length)) return;
     room.deleteNotes(ids);
   }
+  useBoardUi.getState().clearSelection();
+}
+
+/** Deletes the selected frame, asking first when it has a title or notes inside (they stay), and clears the selection. */
+export function deleteFrameAsking(room: Pick<BoardRoom, "board" | "deleteFrame">, id: string): void {
+  const entry = findFrame(room.board, id);
+  if (!entry) return;
+  const inside = framedNotes(entry.frame, room.board.notes.map((n) => n.note)).length;
+  if (!confirmFrameDelete(entry.frame.title, inside)) return;
+  room.deleteFrame(entry.frame.id);
   useBoardUi.getState().clearSelection();
 }
 
@@ -102,6 +113,7 @@ export function BoardCanvas({
   minimap,
   minimapLifted,
   view,
+  onShortcut,
 }: {
   room: BoardRoom;
   editable: boolean;
@@ -113,6 +125,8 @@ export function BoardCanvas({
   /** The free area is narrow: the minimap sits above the view bar. */
   minimapLifted: boolean;
   view: CanvasView;
+  /** A board command asked for from the keyboard (Ctrl/Cmd+D, md and up). */
+  onShortcut?: (command: BoardCommand) => void;
 }) {
   const helpId = useId();
   const tool = useBoardUi((s) => s.tool);
@@ -309,14 +323,25 @@ export function BoardCanvas({
       }
       // Delete (or Backspace) on a selected frame deletes it, asking first; its notes stay.
       if (target === "frame" && ui.frameSelected !== null) {
-        const entry = findFrame(latest.current.board, ui.frameSelected);
-        if (!entry) return;
+        if (!findFrame(latest.current.board, ui.frameSelected)) return;
         e.preventDefault();
-        const inside = framedNotes(entry.frame, latest.current.board.notes.map((n) => n.note)).length;
-        if (!confirmFrameDelete(entry.frame.title, inside)) return;
-        latest.current.deleteFrame(entry.frame.id);
-        ui.clearSelection();
+        deleteFrameAsking(latest.current, ui.frameSelected);
       }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  // Ctrl/Cmd shortcuts for board commands (shortcuts.ts guards them): the browser's own action
+  // (Ctrl+D bookmarks) is stopped whenever the board takes the key.
+  const shortcut = useRef(onShortcut);
+  shortcut.current = onShortcut;
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const command = boardShortcut(e, { multi: multi.current, modal: document.querySelector('[aria-modal="true"]') !== null, board: sectionRef.current });
+      if (!command || !shortcut.current) return;
+      e.preventDefault();
+      shortcut.current(command);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);

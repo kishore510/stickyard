@@ -1468,7 +1468,7 @@ describe("multi-select and arrange (slice 2.8, md up)", () => {
   const properties = () => document.querySelector<HTMLElement>('aside[aria-label="Properties"]');
   const notes = () => [...document.querySelectorAll<HTMLElement>('[aria-roledescription="note"]')];
   const selected = () => notes().filter((n) => n.getAttribute("aria-current") === "true").map((n) => n.dataset.noteId);
-  const bar = () => document.querySelector<HTMLElement>('[role="toolbar"][aria-label="Selection"]');
+  const bar = () => document.querySelector<HTMLElement>('[role="toolbar"][aria-label="Board actions"]');
   const batches = (socket: FakeWebSocket) => (socket.sent as Record<string, unknown>[]).filter((m) => m.type === "noteBatch");
   async function withNotes(...list: Note[]) {
     setWide(true);
@@ -1609,12 +1609,14 @@ describe("multi-select and arrange (slice 2.8, md up)", () => {
     expect(selected()).toEqual([]);
   });
 
-  it("the selection bar shows for 2+ notes: align sends one batch; distribute needs 3", async () => {
+  it("the bar arranges 2+ notes: align sends one batch; distribute needs 3", async () => {
     const socket = await withNotes(one, two, three);
     await noteClick(0);
-    expect(bar()).toBeNull();
+    // The bar is always there from md up; with one note the arrange commands are off, and say why.
+    expect(bar()?.querySelector<HTMLButtonElement>('[aria-label="Align left edges"]')?.disabled).toBe(true);
+    expect(bar()?.textContent).toContain("Select 2 or more notes to arrange.");
     await noteClick(1, { shiftKey: true });
-    expect(bar()).not.toBeNull();
+    expect(bar()?.querySelector<HTMLButtonElement>('[aria-label="Align left edges"]')?.disabled).toBe(false);
     const distribute = bar()?.querySelector<HTMLButtonElement>('[aria-label="Distribute horizontally (equal gaps)"]');
     expect(distribute?.disabled).toBe(true);
     await click(bar()?.querySelector<HTMLElement>('[aria-label="Align left edges"]') ?? undefined);
@@ -2049,7 +2051,7 @@ describe("stacking order (slice z-order)", () => {
   const three: Note = { id: N3, x: 160, y: 140, ...NOTE_DEFAULTS, text: "", color: "green", z: 2, rev: 1, authorId: sam.id };
   const properties = () => document.querySelector<HTMLElement>('aside[aria-label="Properties"]');
   const notes = () => [...document.querySelectorAll<HTMLElement>('[aria-roledescription="note"]')];
-  const bar = () => document.querySelector<HTMLElement>('[role="toolbar"][aria-label="Selection"]');
+  const bar = () => document.querySelector<HTMLElement>('[role="toolbar"][aria-label="Board actions"]');
   const orders = (socket: FakeWebSocket) => (socket.sent as Record<string, unknown>[]).filter((m) => m.type === "notesOrder");
   const inside = (root: HTMLElement | null, text: string) =>
     [...(root?.querySelectorAll<HTMLButtonElement>("button") ?? [])].find((b) => b.textContent?.trim() === text);
@@ -2512,5 +2514,303 @@ describe("templates (slice templates)", () => {
     await server(socket, "close");
     expect(tile("Retro")?.disabled).toBe(true);
     expect(tile("Yellow note")?.disabled).toBe(true);
+  });
+});
+
+describe("the floating bar and Duplicate (md up)", () => {
+  const nid = (i: number) => `NNNNNNNNNNNN${String(i).padStart(4, "0")}`;
+  const F1 = "FFFFFFFFFFFFFFF1";
+  const make = (i: number, extra: Partial<Note> = {}): Note => ({ id: nid(i), x: 40 + i * 200, y: 60, ...NOTE_DEFAULTS, text: `Idea ${i}`, color: "yellow", z: i, rev: 1, authorId: sam.id, ...extra });
+  const frameOf: Frame = { id: F1, x: 100, y: 600, w: 640, h: 400, title: "Plan", color: "green", ...FRAME_DEFAULTS, titleAlign: "center", rev: 1, authorId: sam.id };
+  const notes = () => [...document.querySelectorAll<HTMLElement>('[aria-roledescription="note"]')];
+  const selected = () => notes().filter((n) => n.getAttribute("aria-current") === "true").map((n) => n.dataset.noteId);
+  const bar = () => document.querySelector<HTMLElement>('[role="toolbar"][aria-label="Board actions"]');
+  const command = (label: string) => bar()?.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`) ?? undefined;
+  /** The bar's hint text for a group ("Edit: ..."), under the buttons. */
+  const hint = (label: string) => [...(bar()?.querySelectorAll<HTMLElement>("[data-bar-hint]") ?? [])].find((h) => h.textContent?.startsWith(`${label}:`));
+  const sentOfType = (socket: FakeWebSocket, t: string) => (socket.sent as Record<string, unknown>[]).filter((m) => m.type === t);
+  async function withBoard(list: Note[], frames: Frame[] = [], isWide = true) {
+    setWide(isWide);
+    const socket = await inRoom();
+    await server(socket, { data: { type: "snapshot", notes: list } });
+    await server(socket, { data: { type: "framesSnapshot", frames } });
+    for (let i = 0; i < 100 && notes().length < list.length; i++) await settle();
+    return socket;
+  }
+  async function select(i: number, init: MouseEventInit = {}) {
+    const el = notes()[i];
+    if (!el) throw new Error("no note");
+    await act(async () => {
+      el.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, cancelable: true, pointerType: "mouse", button: 0, shiftKey: init.shiftKey ?? false }));
+      el.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, ...init }));
+    });
+    await settle();
+  }
+  async function press(k: string, target: EventTarget = document.body, init: KeyboardEventInit = {}) {
+    let event: KeyboardEvent | undefined;
+    await act(async () => {
+      event = new KeyboardEvent("keydown", { key: k, bubbles: true, cancelable: true, ...init });
+      target.dispatchEvent(event);
+    });
+    await settle();
+    return event!;
+  }
+
+  it("is there with nothing selected: Edit, Order and Arrange groups, each command labelled, off with the reason as text", async () => {
+    await withBoard([make(0)]);
+    expect(bar()).not.toBeNull();
+    expect([...(bar()?.querySelectorAll('[role="group"]') ?? [])].map((g) => g.getAttribute("aria-label"))).toEqual(
+      expect.arrayContaining(["Edit", "Order", "Arrange"]),
+    );
+    for (const label of ["Duplicate", "Delete", "Bring to front", "Send to back", "Align left edges", "Match size to the first selected"]) {
+      expect(command(label), label).toBeDefined();
+      expect(command(label)?.disabled, label).toBe(true);
+    }
+    // Every off command points at visible text saying why.
+    for (const button of bar()?.querySelectorAll<HTMLButtonElement>("button:disabled") ?? []) {
+      const ids = button.getAttribute("aria-describedby")?.split(" ") ?? [];
+      const text = ids.map((id) => document.getElementById(id)?.textContent ?? "").join(" ");
+      expect(text.trim().length, button.getAttribute("aria-label") ?? button.textContent ?? "").toBeGreaterThan(0);
+    }
+    expect(hint("Edit")?.textContent).toContain("Select notes or a frame first.");
+    expect(hint("Arrange")?.textContent).toContain("Select 2 or more notes to arrange.");
+    // Edit and Order show their names as text too, not only icons.
+    expect(command("Duplicate")?.textContent).toContain("Duplicate");
+    expect(command("Bring to front")?.textContent).toContain("Bring to front");
+  });
+
+  it("has a History group first: Undo and Redo, off with the reason as text until there's something to undo", async () => {
+    await withBoard([make(0)]);
+    expect(bar()?.querySelector('[role="group"]')?.getAttribute("aria-label")).toBe("History");
+    expect(command("Undo")?.disabled).toBe(true);
+    expect(command("Redo")?.disabled).toBe(true);
+    expect(hint("History")?.textContent).toContain("Nothing to undo.");
+  });
+
+  it("Undo after a delete adds the notes back (itemsAdd), shows how it went, and Redo deletes them again", async () => {
+    const socket = await withBoard([make(0), make(1)]);
+    await select(0);
+    await select(1, { shiftKey: true });
+    vi.stubGlobal("confirm", vi.fn(() => true));
+    await click(command("Delete"));
+    await server(socket, { data: { type: "notesBatchApplied", final: true, results: [{ type: "noteDeleted", id: nid(0) }, { type: "noteDeleted", id: nid(1) }] } });
+    expect(notes()).toHaveLength(0);
+    expect(command("Undo")?.disabled).toBe(false);
+    await click(command("Undo"));
+    const add = sentOfType(socket, "itemsAdd").at(-1)!;
+    expect((add.notes as { text: string }[]).map((n) => n.text)).toEqual(["Idea 0", "Idea 1"]);
+    expect(notes()).toHaveLength(2);
+    expect(document.body.textContent).toContain("Restoring 0 of 2…");
+    const refs = (add.notes as { ref: string }[]).map((n) => n.ref);
+    await server(socket, {
+      data: { type: "itemsAdded", clientRef: add.clientRef, notes: refs.map((ref, i) => ({ ref, note: { ...make(i), id: nid(20 + i), authorId: alex.id } })), frames: [], refused: [] },
+    });
+    expect([...document.querySelectorAll('[role="status"]')].map((el) => el.textContent).join(" ")).toContain("Restored 2 items.");
+    expect(command("Redo")?.disabled).toBe(false);
+    await click(command("Redo"));
+    expect(sentOfType(socket, "noteBatch").at(-1)).toMatchObject({ ops: [{ op: "delete", id: nid(20) }, { op: "delete", id: nid(21) }] });
+  });
+
+  it("Ctrl+Z undoes on the board (and stops the browser's own); not in a text field", async () => {
+    const socket = await withBoard([make(0)]);
+    await select(0);
+    await press("ArrowRight", notes()[0]!);
+    await act(() => new Promise((resolve) => setTimeout(resolve, 500)));
+    await server(socket, { data: { type: "noteMoved", id: nid(0), x: 50, y: 60, rev: 2, final: true } });
+    const title = document.querySelector<HTMLInputElement>('aside[aria-label="Properties"] input[name="title"]');
+    const inField = await press("z", title ?? document.body, { ctrlKey: true });
+    expect(inField.defaultPrevented).toBe(false);
+    expect(sentOfType(socket, "noteBatch")).toHaveLength(0);
+    await act(async () => (document.activeElement as HTMLElement | null)?.blur());
+    const event = await press("z", document.body, { ctrlKey: true });
+    expect(event.defaultPrevented).toBe(true);
+    expect(sentOfType(socket, "noteBatch").at(-1)).toMatchObject({ final: true, ops: [{ op: "move", id: nid(0), x: 40, y: 60 }] });
+  });
+
+  it("an order change: undo says it can't be undone", async () => {
+    await withBoard([make(0), make(1)]);
+    await select(0);
+    await click(command("Send to back"));
+    expect(command("Undo")?.disabled).toBe(false);
+    await click(command("Undo"));
+    expect(document.body.textContent).toContain("Order changes can’t be undone.");
+  });
+
+  it("Duplicate copies the selected notes (full content, offset, one itemsAdd) and selects the copies", async () => {
+    const socket = await withBoard([make(0, { color: "pink", titleBold: true }), make(1, { text: "Two\nbody" }), make(2)]);
+    await select(0);
+    await select(1, { shiftKey: true });
+    expect(command("Duplicate")?.disabled).toBe(false);
+    await click(command("Duplicate"));
+    const adds = sentOfType(socket, "itemsAdd");
+    expect(adds).toHaveLength(1);
+    const items = adds[0]!.notes as Record<string, unknown>[];
+    expect(items.map((n) => n.text)).toEqual(["Idea 0", "Two\nbody"]);
+    expect(items[0]).toMatchObject({ x: 40 + 24, y: 60 + 24, color: "pink", titleBold: true });
+    expect(notes()).toHaveLength(5);
+    expect(selected()).toHaveLength(2);
+    expect(selected().every((id) => id?.startsWith("local:"))).toBe(true);
+    // Confirmed: the selection follows the server ids.
+    const refs = items.map((n) => n.ref as string);
+    await server(socket, {
+      data: {
+        type: "itemsAdded",
+        clientRef: adds[0]!.clientRef,
+        notes: refs.map((ref, i) => ({ ref, note: { ...make(10 + i), x: 64 + i * 200, y: 84, authorId: alex.id, z: 10 + i } })),
+        frames: [],
+        refused: [],
+      },
+    });
+    expect(selected()).toEqual([nid(10), nid(11)]);
+  });
+
+  it("Duplicate on a selected frame copies the frame alone and selects the copy", async () => {
+    const socket = await withBoard([make(0, { x: 200, y: 700 })], [frameOf]);
+    await act(async () => {
+      document.querySelector<HTMLElement>(`.react-flow__node[data-id="${F1}"] .sy-frame-handle`)?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await settle();
+    await click(command("Duplicate"));
+    const adds = sentOfType(socket, "itemsAdd");
+    expect(adds).toHaveLength(1);
+    expect(adds[0]).not.toHaveProperty("notes");
+    expect(adds[0]!.frames).toEqual([expect.objectContaining({ title: "Plan", color: "green", titleAlign: "center", x: 124, y: 624, w: 640, h: 400 })]);
+    expect(document.querySelectorAll(".react-flow__node-frame")).toHaveLength(2);
+  });
+
+  it("Ctrl+D duplicates the selection and stops the browser's bookmark; never inside a text field", async () => {
+    const socket = await withBoard([make(0), make(1)]);
+    await select(0);
+    await act(async () => (document.activeElement as HTMLElement | null)?.blur());
+    const event = await press("d", document.body, { ctrlKey: true });
+    expect(event.defaultPrevented).toBe(true);
+    expect(sentOfType(socket, "itemsAdd")).toHaveLength(1);
+    const title = document.querySelector<HTMLInputElement>('aside[aria-label="Properties"] input[name="title"]');
+    await select(1);
+    const field = document.querySelector<HTMLInputElement>('aside[aria-label="Properties"] input[name="title"]') ?? title;
+    const inField = await press("d", field ?? document.body, { ctrlKey: true });
+    expect(inField.defaultPrevented).toBe(false);
+    expect(sentOfType(socket, "itemsAdd")).toHaveLength(1);
+  });
+
+  it("Duplicate is off with the reason while disconnected", async () => {
+    const socket = await withBoard([make(0)]);
+    await select(0);
+    await server(socket, "close");
+    expect(command("Duplicate")?.disabled).toBe(true);
+    expect(hint("Edit")?.textContent).toContain("Not connected.");
+  });
+
+  it("not enough room: Duplicate is off and says how many are needed and free", async () => {
+    const full = Array.from({ length: MAX_NOTES_PER_ROOM - 1 }, (_, i) => make(i, { x: (i % 15) * 200, y: Math.floor(i / 15) * 130 }));
+    await withBoard(full);
+    await select(0);
+    await select(1, { shiftKey: true });
+    expect(command("Duplicate")?.disabled).toBe(true);
+    expect(hint("Edit")?.textContent).toContain("No room to duplicate 2 notes: the board has room for 1 more.");
+  });
+
+  it("Delete in the bar uses the selection's delete (asks first, then reports)", async () => {
+    const socket = await withBoard([make(0), make(1), make(2)]);
+    await select(0);
+    await select(2, { shiftKey: true });
+    const confirm = vi.fn(() => true);
+    vi.stubGlobal("confirm", confirm);
+    await click(command("Delete"));
+    expect(confirm.mock.calls).toEqual([["Delete 2 notes? They’re removed for everyone in the session."]]);
+    expect(sentOfType(socket, "noteBatch").at(-1)).toMatchObject({ ops: [{ op: "delete", id: nid(0) }, { op: "delete", id: nid(2) }] });
+    expect(selected()).toEqual([]);
+  });
+
+  it("Delete in the bar on a frame asks first when it has notes, and keeps them", async () => {
+    const socket = await withBoard([make(0, { x: 200, y: 700 })], [frameOf]);
+    await act(async () => {
+      document.querySelector<HTMLElement>(`.react-flow__node[data-id="${F1}"] .sy-frame-handle`)?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await settle();
+    const confirm = vi.fn(() => true);
+    vi.stubGlobal("confirm", confirm);
+    await click(command("Delete"));
+    expect(confirm).toHaveBeenCalledTimes(1);
+    expect(sentOfType(socket, "frameDelete")).toEqual([{ type: "frameDelete", id: F1 }]);
+    expect(notes()).toHaveLength(1);
+  });
+
+  it("phones: no floating bar; the ribbon gets Undo and Redo (only these two), off with the reason in their tooltip", async () => {
+    await withBoard([make(0)], [], false);
+    expect(bar()).toBeNull();
+    const ribbon = document.querySelector<HTMLElement>('[role="toolbar"][aria-label="Board tools"]');
+    const undo = ribbon?.querySelector<HTMLButtonElement>('[data-tool="undo"]');
+    const redo = ribbon?.querySelector<HTMLButtonElement>('[data-tool="redo"]');
+    expect(undo?.getAttribute("aria-label")).toBe("Undo");
+    expect(redo?.getAttribute("aria-label")).toBe("Redo");
+    expect(undo?.disabled).toBe(true);
+    expect(undo?.title).toContain("Nothing to undo.");
+    expect(ribbon?.querySelector('[data-tool="duplicate"]')).toBeNull();
+  });
+});
+
+describe("Clear board (Properties, md up)", () => {
+  const nid = (i: number) => `NNNNNNNNNNNN${String(i).padStart(4, "0")}`;
+  const F1 = "FFFFFFFFFFFFFFF1";
+  const make = (i: number): Note => ({ id: nid(i), x: 40 + i * 200, y: 60, ...NOTE_DEFAULTS, text: `Idea ${i}`, color: "yellow", z: i, rev: 1, authorId: sam.id });
+  const aFrame: Frame = { id: F1, x: 100, y: 600, w: 640, h: 400, title: "Plan", color: "green", ...FRAME_DEFAULTS, rev: 1, authorId: sam.id };
+  const properties = () => document.querySelector<HTMLElement>('aside[aria-label="Properties"]');
+  const clear = () => [...(properties()?.querySelectorAll<HTMLButtonElement>("button") ?? [])].find((b) => b.textContent?.trim() === "Clear board");
+  const notes = () => [...document.querySelectorAll<HTMLElement>('[aria-roledescription="note"]')];
+  const sentOfType = (socket: FakeWebSocket, t: string) => (socket.sent as Record<string, unknown>[]).filter((m) => m.type === t);
+  async function withBoard(list: Note[], frames: Frame[] = [], isWide = true) {
+    setWide(isWide);
+    const socket = await inRoom();
+    await server(socket, { data: { type: "snapshot", notes: list } });
+    await server(socket, { data: { type: "framesSnapshot", frames } });
+    for (let i = 0; i < 100 && notes().length < list.length; i++) await settle();
+    return socket;
+  }
+
+  it("with nothing selected: a 44px destructive button; asks once with the counts, deletes notes then frames, and reports it", async () => {
+    const socket = await withBoard([make(0), make(1), make(2)], [aFrame]);
+    const button = clear();
+    expect(button).toBeDefined();
+    expect(button?.className).toContain("h-touch");
+    expect(button?.className).toContain("text-status-error");
+    const confirm = vi.fn(() => true);
+    vi.stubGlobal("confirm", confirm);
+    await click(button);
+    expect(confirm.mock.calls).toEqual([["Delete 3 notes and 1 frame for everyone in this session? You can undo this until you leave or reconnect."]]);
+    expect(sentOfType(socket, "noteBatch")).toEqual([{ type: "noteBatch", final: true, ops: [0, 1, 2].map((i) => ({ op: "delete", id: nid(i) })) }]);
+    await act(() => new Promise((resolve) => setTimeout(resolve, 100)));
+    expect(sentOfType(socket, "frameDelete")).toEqual([{ type: "frameDelete", id: F1 }]);
+    await server(socket, { data: { type: "notesBatchApplied", final: true, results: [0, 1, 2].map((i) => ({ type: "noteDeleted", id: nid(i) })) } });
+    await server(socket, { data: { type: "frameDeleted", id: F1 } });
+    const status = [...document.querySelectorAll('[role="status"]')].map((s) => s.textContent).join(" ");
+    expect(status).toContain("Cleared the board: deleted 3 notes and 1 frame.");
+    expect(clear()?.disabled).toBe(true);
+    expect(properties()?.textContent).toContain("The board is already empty.");
+  });
+
+  it("no on the confirm: nothing is sent", async () => {
+    const socket = await withBoard([make(0)]);
+    vi.stubGlobal("confirm", vi.fn(() => false));
+    await click(clear());
+    expect(sentOfType(socket, "noteBatch")).toEqual([]);
+  });
+
+  it("off with the reason while disconnected", async () => {
+    const socket = await withBoard([make(0)]);
+    await server(socket, "close");
+    expect(clear()?.disabled).toBe(true);
+    expect(clear()?.getAttribute("aria-describedby")).toBeTruthy();
+    expect(properties()?.textContent).toContain("Not connected.");
+  });
+
+  it("not there when something is selected, nor on phones", async () => {
+    await withBoard([make(0)]);
+    await act(async () => {
+      notes()[0]?.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, pointerType: "mouse", button: 0 }));
+      notes()[0]?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await settle();
+    expect(clear()).toBeUndefined();
   });
 });

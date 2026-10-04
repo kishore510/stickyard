@@ -2,6 +2,17 @@
 
 All notable changes to Stickyard, newest first. The format follows Keep a Changelog. Versions are 0.x: a minor bump for each slice and a patch bump for each follow-up fix. This file is shown in the app under **What’s new**, so entries are written for the people using it.
 
+## [0.12.0] - 2026-10-04
+
+### Added
+- A bar at the top of the board, always there on a wider screen, with **Undo** and **Redo**, **Duplicate** and **Delete**, **Bring to front** and **Send to back**, and the arrange tools. A button that can't be used right now is greyed out, and the bar says why.
+- **Duplicate** (**Ctrl+D**, **Cmd+D** on a Mac): copies the selected notes, with their text, colour, style and size, a little down and to the right, and selects the copies. With a frame selected, it copies the frame on its own.
+- **Undo** and **Redo** (**Ctrl+Z**, and **Ctrl+Shift+Z** or **Ctrl+Y**) for your own changes: moving, resizing, arranging, text, colour and style, frames, adding, duplicating, templates, deleting and clearing the board. Someone else's changes are never undone: if they changed something after you, undo leaves it and says so. Deleted notes come back as new copies added by you. Bring to front and Send to back can't be undone. The history lasts until you leave or reconnect. On a phone, Undo and Redo are in the bottom bar.
+- **Clear board** in Properties (with nothing selected) deletes every note and frame after one question. The board says how it went, and one Undo brings everything back.
+
+### Changed
+- The Align, Distribute, Grid and Match size controls are now in the bar at the top of the board, which stays put instead of appearing only when two or more notes are selected.
+
 ## [0.11.0] - 2026-10-04
 
 ### Changed

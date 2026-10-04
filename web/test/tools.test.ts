@@ -15,6 +15,10 @@ const ctx = (patch: Partial<ToolContext> = {}): ToolContext => ({
   toggleMinimap: vi.fn(),
   zoom: 1,
   noteReason: null,
+  undo: vi.fn(),
+  redo: vi.fn(),
+  undoReason: null,
+  redoReason: null,
   ...patch,
 });
 
@@ -37,9 +41,9 @@ describe("tool registry", () => {
     expect(toolsFor("viewbar").map((t) => t.id)).toEqual(["zoom-out", "zoom-reset", "zoom-in", "fit", "select", "hand", "minimap"]);
   });
 
-  it("the phone ribbon has Add note, fit and the Select/Hand toggle (no zoom buttons)", () => {
-    // Ordered as Chalkline's phone toolbar: tool toggle, the main add button, fit.
-    expect(toolsFor("ribbon").map((t) => t.id)).toEqual(["select", "hand", "note", "fit"]);
+  it("the phone ribbon has Add note, fit, the Select/Hand toggle, then Undo and Redo (no zoom buttons)", () => {
+    // Ordered as Chalkline's phone toolbar: tool toggle, the main add button, fit; then history.
+    expect(toolsFor("ribbon").map((t) => t.id)).toEqual(["select", "hand", "note", "fit", "undo", "redo"]);
     expect(TOOLS.find((t) => t.id === "note")?.primary).toBe(true);
   });
 
@@ -53,6 +57,12 @@ describe("tool registry", () => {
     byId("zoom-reset")?.run(c);
     byId("minimap")?.run(c);
     byId("hand")?.run(c);
+    byId("undo")?.run(c);
+    byId("redo")?.run(c);
+    expect(c.undo).toHaveBeenCalledOnce();
+    expect(c.redo).toHaveBeenCalledOnce();
+    expect(byId("undo")?.disabled?.(ctx({ undoReason: "Nothing to undo." }))).toBe("Nothing to undo.");
+    expect(toolsFor("viewbar").some((t) => t.id === "undo")).toBe(false);
     expect(c.addNote).toHaveBeenCalledOnce();
     expect(c.fit).toHaveBeenCalledOnce();
     expect(c.zoomIn).toHaveBeenCalledOnce();

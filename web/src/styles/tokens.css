@@ -203,6 +203,9 @@
   --sy-selection-pad: 12px;
   /* Gap between cells of Arrange > Grid, in board units (= GRID_GAP in canvas/arrange.ts, test checks). */
   --sy-grid-gap: 24px;
+  /* How far Duplicate puts the copies from the originals, right and down, in board units
+     (= DUPLICATE_OFFSET in canvas/duplicate.ts, test checks). */
+  --sy-duplicate-offset: 24px;
   --sy-border-width: 1px;
   /* Downward drag on a phone sheet's header that closes it. Read by src/shell/Sheet.tsx. */
   --sy-swipe-close: 80px;
