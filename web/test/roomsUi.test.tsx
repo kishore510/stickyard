@@ -2748,3 +2748,68 @@ describe("the floating bar and Duplicate (md up)", () => {
     expect(ribbon?.querySelector('[data-tool="duplicate"]')).toBeNull();
   });
 });
+
+describe("Clear board (Properties, md up)", () => {
+  const nid = (i: number) => `NNNNNNNNNNNN${String(i).padStart(4, "0")}`;
+  const F1 = "FFFFFFFFFFFFFFF1";
+  const make = (i: number): Note => ({ id: nid(i), x: 40 + i * 200, y: 60, ...NOTE_DEFAULTS, text: `Idea ${i}`, color: "yellow", z: i, rev: 1, authorId: sam.id });
+  const aFrame: Frame = { id: F1, x: 100, y: 600, w: 640, h: 400, title: "Plan", color: "green", ...FRAME_DEFAULTS, rev: 1, authorId: sam.id };
+  const properties = () => document.querySelector<HTMLElement>('aside[aria-label="Properties"]');
+  const clear = () => [...(properties()?.querySelectorAll<HTMLButtonElement>("button") ?? [])].find((b) => b.textContent?.trim() === "Clear board");
+  const notes = () => [...document.querySelectorAll<HTMLElement>('[aria-roledescription="note"]')];
+  const sentOfType = (socket: FakeWebSocket, t: string) => (socket.sent as Record<string, unknown>[]).filter((m) => m.type === t);
+  async function withBoard(list: Note[], frames: Frame[] = [], isWide = true) {
+    setWide(isWide);
+    const socket = await inRoom();
+    await server(socket, { data: { type: "snapshot", notes: list } });
+    await server(socket, { data: { type: "framesSnapshot", frames } });
+    for (let i = 0; i < 100 && notes().length < list.length; i++) await settle();
+    return socket;
+  }
+
+  it("with nothing selected: a 44px destructive button; asks once with the counts, deletes notes then frames, and reports it", async () => {
+    const socket = await withBoard([make(0), make(1), make(2)], [aFrame]);
+    const button = clear();
+    expect(button).toBeDefined();
+    expect(button?.className).toContain("h-touch");
+    expect(button?.className).toContain("text-status-error");
+    const confirm = vi.fn(() => true);
+    vi.stubGlobal("confirm", confirm);
+    await click(button);
+    expect(confirm.mock.calls).toEqual([["Delete 3 notes and 1 frame for everyone in this session? You can undo this until you leave or reconnect."]]);
+    expect(sentOfType(socket, "noteBatch")).toEqual([{ type: "noteBatch", final: true, ops: [0, 1, 2].map((i) => ({ op: "delete", id: nid(i) })) }]);
+    await act(() => new Promise((resolve) => setTimeout(resolve, 100)));
+    expect(sentOfType(socket, "frameDelete")).toEqual([{ type: "frameDelete", id: F1 }]);
+    await server(socket, { data: { type: "notesBatchApplied", final: true, results: [0, 1, 2].map((i) => ({ type: "noteDeleted", id: nid(i) })) } });
+    await server(socket, { data: { type: "frameDeleted", id: F1 } });
+    const status = [...document.querySelectorAll('[role="status"]')].map((s) => s.textContent).join(" ");
+    expect(status).toContain("Cleared the board: deleted 3 notes and 1 frame.");
+    expect(clear()?.disabled).toBe(true);
+    expect(properties()?.textContent).toContain("The board is already empty.");
+  });
+
+  it("no on the confirm: nothing is sent", async () => {
+    const socket = await withBoard([make(0)]);
+    vi.stubGlobal("confirm", vi.fn(() => false));
+    await click(clear());
+    expect(sentOfType(socket, "noteBatch")).toEqual([]);
+  });
+
+  it("off with the reason while disconnected", async () => {
+    const socket = await withBoard([make(0)]);
+    await server(socket, "close");
+    expect(clear()?.disabled).toBe(true);
+    expect(clear()?.getAttribute("aria-describedby")).toBeTruthy();
+    expect(properties()?.textContent).toContain("Not connected.");
+  });
+
+  it("not there when something is selected, nor on phones", async () => {
+    await withBoard([make(0)]);
+    await act(async () => {
+      notes()[0]?.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, pointerType: "mouse", button: 0 }));
+      notes()[0]?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await settle();
+    expect(clear()).toBeUndefined();
+  });
+});
