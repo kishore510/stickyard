@@ -12,8 +12,9 @@ import { TEMPLATES, type Template } from "../templates/registry";
  * in PALETTE_TABS. Only what exists is listed: no placeholder tiles, and a tab or category
  * with nothing in it isn't shown (so there's no Stencils tab until a stencil is registered).
  *
- * A new kind of object (timer, text box, group box) needs its own protocol change first, in
- * its own slice; its tile then arrives as one entry here.
+ * A new kind of object (text box, group box) needs its own protocol change first, in its own
+ * slice; its tile then arrives as one entry here. Facilitation tiles (the host's Timer) come from
+ * the room's state through `fromRoom`.
  */
 
 /** What the tile shows: a small note in a palette colour, an icon, or a template's frames in miniature. */
