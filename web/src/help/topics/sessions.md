@@ -2,7 +2,7 @@
 title: Starting and joining a session
 order: 2
 summary: Start a session with the create passcode, share its link, and join by link or code.
-keywords: start, create, new, session, room, passcode, join, link, code, copy, share, leave, full, invalid, limit, expire, expired, expiry, idle, delete, deleted, days, last
+keywords: start, create, new, session, room, passcode, join, link, code, copy, share, leave, full, invalid, limit, host, expire, expired, expiry, idle, delete, deleted, days, last
 ---
 A **session** is one shared room with its own link. Its address looks like `#/room/` followed by a long code.
 
@@ -26,6 +26,12 @@ A **session** is one shared room with its own link. Its address looks like `#/ro
 - **Participants** lists who's here and has **Copy link** and **Leave session**. See [Participants](help:participants).
 - **Chat** sends short messages to everyone in the session; they aren't saved. See [Chat](help:chat).
 - **Leave session** takes you back to the start page. Your notes stay on the board. If your connection drops, choose **Rejoin**.
+
+## Hosts
+
+- Whoever starts a session is its host. Stickyard remembers that on the device you started it from, so you're host again whenever you rejoin from there.
+- The session's link and code let people join, but the link alone can't lock or end a session.
+- If you open the session on another device, or clear this browser's site data, you join as an ordinary participant: that device isn't a host.
 
 ## How long a session lasts
 

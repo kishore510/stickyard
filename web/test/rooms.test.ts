@@ -69,7 +69,7 @@ function respond(status: number, body: unknown, headers: Record<string, string> 
 describe("createRoom", () => {
   it("POSTs the passcode in the JSON body only, and returns the code", async () => {
     const fetchFn = respond(200, { code: CODE, hostToken: HOST_TOKEN });
-    expect(await createRoom(WORKER, PASSCODE, fetchFn)).toEqual({ ok: true, code: CODE });
+    expect(await createRoom(WORKER, PASSCODE, fetchFn)).toEqual({ ok: true, code: CODE, hostToken: HOST_TOKEN });
     const [url, init] = vi.mocked(fetchFn).mock.calls[0] ?? [];
     expect(url).toBe(`${WORKER}/rooms`);
     expect(url).not.toContain(PASSCODE);

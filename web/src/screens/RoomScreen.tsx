@@ -9,7 +9,7 @@ import { cn } from "../lib/utils";
 import { authorName } from "../notes/label";
 import { NoteEditor } from "../notes/NoteEditor";
 import { useRoomUi } from "../rooms/roomStore";
-import { EXPIRED_TEXT, type RoomView } from "../rooms/session";
+import { ENDED_TEXT, EXPIRED_TEXT, type RoomView } from "../rooms/session";
 import { useRoom } from "../rooms/useRoom";
 import { Sheet } from "../shell/Sheet";
 import { STORAGE_KEYS, readKey } from "../storage";
@@ -34,7 +34,7 @@ function PublishRoom({ code, view, room }: { code: string; view: RoomView; room:
   const latest = useRef(room);
   latest.current = room;
   const live = view.status === "joined";
-  const { you, yourIds, participants, messages, rateLimited } = view;
+  const { you, yourIds, participants, messages, rateLimited, isHost, locked, timer } = view;
   useEffect(() => {
     publish({
       code,
@@ -44,10 +44,13 @@ function PublishRoom({ code, view, room }: { code: string; view: RoomView; room:
       live,
       messages,
       rateLimited,
+      isHost,
+      locked,
+      timer,
       say: (text) => latest.current.say(text),
       leave: () => latest.current.leave(),
     });
-  }, [publish, code, you, yourIds, participants, live, messages, rateLimited]);
+  }, [publish, code, you, yourIds, participants, live, messages, rateLimited, isHost, locked, timer]);
   useEffect(() => () => publish(null), [publish]);
   return null;
 }
@@ -68,19 +71,21 @@ function Message({ title, children }: { title: string; children: ReactNode }) {
 }
 
 /**
- * The relay closed the socket with 4410: the session expired (rooms/session.ts). Its board is
- * gone, so none is shown; the sentence is announced politely, and there is no Rejoin.
+ * The session is gone (rooms/session.ts): it expired (4410) or a host ended it (4411). Its board
+ * is gone, so none is shown; the sentence is announced politely, and there is no Rejoin.
  */
-function Expired() {
+function Gone({ kind }: { kind: "expired" | "ended" }) {
+  const text = kind === "ended" ? ENDED_TEXT : EXPIRED_TEXT;
+  const marker = kind === "ended" ? { "data-session-ended": "" } : { "data-session-expired": "" };
   return (
-    <div className={cn(PAGE, "justify-center")} data-session-expired>
-      <h1 className="text-2xl font-semibold">{EXPIRED_TEXT.title}</h1>
+    <div className={cn(PAGE, "justify-center")} {...marker}>
+      <h1 className="text-2xl font-semibold">{text.title}</h1>
       <p role="status" aria-live="polite" aria-atomic="true">
-        {EXPIRED_TEXT.body}
+        {text.body}
       </p>
       <Button variant="primary" className="self-start" onClick={goHome}>
         <Home />
-        {EXPIRED_TEXT.home}
+        {text.home}
       </Button>
     </div>
   );
@@ -169,7 +174,7 @@ export function RoomScreen({ code }: { code: string }) {
   if (view.status === "joined" && !everJoined) setEverJoined(true);
 
   if (!valid || view.status === "invalid") return <InvalidLink />;
-  if (view.status === "expired") return <Expired />;
+  if (view.status === "expired" || view.status === "ended") return <Gone kind={view.status} />;
   if (view.status === "full") {
     return (
       <Message title="This session is full">

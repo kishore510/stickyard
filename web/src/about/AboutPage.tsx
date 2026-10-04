@@ -120,11 +120,17 @@ export function AboutPage() {
             location and possibly your IP address. GitHub receives similar request details.
           </li>
           <li>
-            This browser stores only your theme choice, the last version whose notes you opened, the last name you
-            joined with, how wide the board’s side panels are and whether they’re collapsed, and the chat panel’s size if
-            you resized it: layout preferences only,
-            with no session content and nothing about you, and it stays on this device. Where you are on the board, the
-            zoom, the tool you pick and which note is selected stay in the open page: they aren’t stored or sent anywhere.
+            This browser stores your theme choice, the last version whose notes you opened, the last name you joined with,
+            how wide the board’s side panels are and whether they’re collapsed, and the chat panel’s size if you resized it:
+            layout preferences only, with no session content and nothing about you, and it stays on this device. Where you
+            are on the board, the zoom, the tool you pick and which note is selected stay in the open page: they aren’t
+            stored or sent anywhere.
+          </li>
+          <li>
+            When you start a session, this browser also keeps that session’s host key: a random-looking code from the relay
+            that makes you the session’s host. It is kept only on the device that started the session, sent only to the
+            relay when you join that session, never shown or put in a link, and removed when the session ends or expires
+            (or if the relay no longer accepts it). It says nothing about you.
           </li>
           <li>There are no accounts.</li>
         </ul>

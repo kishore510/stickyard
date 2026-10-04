@@ -15,7 +15,8 @@ export type CreateError =
   | "forbidden_origin"
   | "unreachable";
 
-export type CreateResult = { ok: true; code: string } | { ok: false; error: CreateError; retryAfterSeconds?: number };
+/** `hostToken` (protocol v12): kept on this device only, sent only in claimHost. */
+export type CreateResult = { ok: true; code: string; hostToken: string } | { ok: false; error: CreateError; retryAfterSeconds?: number };
 
 export type FetchFn = (input: string, init?: RequestInit) => Promise<Response>;
 
@@ -47,7 +48,7 @@ export async function createRoom(workerUrl: string, passcode: string, fetchFn: F
   const body = await readJson(res);
   if (res.status === 200) {
     const parsed = createRoomResponseSchema.safeParse(body);
-    return parsed.success ? { ok: true, code: parsed.data.code } : { ok: false, error: "unreachable" };
+    return parsed.success ? { ok: true, code: parsed.data.code, hostToken: parsed.data.hostToken } : { ok: false, error: "unreachable" };
   }
 
   const parsed = apiErrorSchema.safeParse(body);

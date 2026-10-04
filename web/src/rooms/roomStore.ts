@@ -1,7 +1,7 @@
 import type { Participant } from "@stickyard/shared";
 import { create } from "zustand";
 import { countUnread } from "../chat/unread";
-import type { EchoEntry } from "./session";
+import type { EchoEntry, RoomTimer } from "./session";
 
 /*
  * The room the page is in, published by RoomScreen for things outside it: the top bar
@@ -19,6 +19,10 @@ export interface PublishedRoom {
   live: boolean;
   messages: EchoEntry[];
   rateLimited: boolean;
+  /** Protocol v12 (no visible host UI yet): host powers here, the lock and the timer. */
+  isHost: boolean;
+  locked: boolean;
+  timer: RoomTimer | null;
   say(text: string): boolean;
   leave(): void;
 }

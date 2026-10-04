@@ -8,6 +8,7 @@ import { Input } from "../components/ui/input";
 import { WORKER_URL } from "../config";
 import { browserFetch, createErrorMessage, createRoom } from "../rooms/api";
 import { parseJoinInput, roomHash } from "../rooms/link";
+import { hostTokenKey, writeKey } from "../storage";
 import { ConnectionStatus } from "./ConnectionStatus";
 
 /* Compact on phones (so both actions fit above the fold at 360 x 640), roomier from md up. */
@@ -17,7 +18,8 @@ const FIELD_ROW = "flex items-start gap-sm";
 
 /**
  * Start a session. The passcode lives only in this component's state: it is cleared as soon
- * as it is sent, never written to browser storage, and sent only in the request body.
+ * as it is sent, never written to browser storage, and sent only in the request body. The
+ * host token the relay answers with is kept for that room only (stickyard:host:<room id>).
  */
 function StartCard() {
   const id = useId();
@@ -34,7 +36,11 @@ function StartCard() {
     setError(null);
     const result = await createRoom(WORKER_URL, value, browserFetch);
     setBusy(false);
-    if (result.ok) window.location.hash = roomHash(result.code);
+    if (result.ok) {
+      // Protocol v12: the host token stays on this device (never in the URL); the room claims host with it.
+      writeKey(hostTokenKey(result.code.split(".")[0] ?? ""), result.hostToken);
+      window.location.hash = roomHash(result.code);
+    }
     else setError(createErrorMessage(result));
   };
 

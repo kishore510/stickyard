@@ -5,7 +5,7 @@ import { probeHealth } from "../connection/connectionCheck";
 import { browserConnectionEnv } from "../connection/reconnect";
 import { browserSocketFactory } from "../connection/socket";
 import { useBoardUi } from "../canvas/uiStore";
-import { STORAGE_KEYS, readKey, writeKey } from "../storage";
+import { STORAGE_KEYS, hostTokenKey, readKey, removeKey, writeKey } from "../storage";
 import { browserFetch, checkRoom } from "./api";
 import type { FrameEdit } from "../frames/board";
 import type { StylePatch } from "../notes/board";
@@ -16,6 +16,7 @@ import { INITIAL_VIEW, RoomSession, type RoomView, type TemplateFramePlan } from
  * the session reconnects by itself (and Rejoin restarts that) with the stored name. Closed on unmount.
  */
 export function useRoom(code: string) {
+  const roomId = code.split(".")[0] ?? "";
   const [view, setView] = useState<RoomView>(INITIAL_VIEW);
   const session = useRef<RoomSession | null>(null);
 
@@ -41,6 +42,9 @@ export function useRoom(code: string) {
       checkCode: () => checkRoom(WORKER_URL, code, browserFetch),
       checkHealth: () => probeHealth(healthUrl(WORKER_URL), browserFetch),
       storedName: () => readKey(STORAGE_KEYS.name),
+      // Protocol v12: this room's host token, if this device started it. Sent only in claimHost.
+      hostToken: () => readKey(hostTokenKey(roomId)),
+      forgetHostToken: () => removeKey(hostTokenKey(roomId)),
       env: browserConnectionEnv,
       onChange: setView,
       onNoteConfirmed: (from, to) => useBoardUi.getState().renameSelected(from, to),
