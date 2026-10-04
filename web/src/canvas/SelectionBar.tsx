@@ -19,7 +19,9 @@ import {
   Plus,
   Redo2,
   Scaling,
+  RotateCcw,
   SlidersHorizontal,
+  Square,
   Trash2,
   Undo2,
 } from "lucide-react";
@@ -31,6 +33,10 @@ import { cn } from "../lib/utils";
 import { GRID_GAP, align, autoColumns, distribute, grid, matchSize, type AlignMode, type Axis, type GridReason, type MatchMode, type Placed } from "./arrange";
 import { useBoardUi } from "./uiStore";
 import { LOCK_TEXT, lockToggle } from "../facilitation/lock";
+import { useMediaQuery } from "../lib/useMediaQuery";
+import { useRoomUi } from "../rooms/roomStore";
+import { MEDIA } from "../styles/breakpoints";
+import { useTimerControls } from "../timer/controls";
 
 /*
  * The board actions bar (md and up). Since v0.15.1 it sits in the top bar, between the mark and
@@ -62,6 +68,8 @@ export interface BarGroup {
   commands: BarCommand[];
   /** Arrange-style group: one button opens the commands and `content` in a panel under it. */
   collapsed?: { icon: ReactNode };
+  /** Shown beside a collapsed group's button (a status that should stay in sight, e.g. "Locked"). */
+  badge?: ReactNode;
   /** Controls of the group's own, after its commands. */
   content?: ReactNode;
 }
@@ -144,7 +152,7 @@ function CollapsedGroup({ group }: { group: BarGroup }) {
         className={cn("min-w-touch px-sm", open && "bg-surface-muted")}
       >
         {group.collapsed?.icon}
-        <span className="hidden lg:inline">{group.label}</span>
+        <span className="hidden xl:inline">{group.label}</span>
         <ChevronDown />
       </Button>
       <Panel
@@ -175,7 +183,10 @@ function BarGroupView({ group, first }: { group: BarGroup; first: boolean }) {
     <div className="flex shrink-0 items-center">
       {!first && <div aria-hidden="true" className="mx-xs h-icon-lg w-px bg-border" />}
       {group.collapsed ? (
-        <CollapsedGroup group={group} />
+        <>
+          <CollapsedGroup group={group} />
+          {group.badge}
+        </>
       ) : (
         <div role="group" aria-label={group.label} className="flex items-center gap-2xs">
           {group.commands.map((c) => (
@@ -348,9 +359,20 @@ export function BoardBar({ notes, frame, live, held, unsaved, duplicateReason, d
   const orderReason = lockedReason ?? (count === 0 ? (frame ? ORDER_HINTS.frame : ORDER_HINTS.none) : !live ? ORDER_HINTS.offline : null);
   // Align and Match size need 2+ notes and a connection; Distribute needs 3.
   const arrangeReason = lockedReason ?? (count < 2 ? GRID_HINTS.few : !live ? GRID_HINTS.offline : null);
-  const toggle = session ? lockToggle({ locked: session.locked, pending: session.pending, live }) : null;
-  const distributeReason = arrangeReason ?? (count < 3 ? DISTRIBUTE_HINT : null);
   const off = (reason: string | null) => ({ disabled: reason !== null, ...(reason ? { hint: reason } : {}) });
+  const toggle = session ? lockToggle({ locked: session.locked, pending: session.pending, live }) : null;
+  // From xl up every group is in full; below, Order and the host's Session fold into panels (with
+  // the timer chip and the avatars, the top bar would overflow otherwise).
+  const full = useMediaQuery(MEDIA.wideDesktop);
+  const timer = useTimerControls();
+  const timerRunning = useRoomUi((s) => s.room?.timer !== null && s.room?.timer !== undefined);
+  const orderCommands: BarCommand[] = ORDER_COMMANDS.map((c) => ({ title: c.label, icon: c.icon, ...off(orderReason), run: () => order(c.action) }));
+  const lockedMarker = session?.locked ? (
+    <span data-locked-indicator="" className="ml-xs rounded-full border border-border bg-surface-muted px-sm text-xs font-semibold">
+      {LOCK_TEXT.locked}
+    </span>
+  ) : null;
+  const distributeReason = arrangeReason ?? (count < 3 ? DISTRIBUTE_HINT : null);
   return (
     <FloatingBar
       label="Board actions"
@@ -358,25 +380,24 @@ export function BoardBar({ notes, frame, live, held, unsaved, duplicateReason, d
         {
           label: "History",
           commands: [
-            { title: "Undo", icon: <Undo2 />, text: true, ...off(undoReason), run: undo },
-            { title: "Redo", icon: <Redo2 />, text: true, ...off(redoReason), run: redo },
+            { title: "Undo", icon: <Undo2 />, ...off(undoReason), run: undo },
+            { title: "Redo", icon: <Redo2 />, ...off(redoReason), run: redo },
           ],
         },
         {
           label: "Edit",
           commands: [
-            { title: "Duplicate", icon: <Copy />, text: true, ...off(duplicateReason), run: duplicate },
-            { title: "Delete", icon: <Trash2 />, text: true, ...off(deleteReason), run: remove },
+            { title: "Duplicate", icon: <Copy />, ...off(duplicateReason), run: duplicate },
+            { title: "Delete", icon: <Trash2 />, ...off(deleteReason), run: remove },
           ],
         },
-        {
-          label: "Order",
-          commands: ORDER_COMMANDS.map((c) => ({ title: c.label, icon: c.icon, text: true, ...off(orderReason), run: () => order(c.action) })),
-        },
+        ...(full ? [{ label: "Order", commands: orderCommands }] : []),
         {
           label: "Arrange",
           collapsed: { icon: <SlidersHorizontal /> },
           commands: [
+            // Below xl, Order folds in here so the top bar keeps one row.
+            ...(full ? [] : orderCommands),
             ...ALIGN.map((a) => ({ ...a, ...off(arrangeReason), run: () => send(align(notes, a.mode)) })),
             ...DISTRIBUTE.map((d) => ({ ...d, ...off(distributeReason), run: () => send(distribute(notes, d.axis)) })),
             ...MATCH.map((m) => ({ ...m, ...off(arrangeReason), run: () => send(matchSize(notes, m.mode)) })),
@@ -387,6 +408,9 @@ export function BoardBar({ notes, frame, live, held, unsaved, duplicateReason, d
           ? [
               {
                 label: "Session",
+                // Below xl, one button that opens the lock (and the timer's Restart and Stop, which
+                // are on the timer chip from xl up); the Locked marker stays beside it.
+                ...(full ? {} : { collapsed: { icon: session.locked ? <Lock /> : <LockOpen /> }, badge: lockedMarker }),
                 commands: [
                   {
                     title: toggle.label,
@@ -396,12 +420,14 @@ export function BoardBar({ notes, frame, live, held, unsaved, duplicateReason, d
                     ...off(toggle.reason),
                     run: () => void session.setLock(!session.locked),
                   },
+                  ...(!full && timerRunning
+                    ? [
+                        { title: "Restart timer", icon: <RotateCcw />, label: true, ...off(timer.reason), run: () => void timer.restart() },
+                        { title: "Stop timer", icon: <Square />, label: true, ...off(timer.reason), run: () => void timer.stop() },
+                      ]
+                    : []),
                 ],
-                content: session.locked ? (
-                  <span data-locked-indicator="" className="rounded-full border border-border bg-surface-muted px-sm text-xs font-semibold">
-                    {LOCK_TEXT.locked}
-                  </span>
-                ) : null,
+                content: full ? lockedMarker : null,
               },
             ]
           : []),

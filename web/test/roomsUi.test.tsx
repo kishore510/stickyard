@@ -2698,9 +2698,10 @@ describe("the floating bar and Duplicate (md up)", () => {
     }
     expect(tipOf(command("Delete"))?.textContent).toContain("Select notes or a frame first.");
     expect(hint("Arrange")?.textContent).toContain("Select 2 or more notes to arrange.");
-    // Edit and Order show their names as text too, not only icons.
-    expect(command("Duplicate")?.textContent).toContain("Duplicate");
-    expect(command("Bring to front")?.textContent).toContain("Bring to front");
+    // Since v0.16.0 History, Edit and Order are icons (room in the top bar for the timer and the
+    // host's Session group); each is named, and its tooltip names it when it's on.
+    expect(command("Duplicate")?.getAttribute("aria-label")).toBe("Duplicate");
+    expect(command("Bring to front")?.getAttribute("aria-label")).toBe("Bring to front");
   });
 
   it("lives in the top bar, between the mark and the menu, with no line of hint text (v0.15.1)", async () => {

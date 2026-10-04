@@ -22,6 +22,7 @@ export function TimerChip() {
   const room = useRoomUi((s) => s.room);
   const timer = room?.timer ?? null;
   const wide = useMediaQuery(MEDIA.tablet);
+  const full = useMediaQuery(MEDIA.wideDesktop);
   const now = useNow(timer !== null);
   const controls = useTimerControls();
 
@@ -42,7 +43,8 @@ export function TimerChip() {
   }, [momentKey]);
 
   if (!room) return null;
-  const host = room.isHost && wide;
+  // The host's Restart and Stop sit on the chip from xl up (below, in the board bar's Session panel; phones: the Participants sheet).
+  const host = room.isHost && full;
   return (
     <>
       <span data-timer-announcer="" role="status" aria-live="polite" aria-atomic="true" className="sr-only">

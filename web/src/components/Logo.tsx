@@ -13,12 +13,15 @@ export function LogoMark({ className }: { className?: string }) {
   );
 }
 
-/** Mark and wordmark. On phones the wordmark is visually hidden (room for the buttons), as in Chalkline. */
+/**
+ * Mark and wordmark. Below lg the wordmark is visually hidden (room for the buttons: on phones, as
+ * in Chalkline; on tablets since v0.16.0, for the board bar, the timer and the avatars).
+ */
 export function Logo() {
   return (
     <span className="inline-flex items-center gap-sm">
       <LogoMark />
-      <span className="sr-only text-lg font-semibold tracking-tight md:not-sr-only">Stickyard</span>
+      <span className="sr-only text-lg font-semibold tracking-tight lg:not-sr-only">Stickyard</span>
     </span>
   );
 }

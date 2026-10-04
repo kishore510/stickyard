@@ -69,6 +69,8 @@ describe("a guest while locked", () => {
     expect(banner()?.querySelector("button")).toBeNull();
     expect(announcer()?.getAttribute("aria-live")).toBe("polite");
     expect(announcer()?.textContent).toBe(LOCK_TEXT.banner);
+    // The banner says it once: no second "can't add notes" notice under it.
+    expect([...document.querySelectorAll("main p")].filter((p) => p.textContent === LOCK_TEXT.reason && !p.closest("aside"))).toEqual([]);
     // Palette tiles.
     const tile = palette()?.querySelector<HTMLButtonElement>('[data-palette-item="note-yellow"]');
     expect(tile?.disabled).toBe(true);

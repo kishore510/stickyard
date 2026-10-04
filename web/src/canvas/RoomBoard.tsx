@@ -551,7 +551,7 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
           dropReport={view.dropReport}
           orphanDraft={view.orphanDraft}
           presenceToast={view.presenceToast?.text ?? null}
-          noteReason={noteReason}
+          noteReason={locked ? null : noteReason}
           onRejoin={rejoin}
           onRestoreDraft={restoreDraft}
           onDismissDraft={dismissDraft}
