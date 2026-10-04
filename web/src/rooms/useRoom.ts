@@ -1,15 +1,20 @@
 import { useEffect, useRef, useState } from "react";
 import type { FrameColor, NoteColor, NoteRect, OrderAction } from "@stickyard/shared";
-import { WORKER_URL, toWebSocketUrl } from "../config";
+import { WORKER_URL, healthUrl, toWebSocketUrl } from "../config";
+import { probeHealth } from "../connection/connectionCheck";
+import { browserConnectionEnv } from "../connection/reconnect";
 import { browserSocketFactory } from "../connection/socket";
 import { useBoardUi } from "../canvas/uiStore";
-import { STORAGE_KEYS, writeKey } from "../storage";
+import { STORAGE_KEYS, readKey, writeKey } from "../storage";
 import { browserFetch, checkRoom } from "./api";
 import type { FrameEdit } from "../frames/board";
 import type { StylePatch } from "../notes/board";
 import { INITIAL_VIEW, RoomSession, type RoomView, type TemplateFramePlan } from "./session";
 
-/** One room visit for the room screen. A new socket per join attempt; closed on unmount. */
+/**
+ * One room visit for the room screen. A new session per join from the name sheet; after joining,
+ * the session reconnects by itself (and Rejoin restarts that) with the stored name. Closed on unmount.
+ */
 export function useRoom(code: string) {
   const [view, setView] = useState<RoomView>(INITIAL_VIEW);
   const session = useRef<RoomSession | null>(null);
@@ -34,6 +39,9 @@ export function useRoom(code: string) {
       url: toWebSocketUrl(WORKER_URL, code),
       createSocket: browserSocketFactory,
       checkCode: () => checkRoom(WORKER_URL, code, browserFetch),
+      checkHealth: () => probeHealth(healthUrl(WORKER_URL), browserFetch),
+      storedName: () => readKey(STORAGE_KEYS.name),
+      env: browserConnectionEnv,
       onChange: setView,
       onNoteConfirmed: (from, to) => useBoardUi.getState().renameSelected(from, to),
       onFrameConfirmed: (from, to) => useBoardUi.getState().renameFrame(from, to),
@@ -46,7 +54,10 @@ export function useRoom(code: string) {
     view,
     /** Joins on the open socket after a refused name; otherwise opens a new one. */
     join: (name: string) => (session.current && view.status === "idle" ? session.current.join(name) : start(name)),
-    rejoin: (name: string) => start(name),
+    /** Tries to reconnect now (after a drop), with the stored name and no prompt. */
+    rejoin: () => session.current?.rejoin(),
+    restoreDraft: () => session.current?.restoreDraft() ?? null,
+    dismissDraft: () => session.current?.dismissDraft(),
     say: (text: string) => session.current?.say(text) ?? false,
     addNote: (at: { x: number; y: number; color: NoteColor }) => session.current?.addNote(at) ?? null,
     editNote: (id: string, text: string) => session.current?.editNote(id, text) ?? false,

@@ -1,8 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { MAX_FRAMES_PER_ROOM, PROTOCOL_VERSION, type Participant } from "@stickyard/shared";
+import { FRAME_DEFAULTS, MAX_FRAMES_PER_ROOM, PROTOCOL_VERSION, type Participant } from "@stickyard/shared";
 import { EXPECT_TIMEOUT_MS, HISTORY_TEXT } from "../src/history/history";
 import { LIMIT_MAX_PROBES, LIMIT_RETRY_MS, RECONNECT_MAX_ATTEMPTS, type ConnectionEnv, type ProbeResult } from "../src/connection/reconnect";
-import { findFrame, findNote } from "../src/notes/board";
+import { findFrame } from "../src/frames/board";
+import { findNote } from "../src/notes/board";
 import { CLEAR_FRAME_STEP_MS, DROP_TEXT, ITEMS_STEP_MS, JOIN_TIMEOUT_MS, NOTICES, UNDO_TEXT, type SessionOptions } from "../src/rooms/session";
 import { alex, fid, frame, nid, note, room, sam } from "./helpers/fakeRelay";
 
@@ -67,7 +68,7 @@ function setup(notes = [note(1), note(2)], frames = [frame(1)], extra: Partial<S
   return { ...t, e, health, code, reconnect };
 }
 
-const plan = (i: number) => ({ x: 2000 + i * 700, y: 100, w: 640, h: 400, title: `T${i}`, color: "neutral" as const, style: {} });
+const plan = (i: number) => ({ x: 2000 + i * 700, y: 100, w: 640, h: 400, title: `T${i}`, color: "neutral" as const, style: { ...FRAME_DEFAULTS } });
 
 beforeEach(() => vi.useFakeTimers());
 afterEach(() => vi.useRealTimers());

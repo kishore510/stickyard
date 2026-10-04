@@ -13,6 +13,8 @@ import type { EchoEntry } from "./session";
 export interface PublishedRoom {
   code: string;
   you: Participant | null;
+  /** Every participant id you've had in this visit (a reconnect gives a new one). */
+  yourIds: ReadonlySet<string>;
   participants: Participant[];
   live: boolean;
   messages: EchoEntry[];
@@ -45,5 +47,5 @@ export const useRoomUi = create<RoomUi>()((set, get) => ({
 
 /** Unread chat messages from others while chat is closed. */
 export function useUnread(): number {
-  return useRoomUi((s) => (s.room && !s.chatOpen ? countUnread(s.room.messages, s.seenKey, s.room.you?.id) : 0));
+  return useRoomUi((s) => (s.room && !s.chatOpen ? countUnread(s.room.messages, s.seenKey, s.room.yourIds) : 0));
 }

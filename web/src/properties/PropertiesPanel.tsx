@@ -29,6 +29,7 @@ export interface PropertiesRoom {
   board: Board;
   live: boolean;
   you: Participant | null;
+  yourIds?: ReadonlySet<string>;
   people: ReadonlyMap<string, Participant>;
   participants: readonly Participant[];
   setDraft(id: string, draft: string | null): void;

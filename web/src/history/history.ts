@@ -237,6 +237,17 @@ export class History {
     return out;
   }
 
+  /** Items with changes of mine sent and not heard back yet, as "kind:id" (a dropped connection counts them). */
+  pendingKeys(): string[] {
+    return [...new Set(this.expects.map((e) => `${e.kind}:${e.id}`))];
+  }
+
+  /** When the oldest change still waiting will be given up on (so undo and redo can say so then), or null. */
+  nextExpiry(): number | null {
+    if (this.expects.length === 0) return null;
+    return Math.min(...this.expects.map((e) => e.at)) + EXPECT_TIMEOUT_MS + 1;
+  }
+
   /* ── What the relay stored ───────────────────────────────────────── */
 
   /**

@@ -87,10 +87,11 @@ export function NoteCard({ entry, editable, selected }: { entry: BoardNote; edit
   latest.current = note;
   const cardRef = useRef<HTMLDivElement>(null);
   const inline = useBoardUi((s) => (s.inlineEdit?.id === note.id ? s.inlineEdit : null));
-  const editing = inline !== null && editable && !isHeld(entry);
+  // Editing in place survives a dropped connection (read-only until it's back, the draft kept).
+  const editing = inline !== null && !isHeld(entry);
 
   useEffect(() => () => clearTimeout(keyCommit.current), []);
-  // Disconnected or grabbed while editing in place: stop (the draft stays, as in Properties).
+  // Grabbed while editing in place: stop (the draft stays, as in Properties).
   useEffect(() => {
     if (inline && !editing) actions?.endEdit(note.id);
   }, [inline, editing, actions, note.id]);
@@ -223,6 +224,7 @@ export function NoteCard({ entry, editable, selected }: { entry: BoardNote; edit
           note={note}
           text={entry.draft ?? note.text}
           request={inline}
+          readOnly={!editable}
           onDraft={(text) => actions.setDraft(note.id, text)}
           onCommit={(refocus) => {
             actions.commitEdit(note.id);

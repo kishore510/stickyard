@@ -19,7 +19,7 @@ import type { SocketFactory, SocketHandlers } from "../src/connection/socket";
 import { findFrame } from "../src/frames/board";
 import { findNote, isLocalId } from "../src/notes/board";
 import { messageBytes, packItems, type ItemDraft } from "../src/rooms/items";
-import { ITEMS_MESSAGES_PER_SECOND, ITEMS_STEP_MS, NOTICES, RoomSession, type ItemInput, type RoomView } from "../src/rooms/session";
+import { DROP_TEXT, ITEMS_MESSAGES_PER_SECOND, ITEMS_STEP_MS, NOTICES, RoomSession, type ItemInput, type RoomView } from "../src/rooms/session";
 
 /* Protocol v11 (slice create with content), web side: packing and RoomSession.addItems. Generic fixtures. */
 
@@ -290,14 +290,19 @@ describe("RoomSession.addItems", () => {
     expect(findFrame(t.view().board, sid(8))?.frame).toEqual(frame);
   });
 
-  it("a disconnect drops the messages not sent yet (and their items); the one in flight stays shown", async () => {
+  it("a disconnect drops the messages not sent yet and discards every item not confirmed, with one notice (since reconnect)", async () => {
     const t = session();
     t.session.addItems(Array.from({ length: 6 }, () => noteInput({ text: "\ud800".repeat(MAX_NOTE_TEXT) })));
     expect(t.out()).toHaveLength(1);
-    t.sock().handlers.onClose();
+    const dropped = t.sock();
+    const sent = dropped.sent.length;
+    dropped.handlers.onClose();
     await vi.advanceTimersByTimeAsync(ITEMS_STEP_MS * 10);
-    expect(t.out()).toHaveLength(1);
-    expect(t.view().board.notes).toHaveLength(2);
+    // Nothing more on the dropped socket, and nothing queued goes out on a reconnect's socket.
+    expect(dropped.sent).toHaveLength(sent);
+    if (t.sock() !== dropped) expect(t.sock().sent).toEqual([]);
+    expect(t.view().board.notes).toHaveLength(0);
+    expect(t.view().dropReport).toBe(DROP_TEXT.unsaved(6));
   });
 
   it("does nothing while disconnected; text too long after cleaning isn't added and is counted", () => {

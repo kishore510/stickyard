@@ -1,4 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import { PROTOCOL_VERSION } from "@stickyard/shared";
+import { probeHealth, type FetchFn } from "../src/connection/connectionCheck";
+import { countUnread } from "../src/chat/unread";
+import { authorName } from "../src/notes/label";
+import { CONNECTION_TEXT, connectionMessage } from "../src/rooms/connectionText";
 import {
   HIDDEN_GRACE_MS,
   LIMIT_MAX_PROBES,
@@ -85,5 +90,69 @@ describe("hidden tabs", () => {
     expect(mayTryWhileHidden(null, 1_000_000)).toBe(true);
     expect(mayTryWhileHidden(1_000_000, 1_000_000 + HIDDEN_GRACE_MS)).toBe(true);
     expect(mayTryWhileHidden(1_000_000, 1_000_000 + HIDDEN_GRACE_MS + 1)).toBe(false);
+  });
+});
+
+describe("probeHealth (GET /health while reconnecting)", () => {
+  const respond = (status: number, body: unknown) => vi.fn<FetchFn>(() => Promise.resolve(new Response(JSON.stringify(body), { status })));
+  it.each([
+    ["the same protocol", respond(200, { ok: true, protocolVersion: PROTOCOL_VERSION }), "ok"],
+    ["another protocol", respond(200, { ok: true, protocolVersion: PROTOCOL_VERSION + 1 }), "reload"],
+    ["an error status (Cloudflare's own page, over the limit)", respond(429, "error code: 1027"), "down"],
+    ["a malformed body", respond(200, { nope: 1 }), "down"],
+    ["a failed fetch (no CORS headers, or no network)", vi.fn<FetchFn>(() => Promise.reject(new TypeError("Failed to fetch"))), "down"],
+  ])("%s: %s", async (_label, fetchFn, result) => {
+    expect(await probeHealth("https://relay.example.test/health", fetchFn)).toBe(result);
+    expect(fetchFn).toHaveBeenCalledWith("https://relay.example.test/health", expect.objectContaining({ cache: "no-store", credentials: "omit" }));
+  });
+
+  it("gives up after its timeout", async () => {
+    vi.useFakeTimers();
+    const hang = vi.fn<FetchFn>((_url, init) => new Promise((_resolve, reject) => init?.signal?.addEventListener("abort", () => reject(new Error("aborted")))));
+    const result = probeHealth("https://relay.example.test/health", hang, 5000);
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(await result).toBe("down");
+    vi.useRealTimers();
+  });
+});
+
+describe("what the connection status says", () => {
+  it("reconnecting gives the try; Rejoin only once automatic tries aren't running", () => {
+    expect(connectionMessage({ phase: "reconnecting", attempt: 2, max: 8 })).toEqual({
+      title: "Connection lost. Reconnecting…",
+      detail: "Try 2 of 8. The board is read-only until you’re back.",
+      rejoin: false,
+    });
+    for (const phase of ["network", "offline", "full", "limit"] as const) expect(connectionMessage({ phase, attempt: 1, max: 8 }).rejoin).toBe(true);
+    expect(connectionMessage(null)).toBe(CONNECTION_TEXT.offline);
+  });
+
+  it("the daily-limit state doesn't claim certainty and says when it resets", () => {
+    const m = connectionMessage({ phase: "limit", attempt: 3, max: 8 });
+    expect(m.title).toBe("The relay may be unreachable or over its daily limit.");
+    expect(m.detail).toContain("It resets at 00:00 UTC.");
+  });
+
+  it("room full says so", () => {
+    expect(connectionMessage({ phase: "full", attempt: 1, max: 8 }).title).toBe("Couldn’t rejoin: the session is full.");
+  });
+});
+
+describe("a new participant id after a reconnect", () => {
+  const me = { id: "NEWNEWNEWNEWNEW1", name: "Alex", colourIndex: 3 };
+  const old = "OLDOLDOLDOLDOLD1";
+  it("your notes from before are still yours", () => {
+    const room = { you: me, participants: [me], people: new Map([[old, { ...me, id: old }], [me.id, me]]), yourIds: new Set([old, me.id]) };
+    expect(authorName(old, room)).toBe("Alex (you)");
+    expect(authorName(me.id, room)).toBe("Alex (you)");
+  });
+
+  it("your own messages from before never count as unread", () => {
+    const messages = [
+      { key: 1, from: old },
+      { key: 2, from: "SAMSAMSAMSAMSAM1" },
+    ];
+    expect(countUnread(messages, 0, new Set([old, me.id]))).toBe(1);
+    expect(countUnread(messages, 0, me.id)).toBe(2);
   });
 });

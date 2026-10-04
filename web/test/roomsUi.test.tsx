@@ -2906,7 +2906,7 @@ describe("reconnecting (UI)", () => {
 
   it("changes that weren't confirmed are reported in one polite status", async () => {
     const socket = await withNotes(true, one, two);
-    vi.spyOn(window, "confirm").mockReturnValue(true);
+    vi.stubGlobal("confirm", vi.fn(() => true));
     await selectNote(0);
     await act(async () => {
       notes()[0]?.dispatchEvent(new KeyboardEvent("keydown", { key: "Delete", bubbles: true, cancelable: true }));

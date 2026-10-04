@@ -107,9 +107,13 @@ export const useBoardUi = create<BoardUi>()((set, get) => ({
     });
   },
   pruneSelected: (exists) => {
-    const selection = get().selection;
+    const { selection, inlineEdit, editRequest } = get();
     const next = pruneSelection(selection, exists);
-    if (next !== selection) set({ selection: next });
+    // A note edited in place, or asked for in Properties, that's gone (deleted, or not in a resync) is let go.
+    const goneInline = inlineEdit !== null && !exists(inlineEdit.id);
+    const goneRequest = editRequest !== null && !exists(editRequest.id);
+    if (next !== selection || goneInline || goneRequest)
+      set({ selection: next, ...(goneInline ? { inlineEdit: null } : {}), ...(goneRequest ? { editRequest: null } : {}) });
   },
   selectFrame: (id) => {
     if (get().frameSelected !== id || get().selection.size > 0) set({ frameSelected: id, selection: EMPTY_SELECTION, inlineEdit: null });
@@ -122,8 +126,10 @@ export const useBoardUi = create<BoardUi>()((set, get) => ({
     });
   },
   pruneFrame: (exists) => {
-    const id = get().frameSelected;
-    if (id !== null && !exists(id)) set({ frameSelected: null });
+    const { frameSelected: id, frameEditRequest } = get();
+    const goneRequest = frameEditRequest !== null && !exists(frameEditRequest.id);
+    if ((id !== null && !exists(id)) || goneRequest)
+      set({ ...(id !== null && !exists(id) ? { frameSelected: null } : {}), ...(goneRequest ? { frameEditRequest: null } : {}) });
   },
   requestFrameEdit: (id) => set({ frameSelected: id, selection: EMPTY_SELECTION, frameEditRequest: { id, n: (get().frameEditRequest?.n ?? 0) + 1 } }),
   requestEdit: (id) => set({ selection: selectOnly(get().selection, id), frameSelected: null, editRequest: { id, n: (get().editRequest?.n ?? 0) + 1 } }),
