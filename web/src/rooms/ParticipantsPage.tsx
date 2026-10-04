@@ -1,4 +1,4 @@
-import { Check, Copy, LogOut, RotateCcw, Square } from "lucide-react";
+import { Check, Copy, Lock, LockOpen, LogOut, Power, RotateCcw, Square } from "lucide-react";
 import { useState } from "react";
 import { MAX_NAME_LENGTH, MAX_PARTICIPANTS } from "@stickyard/shared";
 import { Button } from "../components/ui/button";
@@ -10,6 +10,7 @@ import { useMediaQuery } from "../lib/useMediaQuery";
 import { MEDIA } from "../styles/breakpoints";
 import { useTimerControls } from "../timer/controls";
 import { TimerForm } from "../timer/TimerForm";
+import { LOCK_TEXT, confirmEndSession, lockToggle } from "../facilitation/lock";
 
 /*
  * The Participants sheet (#/participants): who's in the session now, the unverified-names
@@ -44,13 +45,15 @@ function CopyLink({ code }: { code: string }) {
 /**
  * The host's Session section (phones; from md up these controls are in the palette, the board
  * bar and Properties). Today: the timer (Restart and Stop while one exists, and the same presets
- * and minutes field as the picker, inline, so no second sheet opens over this one).
+ * and minutes field as the picker, inline, so no second sheet opens over this one), the lock
+ * (pending until the relay answers) and End session (one confirm).
  */
 function SessionSection() {
   const room = useRoomUi((s) => s.room);
   const controls = useTimerControls();
   if (!room) return null;
   const off = controls.reason !== null;
+  const lock = lockToggle({ locked: room.locked, pending: room.lockPending, live: room.live });
   return (
     <section aria-labelledby="session-heading" className="flex flex-col gap-sm">
       <h3 id="session-heading" className="text-base font-semibold">
@@ -71,6 +74,44 @@ function SessionSection() {
         </div>
       )}
       <TimerForm running={room.timer !== null} reason={controls.reason} onStart={(ms) => void controls.start(ms)} />
+      <h4 className="text-sm font-semibold">Board</h4>
+      <div className="flex flex-col gap-xs">
+        <Button
+          className="self-start"
+          aria-disabled={lock.reason !== null || undefined}
+          aria-describedby={lock.reason ? "session-lock-reason" : undefined}
+          onClick={() => lock.reason === null && room.setLock(!room.locked)}
+        >
+          {room.locked ? <LockOpen /> : <Lock />}
+          {lock.label}
+        </Button>
+        {room.locked && lock.reason === null && <p className="text-sm text-fg-muted">{LOCK_TEXT.locked}: only hosts can change the board.</p>}
+        {lock.reason && (
+          <p id="session-lock-reason" className="text-xs text-fg-muted">
+            {lock.reason}
+          </p>
+        )}
+      </div>
+      <h4 className="text-sm font-semibold">End the session</h4>
+      <div className="flex flex-col gap-xs">
+        <Button
+          className="self-start text-status-error"
+          aria-disabled={room.endReason !== null || undefined}
+          aria-describedby={room.endReason ? "session-end-reason" : undefined}
+          onClick={() => {
+            if (room.endReason !== null || !confirmEndSession()) return;
+            room.endSession();
+          }}
+        >
+          <Power />
+          End session
+        </Button>
+        {room.endReason && (
+          <p id="session-end-reason" className="text-xs text-fg-muted">
+            {room.endReason}
+          </p>
+        )}
+      </div>
     </section>
   );
 }
@@ -94,6 +135,11 @@ export function ParticipantsPage() {
               <span aria-hidden="true" className={cn("inline-block size-dot shrink-0 rounded-full", participantColourClass(p.colourIndex))} />
               <span className="min-w-0 break-words">{p.name}</span>
               {p.id === room.you?.id && <span className="text-fg-muted"> (you)</span>}
+              {p.host && (
+                <span data-host-badge="" className="ml-auto shrink-0 rounded-full border border-border bg-surface-muted px-sm text-xs font-semibold">
+                  Host
+                </span>
+              )}
             </li>
           ))}
         </ul>

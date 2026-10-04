@@ -10,6 +10,7 @@ import { authorName } from "../notes/label";
 import { NoteEditor } from "../notes/NoteEditor";
 import { useRoomUi } from "../rooms/roomStore";
 import { ENDED_TEXT, EXPIRED_TEXT, type RoomView } from "../rooms/session";
+import { endSessionReason } from "../facilitation/lock";
 import { useRoom } from "../rooms/useRoom";
 import { Sheet } from "../shell/Sheet";
 import { STORAGE_KEYS, readKey } from "../storage";
@@ -34,7 +35,8 @@ function PublishRoom({ code, view, room }: { code: string; view: RoomView; room:
   const latest = useRef(room);
   latest.current = room;
   const live = view.status === "joined";
-  const { you, yourIds, participants, messages, rateLimited, isHost, locked, timer } = view;
+  const { you, yourIds, participants, messages, rateLimited, isHost, locked, timer, lockPending } = view;
+  const endReason = endSessionReason({ live, busy: view.adding, clearing: view.clearing });
   useEffect(() => {
     publish({
       code,
@@ -48,11 +50,15 @@ function PublishRoom({ code, view, room }: { code: string; view: RoomView; room:
       locked,
       timer,
       startTimer: (durationMs) => latest.current.startRoomTimer(durationMs),
+      lockPending,
+      setLock: (on) => latest.current.setLock(on),
+      endReason,
+      endSession: () => latest.current.endSession(),
       stopTimer: () => latest.current.stopRoomTimer(),
       say: (text) => latest.current.say(text),
       leave: () => latest.current.leave(),
     });
-  }, [publish, code, you, yourIds, participants, live, messages, rateLimited, isHost, locked, timer]);
+  }, [publish, code, you, yourIds, participants, live, messages, rateLimited, isHost, locked, timer, lockPending, endReason]);
   useEffect(() => () => publish(null), [publish]);
   return null;
 }

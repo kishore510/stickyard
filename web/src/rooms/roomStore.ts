@@ -26,6 +26,12 @@ export interface PublishedRoom {
   /** Host commands (facilitation UI); the session refuses them for guests and while disconnected. */
   startTimer(durationMs: number): boolean;
   stopTimer(): boolean;
+  /** The lock the host asked for, until the relay answers (null: not waiting). */
+  lockPending: boolean | null;
+  setLock(locked: boolean): boolean;
+  /** Why End session is off (disconnected, a run in progress), or null. */
+  endReason: string | null;
+  endSession(): boolean;
   say(text: string): boolean;
   leave(): void;
 }

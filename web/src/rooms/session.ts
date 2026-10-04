@@ -109,6 +109,7 @@ import { HISTORY_TEXT, History, type Fields, type ItemKind, type Lookup, type Pl
 import type { CodeCheck } from "./api";
 import { packItems, type ItemDraft, type ItemsAddMessage } from "./items";
 import { validDuration } from "../timer/timer";
+import { LOCK_TEXT, lockedOut } from "../facilitation/lock";
 import { LEAVE_GRACE_MS, RESYNC_QUIET_MS, TOAST_BATCH_MS, TOAST_GAP_MS, TOAST_SHOW_MS, summarizePresence, type PresenceEvent } from "../presence/toasts";
 import { discardUnconfirmed, resyncFrames, resyncNotes, unsavedKeys, type OrphanDraft } from "./resync";
 
@@ -961,6 +962,7 @@ export class RoomSession {
     this.retry = { phase: this.env.online() ? "reconnecting" : "network", attempt: 1, failedOpens: 0, probes: 0, timer: undefined, trying: false, due: false, lastTryAt: -Infinity, gen: ++this.retryGen };
     this.update({
       status: "disconnected",
+      lockPending: null,
       board,
       dropReport: unsaved > 0 ? DROP_TEXT.unsaved(unsaved) : null,
       ...(orphans.length > 0 ? { orphanDraft: orphans.at(-1) ?? null } : {}),
@@ -1826,6 +1828,8 @@ export class RoomSession {
   /** Why undo and redo are off now, or null each. */
   private historyReasons(): { undo: string | null; redo: string | null } {
     if (!this.live) return { undo: UNDO_TEXT.offline, redo: UNDO_TEXT.offline };
+    // A guest on a locked board: the relay would refuse it (courtesy; it's still the authority).
+    if (lockedOut(this.view)) return { undo: LOCK_TEXT.reason, redo: LOCK_TEXT.reason };
     if (this.restoreRun || this.itemBatches.size > 0) return { undo: UNDO_TEXT.busy, redo: UNDO_TEXT.busy };
     const now = Date.now();
     return { undo: this.history.undoReason(now), redo: this.history.redoReason(now) };
@@ -2237,7 +2241,7 @@ export class RoomSession {
         this.joinedName = message.you.name;
         // Protocol v12: the room's lock and timer come with joined; host powers are claimed again
         // on every join and reconnect (a new participant), with the token kept on this device.
-        const roomState = { locked: message.locked, timer: roomTimer(message.timer), isHost: message.you.host };
+        const roomState = { locked: message.locked, timer: roomTimer(message.timer), isHost: message.you.host, lockPending: null };
         if (this.retry) {
           // A reconnect: live once the snapshot has replaced the board (the join timer runs till then).
           this.resyncing = true;
@@ -2279,7 +2283,7 @@ export class RoomSession {
       }
 
       case "lockChanged":
-        return this.update({ locked: message.locked });
+        return this.update({ locked: message.locked, lockPending: null });
 
       case "timerChanged":
         return this.update({ timer: roomTimer(message.timer) });
@@ -2455,7 +2459,7 @@ export class RoomSession {
           case "board_locked":
             return this.update({ noteNotice: NOTICES.locked });
           case "not_host":
-            return this.update({ noteNotice: NOTICES.notHost });
+            return this.update({ noteNotice: NOTICES.notHost, lockPending: null });
           case "bad_host_token":
             // The stored token doesn't open this room: forget it, quietly (nothing visible depends on it yet).
             this.options.forgetHostToken?.();
@@ -2652,6 +2656,7 @@ export class RoomSession {
       isHost: false,
       locked: false,
       timer: null,
+      lockPending: null,
       board: EMPTY_BOARD,
       synced: false,
       presenceToast: null,
@@ -2675,14 +2680,25 @@ export class RoomSession {
     return true;
   }
 
-  /** Stub: tests first. */
-  setLock(_locked: boolean): boolean {
-    return false;
+  /**
+   * Host: locks or unlocks the board. Not optimistic: `lockPending` says what was asked until the
+   * relay's lockChanged (or a refusal, or a drop). A second press while waiting sends nothing.
+   */
+  setLock(locked: boolean): boolean {
+    if (!this.canHost() || this.view.lockPending !== null) return false;
+    this.send({ type: "lockSet", locked });
+    this.update({ lockPending: locked });
+    return true;
   }
 
-  /** Stub: tests first. */
+  /**
+   * Host: ends the session for everyone (the relay deletes it; sessionEnded and 4411 follow). Not
+   * while disconnected or while a run (a template, a duplicate, a restore, a clear) is going.
+   */
   endSession(): boolean {
-    return false;
+    if (!this.canHost() || this.itemBatches.size > 0 || this.restoreRun !== null || this.clearRun !== null || this.template !== null) return false;
+    this.send({ type: "endSession" });
+    return true;
   }
 
   /** Host: stops the room's timer. */

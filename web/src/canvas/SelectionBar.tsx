@@ -11,6 +11,8 @@ import {
   AlignVerticalDistributeCenter,
   ChevronDown,
   LayoutGrid,
+  Lock,
+  LockOpen,
   Minus,
   MoveHorizontal,
   MoveVertical,
@@ -28,6 +30,7 @@ import { ORDER_COMMANDS } from "../notes/OrderFields";
 import { cn } from "../lib/utils";
 import { GRID_GAP, align, autoColumns, distribute, grid, matchSize, type AlignMode, type Axis, type GridReason, type MatchMode, type Placed } from "./arrange";
 import { useBoardUi } from "./uiStore";
+import { LOCK_TEXT, lockToggle } from "../facilitation/lock";
 
 /*
  * The board actions bar (md and up). Since v0.15.1 it sits in the top bar, between the mark and
@@ -49,6 +52,8 @@ export interface BarCommand {
   text?: boolean;
   /** Shows the title as text at every width. */
   label?: boolean;
+  /** Marks the host's lock toggle (data-lock-toggle). */
+  lockToggle?: boolean;
   run: () => void;
 }
 
@@ -78,6 +83,7 @@ export function CommandButton({ command, className }: { command: BarCommand; cla
         aria-label={command.title}
         aria-describedby={tipId}
         aria-disabled={off || undefined}
+        data-lock-toggle={command.lockToggle ? "" : undefined}
         onFocus={() => setOpen(true)}
         onBlur={() => setOpen(false)}
         onKeyDown={(e) => {
@@ -317,6 +323,10 @@ export interface BoardBarProps {
   apply: (rects: (NoteRect & { id: string })[]) => void;
   order: (action: OrderAction) => void;
   notice: (text: string) => void;
+  /** A guest on a locked board: every command is off with this reason (null: not locked out). */
+  lockedReason?: string | null;
+  /** The host's Session group (Lock / Unlock); null for guests, who get no dead buttons. */
+  session?: { locked: boolean; pending: boolean | null; setLock: (locked: boolean) => boolean } | null;
 }
 
 /**
@@ -325,19 +335,20 @@ export interface BoardBarProps {
  * `notice` tells why a grid didn't fit. Everything is off while disconnected; Grid also while a
  * note in the selection is held or unsaved.
  */
-export function BoardBar({ notes, frame, live, held, unsaved, duplicateReason, duplicate, undoReason, redoReason, undo, redo, remove, apply, order, notice }: BoardBarProps) {
+export function BoardBar({ notes, frame, live, held, unsaved, duplicateReason, duplicate, undoReason, redoReason, undo, redo, remove, apply, order, notice, lockedReason = null, session = null }: BoardBarProps) {
   const send = (changes: Map<string, NoteRect>) => apply([...changes].map(([id, rect]) => ({ id, ...rect })));
   const count = notes.length;
-  const gridReason = gridDisabledReason({ count, live, held, unsaved });
+  const gridReason = lockedReason ?? gridDisabledReason({ count, live, held, unsaved });
   const runGrid = (columns: number) => {
     const result = grid(notes, columns, GRID_GAP);
     if (result.reason) notice(GRID_NO_ROOM[result.reason]);
     else send(result.changes);
   };
-  const deleteReason = count === 0 && !frame ? DELETE_HINTS.none : !live ? DELETE_HINTS.offline : null;
-  const orderReason = count === 0 ? (frame ? ORDER_HINTS.frame : ORDER_HINTS.none) : !live ? ORDER_HINTS.offline : null;
+  const deleteReason = lockedReason ?? (count === 0 && !frame ? DELETE_HINTS.none : !live ? DELETE_HINTS.offline : null);
+  const orderReason = lockedReason ?? (count === 0 ? (frame ? ORDER_HINTS.frame : ORDER_HINTS.none) : !live ? ORDER_HINTS.offline : null);
   // Align and Match size need 2+ notes and a connection; Distribute needs 3.
-  const arrangeReason = count < 2 ? GRID_HINTS.few : !live ? GRID_HINTS.offline : null;
+  const arrangeReason = lockedReason ?? (count < 2 ? GRID_HINTS.few : !live ? GRID_HINTS.offline : null);
+  const toggle = session ? lockToggle({ locked: session.locked, pending: session.pending, live }) : null;
   const distributeReason = arrangeReason ?? (count < 3 ? DISTRIBUTE_HINT : null);
   const off = (reason: string | null) => ({ disabled: reason !== null, ...(reason ? { hint: reason } : {}) });
   return (
@@ -372,6 +383,28 @@ export function BoardBar({ notes, frame, live, held, unsaved, duplicateReason, d
           ],
           content: <GridControls notes={notes} reason={gridReason} onGrid={runGrid} />,
         },
+        ...(session && toggle
+          ? [
+              {
+                label: "Session",
+                commands: [
+                  {
+                    title: toggle.label,
+                    icon: session.locked ? <LockOpen /> : <Lock />,
+                    label: true,
+                    lockToggle: true,
+                    ...off(toggle.reason),
+                    run: () => void session.setLock(!session.locked),
+                  },
+                ],
+                content: session.locked ? (
+                  <span data-locked-indicator="" className="rounded-full border border-border bg-surface-muted px-sm text-xs font-semibold">
+                    {LOCK_TEXT.locked}
+                  </span>
+                ) : null,
+              },
+            ]
+          : []),
       ]}
     />
   );

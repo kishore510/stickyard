@@ -32,6 +32,8 @@ import type { useRoom } from "../rooms/useRoom";
 import { MEDIA } from "../styles/breakpoints";
 import { useTopBarSlot } from "../shell/topBarSlot";
 import { TIMER_HINTS } from "../timer/controls";
+import { LOCK_TEXT, lockedOut, withLock } from "../facilitation/lock";
+import { LockNotices } from "../facilitation/LockNotices";
 import { TimerPicker } from "../timer/TimerPicker";
 import { createPortal } from "react-dom";
 import type { Placed } from "./arrange";
@@ -125,6 +127,7 @@ const Notices = memo(function Notices({
   onRejoin,
   onRestoreDraft,
   onDismissDraft,
+  banner,
 }: {
   status: RoomView["status"];
   reconnect: ReconnectView | null;
@@ -141,11 +144,14 @@ const Notices = memo(function Notices({
   onRejoin: () => void;
   onRestoreDraft: () => void;
   onDismissDraft: () => void;
+  /** The lock's banner and announcer (facilitation UI), first in the stack. */
+  banner?: ReactNode;
 }) {
   const live = status === "joined";
   return (
     <div className="pointer-events-none absolute inset-x-0 top-sm z-20 flex flex-col items-center gap-xs px-gutter">
       {!live && <ConnectionBar reconnect={reconnect} onRejoin={onRejoin} />}
+      {banner}
       {dropReport && (
         <p role="status" data-drop-report="" className="pointer-events-auto rounded-md bg-surface px-ms py-xs text-sm text-status-warn shadow-md">
           {dropReport}
@@ -238,13 +244,17 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
   const live = view.status === "joined";
   const minimap = wide && (minimapPref ?? true);
   const noteCount = view.board.notes.length;
-  const noteReason = noteToolReason({ live, count: noteCount });
-  // Facilitation (host only): the timer needs a connection.
+  // Facilitation: a guest on a locked board has every control off with the lock as the reason
+  // (courtesy UI; the relay refuses their changes anyway). Hosts keep everything.
   const isHost = view.isHost;
+  const lock = { live, locked: view.locked, isHost };
+  const locked = lockedOut(lock);
+  const noteReason = withLock(noteToolReason({ live, count: noteCount }), lock);
+  // The timer (host only) needs a connection.
   const timerReason = live ? null : TIMER_HINTS.offline;
   const frameCount = view.board.frames.length;
-  const frameReason = frameToolReason({ live, count: frameCount });
-  const templateReason = templateToolReason({ live, applying: view.template?.state === "applying", adding: view.adding });
+  const frameReason = withLock(frameToolReason({ live, count: frameCount }), lock);
+  const templateReason = withLock(templateToolReason({ live, applying: view.template?.state === "applying", adding: view.adding }), lock);
   const sizes = panelWidths(windowWidth, panels);
 
   const latest = useRef({ view, room, wide });
@@ -427,7 +437,7 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
   const selectedEntries = wide ? orderedIds(selection).flatMap((id) => findNote(view.board, id) ?? []) : [];
   const selectedNotes: Placed[] = selectedEntries.map((e) => e.note);
   const frameEntry = wide && frameSelected !== null ? findFrame(view.board, frameSelected) : undefined;
-  const duplicateReason = duplicateDisabledReason({
+  const duplicateReason = withLock(duplicateDisabledReason({
     notes: selectedEntries.length,
     frame: frameEntry !== undefined,
     live,
@@ -436,7 +446,7 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
     busy: view.adding,
     freeNotes: Math.max(0, MAX_NOTES_PER_ROOM - noteCount),
     freeFrames: Math.max(0, MAX_FRAMES_PER_ROOM - frameCount),
-  });
+  }), lock);
 
   /** Duplicates the selection (notes, or the frame alone) and selects the copies. */
   const duplicate = () => {
@@ -465,6 +475,7 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
   const onShortcut = useCallback((command: BoardCommand) => commands.current[command](), []);
 
   const barSlot = useTopBarSlot((s) => s.el);
+  const lockNotices = useMemo(() => <LockNotices locked={view.locked} isHost={isHost} />, [view.locked, isHost]);
   const bar = wide ? (
     <BoardBar
       notes={selectedNotes}
@@ -482,6 +493,8 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
       apply={(rects) => room.applyRects(rects)}
       order={(action) => room.orderNotes(selectedNotes.map((n) => n.id), action)}
       notice={(text) => room.showNotice(text)}
+      lockedReason={live && locked ? LOCK_TEXT.reason : null}
+      session={isHost ? { locked: view.locked, pending: view.lockPending, setLock: (on: boolean) => room.setLock(on) } : null}
     />
   ) : null;
 
@@ -521,7 +534,7 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
       <div className="relative min-w-0 flex-1 overflow-hidden">
         <BoardCanvas
           room={boardRoom}
-          editable={live}
+          editable={live && !locked}
           multiSelect={wide}
           synced={view.synced}
           minimap={minimap}
@@ -542,6 +555,7 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
           onRejoin={rejoin}
           onRestoreDraft={restoreDraft}
           onDismissDraft={dismissDraft}
+          banner={lockNotices}
         />
         {/* The board actions live in the top bar (v0.15.1), between the mark and the menu. */}
         {bar && barSlot && createPortal(bar, barSlot)}
@@ -594,6 +608,9 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
                 clearBoard: room.clearBoard,
                 adding: view.adding,
                 clearing: view.clearing,
+                locked,
+                isHost,
+                endSession: room.endSession,
               }}
             />
           )}

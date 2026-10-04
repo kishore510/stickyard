@@ -96,6 +96,8 @@ export function useRoom(code: string) {
     applyTemplate: (frames: readonly TemplateFramePlan[]) => session.current?.applyTemplate(frames) ?? false,
     startRoomTimer: (durationMs: number) => session.current?.startRoomTimer(durationMs) ?? false,
     stopRoomTimer: () => session.current?.stopRoomTimer() ?? false,
+    setLock: (locked: boolean) => session.current?.setLock(locked) ?? false,
+    endSession: () => session.current?.endSession() ?? false,
     leave: () => session.current?.close(),
   };
 }

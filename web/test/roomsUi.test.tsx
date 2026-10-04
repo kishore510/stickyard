@@ -3179,7 +3179,13 @@ describe("presence (UI)", () => {
     expect(avatars[0]?.hasAttribute("data-you")).toBe(true);
     expect(avatars.map((a) => a.textContent)).toEqual(["A", "P0", "P1"]);
     expect(button?.querySelector("[data-avatar-more]")?.textContent).toBe("+3");
-    expect(button?.querySelector("[data-avatar-stack]")?.getAttribute("aria-hidden")).toBe("true");
+    // Since v0.16.0 each face is named (role img), so a host can be marked "…, host"; the "+N" stays decorative.
+    expect(avatars.map((a) => [a.getAttribute("role"), a.getAttribute("aria-label")])).toEqual([
+      ["img", "Alex"],
+      ["img", "Person 0"],
+      ["img", "Person 1"],
+    ]);
+    expect(button?.querySelector("[data-avatar-more]")?.getAttribute("aria-hidden")).toBe("true");
     expect(avatars[1]?.className).toContain("border-participant-1");
     await click(button ?? undefined);
     expect(window.location.hash).toBe("#/participants");
