@@ -431,14 +431,15 @@ describe("voteSet", () => {
     const { host, guest, notes } = await votingRoom();
     await start(host, [guest], VOTE_BUDGET_MAX);
     await claim(guest, newKey());
-    for (let i = 0; i < 60; i++) guest.send({ type: "voteSet", noteId: notes[0]!.id, count: i % 2 });
-    const errors: ServerMessage[] = [];
-    for (let i = 0; i < 60; i++) {
+    // Past the burst of 40, but far below the 20 violations that would close the socket.
+    const sent = 45;
+    for (let i = 0; i < sent; i++) guest.send({ type: "voteSet", noteId: notes[0]!.id, count: i % 2 });
+    let refused: ServerMessage | null = null;
+    for (let i = 0; i < sent && !refused; i++) {
       const m = await guest.next();
-      if (m.type === "error") errors.push(m);
+      if (m.type === "error") refused = m;
     }
-    expect(errors.length).toBeGreaterThan(0);
-    expect(errors[0]).toMatchObject({ code: "rate_limited", noteId: notes[0]!.id });
+    expect(refused).toMatchObject({ type: "error", code: "rate_limited", noteId: notes[0]!.id });
     closeAll(host, guest);
   });
 });
