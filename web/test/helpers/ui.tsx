@@ -1,4 +1,4 @@
-import { PROTOCOL_VERSION, type Participant } from "@stickyard/shared";
+import { NOTE_DEFAULTS, PROTOCOL_VERSION, type Note, type Participant } from "@stickyard/shared";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { vi } from "vitest";
@@ -155,7 +155,14 @@ export async function submit(el: HTMLElement | null | undefined) {
  * Opens the room and joins as Alex: `host` stores the room's token first (so the page claims host)
  * and answers hostGranted. Returns the socket after the snapshots.
  */
-export async function inRoom({ host = false, isWide = true, locked = false, timer = null, others = [sam] }: { host?: boolean; isWide?: boolean; locked?: boolean; timer?: unknown; others?: Participant[] } = {}) {
+export async function inRoom({
+  host = false,
+  isWide = true,
+  locked = false,
+  timer = null,
+  others = [sam],
+  notes = [],
+}: { host?: boolean; isWide?: boolean; locked?: boolean; timer?: unknown; others?: Participant[]; notes?: Note[] } = {}) {
   setWide(isWide);
   if (host) localStorage.setItem(`stickyard:host:${ROOM_ID}`, HOST_TOKEN);
   await mount(`#/room/${CODE}`);
@@ -166,12 +173,46 @@ export async function inRoom({ host = false, isWide = true, locked = false, time
   await server(socket, { data: { type: "welcome", protocolVersion: PROTOCOL_VERSION } });
   await server(socket, { data: { type: "joined", you: alex, participants: [alex, ...others], locked, timer } });
   if (host) await server(socket, { data: { type: "hostGranted" } });
-  await server(socket, { data: { type: "snapshot", notes: [] } });
+  await server(socket, { data: { type: "snapshot", notes } });
   await server(socket, { data: { type: "framesSnapshot", frames: [] } });
-  for (let i = 0; i < 20 && !document.querySelector(".react-flow"); i++) await settle();
+  for (let i = 0; i < 40 && (!document.querySelector(".react-flow") || document.querySelectorAll('[aria-roledescription="note"]').length < notes.length); i++) await settle();
   return socket;
 }
 
 /** Visible text and announcements of the timer chip, and its live region. */
 export const chip = () => document.querySelector<HTMLElement>("[data-timer-chip]");
 export const timerAnnouncer = () => document.querySelector<HTMLElement>("[data-timer-announcer]");
+
+/** A note by Sam at a spot (ids 16 characters, like the relay's). */
+export const noteAt = (i: number, extra: Partial<Note> = {}): Note => ({
+  id: `NNNNNNNNNNNNNNN${i}`,
+  x: 40 + i * 220,
+  y: 60,
+  ...NOTE_DEFAULTS,
+  text: `Idea ${i}`,
+  color: "yellow",
+  z: i,
+  rev: 1,
+  authorId: sam.id,
+  ...extra,
+});
+
+export const notesShown = () => [...document.querySelectorAll<HTMLElement>('[aria-roledescription="note"]')];
+export const boardBar = () => document.querySelector<HTMLElement>('header [role="toolbar"][aria-label="Board actions"]');
+/** The tooltip a bar command points at (its name, or why it's off). */
+export const tipOf = (el: Element | null | undefined) => {
+  const id = el?.getAttribute("aria-describedby");
+  return id ? document.getElementById(id) : null;
+};
+export const isOff = (el: Element | null | undefined) => el?.getAttribute("aria-disabled") === "true" || (el as HTMLButtonElement | null | undefined)?.disabled === true;
+
+/** Selects a note with a mouse press and click, as a person would. */
+export async function selectNote(i: number) {
+  const el = notesShown()[i];
+  if (!el) throw new Error("no note");
+  await act(async () => {
+    el.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, cancelable: true, pointerType: "mouse", button: 0 }));
+    el.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+  });
+  await settle();
+}

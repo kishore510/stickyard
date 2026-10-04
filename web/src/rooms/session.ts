@@ -232,6 +232,8 @@ export interface RoomView {
   locked: boolean;
   /** Protocol v12: the room's timer, or null. */
   timer: RoomTimer | null;
+  /** The lock the host asked for, until the relay answers (null: not waiting). Not optimistic. */
+  lockPending: boolean | null;
 }
 
 /** A delete's outcome: `partial` when some notes weren't (or may not have been) deleted. */
@@ -265,6 +267,7 @@ export const INITIAL_VIEW: RoomView = {
   isHost: false,
   locked: false,
   timer: null,
+  lockPending: null,
 };
 
 /** What a dropped connection says about changes it may have lost. */
@@ -2670,6 +2673,16 @@ export class RoomSession {
     if (!this.canHost() || !validDuration(durationMs)) return false;
     this.send({ type: "timerStart", durationMs });
     return true;
+  }
+
+  /** Stub: tests first. */
+  setLock(_locked: boolean): boolean {
+    return false;
+  }
+
+  /** Stub: tests first. */
+  endSession(): boolean {
+    return false;
   }
 
   /** Host: stops the room's timer. */
