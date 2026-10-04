@@ -132,6 +132,14 @@ export function AboutPage() {
             relay when you join that session, never shown or put in a link, and removed when the session ends or expires
             (or if the relay no longer accepts it). It says nothing about you.
           </li>
+          <li>
+            For dot voting, this browser keeps a random voting key for each session you join, made on this device. It lets
+            the relay count your dots as one voter, even after a reload or in a second tab. It is sent only to the relay,
+            never shown or put in a link, and removed when the session ends or expires; clearing this browser’s data resets your dots
+            in that session (you’d vote as someone new). The relay stores votes against a scrambled version of that key, not your name
+            or your visit, deletes them with the session, and never reveals who voted for what: everyone sees only the
+            totals once the host closes the vote.
+          </li>
           <li>There are no accounts.</li>
         </ul>
       </section>

@@ -171,7 +171,7 @@ export async function inRoom({
   const socket = lastSocket();
   await server(socket, "open");
   await server(socket, { data: { type: "welcome", protocolVersion: PROTOCOL_VERSION } });
-  await server(socket, { data: { type: "joined", you: alex, participants: [alex, ...others], locked, timer } });
+  await server(socket, { data: { type: "joined", you: alex, participants: [alex, ...others], locked, timer, voting: { state: "off", budget: 5, round: 0 } } });
   if (host) await server(socket, { data: { type: "hostGranted" } });
   await server(socket, { data: { type: "snapshot", notes } });
   await server(socket, { data: { type: "framesSnapshot", frames: [] } });

@@ -143,7 +143,7 @@ function session() {
   const sock = () => socket!;
   sock().handlers.onOpen();
   sock().receive({ type: "welcome", protocolVersion: PROTOCOL_VERSION });
-  sock().receive({ type: "joined", you: alex, participants: [alex], locked: false, timer: null });
+  sock().receive({ type: "joined", you: alex, participants: [alex], locked: false, timer: null, voting: { state: "off", budget: 5, round: 0 } });
   sock().receive({ type: "snapshot", notes: [] });
   sock().receive({ type: "framesSnapshot", frames: [] });
   const start = sock().sent.length;

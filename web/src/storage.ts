@@ -27,11 +27,21 @@ export const STORAGE_KEYS = {
    * relay says the session ended or expired (or refuses the token).
    */
   hostTokenPrefix: storageKey("host:"),
+  /**
+   * Voter keys (protocol v13), one key per room: `stickyard:voter:<room id>`, via voterKeyKey.
+   * 128 random bits made on this device, sent only in claimVoter (the relay keeps only an HMAC
+   * of it), removed when the session ends or expires. Clearing browser data makes a new voter.
+   */
+  voterKeyPrefix: storageKey("voter:"),
 } as const;
 
 /** The key holding a room's host token on this device. */
 export function hostTokenKey(roomId: string): string {
   return `${STORAGE_KEYS.hostTokenPrefix}${roomId}`;
+}
+/** The key holding this device's voter key for a room. */
+export function voterKeyKey(roomId: string): string {
+  return `${STORAGE_KEYS.voterKeyPrefix}${roomId}`;
 }
 // The create passcode is never stored: it lives only in the form's state until it is sent.
 

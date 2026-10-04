@@ -6,6 +6,7 @@ import { browserConnectionEnv } from "../connection/reconnect";
 import { browserSocketFactory } from "../connection/socket";
 import { useBoardUi } from "../canvas/uiStore";
 import { STORAGE_KEYS, hostTokenKey, readKey, removeKey, writeKey } from "../storage";
+import { forgetVoterKey, voterKeyFor } from "../voting/voterKey";
 import { browserFetch, checkRoom } from "./api";
 import type { FrameEdit } from "../frames/board";
 import type { StylePatch } from "../notes/board";
@@ -45,6 +46,9 @@ export function useRoom(code: string) {
       // Protocol v12: this room's host token, if this device started it. Sent only in claimHost.
       hostToken: () => readKey(hostTokenKey(roomId)),
       forgetHostToken: () => removeKey(hostTokenKey(roomId)),
+      // Protocol v13: this device's voter key for the room, made on first use. Sent only in claimVoter.
+      voterKey: () => (roomId ? voterKeyFor(roomId) : null),
+      forgetVoterKey: () => forgetVoterKey(roomId),
       env: browserConnectionEnv,
       onChange: setView,
       onNoteConfirmed: (from, to) => useBoardUi.getState().renameSelected(from, to),
@@ -98,6 +102,10 @@ export function useRoom(code: string) {
     stopRoomTimer: () => session.current?.stopRoomTimer() ?? false,
     setLock: (locked: boolean) => session.current?.setLock(locked) ?? false,
     endSession: () => session.current?.endSession() ?? false,
+    voteSet: (noteId: string, count: number) => session.current?.voteSet(noteId, count) ?? false,
+    startVote: (budget: number) => session.current?.startVote(budget) ?? false,
+    stopVote: () => session.current?.stopVote() ?? false,
+    clearVotes: () => session.current?.clearVotes() ?? false,
     leave: () => session.current?.close(),
   };
 }

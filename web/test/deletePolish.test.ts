@@ -47,7 +47,7 @@ function withBoard(count: number) {
   };
   sock().handlers.onOpen();
   sock().receive({ type: "welcome", protocolVersion: PROTOCOL_VERSION });
-  sock().receive({ type: "joined", you: alex, participants: [sam, alex], locked: false, timer: null });
+  sock().receive({ type: "joined", you: alex, participants: [sam, alex], locked: false, timer: null, voting: { state: "off", budget: 5, round: 0 } });
   sock().receive({ type: "snapshot", notes: range(count).map(note) });
   const view = () => views.at(-1)!;
   const batches = () => sock().sent.filter((m) => m.type === "noteBatch") as { ops: { op: string; id: string }[]; final: boolean }[];

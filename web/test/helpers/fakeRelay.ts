@@ -54,6 +54,14 @@ export class Relay {
   hostToken = "fakeHostToken".padEnd(43, "x");
   locked = false;
   timer: { startedAt: number; durationMs: number; serverNow: number } | null = null;
+  /** Protocol v13: the voting state joined reports. */
+  voting: { state: "off" | "open" | "closed"; budget: number; round: number } = { state: "off", budget: 5, round: 0 };
+  /** Votes by voter key (the real relay keys them by an HMAC of it), then note. */
+  votes = new Map<string, Map<string, number>>();
+  /** The key the current socket claimed with (a new socket has none). */
+  voterKey: string | null = null;
+  /** An error code to refuse the next voteSet with (over_budget, voting_closed, no_voter, rate_limited...). */
+  refuseVote: string | null = null;
   /** Sockets opened so far, and how many of them this page closed. */
   sockets = 0;
   closes = 0;
@@ -64,6 +72,14 @@ export class Relay {
   private newId = (prefix: string) => `${prefix}${String(this.next++).padStart(12, "0")}`;
   private out(message: unknown) {
     this.handlers?.onMessage(JSON.stringify(message));
+  }
+  private mine = (key: string) => [...(this.votes.get(key) ?? new Map<string, number>())].filter(([, c]) => c > 0).map(([noteId, count]) => ({ noteId, count }));
+  private remaining = (key: string) => Math.max(0, this.voting.budget - this.mine(key).reduce((s, v) => s + v.count, 0));
+  /** The round's totals, as votesRevealed carries them. */
+  totals() {
+    const sums = new Map<string, number>();
+    for (const votes of this.votes.values()) for (const [id, c] of votes) if (this.notes.has(id) && c > 0) sums.set(id, (sums.get(id) ?? 0) + c);
+    return [...this.notes.keys()].flatMap((noteId) => (sums.get(noteId) ? [{ noteId, count: sums.get(noteId)! }] : []));
   }
   private topZ = () => Math.max(-1, ...[...this.notes.values()].map((n) => n.z)) + 1;
   socket = (handlers: SocketHandlers) => {
@@ -92,6 +108,7 @@ export class Relay {
   /** The connection drops: answers not sent yet are lost. */
   drop() {
     this.queue = [];
+    this.voterKey = null;
     const h = this.handlers;
     this.handlers = null;
     h?.onClose();
@@ -144,11 +161,43 @@ export class Relay {
       case "join": {
         if (this.joinError) return this.out({ type: "error", code: this.joinError, message: "No." });
         const you = { ...this.you, name: m.name as string };
-        this.out({ type: "joined", you, participants: [you, ...this.others], locked: this.locked, timer: this.timer });
+        this.out({ type: "joined", you, participants: [you, ...this.others], locked: this.locked, timer: this.timer, voting: this.voting });
         this.out({ type: "snapshot", notes: [...this.notes.values()] });
         if (this.holdFrames) return;
-        return this.out({ type: "framesSnapshot", frames: [...this.frames.values()] });
+        this.out({ type: "framesSnapshot", frames: [...this.frames.values()] });
+        if (this.voting.state === "closed") this.out({ type: "votesRevealed", round: this.voting.round, totals: this.totals() });
+        return;
       }
+      case "claimVoter":
+        this.voterKey = m.key as string;
+        return this.out({ type: "voterGranted", remaining: this.remaining(this.voterKey), mine: this.mine(this.voterKey) });
+      case "voteSet": {
+        const noteId = m.noteId as string;
+        const count = m.count as number;
+        const refused = this.refuseVote;
+        this.refuseVote = null;
+        if (refused) return this.out({ type: "error", code: refused, message: "No.", noteId });
+        if (this.voting.state !== "open") return this.out({ type: "error", code: "voting_closed", message: "No.", noteId });
+        const key = this.voterKey;
+        if (!key) return this.out({ type: "error", code: "no_voter", message: "No.", noteId });
+        if (!this.notes.has(noteId)) return;
+        const others = this.mine(key).reduce((s, v) => s + (v.noteId === noteId ? 0 : v.count), 0);
+        if (others + count > this.voting.budget) return this.out({ type: "error", code: "over_budget", message: "No.", noteId });
+        this.votes.set(key, (this.votes.get(key) ?? new Map<string, number>()).set(noteId, count));
+        return this.out({ type: "voteConfirmed", noteId, count, remaining: this.remaining(key) });
+      }
+      case "voteStart":
+        this.votes.clear();
+        this.voting = { state: "open", budget: m.budget as number, round: this.voting.round + 1 };
+        return this.out({ type: "votingChanged", voting: this.voting });
+      case "voteStop":
+        this.voting = { ...this.voting, state: "closed" };
+        this.out({ type: "votingChanged", voting: this.voting });
+        return this.out({ type: "votesRevealed", round: this.voting.round, totals: this.totals() });
+      case "voteClear":
+        this.votes.clear();
+        this.voting = { ...this.voting, state: "off" };
+        return this.out({ type: "votingChanged", voting: this.voting });
       case "claimHost":
         if (m.token !== this.hostToken) return this.out({ type: "error", code: "bad_host_token", message: "No." });
         return this.out({ type: "hostGranted" });
@@ -275,8 +324,9 @@ export class Relay {
   }
 }
 
-export function room(notes: Note[] = [], frames: Frame[] = [], options: Partial<SessionOptions> = {}) {
+export function room(notes: Note[] = [], frames: Frame[] = [], options: Partial<SessionOptions> = {}, setup?: (relay: Relay) => void) {
   const relay = new Relay(notes, frames);
+  setup?.(relay);
   const views: RoomView[] = [];
   const createSocket: SocketFactory = (_url, handlers) => relay.socket(handlers);
   const session = new RoomSession({

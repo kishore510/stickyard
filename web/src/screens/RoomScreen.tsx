@@ -35,7 +35,7 @@ function PublishRoom({ code, view, room }: { code: string; view: RoomView; room:
   const latest = useRef(room);
   latest.current = room;
   const live = view.status === "joined";
-  const { you, yourIds, participants, messages, rateLimited, isHost, locked, timer, lockPending } = view;
+  const { you, yourIds, participants, messages, rateLimited, isHost, locked, timer, lockPending, voting, isVoter, myVotes, remaining, results } = view;
   const endReason = endSessionReason({ live, busy: view.adding, clearing: view.clearing });
   useEffect(() => {
     publish({
@@ -55,10 +55,19 @@ function PublishRoom({ code, view, room }: { code: string; view: RoomView; room:
       endReason,
       endSession: () => latest.current.endSession(),
       stopTimer: () => latest.current.stopRoomTimer(),
+      voting,
+      isVoter,
+      myVotes,
+      remaining,
+      results,
+      voteSet: (noteId, count) => latest.current.voteSet(noteId, count),
+      startVote: (budget) => latest.current.startVote(budget),
+      stopVote: () => latest.current.stopVote(),
+      clearVotes: () => latest.current.clearVotes(),
       say: (text) => latest.current.say(text),
       leave: () => latest.current.leave(),
     });
-  }, [publish, code, you, yourIds, participants, live, messages, rateLimited, isHost, locked, timer, lockPending, endReason]);
+  }, [publish, code, you, yourIds, participants, live, messages, rateLimited, isHost, locked, timer, lockPending, endReason, voting, isVoter, myVotes, remaining, results]);
   useEffect(() => () => publish(null), [publish]);
   return null;
 }

@@ -2,6 +2,14 @@
 
 All notable changes to Stickyard, newest first. The format follows Keep a Changelog. Versions are 0.x: a minor bump for each slice and a patch bump for each follow-up fix. This file is shown in the app under **What’s new**, so entries are written for the people using it.
 
+## [0.17.0] - 2026-10-04
+
+### Changed
+- Groundwork for dot voting. Nothing new is visible yet: the dots, counts and results come in a later release. In it, the host will start a round, everyone will spread a few dots over the notes they like best, and the totals will show only when the host closes the vote. Nobody will see who voted for what.
+- Stickyard now keeps a random voting key for each session you join, on this device, so your dots count once even after a reload or in a second tab. It's removed when the session ends or expires.
+- About > Privacy now describes the voting key and how votes are stored without names.
+- After this update, pages opened before it say **please reload** when they try to join, as with earlier updates.
+
 ## [0.16.0] - 2026-10-04
 
 ### Added
