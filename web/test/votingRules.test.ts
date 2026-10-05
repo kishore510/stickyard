@@ -1,6 +1,18 @@
 import { describe, expect, it } from "vitest";
-import { VOTE_BUDGET_MAX } from "@stickyard/shared";
-import { VOTE_HINTS, VOTE_TEXT, reasonLines, stripText, voteAnnouncement, voteKey, voteLabel, voteReasons, type AnnounceState, type VoteButtonState } from "../src/voting/voting";
+import { VOTE_BUDGET_DEFAULT, VOTE_BUDGET_MAX, VOTE_BUDGET_MIN } from "@stickyard/shared";
+import {
+  BUDGET,
+  HOST_VOTE_HINTS,
+  HOST_VOTE_TEXT,
+  hostVoteReasons,
+  noteTitle,
+  resultRows,
+  stepBudget,
+  totalsOf,
+  validBudget,
+  VOTE_HINTS,
+  VOTE_TEXT,
+  reasonLines, stripText, voteAnnouncement, voteKey, voteLabel, voteReasons, type AnnounceState, type VoteButtonState } from "../src/voting/voting";
 
 /*
  * Dot voting UI, part 1 (pure rules): the strip's text, what is announced (start, reaching 0,
@@ -111,5 +123,79 @@ describe("screen reader label", () => {
     expect(voteLabel({ mine: 0, total: null, top: false })).toBe("");
     expect(voteLabel({ mine: 2, total: null, top: false })).toBe("Your dots: 2.");
     expect(voteLabel({ mine: 1, total: 7, top: true })).toBe("Your dots: 1. Total: 7, top voted.");
+  });
+});
+
+/* ── Part 2: host controls and results ─────────────────────────── */
+
+describe("host controls", () => {
+  it("budget: whole dots from 1 to 20 (the relay's bounds), default 5; the stepper stays inside", () => {
+    expect(BUDGET).toEqual({ min: VOTE_BUDGET_MIN, max: VOTE_BUDGET_MAX, default: VOTE_BUDGET_DEFAULT });
+    expect(BUDGET).toEqual({ min: 1, max: 20, default: 5 });
+    for (const ok of [1, 5, 20]) expect(validBudget(ok)).toBe(true);
+    for (const bad of [0, 21, 2.5, -1, Number.NaN]) expect(validBudget(bad)).toBe(false);
+    expect(stepBudget(1, -1)).toBe(1);
+    expect(stepBudget(20, 1)).toBe(20);
+    expect(stepBudget(5, 1)).toBe(6);
+  });
+
+  it("reasons: whatever blocks End session (offline, a run) blocks them all; Stop needs an open round, Clear needs one", () => {
+    expect(hostVoteReasons({ blocked: null, state: "off" })).toEqual({ start: null, stop: HOST_VOTE_HINTS.notOpen, clear: HOST_VOTE_HINTS.nothing });
+    expect(hostVoteReasons({ blocked: null, state: "open" })).toEqual({ start: null, stop: null, clear: null });
+    expect(hostVoteReasons({ blocked: null, state: "closed" })).toEqual({ start: null, stop: HOST_VOTE_HINTS.notOpen, clear: null });
+    expect(hostVoteReasons({ blocked: "Not connected.", state: "open" })).toEqual({ start: "Not connected.", stop: "Not connected.", clear: "Not connected." });
+  });
+
+  it("the confirms say what happens", () => {
+    expect(HOST_VOTE_TEXT.confirmStop).toBe("End voting and show results to everyone?");
+    expect(HOST_VOTE_TEXT.startNote).toMatch(/clears the previous round/);
+  });
+});
+
+describe("results", () => {
+  const notes = [
+    { id: "a", text: "Alpha\nbody" },
+    { id: "b", text: "Beta" },
+    { id: "c", text: "" },
+    { id: "d", text: "  \nOnly a body" },
+  ];
+
+  it("sorted by total, most first; ties keep the relay's order (note creation order)", () => {
+    const rows = resultRows(
+      [
+        { noteId: "a", count: 2 },
+        { noteId: "b", count: 5 },
+        { noteId: "c", count: 2 },
+        { noteId: "d", count: 5 },
+      ],
+      notes,
+    );
+    expect(rows.map((r) => r.noteId)).toEqual(["b", "d", "a", "c"]);
+  });
+
+  it("titles are the first line, plain; empty ones are Untitled note", () => {
+    const rows = resultRows([{ noteId: "a", count: 1 }, { noteId: "c", count: 1 }, { noteId: "d", count: 1 }], notes);
+    expect(rows.map((r) => r.title)).toEqual(["Alpha", VOTE_TEXT.untitled, VOTE_TEXT.untitled]);
+    expect(noteTitle("<b>hi</b>")).toBe("<b>hi</b>");
+  });
+
+  it("Top voted: every note tied for first", () => {
+    const rows = resultRows([{ noteId: "a", count: 3 }, { noteId: "b", count: 3 }, { noteId: "c", count: 1 }], notes);
+    expect(rows.filter((r) => r.top).map((r) => r.noteId)).toEqual(["a", "b"]);
+  });
+
+  it("notes that are gone and zero totals are left out; nothing cast = empty", () => {
+    expect(resultRows([{ noteId: "x", count: 4 }, { noteId: "a", count: 0 }], notes)).toEqual([]);
+    expect(resultRows([], notes)).toEqual([]);
+    expect(VOTE_TEXT.noResults).toBe("No votes were cast.");
+  });
+
+  it("totals by note and the highest, for the badges", () => {
+    const results = [{ noteId: "a", count: 3 }, { noteId: "b", count: 1 }];
+    const t = totalsOf(results);
+    expect(t.byId.get("a")).toBe(3);
+    expect(t.most).toBe(3);
+    expect(totalsOf(results)).toBe(t);
+    expect(totalsOf([]).most).toBe(0);
   });
 });
