@@ -2,6 +2,7 @@ import type { Participant, VotingState } from "@stickyard/shared";
 import { create } from "zustand";
 import { countUnread } from "../chat/unread";
 import type { EchoEntry, RoomTimer, VoteTotal } from "./session";
+import type { ResultRow } from "../voting/voting";
 
 /*
  * The room the page is in, published by RoomScreen for things outside it: the top bar
@@ -40,6 +41,8 @@ export interface PublishedRoom {
   myVotes: ReadonlyMap<string, number>;
   remaining: number;
   results: readonly VoteTotal[] | null;
+  /** The results as the list shows them (sorted, with titles), while closed. */
+  resultRows: readonly ResultRow[] | null;
   voteSet(noteId: string, count: number): boolean;
   /** Host only (the session refuses them for guests and while disconnected). */
   startVote(budget: number): boolean;

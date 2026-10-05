@@ -1,5 +1,4 @@
 import { VOTE_BUDGET_DEFAULT, VOTE_BUDGET_MAX, VOTE_BUDGET_MIN, type VotingState } from "@stickyard/shared";
-import { CLEAR_HINTS } from "../properties/clearBoard";
 import { splitTitleBody } from "../notes/titleBody";
 
 /*
@@ -136,26 +135,30 @@ export const HOST_VOTE_TEXT = {
 } as const;
 
 export const HOST_VOTE_HINTS = {
-  offline: "Not connected.",
-  busy: CLEAR_HINTS.busy,
-  clearing: CLEAR_HINTS.clearing,
   notOpen: "Voting isn’t open.",
   nothing: "There are no votes to clear.",
 } as const;
 
-/** Why each host voting command is off (null: on). A run in progress (a template, a restore, a clear) blocks them all. */
-export function hostVoteReasons(s: { live: boolean; busy: boolean; clearing: boolean; state: VotingState["state"] }): {
+/**
+ * Why each host voting command is off (null: on). `blocked` is whatever turns End session off
+ * (disconnected, a template, restore, duplicate or clear still running): it turns them all off.
+ */
+export function hostVoteReasons(s: { blocked: string | null; state: VotingState["state"] }): {
   start: string | null;
   stop: string | null;
   clear: string | null;
 } {
-  const shared = !s.live ? HOST_VOTE_HINTS.offline : s.clearing ? HOST_VOTE_HINTS.clearing : s.busy ? HOST_VOTE_HINTS.busy : null;
   return {
-    start: shared,
-    stop: shared ?? (s.state !== "open" ? HOST_VOTE_HINTS.notOpen : null),
-    clear: shared ?? (s.state === "off" ? HOST_VOTE_HINTS.nothing : null),
+    start: s.blocked,
+    stop: s.blocked ?? (s.state !== "open" ? HOST_VOTE_HINTS.notOpen : null),
+    clear: s.blocked ?? (s.state === "off" ? HOST_VOTE_HINTS.nothing : null),
   };
 }
+
+/** One confirm each, stating the effect. Starting while voting is off asks nothing. */
+export const confirmStopVote = (confirm: (m: string) => boolean = (m) => window.confirm(m)) => confirm(HOST_VOTE_TEXT.confirmStop);
+export const confirmClearVotes = (confirm: (m: string) => boolean = (m) => window.confirm(m)) => confirm(HOST_VOTE_TEXT.confirmClear);
+export const confirmRestartVote = (confirm: (m: string) => boolean = (m) => window.confirm(m)) => confirm(HOST_VOTE_TEXT.confirmRestart);
 
 /* ── Results ───────────────────────────────────────────────────── */
 

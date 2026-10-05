@@ -12,6 +12,7 @@ import { useRoomUi } from "../rooms/roomStore";
 import { ENDED_TEXT, EXPIRED_TEXT, type RoomView } from "../rooms/session";
 import { endSessionReason } from "../facilitation/lock";
 import { useRoom } from "../rooms/useRoom";
+import { useResultRows } from "../voting/Results";
 import { Sheet } from "../shell/Sheet";
 import { STORAGE_KEYS, readKey } from "../storage";
 import { MEDIA } from "../styles/breakpoints";
@@ -37,6 +38,7 @@ function PublishRoom({ code, view, room }: { code: string; view: RoomView; room:
   const live = view.status === "joined";
   const { you, yourIds, participants, messages, rateLimited, isHost, locked, timer, lockPending, voting, isVoter, votersFull, myVotes, remaining, results } = view;
   const endReason = endSessionReason({ live, busy: view.adding, clearing: view.clearing });
+  const resultRows = useResultRows(results, view.board);
   useEffect(() => {
     publish({
       code,
@@ -61,6 +63,7 @@ function PublishRoom({ code, view, room }: { code: string; view: RoomView; room:
       myVotes,
       remaining,
       results,
+      resultRows,
       voteSet: (noteId, count) => latest.current.voteSet(noteId, count),
       startVote: (budget) => latest.current.startVote(budget),
       stopVote: () => latest.current.stopVote(),
@@ -68,7 +71,7 @@ function PublishRoom({ code, view, room }: { code: string; view: RoomView; room:
       say: (text) => latest.current.say(text),
       leave: () => latest.current.leave(),
     });
-  }, [publish, code, you, yourIds, participants, live, messages, rateLimited, isHost, locked, timer, lockPending, endReason, voting, isVoter, votersFull, myVotes, remaining, results]);
+  }, [publish, code, you, yourIds, participants, live, messages, rateLimited, isHost, locked, timer, lockPending, endReason, voting, isVoter, votersFull, myVotes, remaining, results, resultRows]);
   useEffect(() => () => publish(null), [publish]);
   return null;
 }

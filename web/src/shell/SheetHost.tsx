@@ -1,10 +1,11 @@
-import { BookOpen, Info, Sparkles, Users } from "lucide-react";
+import { BookOpen, Info, Sparkles, Trophy, Users } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import { AboutPage } from "../about/AboutPage";
 import { ChangelogPage } from "../changelog/ChangelogPage";
 import { topicById } from "../help/content";
 import { HelpHome, HelpTopicPage } from "../help/HelpPages";
 import { ParticipantsPage } from "../rooms/ParticipantsPage";
+import { ResultsPage } from "../voting/Results";
 import { sheetHash, type Sheet as SheetRoute } from "../router";
 import { canGoBack, closeSheets, goBack } from "./nav";
 import { Sheet } from "./Sheet";
@@ -21,6 +22,8 @@ function describe(sheet: SheetRoute): { title: string; icon: ReactNode } {
       return { title: "About Stickyard", icon: <Info /> };
     case "participants":
       return { title: "Participants", icon: <Users /> };
+    case "results":
+      return { title: "Results", icon: <Trophy /> };
   }
 }
 
@@ -38,6 +41,7 @@ export function SheetHost({ sheet }: { sheet: SheetRoute }) {
       {sheet.kind === "changelog" && <ChangelogPage />}
       {sheet.kind === "about" && <AboutPage />}
       {sheet.kind === "participants" && <ParticipantsPage />}
+      {sheet.kind === "results" && <ResultsPage />}
     </Sheet>
   );
 }

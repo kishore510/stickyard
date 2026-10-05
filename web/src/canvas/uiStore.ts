@@ -72,6 +72,9 @@ interface BoardUi {
   endInlineEdit(): void;
   setAddSheetOpen(open: boolean): void;
   setTimerPickerOpen(open: boolean): void;
+  /** Asks the board to show a note (a Results row, v0.18.0): it's selected and the view moves to it. `n` makes each request new. */
+  revealRequest: { id: string; n: number } | null;
+  requestReveal(id: string): void;
   setGridColumns(columns: number | null): void;
   /** Leaving a room: nothing selected or pending. */
   resetRoom(): void;
@@ -88,6 +91,7 @@ export const useBoardUi = create<BoardUi>()((set, get) => ({
   inlineEdit: null,
   addSheetOpen: false,
   timerPickerOpen: false,
+  revealRequest: null,
   gridColumns: null,
   setTool: (tool) => set({ tool }),
   setColor: (color) => set({ color }),
@@ -144,6 +148,8 @@ export const useBoardUi = create<BoardUi>()((set, get) => ({
   },
   setAddSheetOpen: (addSheetOpen) => set({ addSheetOpen }),
   setTimerPickerOpen: (timerPickerOpen) => set({ timerPickerOpen }),
+  requestReveal: (id) =>
+    set({ selection: selectOnly(get().selection, id), frameSelected: null, inlineEdit: null, revealRequest: { id, n: (get().revealRequest?.n ?? 0) + 1 } }),
   setGridColumns: (gridColumns) => set({ gridColumns }),
-  resetRoom: () => set({ selection: EMPTY_SELECTION, frameSelected: null, frameEditRequest: null, editRequest: null, inlineEdit: null, addSheetOpen: false, timerPickerOpen: false }),
+  resetRoom: () => set({ selection: EMPTY_SELECTION, frameSelected: null, frameEditRequest: null, editRequest: null, inlineEdit: null, addSheetOpen: false, timerPickerOpen: false, revealRequest: null }),
 }));
