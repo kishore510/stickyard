@@ -1,4 +1,4 @@
-import { NOTE_DEFAULTS, PROTOCOL_VERSION, type Note, type Participant } from "@stickyard/shared";
+import { FRAME_DEFAULTS, NOTE_DEFAULTS, PROTOCOL_VERSION, type Frame, type Note, type Participant } from "@stickyard/shared";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { vi } from "vitest";
@@ -162,8 +162,9 @@ export async function inRoom({
   timer = null,
   others = [sam],
   notes = [],
+  frames = [],
   voting = { state: "off", budget: 5, round: 0 },
-}: { host?: boolean; isWide?: boolean; locked?: boolean; timer?: unknown; others?: Participant[]; notes?: Note[]; voting?: unknown } = {}) {
+}: { host?: boolean; isWide?: boolean; locked?: boolean; timer?: unknown; others?: Participant[]; notes?: Note[]; frames?: Frame[]; voting?: unknown } = {}) {
   setWide(isWide);
   if (host) localStorage.setItem(`stickyard:host:${ROOM_ID}`, HOST_TOKEN);
   await mount(`#/room/${CODE}`);
@@ -175,8 +176,16 @@ export async function inRoom({
   await server(socket, { data: { type: "joined", you: alex, participants: [alex, ...others], locked, timer, voting } });
   if (host) await server(socket, { data: { type: "hostGranted" } });
   await server(socket, { data: { type: "snapshot", notes } });
-  await server(socket, { data: { type: "framesSnapshot", frames: [] } });
-  for (let i = 0; i < 40 && (!document.querySelector(".react-flow") || document.querySelectorAll('[aria-roledescription="note"]').length < notes.length); i++) await settle();
+  await server(socket, { data: { type: "framesSnapshot", frames } });
+  for (
+    let i = 0;
+    i < 40 &&
+    (!document.querySelector(".react-flow") ||
+      document.querySelectorAll('[aria-roledescription="note"]').length < notes.length ||
+      document.querySelectorAll("[data-frame-id]").length < frames.length);
+    i++
+  )
+    await settle();
   return socket;
 }
 
@@ -193,6 +202,21 @@ export const noteAt = (i: number, extra: Partial<Note> = {}): Note => ({
   text: `Idea ${i}`,
   color: "yellow",
   z: i,
+  rev: 1,
+  authorId: sam.id,
+  ...extra,
+});
+
+/** A frame by Sam at a spot (ids 16 characters, like the relay's); titles are generic. */
+export const frameAt = (i: number, extra: Partial<Frame> = {}): Frame => ({
+  id: `FFFFFFFFFFFFFFF${i}`,
+  x: 40 + i * 700,
+  y: 400,
+  w: 640,
+  h: 400,
+  title: ["To do", "Doing", "Done"][i % 3]!,
+  color: "neutral",
+  ...FRAME_DEFAULTS,
   rev: 1,
   authorId: sam.id,
   ...extra,
