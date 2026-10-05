@@ -2,6 +2,17 @@
 
 All notable changes to Stickyard, newest first. The format follows Keep a Changelog. Versions are 0.x: a minor bump for each slice and a patch bump for each follow-up fix. This file is shown in the app under **What’s new**, so entries are written for the people using it.
 
+## [0.19.0] - 2026-10-05
+
+### Added
+- See other people's pointers on the board, live. Each shows as a small arrow in that person's colour with their name beside it. It moves as they move their mouse, fades after a few seconds without movement, and disappears when their pointer leaves the board.
+- Your own pointer is shared while your mouse is over the board on a wider screen, and only when someone else is in the session. Phones and touch screens show other people's pointers but don't share one.
+- Two switches in **Participants**, under **Cursors**: **Show other people's cursors** and **Share my cursor**. Both start on, and this browser remembers your choice.
+- Pointers are passed on live and never stored. About > Privacy and the **Participants** help topic say so.
+
+### Changed
+- After this update, pages opened before it say **please reload** when they try to join, as with earlier updates.
+
 ## [0.18.0] - 2026-10-05
 
 ### Added
