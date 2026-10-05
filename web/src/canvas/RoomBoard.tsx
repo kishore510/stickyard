@@ -1,6 +1,6 @@
 import { ReactFlowProvider, useStore } from "@xyflow/react";
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { RotateCcw, SlidersHorizontal, WifiOff } from "lucide-react";
+import { RotateCcw, SlidersHorizontal, Trophy, WifiOff } from "lucide-react";
 import {
   FRAME_DEFAULT_H,
   FRAME_DEFAULT_W,
@@ -35,6 +35,10 @@ import { TIMER_HINTS } from "../timer/controls";
 import { LOCK_TEXT, lockedOut, withLock } from "../facilitation/lock";
 import { LockNotices } from "../facilitation/LockNotices";
 import { TimerPicker } from "../timer/TimerPicker";
+import { VotingStrip } from "../voting/VotingStrip";
+import { pickResult, useResultRows } from "../voting/Results";
+import { VOTE_TEXT } from "../voting/voting";
+import { openSheet } from "../shell/nav";
 import { createPortal } from "react-dom";
 import type { Placed } from "./arrange";
 import { BoardCanvas, deleteFrameAsking, deleteSelected, type BoardRoom } from "./BoardCanvas";
@@ -475,7 +479,43 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
   const onShortcut = useCallback((command: BoardCommand) => commands.current[command](), []);
 
   const barSlot = useTopBarSlot((s) => s.el);
-  const lockNotices = useMemo(() => <LockNotices locked={view.locked} isHost={isHost} />, [view.locked, isHost]);
+  // Dot voting results (closed rounds): the Properties summary lists them; a row (here or in the
+  // phone Results sheet) asks for its note to be selected and shown.
+  const resultRows = useResultRows(view.results, view.board);
+  const revealRequest = useBoardUi((s) => s.revealRequest);
+  useEffect(() => {
+    if (!revealRequest) return;
+    const entry = findNote(latest.current.view.board, revealRequest.id);
+    if (entry) canvas.reveal(entry.note);
+  }, [revealRequest, canvas]);
+  // Show results: the phone sheet, or (md and up) Properties with nothing selected.
+  const showResults = useCallback(() => {
+    if (!latest.current.wide) return openSheet({ kind: "results" });
+    useBoardUi.getState().clearSelection();
+    if (usePanels.getState().properties.collapsed) usePanels.getState().setCollapsed("properties", false);
+  }, []);
+  const closed = view.voting.state === "closed";
+  // The lock's banner first, then the voting strip under it (v0.18.0).
+  const lockNotices = useMemo(
+    () => (
+      <>
+        <LockNotices locked={view.locked} isHost={isHost} />
+        <VotingStrip
+          voting={view.voting}
+          remaining={view.remaining}
+          action={
+            closed ? (
+              <Button variant="ghost" className="-my-xs" onClick={showResults}>
+                <Trophy />
+                {VOTE_TEXT.showResults}
+              </Button>
+            ) : null
+          }
+        />
+      </>
+    ),
+    [view.locked, isHost, view.voting, view.remaining, closed, showResults],
+  );
   const bar = wide ? (
     <BoardBar
       notes={selectedNotes}
@@ -611,6 +651,8 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
                 locked,
                 isHost,
                 endSession: room.endSession,
+                results: resultRows,
+                onPickResult: pickResult,
               }}
             />
           )}

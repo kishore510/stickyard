@@ -9,6 +9,7 @@ import { useSyncExternalStore } from "react";
  *   #/changelog       What's new
  *   #/about           About
  *   #/participants    Participants (who's in the session you're in, the link, Leave)
+ *   #/results         Dot voting results (the list, once the host stops a vote)
  *
  * A session is `#/room/<code>`. Sheets opened from a room show over it (see App.tsx).
  */
@@ -18,7 +19,8 @@ export type Sheet =
   | { kind: "help-topic"; id: string }
   | { kind: "changelog" }
   | { kind: "about" }
-  | { kind: "participants" };
+  | { kind: "participants" }
+  | { kind: "results" };
 
 export type Route = { name: "home"; sheet: Sheet | null } | { name: "room"; code: string } | { name: "not-found" };
 
@@ -39,6 +41,8 @@ export function parseHash(hash: string): Route {
       return { name: "home", sheet: { kind: "about" } };
     case "/participants":
       return { name: "home", sheet: { kind: "participants" } };
+    case "/results":
+      return { name: "home", sheet: { kind: "results" } };
   }
   const code = ROOM.exec(path)?.[1];
   if (code) return { name: "room", code };
@@ -59,6 +63,8 @@ export function sheetHash(sheet: Sheet | null): string {
       return "#/about";
     case "participants":
       return "#/participants";
+    case "results":
+      return "#/results";
   }
 }
 

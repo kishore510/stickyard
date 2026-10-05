@@ -14,6 +14,7 @@ describe("parseHash", () => {
     ["#/changelog", { kind: "changelog" }],
     ["#/about", { kind: "about" }],
     ["#/participants", { kind: "participants" }],
+    ["#/results", { kind: "results" }],
   ])("%j opens a sheet over home", (hash, sheet) => {
     expect(parseHash(hash)).toEqual({ name: "home", sheet });
     expect(sheetHash(sheet)).toBe(hash);

@@ -14,6 +14,8 @@ import { NoteFields } from "../notes/NoteFields";
 import { OrderSection } from "../notes/OrderFields";
 import { ColourSection, PartTextSection, SizeSection, type MixedFields } from "../notes/StyleFields";
 import { clearBoardReason, confirmClearBoard } from "./clearBoard";
+import { ResultsList } from "../voting/Results";
+import type { ResultRow } from "../voting/voting";
 import { LOCK_TEXT, confirmEndSession, endSessionReason, withLock } from "../facilitation/lock";
 
 /*
@@ -56,6 +58,10 @@ export interface PropertiesRoom {
   isHost?: boolean;
   /** Ends the session for everyone (asked first here); false if it couldn't start. */
   endSession?: () => boolean;
+  /** Dot voting results while a round is closed (sorted; null otherwise): the board summary lists them first. */
+  results?: readonly ResultRow[] | null;
+  /** A results row: selects that note and moves the view to it. */
+  onPickResult?: (noteId: string) => void;
 }
 
 /** The style and size fields whose values differ between these notes. */
@@ -101,6 +107,7 @@ function Summary({ room }: { room: PropertiesRoom }) {
   const endReason = endSessionReason({ live: room.live, busy: room.adding, clearing: room.clearing });
   return (
     <>
+      {room.results && <ResultsList rows={room.results} onPick={(id) => room.onPickResult?.(id)} />}
       <p className="text-sm text-fg-muted tabular-nums">
         {notes} of {MAX_NOTES_PER_ROOM} notes. Board size {BOARD_WIDTH} × {BOARD_HEIGHT}.
       </p>

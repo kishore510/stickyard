@@ -22,6 +22,7 @@ import { boardShortcut, type BoardCommand } from "./shortcuts";
 import { orderedIds } from "./selection";
 import { useBoardUi } from "./uiStore";
 import { useMarquee } from "./useMarquee";
+import { VOTE_TEXT } from "../voting/voting";
 import type { CanvasView } from "./useCanvasView";
 
 /** The board's bounded area under the notes: the dot grid, with a visible edge. */
@@ -380,7 +381,8 @@ export function BoardCanvas({
       <p id={helpId} className="sr-only">
         {editable
           ? "Press Enter to edit, arrow keys to move, Alt and arrow keys to resize (Shift for bigger steps), Delete to delete."
-          : "Read only while disconnected."}
+          : "Read only while disconnected."}{" "}
+        {VOTE_TEXT.keys}
       </p>
       <NoteHelpContext.Provider value={helpId}>
         <NoteActionsContext.Provider value={actions}>

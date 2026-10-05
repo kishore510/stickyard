@@ -346,3 +346,44 @@ describe("deleted notes", () => {
     expect(t.view().remaining).toBe(5);
   });
 });
+
+describe("voting UI support (v0.18.0, web only)", () => {
+  it("votersFull: a claim refused with voters_full is in the view, and cleared by a later grant", () => {
+    const t = voting({}, false);
+    expect(t.view().votersFull).toBe(false);
+    t.relay.emit({ type: "error", code: "voters_full", message: "Full." });
+    expect(t.view()).toMatchObject({ votersFull: true, isVoter: false });
+    t.relay.emit({ type: "voterGranted", remaining: 5, mine: [] });
+    expect(t.view()).toMatchObject({ votersFull: false, isVoter: true });
+  });
+
+  it("a vote refused with voters_full marks the round full too", () => {
+    const t = open();
+    t.relay.refuseVote = "voters_full";
+    t.session.voteSet(nid(1), 1);
+    expect(t.view().votersFull).toBe(true);
+  });
+
+  it("a page left without a voter claims again when a new round starts", () => {
+    const t = voting();
+    const claims = t.sent("claimVoter").length;
+    t.relay.emit({ type: "error", code: "voters_full", message: "Full." });
+    t.session.startVote(5);
+    expect(t.sent("claimVoter")).toHaveLength(claims + 1);
+    expect(t.view()).toMatchObject({ isVoter: true, votersFull: false });
+    // A voter already granted doesn't claim again.
+    t.session.startVote(3);
+    expect(t.sent("claimVoter")).toHaveLength(claims + 1);
+  });
+
+  it("host commands are refused (nothing sent) while a run is going, like End session", () => {
+    const t = voting();
+    t.relay.paused = true;
+    expect(t.session.duplicateNotes([nid(1)])).not.toBeNull();
+    expect(t.view().adding).toBe(true);
+    expect(t.session.startVote(5)).toBe(false);
+    expect(t.session.stopVote()).toBe(false);
+    expect(t.session.clearVotes()).toBe(false);
+    expect(t.relay.received.filter((m) => String(m.type).startsWith("vote"))).toEqual([]);
+  });
+});

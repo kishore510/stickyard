@@ -2,6 +2,18 @@
 
 All notable changes to Stickyard, newest first. The format follows Keep a Changelog. Versions are 0.x: a minor bump for each slice and a patch bump for each follow-up fix. This file is shown in the app under **What’s new**, so entries are written for the people using it.
 
+## [0.18.0] - 2026-10-05
+
+### Added
+- Dot voting. The host starts a round and chooses how many dots each person gets (1 to 20, 5 to start with). Everyone then places their dots on the notes they like best, more than one on a note if they want.
+- While a round is open, a strip under the top bar says how many dots you have left. Your own dots show on each note you voted on, and only you see them.
+- To vote, select a note and use **Add a dot** and **Remove a dot** under it. They're also in **Properties**, and in the note's editor on a phone. On a keyboard, press **D** on a note to add a dot and **Shift+D** to take one off.
+- When the host chooses **Stop and reveal**, everyone sees each note's total and which notes were **Top voted**. A **Results** list puts the notes in order of dots, and choosing one takes you to that note. It's in **Properties** with nothing selected, or behind **Show results** on the strip on a phone.
+- Votes are anonymous: nobody, the host included, sees who voted for what.
+- Voting works on a phone and while the board is locked.
+- The host's voting controls are in **Session** in the top bar on a wider screen, and in **Session** in **Participants** on a phone. Starting a new round clears the previous one, and **Clear votes** removes every vote and turns voting off.
+- Help has a new topic, **Dot voting**.
+
 ## [0.17.0] - 2026-10-04
 
 ### Changed

@@ -5,7 +5,7 @@ import { buildTopics, parseFrontMatter, searchTopics } from "../src/help/topics"
 
 describe("help topics", () => {
   it("loads the topics, quick start first", () => {
-    expect(HELP_TOPICS.map((t) => t.id)).toEqual(["quick-start", "sessions", "notes", "participants", "chat", "names", "connection", "touch-and-keyboard", "hosting"]);
+    expect(HELP_TOPICS.map((t) => t.id)).toEqual(["quick-start", "sessions", "notes", "participants", "chat", "names", "connection", "touch-and-keyboard", "hosting", "dot-voting"]);
     expect(topicById("sessions")?.title).toBe("Starting and joining a session");
     expect(topicById(QUICK_START_ID)?.title).toBe("Quick start");
   });
@@ -84,9 +84,32 @@ describe("help topics", () => {
     expect(sessions).not.toMatch(/end session button|lock button|timer tile/);
   });
 
-  it("help topics only claim what exists: no cursors, QR codes or votes yet (the timer exists since v0.16.0)", () => {
+  it("help topics only claim what exists: no cursors or QR codes yet (the timer since v0.16.0, dot voting since v0.18.0)", () => {
     const all = HELP_TOPICS.map((t) => t.text).join("\n");
-    expect(all).not.toMatch(/qr code|cursor|vote|voting/);
+    expect(all).not.toMatch(/qr code|cursor/);
+  });
+
+  it("Dot voting covers a round, private dots, anonymity, browser data, the budget, restarting, the lock and the keys", () => {
+    const voting = HELP_TOPICS.find((t) => t.id === "dot-voting")?.text ?? "";
+    for (const claim of [
+      "start voting",
+      "1 to 20",
+      "stop and reveal",
+      "only you see your dots",
+      "nobody sees who voted for what",
+      "clearing this browser's site data",
+      "starting a new round clears",
+      "clear votes",
+      "while the board is locked",
+      "top voted",
+      "results",
+      "shift+d",
+      "no votes were cast",
+    ]) {
+      expect(voting, claim).toContain(claim);
+    }
+    expect(searchTopics(HELP_TOPICS, "dots").map((r) => r.topic.id)[0]).toBe("dot-voting");
+    expect(searchTopics(HELP_TOPICS, "vote").map((r) => r.topic.id)[0]).toBe("dot-voting");
   });
 
   it("Running a session covers the host, the timer, the lock, End session and a changed device", () => {
@@ -102,6 +125,7 @@ describe("help topics", () => {
       "end session",
       "can't be restored",
       "session ended",
+      "dot voting",
     ]) {
       expect(hosting, claim).toContain(claim);
     }

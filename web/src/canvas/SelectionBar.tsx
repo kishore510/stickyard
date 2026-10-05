@@ -24,6 +24,7 @@ import {
   Square,
   Trash2,
   Undo2,
+  Vote,
 } from "lucide-react";
 import type { NoteRect, OrderAction } from "@stickyard/shared";
 import { Button } from "../components/ui/button";
@@ -37,6 +38,7 @@ import { useMediaQuery } from "../lib/useMediaQuery";
 import { useRoomUi } from "../rooms/roomStore";
 import { MEDIA } from "../styles/breakpoints";
 import { useTimerControls } from "../timer/controls";
+import { HostVotingControls } from "../voting/HostVoting";
 
 /*
  * The board actions bar (md and up). Since v0.15.1 it sits in the top bar, between the mark and
@@ -427,7 +429,16 @@ export function BoardBar({ notes, frame, live, held, unsaved, duplicateReason, d
                       ]
                     : []),
                 ],
-                content: full ? lockedMarker : null,
+                // Dot voting (v0.18.0): its own button and panel inside the Session group from xl
+                // up; below, in the Session panel under the lock.
+                content: full ? (
+                  <>
+                    {lockedMarker}
+                    <CollapsedGroup group={{ label: "Voting", collapsed: { icon: <Vote /> }, commands: [], content: <HostVotingControls className="p-xs" /> }} />
+                  </>
+                ) : (
+                  <HostVotingControls className="w-full border-t border-border p-xs pt-sm" />
+                ),
               },
             ]
           : []),

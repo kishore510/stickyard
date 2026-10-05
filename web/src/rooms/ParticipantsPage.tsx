@@ -10,6 +10,7 @@ import { useMediaQuery } from "../lib/useMediaQuery";
 import { MEDIA } from "../styles/breakpoints";
 import { useTimerControls } from "../timer/controls";
 import { TimerForm } from "../timer/TimerForm";
+import { HostVotingControls } from "../voting/HostVoting";
 import { LOCK_TEXT, confirmEndSession, lockToggle } from "../facilitation/lock";
 
 /*
@@ -46,7 +47,7 @@ function CopyLink({ code }: { code: string }) {
  * The host's Session section (phones; from md up these controls are in the palette, the board
  * bar and Properties). Today: the timer (Restart and Stop while one exists, and the same presets
  * and minutes field as the picker, inline, so no second sheet opens over this one), the lock
- * (pending until the relay answers) and End session (one confirm).
+ * (pending until the relay answers), dot voting (voting/HostVoting.tsx) and End session (one confirm).
  */
 function SessionSection() {
   const room = useRoomUi((s) => s.room);
@@ -92,6 +93,8 @@ function SessionSection() {
           </p>
         )}
       </div>
+      <h4 className="text-sm font-semibold">Dot voting</h4>
+      <HostVotingControls />
       <h4 className="text-sm font-semibold">End the session</h4>
       <div className="flex flex-col gap-xs">
         <Button
