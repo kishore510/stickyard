@@ -29,7 +29,9 @@ async function drain(...cs: TestClient[]) {
 /** Every message a client receives from now on (validated by TestClient's schema check too). */
 function recorded(c: TestClient): ServerMessage[] {
   const got: ServerMessage[] = [];
-  c.ws.addEventListener("message", (e) => got.push(JSON.parse(String(e.data)) as ServerMessage));
+  c.ws.addEventListener("message", (e) => {
+    got.push(JSON.parse(String(e.data)) as ServerMessage);
+  });
   return got;
 }
 
@@ -290,6 +292,7 @@ describe("cursor rate limits", () => {
     expect(a.closeCode).toBeNull();
     // Tokens come back.
     await settle(300);
+    await drain(b);
     a.send({ type: "cursor", x: 3000, y: 3 });
     expect((await nextOfType(b, "cursorMoved")).x).toBe(3000);
     closeAll(a, b);

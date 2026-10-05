@@ -27,8 +27,10 @@ import { NOTE_Z_LIMIT, ORDER_ACTIONS } from "./stack";
  * v13 (dot voting): claimVoter/voterGranted (an anonymous voter from a client-made random key),
  *   voteStart/voteStop/voteClear (host only) and votingChanged, voteSet/voteConfirmed (to the
  *   voter's own sockets only), votesRevealed (totals, once closed); `joined` carries `voting`.
+ * v14 (live cursors): cursor / cursorLeft from a page, cursorMoved / cursorGone (to the others
+ *   only, the id from the sender's socket). Relayed live, never stored.
  */
-export const PROTOCOL_VERSION = 13;
+export const PROTOCOL_VERSION = 14;
 
 /**
  * Hard cap on a single client-to-server WebSocket message, in UTF-8 bytes. Checked before JSON.parse.
@@ -730,6 +732,34 @@ export const voteStopSchema = z.strictObject({ type: z.literal("voteStop") });
 /** Host only: delete every vote and turn voting off. */
 export const voteClearSchema = z.strictObject({ type: z.literal("voteClear") });
 
+/* ── Live cursors (protocol v14) ────────────────────────────────────────── */
+
+/**
+ * How far outside the board a pointer position may be (board units): a pointer just past an edge
+ * is still sent rather than refused. The relay clamps to the board (clampCursor).
+ */
+export const CURSOR_TOLERANCE = 64;
+const cursorX = z.number().min(-CURSOR_TOLERANCE).max(BOARD_WIDTH + CURSOR_TOLERANCE);
+const cursorY = z.number().min(-CURSOR_TOLERANCE).max(BOARD_HEIGHT + CURSOR_TOLERANCE);
+
+/**
+ * My pointer is here (board units, finite; zod refuses NaN and Infinity). Strict: no id, name or
+ * colour, so nothing a page sends can speak for another participant.
+ */
+export const cursorSchema = z.strictObject({
+  type: z.literal("cursor"),
+  x: cursorX,
+  y: cursorY,
+});
+
+/** My pointer left the board (or the page lost focus). */
+export const cursorLeftSchema = z.strictObject({ type: z.literal("cursorLeft") });
+
+/** Rounds a pointer position to whole units and clamps it to the board (edges included). */
+export function clampCursor(x: number, y: number): { x: number; y: number } {
+  return { x: between(whole(x, 0), 0, BOARD_WIDTH), y: between(whole(y, 0), 0, BOARD_HEIGHT) };
+}
+
 export const clientMessageSchema = z.discriminatedUnion("type", [
   helloSchema,
   joinSchema,
@@ -757,6 +787,8 @@ export const clientMessageSchema = z.discriminatedUnion("type", [
   voteStartSchema,
   voteStopSchema,
   voteClearSchema,
+  cursorSchema,
+  cursorLeftSchema,
 ]);
 export type ClientMessage = z.infer<typeof clientMessageSchema>;
 export type ClientMessageType = ClientMessage["type"];
@@ -794,6 +826,9 @@ export const BOARD_WRITES: Readonly<Record<ClientMessageType, boolean>> = {
   voteStart: false,
   voteStop: false,
   voteClear: false,
+  // Live cursors (v14) are pointers, not edits: a locked board still shows everyone's.
+  cursor: false,
+  cursorLeft: false,
 };
 
 /** Host-only messages: anyone else gets not_host. */
@@ -1174,6 +1209,23 @@ export const votesRevealedSchema = z.strictObject({
   totals: z.array(noteVotesSchema).max(MAX_NOTES_PER_ROOM),
 });
 
+/**
+ * Someone else's pointer (protocol v14), at whole board units. To everyone but its owner; the id is
+ * the owner's participant id from their socket. Name and colour come from the participant list.
+ */
+export const cursorMovedSchema = z.strictObject({
+  type: z.literal("cursorMoved"),
+  id: participantIdSchema,
+  x: z.number().int().min(0).max(BOARD_WIDTH),
+  y: z.number().int().min(0).max(BOARD_HEIGHT),
+});
+
+/** Someone's pointer left the board, or they left. */
+export const cursorGoneSchema = z.strictObject({
+  type: z.literal("cursorGone"),
+  id: participantIdSchema,
+});
+
 export const serverMessageSchema = z.discriminatedUnion("type", [
   welcomeSchema,
   errorMessageSchema,
@@ -1205,5 +1257,7 @@ export const serverMessageSchema = z.discriminatedUnion("type", [
   votingChangedSchema,
   voteConfirmedSchema,
   votesRevealedSchema,
+  cursorMovedSchema,
+  cursorGoneSchema,
 ]);
 export type ServerMessage = z.infer<typeof serverMessageSchema>;

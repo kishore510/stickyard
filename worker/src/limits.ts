@@ -51,6 +51,22 @@ export const BATCH_LIMITS = {
 } as const;
 
 /**
+ * Live cursors (protocol v14) spend this per-socket bucket instead of SOCKET_LIMITS, so a moving
+ * pointer can never starve edits or chat. The web sends at most 10 a second (one every 100 ms,
+ * only after a move of at least 1 board unit), so 15/s with a burst of 20 leaves room for timer
+ * jitter and a tab catching up. Over the budget a cursor message is dropped silently (the next
+ * one supersedes it anyway). Only sustained abuse is a violation: past `maxSilentDrops` drops in
+ * `dropWindowMs`, every further drop counts against SOCKET_LIMITS.maxViolations (and closes the
+ * socket at 20, as for any other violation).
+ */
+export const CURSOR_LIMITS = {
+  refillPerSecond: 15,
+  burst: 20,
+  maxSilentDrops: 100,
+  dropWindowMs: 10_000,
+} as const;
+
+/**
  * Idle room expiry (worker/src/expiry.ts). When the last socket of a room closes, its alarm is
  * set this far ahead; when it fires with nobody connected, the room's data is deleted and a
  * tombstone kept. An existing alarm within ALARM_RESET_SLACK_MS of the new time is left alone,

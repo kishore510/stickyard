@@ -20,6 +20,7 @@ import {
   VOTE_BUDGET_MAX,
   VOTE_BUDGET_MIN,
   VOTING_STATES,
+  clampCursor,
   clampFramePosition,
   clampFrameRect,
   clampNotePosition,
@@ -55,7 +56,7 @@ import { randomBase64url } from "./crypto";
 import type { Secrets } from "./env";
 import { ENDED_REASON, EXPIRED_REASON, clearToTombstone, nextExpiryAlarm, readTombstone, writeTombstone, type Tombstone, type TombstoneKind } from "./expiry";
 import { verifyHostToken } from "./hostToken";
-import { BATCH_LIMITS, SOCKET_LIMITS } from "./limits";
+import { BATCH_LIMITS, CURSOR_LIMITS, SOCKET_LIMITS } from "./limits";
 import { NoteStore } from "./noteStore";
 import { voterIdFor } from "./voterId";
 
@@ -93,6 +94,13 @@ const socketStateSchema = z.object({
   /** Batch entries token bucket (BATCH_LIMITS). Defaults keep sockets from before v7 readable. */
   entryTokens: z.number().default(BATCH_LIMITS.entriesBurst),
   entryAt: z.number().default(0),
+  /** Live cursor token bucket (CURSOR_LIMITS, protocol v14), and silent drops since `cursorDropAt`. */
+  cursorTokens: z.number().default(CURSOR_LIMITS.burst),
+  cursorAt: z.number().default(0),
+  cursorDrops: z.number().int().default(0),
+  cursorDropAt: z.number().default(0),
+  /** The others have been sent this socket's cursor and not told it has gone (so cursorGone is owed). */
+  cursorShown: z.boolean().default(false),
 });
 type SocketState = z.infer<typeof socketStateSchema>;
 
@@ -149,6 +157,8 @@ type OrderMessage = Extract<ClientMessage, { type: "notesOrder" }>;
 type FrameMessage = Extract<ClientMessage, { type: "frameAdd" | "frameEdit" | "frameMove" | "frameResize" | "frameDelete" }>;
 type ItemsMessage = Extract<ClientMessage, { type: "itemsAdd" }>;
 type VotingHostMessage = Extract<ClientMessage, { type: "voteStart" | "voteStop" | "voteClear" }>;
+type CursorMessage = Extract<ClientMessage, { type: "cursor" | "cursorLeft" }>;
+const isCursor = (message: ClientMessage): message is CursorMessage => message.type === "cursor" || message.type === "cursorLeft";
 
 /** The voting state's meta keys and their stored values (state as its index in VOTING_STATES). */
 const VOTING_KEYS = { state: "voting_state", budget: "voting_budget", round: "voting_round" } as const;
@@ -256,6 +266,11 @@ export class Room extends DurableObject<Env> {
     return this.tombstone?.kind === "ended";
   }
 
+  /** A relay of coalesced moves is waiting on a timer (tests check cursors schedule nothing). */
+  get timersPending(): boolean {
+    return this.flushScheduled;
+  }
+
   /** Batch transactions committed by this instance (tests check a final batch is one). */
   get transactions(): number {
     return this.store?.transactions ?? 0;
@@ -280,6 +295,11 @@ export class Room extends DurableObject<Env> {
       strikeAt: 0,
       entryTokens: BATCH_LIMITS.entriesBurst,
       entryAt: Date.now(),
+      cursorTokens: CURSOR_LIMITS.burst,
+      cursorAt: Date.now(),
+      cursorDrops: 0,
+      cursorDropAt: 0,
+      cursorShown: false,
     };
     pair[1].serializeAttachment(state);
     return new Response(null, { status: 101, webSocket: pair[0] });
@@ -302,19 +322,21 @@ export class Room extends DurableObject<Env> {
       return;
     }
 
-    // Rate limit every frame, valid or not, before parsing it.
+    // Every frame, valid or not, spends from a rate budget before it is acted on. A valid cursor
+    // message (protocol v14) spends its own (CURSOR_LIMITS); everything else, malformed messages
+    // included, spends SOCKET_LIMITS. Parsing comes first so cursors never spend edits' tokens.
     const now = Date.now();
+    const parsed = parseMessage(message, clientMessageSchema);
+    if (parsed.ok && isCursor(parsed.value)) return this.cursor(ws, state, now, parsed.value);
     state.tokens = Math.min(SOCKET_LIMITS.burst, state.tokens + ((now - state.at) / 1000) * SOCKET_LIMITS.refillPerSecond);
     state.at = now;
     if (state.tokens < 1) {
       // The message is dropped. Name the note it was about (if any) so the sender can roll back.
-      const dropped = parseMessage(message, clientMessageSchema);
-      await this.overLimit(ws, state, now, dropped.ok ? refOf(dropped.value) : {});
+      await this.overLimit(ws, state, now, parsed.ok ? refOf(parsed.value) : {});
       return;
     }
     state.tokens -= 1;
 
-    const parsed = parseMessage(message, clientMessageSchema);
     if (!parsed.ok) {
       ws.serializeAttachment(state);
       send(
@@ -345,11 +367,43 @@ export class Room extends DurableObject<Env> {
   }
 
   /**
-   * A violation (over a rate budget, or a wrong host token): answered with `reply`, and counted.
-   * Violations are counted per window, not consecutively, so a sender at twice the rate still
-   * gets closed.
+   * A live cursor (protocol v14): forwarded at once to the other joined sockets as cursorMoved /
+   * cursorGone, with this socket's participant id. Never stored, never coalesced, nothing
+   * scheduled. Over CURSOR_LIMITS it is dropped silently; only drops past maxSilentDrops in a
+   * window count as violations. Before joining, or alone in the room, nothing is sent.
    */
-  private async violation(ws: WebSocket, state: SocketState, now: number, reply: ServerMessage): Promise<void> {
+  private async cursor(ws: WebSocket, state: SocketState, now: number, message: CursorMessage): Promise<void> {
+    state.cursorTokens = Math.min(CURSOR_LIMITS.burst, state.cursorTokens + ((now - state.cursorAt) / 1000) * CURSOR_LIMITS.refillPerSecond);
+    state.cursorAt = now;
+    if (state.cursorTokens < 1) {
+      if (now - state.cursorDropAt > CURSOR_LIMITS.dropWindowMs) {
+        state.cursorDrops = 0;
+        state.cursorDropAt = now;
+      }
+      state.cursorDrops += 1;
+      if (state.cursorDrops > CURSOR_LIMITS.maxSilentDrops) return this.violation(ws, state, now, null);
+      ws.serializeAttachment(state);
+      return;
+    }
+    state.cursorTokens -= 1;
+    const you = state.participant;
+    const others = you ? this.participants().filter((p) => p.ws !== ws) : [];
+    const shown = state.cursorShown;
+    state.cursorShown = you !== null && others.length > 0 && message.type === "cursor";
+    ws.serializeAttachment(state);
+    if (!you || others.length === 0) return;
+    if (message.type === "cursorLeft" && !shown) return;
+    const out: ServerMessage = message.type === "cursor" ? { type: "cursorMoved", id: you.id, ...clampCursor(message.x, message.y) } : { type: "cursorGone", id: you.id };
+    const raw = encodeMessage(out);
+    for (const other of others) send(other.ws, raw);
+  }
+
+  /**
+   * A violation (over a rate budget, or a wrong host token): answered with `reply` (cursor drops
+   * get none), and counted. Violations are counted per window, not consecutively, so a sender at
+   * twice the rate still gets closed.
+   */
+  private async violation(ws: WebSocket, state: SocketState, now: number, reply: ServerMessage | null): Promise<void> {
     if (now - state.strikeAt > SOCKET_LIMITS.violationWindowMs) {
       state.strikes = 0;
       state.strikeAt = now;
@@ -362,7 +416,7 @@ export class Room extends DurableObject<Env> {
       return;
     }
     ws.serializeAttachment(state);
-    send(ws, reply);
+    if (reply) send(ws, reply);
   }
 
   override async webSocketClose(ws: WebSocket, code: number, _reason: string, _wasClean: boolean): Promise<void> {
@@ -739,7 +793,9 @@ export class Room extends DurableObject<Env> {
       }
       case "endSession": {
         // Everyone hears it, the room is buried (step 1 is synchronous, so nothing can be written
-        // after it), every socket is closed with 4411, then the rest of the storage goes.
+        // after it), every socket is closed with 4411, then the rest of the storage goes. Shown
+        // cursors go first, so no page is left drawing one.
+        for (const { ws: socket } of this.participants()) this.hideCursor(socket);
         this.broadcast({ type: "sessionEnded" });
         const tombstone = this.buryNow("ended");
         for (const socket of this.ctx.getWebSockets()) safeClose(socket, ROOM_ENDED_CLOSE_CODE, ENDED_REASON);
@@ -1225,10 +1281,27 @@ export class Room extends DurableObject<Env> {
     for (const { ws } of this.participants()) if (ws !== except) send(ws, raw);
   }
 
-  /** Forget the socket's participant and tell everyone else. Safe to call twice. */
+  /**
+   * If the others were sent this socket's cursor, tell them it has gone (cursorGone) and forget it.
+   * Sent alongside participant_left on purpose: a page's cursors then never depend on a second
+   * message kind, and it costs one small message, only for a cursor that was showing.
+   */
+  private hideCursor(ws: WebSocket, state = readState(ws)): void {
+    if (!state?.cursorShown || !state.participant) return;
+    state.cursorShown = false;
+    try {
+      ws.serializeAttachment(state);
+    } catch {
+      // The socket is already gone.
+    }
+    this.broadcast({ type: "cursorGone", id: state.participant.id }, ws);
+  }
+
+  /** Forget the socket's participant and tell everyone else (its cursor first). Safe to call twice. */
   private leave(ws: WebSocket, state: SocketState): void {
     const left = state.participant;
     if (!left) return;
+    this.hideCursor(ws, state);
     state.participant = null;
     try {
       ws.serializeAttachment(state);
