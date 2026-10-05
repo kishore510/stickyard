@@ -1,3 +1,4 @@
+import { MAX_BATCH_ENTRIES } from "@stickyard/shared";
 import { findFrame, framedNotes } from "../frames/board";
 import type { Board } from "../notes/board";
 import type { Box, Selection } from "./selection";
@@ -69,4 +70,41 @@ export function confirmDeleteSelection(counts: DeleteCounts, confirm: (message: 
       ? ""
       : ` ${counts.staying === 1 ? "1 note inside the frames isn’t selected and stays" : `${counts.staying} notes inside the frames aren’t selected and stay`} on the board.`;
   return confirm(`Delete ${what}? They’re removed for everyone in the session.${stay}`);
+}
+
+type Rect = { id: string; x: number; y: number; w: number; h: number };
+
+/** What a selection drag moves: each frame with the notes it carries, the loose selected notes, and frames too full to carry. */
+export interface CarryPlan {
+  frames: { id: string; noteIds: string[] }[];
+  /** Selected notes no selected frame carries (they move in note batches). */
+  loose: string[];
+  /** Frames that hold more than the cap: they move alone (the existing notice says so). */
+  alone: string[];
+}
+
+/**
+ * Who carries what when a selection with frames moves (pure). Frames in selection order: each
+ * carries the notes whose centre is inside it (`notes`: the notes that can move) that no earlier
+ * frame took, so a note inside two selected frames goes with the first and nothing moves twice.
+ * A frame with more than `cap` (MAX_BATCH_ENTRIES) such notes carries none (it moves alone, as a
+ * single frame drag does). Without `carry` (Alt held at drag start) frames carry nothing. Selected
+ * notes no frame carries are `loose`.
+ */
+export function carryPlan(frames: readonly Rect[], notes: readonly Rect[], selectedNotes: readonly string[], carry: boolean, cap: number = MAX_BATCH_ENTRIES): CarryPlan {
+  const taken = new Set<string>();
+  const alone: string[] = [];
+  const planned = frames.map((f) => {
+    if (!carry) return { id: f.id, noteIds: [] };
+    const inside = framedNotes(f, notes).filter((n) => !taken.has(n.id));
+    if (inside.length > cap) {
+      alone.push(f.id);
+      return { id: f.id, noteIds: [] };
+    }
+    for (const n of inside) taken.add(n.id);
+    return { id: f.id, noteIds: inside.map((n) => n.id) };
+  });
+  const known = new Set(notes.map((n) => n.id));
+  const loose = [...new Set(selectedNotes)].filter((id) => known.has(id) && !taken.has(id));
+  return { frames: planned, loose, alone };
 }

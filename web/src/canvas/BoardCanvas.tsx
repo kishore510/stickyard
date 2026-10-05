@@ -11,7 +11,7 @@ import { frameMinimapColour } from "../frames/style";
 import { findNote, type Board } from "../notes/board";
 import { confirmDelete, confirmDeleteNotes } from "../notes/label";
 import { DEFAULT_NOTE_SIZE, noteSize } from "../notes/size";
-import { NoteActionsContext, NoteHelpContext, NoteNode, type EditorRequest, type NoteActions } from "../notes/NoteCard";
+import { KEY_STEP, KEY_STEP_BIG, NoteActionsContext, NoteHelpContext, NoteNode, type EditorRequest, type NoteActions } from "../notes/NoteCard";
 import { groupOffset } from "./arrange";
 import { MAX_ZOOM, MIN_ZOOM, WHEEL_BEHAVIOUR, dragThreshold, notesBounds, panExtent } from "./geometry";
 import { FLOW_STACKING, createDragHandlers, createNoteNodeMapper, type CanvasNode } from "./nodes";
@@ -46,6 +46,8 @@ const minimapColour = (node: CanvasNode) =>
 
 /** After the last arrow key press on a selection, its position is committed (stored) this much later. */
 const KEY_COMMIT_MS = 400;
+/** Arrow keys as unit steps. */
+const ARROWS: Record<string, [number, number]> = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
 
 /** Whether a key press belongs to a field or control (so Space there isn't a pan). */
 const ownsSpace = (target: EventTarget | null) =>
@@ -76,6 +78,9 @@ export interface BoardRoom {
   deleteFrame(id: string): void;
   /** Deletes notes and frames together (v0.20.0): one paced run, one report, one undo step. False if it couldn't start. */
   deleteSelection(noteIds: readonly string[], frameIds: readonly string[]): boolean;
+  /** A selection with frames dragged together (v0.20.0); moveSelection returns the delta applied (clamped for the group). */
+  startSelectionDrag(frameIds: readonly string[], noteIds: readonly string[], carry: boolean): boolean;
+  moveSelection(dx: number, dy: number, final: boolean): { dx: number; dy: number };
   /** Live cursors (protocol v14): share my pointer (false: not sent), and say it left. */
   shareCursor(x: number, y: number): boolean;
   hideCursor(): void;
@@ -166,6 +171,25 @@ export function BoardCanvas({
   const sectionRef = useRef<HTMLElement>(null);
   const keyCommit = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   useEffect(() => () => clearTimeout(keyCommit.current), []);
+  const editableRef = useRef(editable);
+  editableRef.current = editable;
+  // Arrow keys on a selection with frames: one selection drag per run of presses, committed shortly after the last.
+  const keyNudge = useRef<{ dx: number; dy: number } | null>(null);
+  const nudgeSelection = useRef((dx: number, dy: number) => {
+    const room = latest.current;
+    const ui = useBoardUi.getState();
+    if (!keyNudge.current) {
+      if (!room.startSelectionDrag(orderedIds(ui.frames), orderedIds(ui.selection), true)) return;
+      keyNudge.current = { dx: 0, dy: 0 };
+    }
+    keyNudge.current = room.moveSelection(keyNudge.current.dx + dx, keyNudge.current.dy + dy, false);
+    clearTimeout(keyCommit.current);
+    keyCommit.current = setTimeout(() => {
+      const done = keyNudge.current;
+      keyNudge.current = null;
+      if (done) latest.current.moveSelection(done.dx, done.dy, true);
+    }, KEY_COMMIT_MS);
+  });
 
   const map = useMemo(createNoteNodeMapper, []);
   // Several items selected (notes and frames): a dashed box round them (board units; it follows a group drag).
@@ -210,6 +234,19 @@ export function BoardCanvas({
           return latest.current.startFrameDrag(id, carry);
         },
         moveFrame: (id, x, y, final) => latest.current.moveFrame(id, x, y, final),
+        selectionDragFor: (id, type) => {
+          if (!multi.current) return null;
+          const ui = useBoardUi.getState();
+          const inSelection = type === "frame" ? ui.frames.has(id) : ui.selection.has(id);
+          if (!inSelection || ui.frames.size === 0 || ui.frames.size + ui.selection.size < 2) return null;
+          const item = type === "frame" ? findFrame(latest.current.board, id)?.frame : findNote(latest.current.board, id)?.note;
+          return item ? { x: item.x, y: item.y, w: item.w, h: item.h } : null;
+        },
+        startSelectionDrag: (carry) => {
+          const ui = useBoardUi.getState();
+          return latest.current.startSelectionDrag(orderedIds(ui.frames), orderedIds(ui.selection), carry);
+        },
+        moveSelection: (dx, dy, final) => void latest.current.moveSelection(dx, dy, final),
       }),
     [],
   );
@@ -260,10 +297,12 @@ export function BoardCanvas({
       clearSelection: () => useBoardUi.getState().clearSelection(),
       canTapEdit: () => useBoardUi.getState().tool === "select",
       groupOf: (id) => {
-        const { selection } = useBoardUi.getState();
-        return selection.size > 1 && selection.has(id) ? orderedIds(selection) : null;
+        const { selection, frames } = useBoardUi.getState();
+        return selection.size + frames.size > 1 && selection.has(id) ? orderedIds(selection) : null;
       },
       moveSelection: (dx, dy) => {
+        // With frames: the same group move as a drag (frames carry their notes).
+        if (useBoardUi.getState().frames.size > 0) return nudgeSelection.current(dx, dy);
         const room = latest.current;
         const notes = orderedIds(useBoardUi.getState().selection).flatMap((id) => findNote(room.board, id)?.note ?? []);
         if (notes.length === 0 || !room.startGroupDrag(notes.map((n) => n.id))) return;
@@ -349,6 +388,14 @@ export function BoardCanvas({
         modal: document.querySelector('[aria-modal="true"]') !== null,
         board: sectionRef.current,
       });
+      // Arrow keys with frames selected and nothing else focused: move the selection like a drag.
+      const arrow = ARROWS[e.key];
+      if (arrow && multi.current && editableRef.current && ui.frames.size > 0 && !e.altKey && !e.ctrlKey && !e.metaKey && !ownsSpace(e.target) && onBoard(e.target, sectionRef.current)) {
+        e.preventDefault();
+        const step = e.shiftKey ? KEY_STEP_BIG : KEY_STEP;
+        nudgeSelection.current(arrow[0] * step, arrow[1] * step);
+        return;
+      }
       // Enter on a selected frame (nothing else focused) edits its title.
       if (e.key === "Enter" && multi.current && ui.frameSelected !== null && !ownsSpace(e.target) && onBoard(e.target, sectionRef.current)) {
         e.preventDefault();

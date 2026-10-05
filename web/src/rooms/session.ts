@@ -77,6 +77,7 @@ import {
   setFrameDraft,
   setFrameDragging,
   setFrameResizing,
+  type BoardFrame,
   type FrameEdit,
 } from "../frames/board";
 import {
@@ -107,8 +108,10 @@ import {
   styleChanges,
   styleLocal,
   type Board,
+  type BoardNote,
   type StylePatch,
 } from "../notes/board";
+import { carryPlan } from "../canvas/frameSelect";
 import { DUPLICATE_HINTS, duplicateFrameInput, duplicateNoteInputs } from "../canvas/duplicate";
 import { HISTORY_TEXT, History, type Fields, type ItemKind, type Lookup, type Plan } from "../history/history";
 import type { CodeCheck } from "./api";
@@ -225,6 +228,8 @@ export interface RoomView {
   historyReport: DeleteReport | null;
   /** Clear board is still deleting (another waits); its outcome is `deleteReport`. */
   clearing: boolean;
+  /** A delete of a selection with frames is still running (v0.20.0). */
+  deleting: boolean;
   /** Reconnecting after a drop (null while joined, and before the first join). */
   reconnect: ReconnectView | null;
   /** How many changes may not have been saved when the connection dropped, until the next note action. */
@@ -287,6 +292,7 @@ export const INITIAL_VIEW: RoomView = {
   history: { undo: "Not connected.", redo: "Not connected." },
   historyReport: null,
   clearing: false,
+  deleting: false,
   reconnect: null,
   dropReport: null,
   orphanDraft: null,
@@ -331,6 +337,17 @@ export const RESIZE_INTERVAL_MS = 50;
  * entries a second at most, inside the relay's BATCH_LIMITS), then once on drop.
  */
 export const GROUP_MOVE_INTERVAL_MS = 100;
+
+/**
+ * A selection with frames being dragged (v0.20.0): live updates go out at most this often, at
+ * most SELECTION_LIVE_MESSAGES messages each time (a batch of the loose notes, up to
+ * MAX_BATCH_ENTRIES, and frames taking turns, each with the notes it carries). That's 20 messages
+ * a second, under the relay's SOCKET_LIMITS (30 a second, burst 40) whatever the selection, and at
+ * most 500 entries a second (only the batch has entries live), under BATCH_LIMITS (600 a second).
+ * Here everything moves on every pointer move; the drop sends every frame and note once.
+ */
+export const SELECTION_MOVE_INTERVAL_MS = 100;
+export const SELECTION_LIVE_MESSAGES = 2;
 
 /**
  * itemsAdd messages (addItems, templates) go out at most this many a second: a third of the
@@ -481,8 +498,12 @@ interface DeleteRun {
   tooQuick: boolean;
 }
 
-/** Clear board in flight: per kind, what the relay hasn't answered for yet, and what it refused. */
+/**
+ * Clear board, or a delete of a selection with frames (v0.20.0), in flight: per kind, what the
+ * relay hasn't answered for yet, and what it refused.
+ */
 interface ClearRun {
+  kind: "clear" | "delete";
   notes: ClearPart;
   frames: ClearPart & { queue: string[] };
 }
@@ -498,15 +519,19 @@ interface ClearPart {
 
 const word = (n: number, kind: string) => `${n} ${kind}${n === 1 ? "" : "s"}`;
 
+type RemovalPart = { total: number; refused: number; lost: number; tooQuick: boolean };
+
 /** Clear board's outcome, once every note and frame in it is accounted for (or the connection was lost). */
-export function clearReportFor(
-  notes: { total: number; refused: number; lost: number; tooQuick: boolean },
-  frames: { total: number; refused: number; lost: number; tooQuick: boolean },
-): DeleteReport {
+export function clearReportFor(notes: RemovalPart, frames: RemovalPart): DeleteReport {
+  return removalReportFor("clear", notes, frames);
+}
+
+/** The outcome of a clear or of a delete of a selection with frames (only the all-done wording differs). */
+export function removalReportFor(kind: "clear" | "delete", notes: RemovalPart, frames: RemovalPart): DeleteReport {
   const done = (p: typeof notes) => p.total - p.refused - p.lost;
   if (notes.refused + notes.lost + frames.refused + frames.lost === 0) {
     const parts = [notes.total > 0 ? word(notes.total, "note") : null, frames.total > 0 ? word(frames.total, "frame") : null].filter((p) => p !== null);
-    return { text: `Cleared the board: deleted ${parts.join(" and ")}.`, partial: false };
+    return { text: kind === "clear" ? `Cleared the board: deleted ${parts.join(" and ")}.` : `Deleted ${parts.join(" and ")}.`, partial: false };
   }
   const of = (p: typeof notes, kind: string) => (p.total > 0 ? `${done(p)} of ${word(p.total, kind)}` : null);
   const parts = [`Deleted ${[of(notes, "note"), of(frames, "frame")].filter((p) => p !== null).join(" and ")}.`];
@@ -531,6 +556,18 @@ const randomRef = (): string => {
   const bytes = crypto.getRandomValues(new Uint8Array(9));
   return btoa(String.fromCharCode(...bytes)).replaceAll("+", "-").replaceAll("/", "_");
 };
+
+/** A selection with frames being dragged: every frame and note it moves, where each started. */
+interface SelectionDrag {
+  /** In selection order, each with the notes it carries. */
+  frames: { id: string; start: NoteRect; noteIds: string[] }[];
+  /** Every note moved (carried or loose) and its start. */
+  notes: Map<string, NoteRect>;
+  /** Selected notes no frame carries. */
+  loose: string[];
+  /** The next frame whose live move goes out (they take turns). */
+  turn: number;
+}
 
 interface Throttle {
   last: number;
@@ -631,6 +668,8 @@ export class RoomSession {
   private readonly frameResizes = new Map<string, Throttle>();
   private readonly abandonedFrames = new Set<string>();
   private frameDrag: FrameDrag | null = null;
+  /** A selection with frames being dragged (startSelectionDrag). */
+  private selectionDrag: SelectionDrag | null = null;
   /** The template being applied, if any (one at a time). */
   private template: TemplateApply | null = null;
   /** itemsAdd messages queued or in flight, by their clientRef; the queue (clientRefs) and its pacing timer. */
@@ -1034,7 +1073,8 @@ export class RoomSession {
       ...(run ? { deleteReport: deleteReportFor({ ...run, lost }) } : {}),
       ...(clear
         ? {
-            deleteReport: clearReportFor(
+            deleteReport: removalReportFor(
+              clear.kind,
               { ...clear.notes, lost: clear.notes.ids.size + clear.notes.refs.size },
               { ...clear.frames, lost: clear.frames.ids.size + clear.frames.refs.size + clear.frames.queue.length },
             ),
@@ -1490,6 +1530,103 @@ export class RoomSession {
     this.throttle(this.frameMoves, id, MOVE_INTERVAL_MS, () => this.sendFrameMove(id, noteIds, false));
   }
 
+  /**
+   * Starts dragging a selection with frames (v0.20.0; md and up): each frame carries the notes
+   * whose centre is inside it, unless `carry` is false (Alt held), each note once (the first
+   * selected frame that holds it), and the selected notes no frame carries come too. A frame
+   * holding more than MAX_BATCH_ENTRIES notes moves alone (the frame-drag notice says so). Only
+   * confirmed items that aren't already moving. False if nothing can move, not connected, or a
+   * guest on a locked board.
+   */
+  startSelectionDrag(frameIds: readonly string[], noteIds: readonly string[], carry: boolean): boolean {
+    if (!this.live || lockedOut(this.view)) return false;
+    const board0 = this.view.board;
+    const frames = frameIds.flatMap((id) => {
+      const entry = findFrame(board0, id);
+      return entry && !isLocalId(id) && !isFrameHeld(entry) ? [entry.frame] : [];
+    });
+    const movable = board0.notes.filter((n) => !isLocalId(n.note.id) && !isHeld(n)).map((n) => n.note);
+    const plan = carryPlan(frames, movable, noteIds, carry);
+    if (plan.frames.length + plan.loose.length === 0) return false;
+    const rectOf = (r: NoteRect): NoteRect => ({ x: r.x, y: r.y, w: r.w, h: r.h });
+    const notes = new Map<string, NoteRect>();
+    for (const id of [...plan.frames.flatMap((f) => f.noteIds), ...plan.loose]) {
+      const note = findNote(board0, id)?.note;
+      if (note) notes.set(id, rectOf(note));
+    }
+    let board = board0;
+    for (const f of frames) board = setFrameDragging(board, f.id, true);
+    for (const id of notes.keys()) board = setDragging(board, id, true);
+    this.selectionDrag = {
+      frames: plan.frames.map((p) => ({ id: p.id, start: rectOf(findFrame(board0, p.id)!.frame), noteIds: p.noteIds })),
+      notes,
+      loose: plan.loose,
+      turn: 0,
+    };
+    this.update({ board, noteNotice: plan.alone.length > 0 ? NOTICES.frameTooFull : null });
+    return true;
+  }
+
+  /**
+   * Moves the dragged selection by (dx, dy) from where it started, clamped once for the whole
+   * group (groupOffset), so its arrangement is kept at the board's edges. Shown here at once; live
+   * updates are throttled (SELECTION_MOVE_INTERVAL_MS, SELECTION_LIVE_MESSAGES). The final move
+   * sends one frameMove per frame (with the notes it carries) and the loose notes as final
+   * batches, and is one undo step. Returns the delta applied.
+   */
+  moveSelection(dx: number, dy: number, final: boolean): { dx: number; dy: number } {
+    const drag = this.selectionDrag;
+    if (!this.live || !drag) return { dx: 0, dy: 0 };
+    const offset = groupOffset([...drag.frames.map((f) => f.start), ...drag.notes.values()], dx, dy);
+    let board = this.view.board;
+    for (const f of drag.frames) board = moveFrameLocal(board, f.id, f.start.x + offset.dx, f.start.y + offset.dy);
+    for (const [id, r] of drag.notes) board = moveLocal(board, id, r.x + offset.dx, r.y + offset.dy);
+    if (!final) {
+      this.update({ board });
+      this.throttle(this.groupMoves, "selection", SELECTION_MOVE_INTERVAL_MS, () => this.sendSelectionTick());
+      return offset;
+    }
+    for (const f of drag.frames) board = setFrameDragging(board, f.id, false);
+    for (const id of drag.notes.keys()) board = setDragging(board, id, false);
+    this.stopSelectionDrag();
+    this.update({ board });
+    const frames = drag.frames.filter((f) => findFrame(board, f.id));
+    const notes = [...drag.notes.keys()].filter((id) => findNote(board, id));
+    const ids = [...frames.map((f) => f.id), ...notes];
+    this.recordRects(
+      "Move",
+      [...frames.map(() => "frame" as const), ...notes.map(() => "note" as const)],
+      ids,
+      ["x", "y"],
+      `move:${[...ids].sort().join(",")}`,
+    );
+    for (const f of frames) this.sendFrameMove(f.id, f.noteIds.filter((id) => findNote(board, id)), true);
+    this.sendBatch(this.moveEntries(drag.loose), true);
+    return offset;
+  }
+
+  /** One live update of a selection drag: the loose notes' batch, then frames taking turns, at most SELECTION_LIVE_MESSAGES. */
+  private sendSelectionTick(): void {
+    const drag = this.selectionDrag;
+    if (!drag || !this.live) return;
+    let budget = SELECTION_LIVE_MESSAGES;
+    if (drag.loose.length > 0) {
+      this.sendBatch(this.moveEntries(drag.loose.slice(0, MAX_BATCH_ENTRIES)), false);
+      budget--;
+    }
+    const count = Math.min(budget, drag.frames.length);
+    for (let i = 0; i < count; i++) {
+      const f = drag.frames[drag.turn++ % drag.frames.length]!;
+      this.sendFrameMove(f.id, f.noteIds.filter((id) => findNote(this.view.board, id)), false);
+    }
+  }
+
+  private stopSelectionDrag(): void {
+    clearTimeout(this.groupMoves.get("selection")?.timer);
+    this.groupMoves.delete("selection");
+    this.selectionDrag = null;
+  }
+
   startFrameResize(id: string): boolean {
     if (!this.live || isLocalId(id) || !findFrame(this.view.board, id)) return false;
     this.update({ board: setFrameResizing(this.view.board, id, true), noteNotice: null });
@@ -1804,8 +1941,36 @@ export class RoomSession {
     if (!this.live || this.clearRun || this.restoreRun || this.template || this.itemBatches.size > 0) return false;
     const { notes, frames } = this.view.board;
     if (notes.length + frames.length === 0) return false;
+    this.startRemoval("clear", notes, frames);
+    return true;
+  }
+
+  /**
+   * Deletes a selection with frames (several, or frames and notes; v0.20.0) the way Clear board
+   * deletes everything: notes as batches of deletes, then one frameDelete every
+   * CLEAR_FRAME_STEP_MS, one history step, one report (`deleteReport`) once everything is
+   * answered; `deleting` while it runs. Notes inside the frames that aren't selected stay. Not
+   * connected: nothing is deleted, and the report says so. Refused (false, nothing sent) for a guest
+   * on a locked board, while a clear or another such delete runs, or while an add run is being sent.
+   */
+  deleteSelection(noteIds: readonly string[], frameIds: readonly string[]): boolean {
+    if (this.stopped) return false;
+    if (!this.live) {
+      this.update({ deleteReport: DELETE_OFFLINE });
+      return false;
+    }
+    if (lockedOut(this.view) || this.clearRun || this.restoreRun || this.template || this.itemBatches.size > 0) return false;
+    const notes = noteIds.flatMap((id) => findNote(this.view.board, id) ?? []);
+    const frames = frameIds.flatMap((id) => findFrame(this.view.board, id) ?? []);
+    if (notes.length + frames.length === 0) return false;
+    this.startRemoval("delete", notes, frames);
+    return true;
+  }
+
+  /** Starts a clear or a selection delete: notes at once (batches), frames queued and paced. */
+  private startRemoval(kind: ClearRun["kind"], notes: readonly BoardNote[], frames: readonly BoardFrame[]): void {
     const part = (): ClearPart => ({ total: 0, ids: new Set(), refs: new Set(), refused: 0, tooQuick: false });
-    const run: ClearRun = { notes: part(), frames: { ...part(), queue: [] } };
+    const run: ClearRun = { kind, notes: part(), frames: { ...part(), queue: [] } };
     let board = this.view.board;
     const ops: NoteBatchEntry[] = [];
     const removedNotes: Note[] = [];
@@ -1842,10 +2007,10 @@ export class RoomSession {
     }
     this.clearRun = run;
     this.update({ board, noteNotice: null });
-    this.recordRemoval("Clear board", removedNotes, removedFrames);
+    const label = kind === "clear" ? "Clear board" : "Delete";
+    this.recordRemoval(label, removedNotes, removedFrames);
     this.sendBatch(ops, true);
     this.pumpClear();
-    return true;
   }
 
   /** Sends the next frameDelete of a clear, then waits CLEAR_FRAME_STEP_MS. */
@@ -1875,7 +2040,7 @@ export class RoomSession {
     const { notes, frames } = run;
     if (notes.ids.size + notes.refs.size + frames.ids.size + frames.refs.size + frames.queue.length > 0) return;
     this.clearRun = null;
-    this.update({ deleteReport: clearReportFor({ ...notes, lost: 0 }, { ...frames, lost: 0 }) });
+    this.update({ deleteReport: removalReportFor(run.kind, { ...notes, lost: 0 }, { ...frames, lost: 0 }) });
   }
 
   /* ── Undo and redo (history/history.ts) ─────────────────────────── */
@@ -2230,6 +2395,7 @@ export class RoomSession {
     for (const id of [...this.frameResizes.keys()]) this.stopFrameResize(id);
     this.frameDrag = null;
     this.stopGroup();
+    this.stopSelectionDrag();
   }
 
   /* ── Live cursors (protocol v14) ────────────────────────────────── */
@@ -3072,7 +3238,8 @@ export class RoomSession {
       ...this.view,
       ...patch,
       adding: this.itemBatches.size > 0,
-      clearing: this.clearRun !== null,
+      clearing: this.clearRun?.kind === "clear",
+      deleting: this.clearRun?.kind === "delete",
       reconnect: this.retryView(),
       ...(restore ? { historyReport: { text: UNDO_TEXT.restoring(restoredCount(restore), restore.refs.length), partial: false } } : {}),
     };

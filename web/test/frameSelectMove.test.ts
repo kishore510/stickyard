@@ -2,6 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { BOARD_WIDTH, MAX_BATCH_ENTRIES, MAX_FRAMES_PER_ROOM, NOTE_DEFAULTS, type Note } from "@stickyard/shared";
 import { carryPlan, confirmDeleteSelection, deleteCounts } from "../src/canvas/frameSelect";
+import { createDragHandlers } from "../src/canvas/nodes";
 import { findFrame } from "../src/frames/board";
 import {
   CLEAR_FRAME_STEP_MS,
@@ -284,3 +285,32 @@ describe("a template's four frames plus notes: moved and deleted in one action e
     expect(t.relay.frames.size).toBe(4);
   });
 });
+
+describe("drag handlers: grabbing any item of a selection with frames drags the selection", () => {
+  it("offsets from the grabbed item's start go to moveSelection; Alt at the start means frames alone", () => {
+    const calls: string[] = [];
+    const drag = createDragHandlers({
+      startDrag: () => true,
+      moveNote: () => calls.push("note"),
+      startFrameDrag: () => {
+        calls.push("frame");
+        return true;
+      },
+      selectionDragFor: (id) => (id === "F" || id === "N" ? { x: 100, y: 200, w: 640, h: 400 } : null),
+      startSelectionDrag: (carry) => {
+        calls.push(`start ${carry}`);
+        return true;
+      },
+      moveSelection: (dx, dy, final) => calls.push(`move ${dx} ${dy} ${final}`),
+    });
+    drag.onNodeDragStart({ id: "F", type: "frame" }, { altKey: false });
+    drag.onNodesChange([{ type: "position", id: "F", dragging: true, position: { x: 130, y: 190 } }]);
+    drag.onNodeDragStop({ id: "F", position: { x: 150, y: 250 } });
+    drag.onNodeDragStart({ id: "N", type: "note" }, { altKey: true });
+    drag.onNodeDragStop({ id: "N", position: { x: 100, y: 200 } });
+    // Not part of such a selection: the ordinary frame drag.
+    drag.onNodeDragStart({ id: "G", type: "frame" }, { altKey: false });
+    expect(calls).toEqual(["start true", "move 30 -10 false", "move 50 50 true", "start false", "move 0 0 true", "frame"]);
+  });
+});
+

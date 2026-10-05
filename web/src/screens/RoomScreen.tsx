@@ -37,7 +37,7 @@ function PublishRoom({ code, view, room }: { code: string; view: RoomView; room:
   latest.current = room;
   const live = view.status === "joined";
   const { you, yourIds, participants, messages, rateLimited, isHost, locked, timer, lockPending, voting, isVoter, votersFull, myVotes, remaining, results } = view;
-  const endReason = endSessionReason({ live, busy: view.adding, clearing: view.clearing });
+  const endReason = endSessionReason({ live, busy: view.adding, clearing: view.clearing || view.deleting });
   const resultRows = useResultRows(results, view.board);
   useEffect(() => {
     publish({

@@ -20,8 +20,8 @@ import { voteFromKey } from "../voting/VoteButtons";
 import { voteKey } from "../voting/voting";
 
 /** Arrow keys move by this many board units; with Shift, by KEY_STEP_BIG. */
-const KEY_STEP = 10;
-const KEY_STEP_BIG = 50;
+export const KEY_STEP = 10;
+export const KEY_STEP_BIG = 50;
 /** After the last arrow key press, the position (or size) is committed (stored) this much later. */
 const KEY_COMMIT_MS = 400;
 

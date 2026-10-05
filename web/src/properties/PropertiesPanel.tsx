@@ -55,6 +55,8 @@ export interface PropertiesRoom {
   adding: boolean;
   /** A clear is still running. */
   clearing: boolean;
+  /** A delete of a selection with frames is still running. */
+  deleting?: boolean;
   /** A guest on a locked board (facilitation UI): read-only, and says why. */
   locked?: boolean;
   /** This visit is a host: End session sits next to Clear board. */
@@ -113,12 +115,12 @@ function Summary({ room }: { room: PropertiesRoom }) {
   const hintId = useId();
   const notes = room.board.notes.length;
   const frames = room.board.frames.length;
-  const reason = withLock(clearBoardReason({ live: room.live, notes, frames, busy: room.adding, clearing: room.clearing }), {
+  const reason = withLock(clearBoardReason({ live: room.live, notes, frames, busy: room.adding, clearing: room.clearing, deleting: room.deleting ?? false }), {
     live: room.live,
     locked: room.locked ?? false,
     isHost: room.isHost ?? false,
   });
-  const endReason = endSessionReason({ live: room.live, busy: room.adding, clearing: room.clearing });
+  const endReason = endSessionReason({ live: room.live, busy: room.adding, clearing: room.clearing || (room.deleting ?? false) });
   return (
     <>
       {room.results && <ResultsList rows={room.results} onPick={(id) => room.onPickResult?.(id)} />}

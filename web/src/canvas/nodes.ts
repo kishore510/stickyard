@@ -199,6 +199,15 @@ export interface DragActions {
   startFrameDrag?(id: string, carry: boolean): boolean;
   /** A frame's new (flow) position; the session clamps and moves its carried notes. */
   moveFrame?(id: string, x: number, y: number, final: boolean): void;
+  /**
+   * v0.20.0: a drag of `id` (a note or a frame) that's part of a selection with frames (2+ items)
+   * moves the whole selection: its rect at the start, or null for an ordinary drag.
+   */
+  selectionDragFor?(id: string, type: "note" | "frame"): NoteRect | null;
+  /** Starts the selection drag; frames carry their notes unless `carry` is false (Alt). False if nothing can move. */
+  startSelectionDrag?(carry: boolean): boolean;
+  /** The selection's offset from where it started; the session clamps it for the group. */
+  moveSelection?(dx: number, dy: number, final: boolean): void;
 }
 
 /** A group drag: React Flow drags the grabbed note; the others follow at the same offset. */
@@ -218,6 +227,12 @@ export function createDragHandlers(actions: DragActions) {
   const active = new Set<string>();
   const frames = new Set<string>();
   let group: Group | null = null;
+  // A selection with frames (v0.20.0): the grabbed item and where it started.
+  let selection: { anchor: string; start: XYLike } | null = null;
+  const selectionMove = (position: XYLike, final: boolean) => {
+    if (!selection) return;
+    actions.moveSelection?.(position.x - selection.start.x, position.y - selection.start.y, final);
+  };
 
   const groupMoves = (offset: XYLike) => {
     if (!group) return [];
@@ -234,6 +249,12 @@ export function createDragHandlers(actions: DragActions) {
   return {
     onNodeDragStart(node: Pick<CanvasNode, "id"> & { type?: string }, event?: { altKey: boolean }) {
       if (node.id === BOARD_NODE_ID) return;
+      const start = actions.selectionDragFor?.(node.id, node.type === "frame" ? "frame" : "note") ?? null;
+      if (start) {
+        // Alt moves the frames alone; the selected notes still come.
+        if (actions.startSelectionDrag?.(!(event?.altKey ?? false))) selection = { anchor: node.id, start };
+        return;
+      }
       if (node.type === "frame") {
         // Alt moves the frame alone; otherwise the notes inside it come along.
         if (actions.startFrameDrag?.(node.id, !(event?.altKey ?? false))) frames.add(node.id);
@@ -254,6 +275,10 @@ export function createDragHandlers(actions: DragActions) {
     onNodesChange(changes: NodeChange<CanvasNode>[]) {
       for (const change of changes) {
         if (change.type !== "position" || !change.dragging || !change.position) continue;
+        if (selection?.anchor === change.id) {
+          selectionMove(change.position, false);
+          continue;
+        }
         if (frames.has(change.id)) {
           actions.moveFrame?.(change.id, change.position.x, change.position.y, false);
           continue;
@@ -268,6 +293,11 @@ export function createDragHandlers(actions: DragActions) {
       }
     },
     onNodeDragStop(node: Pick<CanvasNode, "id" | "position">) {
+      if (selection?.anchor === node.id) {
+        selectionMove(node.position, true);
+        selection = null;
+        return;
+      }
       if (frames.delete(node.id)) {
         actions.moveFrame?.(node.id, node.position.x, node.position.y, true);
         return;

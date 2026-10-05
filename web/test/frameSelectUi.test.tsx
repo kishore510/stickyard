@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { act } from "react";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanupUi, frameAt, inRoom, installUi, noteAt, notesShown, selectNote, settle } from "./helpers/ui";
 
 /*
@@ -25,7 +25,7 @@ async function clickHeader(i: number, init: MouseEventInit = {}) {
 
 async function key(k: string, init: KeyboardEventInit = {}) {
   await act(async () => {
-    window.dispatchEvent(new KeyboardEvent("keydown", { key: k, bubbles: true, cancelable: true, ...init }));
+    document.body.dispatchEvent(new KeyboardEvent("keydown", { key: k, bubbles: true, cancelable: true, ...init }));
   });
   await settle();
 }
@@ -88,3 +88,46 @@ describe("selecting frames with notes (md and up)", () => {
     expect(frameEl(0)?.className).not.toContain("sy-selected");
   });
 });
+
+describe("deleting and moving a selection with frames (md and up)", () => {
+  it("Delete after Ctrl+A asks once with the counts, then deletes the notes in a batch and the frames one by one", async () => {
+    const ask = vi.fn(() => true);
+    vi.stubGlobal("confirm", ask);
+    // Note 0 (40, 60) isn't inside the frame; note 1 sits inside frame 0 (40..680, 400..800).
+    const socket = await inRoom({ notes: [noteAt(0), noteAt(1, { x: 100, y: 500 })], frames: [frameAt(0)] });
+    await key("a", { ctrlKey: true });
+    await key("Delete");
+    expect(ask).toHaveBeenCalledTimes(1);
+    expect(ask).toHaveBeenCalledWith("Delete 2 notes and 1 frame? They’re removed for everyone in the session.");
+    expect(socket.ofType("noteBatch")).toEqual([{ type: "noteBatch", ops: [{ op: "delete", id: noteAt(0).id }, { op: "delete", id: noteAt(1).id }], final: true }]);
+    expect(socket.ofType("frameDelete")).toEqual([{ type: "frameDelete", id: frameAt(0).id }]);
+    expect(heading()).toBe("Board");
+  });
+
+  it("the confirmation counts the unselected notes inside the frames that stay", async () => {
+    const ask = vi.fn(() => false);
+    vi.stubGlobal("confirm", ask);
+    const socket = await inRoom({ notes: [noteAt(0), noteAt(1, { x: 100, y: 500 })], frames: [frameAt(0), frameAt(1)] });
+    await clickHeader(0);
+    await clickHeader(1, { shiftKey: true });
+    await key("Delete");
+    expect(ask).toHaveBeenCalledWith("Delete 2 frames? They’re removed for everyone in the session. 1 note inside the frames isn’t selected and stays on the board.");
+    expect(socket.ofType("frameDelete")).toEqual([]);
+    expect(heading()).toBe("2 frames selected");
+  });
+
+  it("arrow keys move selected frames with the notes inside, committed shortly after the last press", async () => {
+    const socket = await inRoom({ notes: [noteAt(0), noteAt(1, { x: 100, y: 500 })], frames: [frameAt(0), frameAt(1)] });
+    await clickHeader(0);
+    await clickHeader(1, { shiftKey: true });
+    await key("ArrowRight");
+    await key("ArrowDown", { shiftKey: true });
+    await act(() => new Promise((resolve) => setTimeout(resolve, 500)));
+    const final = socket.ofType("frameMove").filter((m) => m.final);
+    expect(final).toEqual([
+      { type: "frameMove", id: frameAt(0).id, x: 50, y: 450, final: true, noteIds: [noteAt(1).id] },
+      { type: "frameMove", id: frameAt(1).id, x: 750, y: 450, final: true },
+    ]);
+  });
+});
+

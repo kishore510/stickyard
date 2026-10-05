@@ -415,16 +415,7 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  // Notes and frames together (interim until the paced delete run).
-  const deleteSelection = (noteIds: readonly string[], frameIds: readonly string[]) => {
-    if (!live) {
-      room.deleteNotes(noteIds);
-      return false;
-    }
-    if (noteIds.length > 0) room.deleteNotes(noteIds);
-    for (const id of frameIds) room.deleteFrame(id);
-    return true;
-  };
+  const deleteSelection = room.deleteSelection;
 
   const boardRoom: BoardRoom = {
     board: view.board,
@@ -448,6 +439,8 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
     resizeFrame: room.resizeFrame,
     deleteFrame: room.deleteFrame,
     deleteSelection,
+    startSelectionDrag: room.startSelectionDrag,
+    moveSelection: room.moveSelection,
     shareCursor: room.shareCursor,
     hideCursor: room.hideCursor,
   };
@@ -672,6 +665,7 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
                 clearBoard: room.clearBoard,
                 adding: view.adding,
                 clearing: view.clearing,
+                deleting: view.deleting,
                 locked,
                 isHost,
                 endSession: room.endSession,
