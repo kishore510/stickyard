@@ -131,3 +131,50 @@ describe("deleting and moving a selection with frames (md and up)", () => {
   });
 });
 
+describe("arrange, Properties and Duplicate for frames (md and up)", () => {
+  const bar = () => document.querySelector<HTMLElement>('header [role="toolbar"][aria-label="Board actions"]');
+  const barButton = (label: string) => bar()?.querySelector<HTMLElement>(`[aria-label="${label}"]`) ?? null;
+
+  it("two frames: Colour applies to both (one frameEdit each), Title shows Mixed and is off, Width/Height point to Match size", async () => {
+    const socket = await inRoom({ frames: [frameAt(0), frameAt(1, { color: "blue" })] });
+    await clickHeader(0);
+    await clickHeader(1, { shiftKey: true });
+    const title = properties()?.querySelector<HTMLInputElement>('input[name="frameTitle"]');
+    expect(title?.disabled).toBe(true);
+    expect(title?.placeholder).toBe("Mixed");
+    expect(properties()?.querySelector<HTMLInputElement>('input[name="frameWidth"]')?.disabled).toBe(true);
+    expect(properties()?.querySelector("[data-frames-size-hint]")?.textContent).toContain("Use Match size");
+    const green = properties()?.querySelector<HTMLElement>('[aria-label="Frame colour"] button[aria-label="Green"]');
+    await act(async () => green?.click());
+    await act(() => new Promise((resolve) => setTimeout(resolve, 120)));
+    expect(socket.ofType("frameEdit")).toEqual([
+      { type: "frameEdit", id: frameAt(0).id, color: "green" },
+      { type: "frameEdit", id: frameAt(1).id, color: "green" },
+    ]);
+  });
+
+  it("a mix of notes and frames: arrange is off with the reason shown as text; Order still acts on the notes", async () => {
+    await inRoom({ notes: [noteAt(0)], frames: [frameAt(0)] });
+    await selectNote(0);
+    await clickHeader(0, { shiftKey: true });
+    expect(document.querySelector("[data-arrange-reason]")?.textContent).toBe("Arrange works on notes or on frames, not both. Select only notes, or only frames.");
+    expect(barButton("Align left edges")?.getAttribute("aria-disabled")).toBe("true");
+  });
+
+  it("frames only: Order is off with the reason; Duplicate copies frames and notes together in one itemsAdd", async () => {
+    const socket = await inRoom({ notes: [noteAt(0)], frames: [frameAt(0), frameAt(1)] });
+    await clickHeader(0);
+    await clickHeader(1, { shiftKey: true });
+    const front = barButton("Bring to front");
+    expect(front?.getAttribute("aria-disabled")).toBe("true");
+    const tip = document.getElementById(front?.getAttribute("aria-describedby") ?? "");
+    expect(tip?.textContent).toBe("Frames always sit behind notes.");
+    await key("a", { ctrlKey: true });
+    await key("d", { ctrlKey: true });
+    const add = socket.ofType("itemsAdd")[0];
+    expect((add?.frames as unknown[]).length).toBe(2);
+    expect((add?.notes as unknown[]).length).toBe(1);
+    expect(heading()).toBe("1 note, 2 frames selected");
+  });
+});
+

@@ -108,3 +108,28 @@ export function carryPlan(frames: readonly Rect[], notes: readonly Rect[], selec
   const loose = [...new Set(selectedNotes)].filter((id) => known.has(id) && !taken.has(id));
   return { frames: planned, loose, alone };
 }
+
+/** Why Arrange (Align, Distribute, Grid, Match size) is off for a selection with frames. */
+export const ARRANGE_HINTS = {
+  mixed: "Arrange works on notes or on frames, not both. Select only notes, or only frames.",
+  fewFrames: "Select 2 or more frames to arrange.",
+  fewFramesDistribute: "Select 3 or more frames to distribute.",
+  offline: "Not connected.",
+  held: "Finish moving or resizing first.",
+  unsaved: "Wait until new frames are saved.",
+} as const;
+
+/**
+ * Why arrange is off for frames (or a mix), or null: a guest on a locked board gets the lock's
+ * reason, a mix of notes and frames is refused (shown as text, never hidden), and frames need
+ * 2+, a connection, and every one saved and still. Notes alone keep their own rules (SelectionBar).
+ */
+export function arrangeReason(s: { notes: number; frames: number; live: boolean; locked: string | null; held: boolean; unsaved: boolean }): string | null {
+  if (s.locked) return s.locked;
+  if (s.notes > 0 && s.frames > 0) return ARRANGE_HINTS.mixed;
+  if (s.frames < 2) return ARRANGE_HINTS.fewFrames;
+  if (!s.live) return ARRANGE_HINTS.offline;
+  if (s.held) return ARRANGE_HINTS.held;
+  if (s.unsaved) return ARRANGE_HINTS.unsaved;
+  return null;
+}

@@ -2,9 +2,13 @@ import { BOARD_HEIGHT, BOARD_WIDTH, clampNoteRect, type NoteRect } from "@sticky
 
 /*
  * Align, distribute, match size and grid for a multi-selection, and the group drag clamp. Pure, as in
- * Chalkline's canvas/arrange.ts: each returns only the notes it changes, as whole-unit rects
- * clamped to the board (clampNoteRect: size first, then position). The server clamps again.
+ * Chalkline's canvas/arrange.ts: each returns only the items it changes, as whole-unit rects
+ * clamped to the board (clampNoteRect by default: size first, then position; frames pass
+ * clampFrameRect, v0.20.0). The server clamps again.
  */
+
+/** Clamps a rect to an item's size limits, then onto the board (clampNoteRect or clampFrameRect). */
+export type Clamp = (rect: NoteRect) => NoteRect;
 
 export interface Placed extends NoteRect {
   id: string;
@@ -16,10 +20,10 @@ export type Axis = "horizontal" | "vertical";
 export type MatchMode = "width" | "height" | "both";
 
 /** Only the rects that differ from the input, clamped to the board. */
-function changes(before: readonly Placed[], after: readonly Placed[]): Map<string, NoteRect> {
+function changes(before: readonly Placed[], after: readonly Placed[], clamp: Clamp = clampNoteRect): Map<string, NoteRect> {
   const out = new Map<string, NoteRect>();
   after.forEach((p, i) => {
-    const rect = clampNoteRect(p);
+    const rect = clamp({ x: p.x, y: p.y, w: p.w, h: p.h });
     const was = before[i]!;
     if (rect.x !== was.x || rect.y !== was.y || rect.w !== was.w || rect.h !== was.h) out.set(p.id, rect);
   });
@@ -36,7 +40,7 @@ function bounds(rects: readonly Placed[]) {
 }
 
 /** Lines the notes up on one edge or centre line of their bounding box. Needs 2+ notes. */
-export function align(rects: readonly Placed[], mode: AlignMode): Map<string, NoteRect> {
+export function align(rects: readonly Placed[], mode: AlignMode, clamp: Clamp = clampNoteRect): Map<string, NoteRect> {
   if (rects.length < 2) return new Map();
   const b = bounds(rects);
   // Whole-unit centre lines, rounded down, with each note offset by half its size rounded down:
@@ -61,6 +65,7 @@ export function align(rects: readonly Placed[], mode: AlignMode): Map<string, No
           return { ...r, y: b.bottom - r.h };
       }
     }),
+    clamp,
   );
 }
 
@@ -69,7 +74,7 @@ export function align(rects: readonly Placed[], mode: AlignMode): Map<string, No
  * the first and last stay where they are. Needs 3+ notes. Doing it again changes nothing when
  * the notes fit without overlapping; with overlap (negative gaps) the centre order can change.
  */
-export function distribute(rects: readonly Placed[], axis: Axis): Map<string, NoteRect> {
+export function distribute(rects: readonly Placed[], axis: Axis, clamp: Clamp = clampNoteRect): Map<string, NoteRect> {
   if (rects.length < 3) return new Map();
   const start = (r: Placed) => (axis === "horizontal" ? r.x : r.y);
   const length = (r: Placed) => (axis === "horizontal" ? r.w : r.h);
@@ -87,16 +92,17 @@ export function distribute(rects: readonly Placed[], axis: Axis): Map<string, No
     after[index] = axis === "horizontal" ? { ...r, x: at } : { ...r, y: at };
     cursor += length(r) + gap;
   });
-  return changes(rects, after);
+  return changes(rects, after, clamp);
 }
 
 /** Gives every note the first selected note's width, height or both (within min/max, kept on the board). Needs 2+ notes. */
-export function matchSize(rects: readonly Placed[], mode: MatchMode): Map<string, NoteRect> {
+export function matchSize(rects: readonly Placed[], mode: MatchMode, clamp: Clamp = clampNoteRect): Map<string, NoteRect> {
   const ref = rects[0];
   if (!ref || rects.length < 2) return new Map();
   return changes(
     rects,
     rects.map((r) => ({ ...r, w: mode === "height" ? r.w : ref.w, h: mode === "width" ? r.h : ref.h })),
+    clamp,
   );
 }
 
@@ -141,7 +147,7 @@ export function readingOrder<T extends Placed>(rects: readonly T[]): T[] {
  * it. Doing it again changes nothing. A grid larger than the board changes nothing and says why.
  * Needs 2+ notes.
  */
-export function grid(rects: readonly Placed[], columns: number, gap: number): GridResult {
+export function grid(rects: readonly Placed[], columns: number, gap: number, clamp: Clamp = clampNoteRect): GridResult {
   if (rects.length < 2) return { changes: new Map(), reason: null };
   const cols = Math.min(Math.max(1, Math.floor(columns)), rects.length);
   const order = readingOrder(rects);
@@ -167,7 +173,7 @@ export function grid(rects: readonly Placed[], columns: number, gap: number): Gr
   const xs = offsets(widths);
   const ys = offsets(heights);
   const placed = new Map(order.map((r, i) => [r.id, { x: left + xs[i % cols]!, y: top + ys[Math.floor(i / cols)]! }]));
-  return { changes: changes(rects, rects.map((r) => ({ ...r, ...placed.get(r.id)! }))), reason: null };
+  return { changes: changes(rects, rects.map((r) => ({ ...r, ...placed.get(r.id)! })), clamp), reason: null };
 }
 
 /**

@@ -99,6 +99,9 @@ export function useRoom(code: string) {
     deleteSelection: (noteIds: readonly string[], frameIds: readonly string[]) => session.current?.deleteSelection(noteIds, frameIds) ?? false,
     startSelectionDrag: (frameIds: readonly string[], noteIds: readonly string[], carry: boolean) =>
       session.current?.startSelectionDrag(frameIds, noteIds, carry) ?? false,
+    applyFrameRects: (rects: readonly (NoteRect & { id: string })[]) => session.current?.applyFrameRects(rects) ?? false,
+    editFrames: (ids: readonly string[], change: FrameEdit) => session.current?.editFrames(ids, change) ?? false,
+    duplicateSelection: (noteIds: readonly string[], frameIds: readonly string[]) => session.current?.duplicateSelection(noteIds, frameIds) ?? null,
     moveSelection: (dx: number, dy: number, final: boolean) => session.current?.moveSelection(dx, dy, final) ?? { dx: 0, dy: 0 },
     undo: () => session.current?.undo(),
     redo: () => session.current?.redo(),

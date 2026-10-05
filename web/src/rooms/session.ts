@@ -112,7 +112,7 @@ import {
   type StylePatch,
 } from "../notes/board";
 import { carryPlan } from "../canvas/frameSelect";
-import { DUPLICATE_HINTS, duplicateFrameInput, duplicateNoteInputs } from "../canvas/duplicate";
+import { DUPLICATE_HINTS, duplicateFrameInput, duplicateNoteInputs, duplicateSelectionInputs } from "../canvas/duplicate";
 import { HISTORY_TEXT, History, type Fields, type ItemKind, type Lookup, type Plan } from "../history/history";
 import type { CodeCheck } from "./api";
 import { packItems, type ItemDraft, type ItemsAddMessage } from "./items";
@@ -670,6 +670,9 @@ export class RoomSession {
   private frameDrag: FrameDrag | null = null;
   /** A selection with frames being dragged (startSelectionDrag). */
   private selectionDrag: SelectionDrag | null = null;
+  /** frameEdits for several frames (editFrames), sent one every CLEAR_FRAME_STEP_MS. */
+  private frameEditQueue: ClientMessage[] = [];
+  private frameEditTimer: ReturnType<typeof setTimeout> | undefined;
   /** The template being applied, if any (one at a time). */
   private template: TemplateApply | null = null;
   /** itemsAdd messages queued or in flight, by their clientRef; the queue (clientRefs) and its pacing timer. */
@@ -1627,6 +1630,99 @@ export class RoomSession {
     this.selectionDrag = null;
   }
 
+  /**
+   * Arrange on frames (v0.20.0): new rects for several frames, shown at once and sent final, one
+   * history step. A frame whose position changes carries the notes whose centre is inside it (one
+   * frameMove with noteIds; each note once, to the first frame; more than MAX_BATCH_ENTRIES: the
+   * frame moves alone, with the notice), by one delta clamped for the frame and its notes, as the
+   * relay does. A frame whose size changes (Match size) is resized alone (frameResize). False if
+   * refused (not connected, or a guest on a locked board).
+   */
+  applyFrameRects(rects: readonly (NoteRect & { id: string })[]): boolean {
+    if (!this.live || lockedOut(this.view)) return false;
+    const board0 = this.view.board;
+    const usable = rects.flatMap((r) => {
+      const entry = findFrame(board0, r.id);
+      return entry && !isLocalId(r.id) && !isFrameHeld(entry) ? [{ rect: r, frame: entry.frame }] : [];
+    });
+    const moving = usable.filter(({ rect, frame }) => rect.w === frame.w && rect.h === frame.h);
+    const movable = board0.notes.filter((n) => !isLocalId(n.note.id) && !isHeld(n)).map((n) => n.note);
+    const plan = carryPlan(moving.map((m) => m.frame), movable, [], true);
+    const carried = new Map(plan.frames.map((p) => [p.id, p.noteIds]));
+    let board = board0;
+    const sends: ClientMessage[] = [];
+    const kinds: ItemKind[] = [];
+    const ids: string[] = [];
+    for (const { rect, frame } of usable) {
+      const noteIds = carried.get(frame.id);
+      if (noteIds === undefined) {
+        board = resizeFrameLocal(board, frame.id, rect);
+        const f = findFrame(board, frame.id)?.frame ?? frame;
+        if (f === frame) continue;
+        sends.push({ type: "frameResize", id: f.id, x: f.x, y: f.y, w: f.w, h: f.h, final: true });
+        kinds.push("frame");
+        ids.push(f.id);
+        continue;
+      }
+      const notes = noteIds.flatMap((id) => findNote(board, id)?.note ?? []);
+      const target = clampFramePosition(rect.x, rect.y, frame);
+      const { dx, dy } = groupOffset([frame, ...notes], target.x - frame.x, target.y - frame.y);
+      if (dx === 0 && dy === 0) continue;
+      board = moveFrameLocal(board, frame.id, frame.x + dx, frame.y + dy);
+      for (const n of notes) board = moveLocal(board, n.id, n.x + dx, n.y + dy);
+      sends.push({ type: "frameMove", id: frame.id, x: frame.x + dx, y: frame.y + dy, final: true, ...(notes.length > 0 ? { noteIds: notes.map((n) => n.id) } : {}) });
+      kinds.push("frame", ...notes.map(() => "note" as const));
+      ids.push(frame.id, ...notes.map((n) => n.id));
+    }
+    if (sends.length === 0) return true;
+    this.update({ board, noteNotice: plan.alone.length > 0 ? NOTICES.frameTooFull : null });
+    this.recordRects("Arrange", kinds, ids, ["x", "y", "w", "h"]);
+    for (const message of sends) this.send(message);
+    return true;
+  }
+
+  /**
+   * Colour and title style for several frames at once (v0.20.0, Properties): shown at once, then
+   * one frameEdit per frame with only what changes for it, sent one every CLEAR_FRAME_STEP_MS (so
+   * 30 frames stay inside SOCKET_LIMITS), one history step. Titles aren't edited here. Confirmed
+   * frames only. False if refused (not connected, or a guest on a locked board).
+   */
+  editFrames(ids: readonly string[], change: FrameEdit): boolean {
+    if (!this.live || lockedOut(this.view)) return false;
+    const { title: _, ...style } = change;
+    let board = this.view.board;
+    const edits: { id: string; edit: FrameEdit }[] = [];
+    for (const id of ids) {
+      const entry = findFrame(board, id);
+      if (!entry || isLocalId(id)) continue;
+      const before = entry.frame;
+      board = editFrameLocal(board, id, style);
+      const edit = frameChanges(before, findFrame(board, id)?.frame ?? before);
+      if (Object.keys(edit).length > 0) edits.push({ id, edit });
+    }
+    if (edits.length === 0) return true;
+    this.update({ board, noteNotice: null });
+    this.record(
+      "Edit frames",
+      edits.map((e) => ({ kind: "frame" as const, id: e.id, after: e.edit as Fields })),
+    );
+    for (const { id, edit } of edits) this.frameEditQueue.push({ type: "frameEdit", id, ...edit });
+    this.pumpFrameEdits();
+    return true;
+  }
+
+  /** Sends the next queued frameEdit, then waits CLEAR_FRAME_STEP_MS. */
+  private pumpFrameEdits(): void {
+    if (this.frameEditTimer !== undefined || !this.live) return;
+    const message = this.frameEditQueue.shift();
+    if (!message) return;
+    this.send(message);
+    this.frameEditTimer = setTimeout(() => {
+      this.frameEditTimer = undefined;
+      this.pumpFrameEdits();
+    }, CLEAR_FRAME_STEP_MS);
+  }
+
   startFrameResize(id: string): boolean {
     if (!this.live || isLocalId(id) || !findFrame(this.view.board, id)) return false;
     this.update({ board: setFrameResizing(this.view.board, id, true), noteNotice: null });
@@ -1925,6 +2021,44 @@ export class RoomSession {
     }
     if (this.itemBatches.size > 0) return null;
     return this.addItems([duplicateFrameInput(entry.frame)], "Duplicate")?.[0] ?? null;
+  }
+
+  /**
+   * Duplicates a selection with frames (v0.20.0) through addItems: frames copied alone (the notes
+   * inside only if they're selected too) and notes with everything, offset once and clamped as a
+   * group (canvas/duplicate.ts). Refused, sending nothing, as duplicateNotes is, for a guest on a
+   * locked board, and when the board hasn't room for every copy (a notice gives the counts). The
+   * copies' local ids by kind, or null.
+   */
+  duplicateSelection(noteIds: readonly string[], frameIds: readonly string[]): { notes: string[]; frames: string[] } | null {
+    if (!this.live || lockedOut(this.view) || noteIds.length + frameIds.length === 0) return null;
+    const notes = noteIds.map((id) => findNote(this.view.board, id));
+    const frames = frameIds.map((id) => findFrame(this.view.board, id));
+    if (notes.some((e) => !e || e.confirmed === null || isLocalId(e.note.id) || isHeld(e))) return null;
+    if (frames.some((e) => !e || e.confirmed === null || isLocalId(e.frame.id) || isFrameHeld(e))) return null;
+    const freeFrames = Math.max(0, MAX_FRAMES_PER_ROOM - this.view.board.frames.length);
+    const freeNotes = Math.max(0, MAX_NOTES_PER_ROOM - this.view.board.notes.length);
+    if (frames.length > freeFrames) {
+      this.update({ noteNotice: frames.length === 1 ? NOTICES.duplicateNoRoom("frame", 1, freeFrames) : DUPLICATE_HINTS.framesFullMany(frames.length, freeFrames) });
+      return null;
+    }
+    if (notes.length > freeNotes) {
+      this.update({ noteNotice: NOTICES.duplicateNoRoom("note", notes.length, freeNotes) });
+      return null;
+    }
+    if (this.itemBatches.size > 0) return null;
+    const inputs = duplicateSelectionInputs(
+      notes.flatMap((e) => (e ? [e.note] : [])),
+      frames.flatMap((e) => (e ? [e.frame] : [])),
+    );
+    const ids = this.addItems(inputs, "Duplicate");
+    if (!ids) return null;
+    const out = { notes: [] as string[], frames: [] as string[] };
+    inputs.forEach((input, i) => {
+      const id = ids[i];
+      if (id) (input.kind === "frame" ? out.frames : out.notes).push(id);
+    });
+    return out;
   }
 
   /* ── Clear board ────────────────────────────────────────────────── */
@@ -2396,6 +2530,10 @@ export class RoomSession {
     this.frameDrag = null;
     this.stopGroup();
     this.stopSelectionDrag();
+    // Nothing queued is sent later: there's no offline queue.
+    clearTimeout(this.frameEditTimer);
+    this.frameEditTimer = undefined;
+    this.frameEditQueue = [];
   }
 
   /* ── Live cursors (protocol v14) ────────────────────────────────── */

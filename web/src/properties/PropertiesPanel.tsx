@@ -8,6 +8,7 @@ import { confirmDeleteSelection, deleteCounts, itemsLabel, selectionLabel } from
 import { confirmFrameDelete } from "../frames/label";
 import { findFrame, framedNotes, type FrameEdit } from "../frames/board";
 import { FrameFields } from "../frames/FrameFields";
+import { FramesFields } from "../frames/FramesFields";
 import { findNote, type Board, type StylePatch } from "../notes/board";
 import { NOTE_COLOR_NAMES } from "../notes/colours";
 import { authorName, confirmDelete, confirmDeleteNotes } from "../notes/label";
@@ -45,6 +46,8 @@ export interface PropertiesRoom {
   orderNotes(ids: readonly string[], action: OrderAction): boolean;
   setFrameDraft(id: string, draft: string | null): void;
   editFrame(id: string, change: FrameEdit): boolean;
+  /** Colour and title style for several frames at once (v0.20.0). */
+  editFrames?(ids: readonly string[], change: FrameEdit): boolean;
   setFrameSize(id: string, w: number, h: number): boolean;
   deleteFrame(id: string): void;
   /** Deletes notes and frames together (v0.20.0): one paced run, one report, one undo step. */
@@ -79,13 +82,12 @@ export function mixedFields(notes: readonly Note[]): MixedFields {
 
 const noop = () => {};
 
-/** Frames with notes, or several frames: what they are and what they do together. */
-function GroupFields({ notes, frames }: { notes: number; frames: number }) {
+/** Frames with notes: what they do together (arrange and style work on one kind at a time). */
+function GroupFields() {
   return (
     <p data-group-summary="" className="rounded-md bg-surface-muted p-ms text-sm text-fg-muted">
-      {notes > 0
-        ? "Drag any of them to move them all; each frame brings the notes inside it. Delete removes the selected notes and frames; notes inside a frame stay unless they’re selected."
-        : `Drag one to move them all with the notes inside. Delete removes the ${frames} frames; the notes inside stay unless they’re selected.`}
+      Drag any of them to move them all; each frame brings the notes inside it. Delete removes the selected notes and frames; notes inside a
+      frame stay unless they’re selected. To arrange or change colour, select only notes or only frames.
     </p>
   );
 }
@@ -276,8 +278,10 @@ export function PropertiesContent({ room, collapse }: { room: PropertiesRoom; co
             {LOCK_TEXT.reason}
           </p>
         )}
-        {group ? (
-          <GroupFields notes={groupNotes.length} frames={groupFrames.length} />
+        {group && groupNotes.length === 0 ? (
+          <FramesFields frames={groupFrames.map((f) => f.frame)} live={editable} onEdit={(change) => room.editFrames?.(groupFrames.map((f) => f.frame.id), change)} />
+        ) : group ? (
+          <GroupFields />
         ) : frame ? (
           <FrameFields
             entry={frame}
