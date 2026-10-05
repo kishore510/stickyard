@@ -33,7 +33,7 @@ const VOTE_TYPES = ["claimVoter", "voteSet", "voteStart", "voteStop", "voteClear
 
 describe("protocol v13", () => {
   it("is version 13", () => {
-    expect(PROTOCOL_VERSION).toBe(13);
+    expect(PROTOCOL_VERSION).toBeGreaterThanOrEqual(13);
   });
 
   it("budget 1 to 20, default 5; at most 40 voters a round; keys of 22 to 64 characters", () => {

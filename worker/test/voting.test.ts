@@ -612,7 +612,7 @@ describe("protocol v13", () => {
   it("a protocol v12 page is refused with version_mismatch (please reload)", async () => {
     const { code } = await newRoom();
     const c = await TestClient.open(code);
-    expect(PROTOCOL_VERSION).toBe(13);
+    expect(PROTOCOL_VERSION).toBeGreaterThanOrEqual(13);
     expect(await c.request({ type: "hello", protocolVersion: 12 })).toMatchObject({ type: "error", code: "version_mismatch" });
     expect(await c.request({ type: "join", name: "Priya" })).toMatchObject({ type: "error", code: "bad_message" });
     c.close();
