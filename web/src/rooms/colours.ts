@@ -37,3 +37,8 @@ export function participantColourClass(colourIndex: number): string {
 export function participantBorderClass(colourIndex: number): string {
   return BORDERS[slotOf(colourIndex)] ?? BORDERS[0];
 }
+
+/** The colour as a CSS value (inline SVG fills, where a class can't reach). */
+export function participantColourVar(colourIndex: number): string {
+  return `var(--sy-participant-${slotOf(colourIndex) + 1})`;
+}

@@ -1,3 +1,4 @@
+// @vitest-environment happy-dom
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { act, createElement, memo, type FunctionComponent } from "react";
@@ -161,7 +162,7 @@ describe("drawing", () => {
   });
 
   it("motion comes from tokens (0 under reduced motion), and idle cursors fade", () => {
-    const css = readFileSync(join(new URL("../src/", import.meta.url).pathname, "index.css"), "utf8");
+    const css = readFileSync(join(process.cwd(), "src/index.css"), "utf8");
     const rule = css.slice(css.indexOf(".sy-cursor {"));
     expect(rule.slice(0, rule.indexOf("}"))).toMatch(/transition:[^;]*var\(--sy-duration-cursor\)/);
     expect(css).toMatch(/\.sy-cursor-idle\s*\{[^}]*opacity:\s*0/);

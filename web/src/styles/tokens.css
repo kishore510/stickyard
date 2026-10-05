@@ -43,6 +43,11 @@
   --sy-participant-6: #0f766e;
   --sy-participant-7: #a16207;
   --sy-participant-8: #57534e;
+  /* Live cursors: a dark outline under a light edge (one of them reads on every note, frame and
+     board colour, 3:1, tested), and the name's text on its participant colour (4.5:1, tested). */
+  --sy-cursor-outline: #1d2327;
+  --sy-cursor-halo: #ffffff;
+  --sy-cursor-label-fg: #ffffff;
   /* The board and its notes. Note colours are keyed by the protocol's palette keys. */
   --sy-board: #eae7df;
   --sy-board-dot: #cdc9bd;
@@ -129,6 +134,9 @@
   --sy-participant-6: #2dd4bf;
   --sy-participant-7: #facc15;
   --sy-participant-8: #c8bfb6;
+  --sy-cursor-outline: #0b0f11;
+  --sy-cursor-halo: #ffffff;
+  --sy-cursor-label-fg: #12181b;
   /* Notes stay paper-light in the dark theme, slightly muted, with dark text. */
   --sy-board: #182024;
   --sy-board-dot: #2e3a40;
@@ -225,6 +233,11 @@
   --sy-brand-mark: 7rem;
   --sy-brand-mark-lg: 15rem;
   --sy-dot: 0.75rem;
+  /* Live cursors: the arrow (smaller on phones) and the longest name beside it
+     (= CURSOR_LABEL_CHARS in cursors/cursors.ts, test checks). */
+  --sy-cursor-size: 20px;
+  --sy-cursor-size-sm: 16px;
+  --sy-cursor-label-max: 12ch;
   /* A face in the top bar's avatar stack (md and up), inside a 44px button. */
   --sy-avatar: 1.75rem;
   /* "What's new" dot on the menu button. */
@@ -361,6 +374,9 @@
   --sy-duration-base: 200ms;
   /* Remote notes ease towards each new drag position (sent about every 50ms). */
   --sy-duration-move: 100ms;
+  /* Others' pointers ease to each new position (sent at most every 100ms), and fade when idle. */
+  --sy-duration-cursor: 100ms;
+  --sy-cursor-fade: 400ms;
   --sy-ease: cubic-bezier(0.2, 0, 0, 1);
 }
 
@@ -414,6 +430,8 @@
     --sy-duration-fast: 0ms;
     --sy-duration-base: 0ms;
     --sy-duration-move: 0ms;
+    --sy-duration-cursor: 0ms;
+    --sy-cursor-fade: 0ms;
   }
 }
 

@@ -37,6 +37,9 @@ describe("storage keys", () => {
       palettePanel: "stickyard:palette-panel",
       propertiesPanel: "stickyard:properties-panel",
       chatPanel: "stickyard:chat-panel",
+      // Live cursors (v0.19.0): the two switches in Participants, "on" / "off".
+      showCursors: "stickyard:show-cursors",
+      shareCursor: "stickyard:share-cursor",
       // Protocol v12: one host token per room, stickyard:host:<room id> (never the passcode).
       hostTokenPrefix: "stickyard:host:",
       // Protocol v13: one random voter key per room, stickyard:voter:<room id>.

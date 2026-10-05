@@ -24,6 +24,8 @@ import { useBoardUi } from "./uiStore";
 import { useMarquee } from "./useMarquee";
 import { VOTE_TEXT } from "../voting/voting";
 import type { CanvasView } from "./useCanvasView";
+import { CursorLayer } from "../cursors/CursorLayer";
+import { useCursorSharing } from "../cursors/useCursorSharing";
 
 /** The board's bounded area under the notes: the dot grid, with a visible edge. */
 function BoardSurface() {
@@ -71,6 +73,9 @@ export interface BoardRoom {
   startFrameResize(id: string): boolean;
   resizeFrame(id: string, rect: NoteRect, final: boolean): void;
   deleteFrame(id: string): void;
+  /** Live cursors (protocol v14): share my pointer (false: not sent), and say it left. */
+  shareCursor(x: number, y: number): boolean;
+  hideCursor(): void;
 }
 
 /**
@@ -365,6 +370,8 @@ export function BoardCanvas({
     threshold,
     notes: () => latest.current.board.notes.map((n) => n.note),
   });
+  // My pointer, shared from md up with a mouse or a hovering pen (phones only receive).
+  useCursorSharing(sectionRef, multiSelect, room);
   const minimapSize = useMemo(
     () => ({ width: readPxToken("--sy-minimap-width", 200), height: readPxToken("--sy-minimap-height", 125) }),
     [],
@@ -445,6 +452,7 @@ export function BoardCanvas({
                 />
               </ViewportPortal>
             )}
+            <CursorLayer compact={!multiSelect} />
             {minimap && (
               <MiniMap<CanvasNode>
                 className={cn("sy-minimap", minimapLifted && "sy-minimap-lifted")}

@@ -12,6 +12,7 @@ import { useTimerControls } from "../timer/controls";
 import { TimerForm } from "../timer/TimerForm";
 import { HostVotingControls } from "../voting/HostVoting";
 import { LOCK_TEXT, confirmEndSession, lockToggle } from "../facilitation/lock";
+import { useCursorPrefs } from "../cursors/prefs";
 
 /*
  * The Participants sheet (#/participants): who's in the session now, the unverified-names
@@ -119,6 +120,38 @@ function SessionSection() {
   );
 }
 
+/** One switch: a native checkbox with role=switch, in a full touch-target row. */
+function Switch({ label, hint, checked, onChange }: { label: string; hint: string; checked: boolean; onChange(on: boolean): void }) {
+  return (
+    <label className="flex min-h-touch cursor-pointer items-start gap-ms rounded-md border border-border bg-surface p-ms">
+      <input type="checkbox" role="switch" checked={checked} onChange={(e) => onChange(e.target.checked)} className="mt-2xs size-icon shrink-0 accent-accent" />
+      <span className="flex flex-col">
+        <span className="font-medium">{label}</span>
+        <span className="text-sm text-fg-muted">{hint}</span>
+      </span>
+    </label>
+  );
+}
+
+/** Live cursors (v0.19.0): show other people's pointers, share mine. Remembered in this browser. */
+function CursorSection({ wide }: { wide: boolean }) {
+  const { show, share, set } = useCursorPrefs();
+  return (
+    <section aria-labelledby="cursors-heading" className="flex flex-col gap-sm">
+      <h3 id="cursors-heading" className="text-base font-semibold">
+        Cursors
+      </h3>
+      <Switch label="Show other people’s cursors" hint="Their pointers and names on the board, live." checked={show} onChange={(on) => set("show", on)} />
+      <Switch
+        label="Share my cursor"
+        hint={wide ? "Others see your pointer while it’s over the board. Never stored." : "Phones never share a pointer; this applies on a bigger screen with a mouse or pen."}
+        checked={share}
+        onChange={(on) => set("share", on)}
+      />
+    </section>
+  );
+}
+
 export function ParticipantsPage() {
   const room = useRoomUi((s) => s.room);
   const wide = useMediaQuery(MEDIA.tablet);
@@ -151,6 +184,8 @@ export function ParticipantsPage() {
           characters).
         </p>
       </section>
+
+      <CursorSection wide={wide} />
 
       {room.isHost && !wide && <SessionSection />}
 

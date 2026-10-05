@@ -1,3 +1,4 @@
+// @vitest-environment happy-dom
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -48,7 +49,7 @@ describe("sending: throttle and movement threshold", () => {
         return timers.length;
       },
       clearTimer: (id) => {
-        if (id !== undefined) timers[id - 1] = { at: Infinity, fn: () => {} };
+        if (typeof id === "number") timers[id - 1] = { at: Infinity, fn: () => {} };
       },
       send: (x, y) => {
         sent.push(["cursor", x, y]);
@@ -229,7 +230,7 @@ describe("preferences", () => {
 
 /* Tokens: sizes and timings in tokens.css; the cursor readable on every note and frame colour, both themes. */
 
-const tokens = readFileSync(join(new URL("../src/", import.meta.url).pathname, "styles/tokens.css"), "utf8");
+const tokens = readFileSync(join(process.cwd(), "src/styles/tokens.css"), "utf8");
 function theme(selector: string): Record<string, string> {
   const start = tokens.indexOf(selector);
   const block = tokens.slice(start, tokens.indexOf("}", start));

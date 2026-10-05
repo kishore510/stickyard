@@ -21,6 +21,9 @@ export const STORAGE_KEYS = {
   propertiesPanel: storageKey("properties-panel"),
   /** The floating chat panel's size (md and up), once resized. Layout only. */
   chatPanel: storageKey("chat-panel"),
+  /** Live cursors (v0.19.0): "off" hides other people's pointers / stops sharing mine. Preferences only. */
+  showCursors: storageKey("show-cursors"),
+  shareCursor: storageKey("share-cursor"),
   /**
    * Host tokens (protocol v12), one key per room: `stickyard:host:<room id>`, via hostTokenKey.
    * Kept only on the device that started the session, sent only in claimHost, removed when the
