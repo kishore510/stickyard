@@ -2,6 +2,22 @@
 
 All notable changes to Stickyard, newest first. The format follows Keep a Changelog. Versions are 0.x: a minor bump for each slice and a patch bump for each follow-up fix. This file is shown in the app under **What’s new**, so entries are written for the people using it.
 
+## [0.20.0] - 2026-10-05
+
+### Added
+- Select several frames, or frames and notes together, on a wider screen. **Shift**-click or **Ctrl**-click (**Cmd**-click on a Mac) a frame's title bar or border to add it to the selection; a plain click still selects just that frame.
+- A marquee now picks up every frame it fully surrounds, as well as the notes it touches. **Ctrl+A** (**Cmd+A**) selects every note and frame.
+- Selected frames get the same tick as selected notes, and the dashed box goes round the whole selection.
+- Drag any selected frame or note to move everything selected. Each frame brings the notes inside it (a note inside two selected frames goes with the first you selected), and everything stops together at the edge of the board. Hold **Alt** as you start to leave the notes inside the frames behind. The arrow keys move the selection the same way. One **Undo** puts it all back.
+- **Delete** on a selection with frames asks once, with how many notes and frames, and how many notes inside the frames aren't selected and will stay. The board then says how it went, and one **Undo** brings everything back.
+- **Align**, **Distribute**, **Grid** and **Match size** work on frames when only frames are selected. Frames that move bring their notes; **Match size** only resizes the frames.
+- With two or more frames selected, **Properties** changes the **Colour** and **Title text** of all of them at once. It sums up a mixed selection, for example "3 notes, 2 frames selected", with a bin to delete it.
+- **Duplicate** copies frames and mixed selections. Frames are copied on their own (the notes inside only if they're selected too), and the copies keep their arrangement.
+
+### Changed
+- With notes and frames selected together, the arranging tools are off and the Arrange panel says why. **Bring to front** and **Send to back** act on the selected notes; with only frames selected they're off, because frames always sit behind notes.
+- The Help topics for notes and for touch and keyboard describe selecting, moving and deleting frames together.
+
 ## [0.19.0] - 2026-10-05
 
 ### Added

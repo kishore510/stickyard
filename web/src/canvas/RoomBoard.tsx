@@ -41,7 +41,7 @@ import { VOTE_TEXT } from "../voting/voting";
 import { openSheet } from "../shell/nav";
 import { createPortal } from "react-dom";
 import type { Placed } from "./arrange";
-import { BoardCanvas, deleteFrameAsking, deleteSelected, type BoardRoom } from "./BoardCanvas";
+import { BoardCanvas, deleteFrameAsking, deleteSelected, deleteSelectionAsking, type BoardRoom } from "./BoardCanvas";
 import { duplicateDisabledReason } from "./duplicate";
 import { BoardBar } from "./SelectionBar";
 import type { BoardCommand } from "./shortcuts";
@@ -242,6 +242,7 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
   const addSheetOpen = useBoardUi((s) => s.addSheetOpen);
   const selection = useBoardUi((s) => s.selection);
   const frameSelected = useBoardUi((s) => s.frameSelected);
+  const frameSelection = useBoardUi((s) => s.frames);
   const panels = usePanels();
   const zoom = useStore((s) => s.transform[2]);
   const free = useStore((s) => s.width);
@@ -414,6 +415,8 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
+  const deleteSelection = room.deleteSelection;
+
   const boardRoom: BoardRoom = {
     board: view.board,
     live,
@@ -435,6 +438,9 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
     startFrameResize: room.startFrameResize,
     resizeFrame: room.resizeFrame,
     deleteFrame: room.deleteFrame,
+    deleteSelection,
+    startSelectionDrag: room.startSelectionDrag,
+    moveSelection: room.moveSelection,
     shareCursor: room.shareCursor,
     hideCursor: room.hideCursor,
   };
@@ -443,20 +449,34 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
   const selectedEntries = wide ? orderedIds(selection).flatMap((id) => findNote(view.board, id) ?? []) : [];
   const selectedNotes: Placed[] = selectedEntries.map((e) => e.note);
   const frameEntry = wide && frameSelected !== null ? findFrame(view.board, frameSelected) : undefined;
+  // Every selected frame (v0.20.0); `group` when frames are selected with anything else.
+  const selectedFrameEntries = wide ? orderedIds(frameSelection).flatMap((id) => findFrame(view.board, id) ?? []) : [];
+  const group = selectedFrameEntries.length > 0 && selectedFrameEntries.length + selectedEntries.length > 1;
+  const framesHeld = selectedFrameEntries.some(isFrameHeld);
+  const framesUnsaved = selectedFrameEntries.some((e) => e.confirmed === null);
   const duplicateReason = withLock(duplicateDisabledReason({
     notes: selectedEntries.length,
-    frame: frameEntry !== undefined,
+    frame: selectedFrameEntries.length > 0,
+    frames: selectedFrameEntries.length,
     live,
-    held: selectedEntries.some(isHeld) || (frameEntry !== undefined && isFrameHeld(frameEntry)),
-    unsaved: selectedEntries.some((e) => e.confirmed === null) || frameEntry?.confirmed === null,
+    held: selectedEntries.some(isHeld) || framesHeld,
+    unsaved: selectedEntries.some((e) => e.confirmed === null) || framesUnsaved,
     busy: view.adding,
     freeNotes: Math.max(0, MAX_NOTES_PER_ROOM - noteCount),
     freeFrames: Math.max(0, MAX_FRAMES_PER_ROOM - frameCount),
   }), lock);
 
-  /** Duplicates the selection (notes, or the frame alone) and selects the copies. */
+  /** Duplicates the selection (notes, the frame alone, or frames with notes) and selects the copies. */
   const duplicate = () => {
     if (duplicateReason !== null) return room.showNotice(duplicateReason);
+    if (group) {
+      const ids = room.duplicateSelection(
+        selectedEntries.map((e) => e.note.id),
+        selectedFrameEntries.map((e) => e.frame.id),
+      );
+      if (ids) useBoardUi.getState().setSelections(new Set(ids.notes), new Set(ids.frames));
+      return;
+    }
     if (frameEntry) {
       const id = room.duplicateFrame(frameEntry.frame.id);
       if (id) useBoardUi.getState().selectFrame(id);
@@ -468,6 +488,13 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
 
   /** Deletes the selection as the Delete key does (same confirms and report). */
   const removeSelection = () => {
+    if (selectedFrameEntries.length > 0 && selectedFrameEntries.length + selectedEntries.length > 1) {
+      return deleteSelectionAsking(
+        { board: view.board, live, deleteSelection },
+        selectedEntries.map((e) => e.note.id),
+        selectedFrameEntries.map((e) => e.frame.id),
+      );
+    }
     if (frameEntry) return deleteFrameAsking({ board: view.board, deleteFrame: room.deleteFrame }, frameEntry.frame.id);
     deleteSelected({ board: view.board, live, deleteNote: room.deleteNote, deleteNotes: room.deleteNotes }, selectedEntries.map((e) => e.note.id));
   };
@@ -521,7 +548,11 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
   const bar = wide ? (
     <BoardBar
       notes={selectedNotes}
-      frame={frameEntry !== undefined}
+      frames={selectedFrameEntries.map((e) => e.frame)}
+      framesHeld={framesHeld}
+      framesUnsaved={framesUnsaved}
+      applyFrames={(rects) => room.applyFrameRects(rects)}
+      frame={frameEntry !== undefined || selectedFrameEntries.length > 0}
       live={live}
       held={selectedEntries.some(isHeld)}
       unsaved={selectedEntries.some((e) => isLocalId(e.note.id))}
@@ -645,11 +676,14 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
                 orderNotes: room.orderNotes,
                 setFrameDraft: room.setFrameDraft,
                 editFrame: room.editFrame,
+                editFrames: room.editFrames,
                 setFrameSize: room.setFrameSize,
                 deleteFrame: room.deleteFrame,
+                deleteSelection,
                 clearBoard: room.clearBoard,
                 adding: view.adding,
                 clearing: view.clearing,
+                deleting: view.deleting,
                 locked,
                 isHost,
                 endSession: room.endSession,

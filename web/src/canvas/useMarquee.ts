@@ -2,6 +2,7 @@ import { useReactFlow } from "@xyflow/react";
 import { useEffect, useRef, useState, type RefObject } from "react";
 import { isDrag } from "./geometry";
 import { paneGesture } from "./pointer";
+import { marqueeFrames } from "./frameSelect";
 import { marqueeSelection, type Selection } from "./selection";
 import type { Mode } from "./tools";
 import { useBoardUi } from "./uiStore";
@@ -22,7 +23,7 @@ const onEmptyCanvas = (target: EventTarget | null) =>
 
 /**
  * Mouse marquee selection, as in Chalkline (Select tool, left-drag on empty canvas; Shift adds
- * to the selection). A left press that doesn't move past the drag threshold clears the
+ * to the selection). Notes it touches are selected; frames only when it encloses them (v0.20.0). A left press that doesn't move past the drag threshold clears the
  * selection instead (unless Shift is held). Touch and pen presses, other buttons, Hand and Space
  * are left to React Flow, which pans (canvas/pointer.ts decides).
  *
@@ -37,6 +38,7 @@ export function useMarquee({
   spaceHeld,
   threshold,
   notes,
+  frames = () => [],
 }: {
   section: RefObject<HTMLElement | null>;
   /** Multi-select is on (md and up). */
@@ -46,12 +48,14 @@ export function useMarquee({
   threshold: number;
   /** The notes as board rects, read when the marquee moves. */
   notes: () => { id: string; x: number; y: number; w: number; h: number }[];
+  /** The frames as board rects, likewise. */
+  frames?: () => { id: string; x: number; y: number; w: number; h: number }[];
 }) {
   const flow = useReactFlow();
   const [box, setBox] = useState<MarqueeBox | null>(null);
   const handledClick = useRef(false);
-  const latest = useRef({ enabled, tool, spaceHeld, threshold, notes, flow });
-  latest.current = { enabled, tool, spaceHeld, threshold, notes, flow };
+  const latest = useRef({ enabled, tool, spaceHeld, threshold, notes, frames, flow });
+  latest.current = { enabled, tool, spaceHeld, threshold, notes, frames, flow };
 
   useEffect(() => {
     const el = section.current;
@@ -72,12 +76,14 @@ export function useMarquee({
 
       const start = { x: e.clientX, y: e.clientY };
       const base: Selection = useBoardUi.getState().selection;
+      const baseFrames: Selection = useBoardUi.getState().frames;
       const additive = e.shiftKey;
       let moved = false;
       let last: Selection | undefined;
+      let lastFrames: Selection | undefined;
 
       const onMove = (m: PointerEvent) => {
-        const { threshold: limit, flow: f, notes: list } = latest.current;
+        const { threshold: limit, flow: f, notes: list, frames: frameList } = latest.current;
         if (!moved && !isDrag(m.clientX - start.x, m.clientY - start.y, limit)) return;
         moved = true;
         const bounds = el.getBoundingClientRect();
@@ -89,8 +95,10 @@ export function useMarquee({
         });
         const a = f.screenToFlowPosition(start, { snapToGrid: false });
         const b = f.screenToFlowPosition({ x: m.clientX, y: m.clientY }, { snapToGrid: false });
-        last = marqueeSelection(list(), { x: a.x, y: a.y, width: b.x - a.x, height: b.y - a.y }, base, additive, last);
-        useBoardUi.getState().setSelection(last);
+        const area = { x: a.x, y: a.y, width: b.x - a.x, height: b.y - a.y };
+        last = marqueeSelection(list(), area, base, additive, last);
+        lastFrames = marqueeFrames(frameList(), area, baseFrames, additive, lastFrames);
+        useBoardUi.getState().setSelections(last, lastFrames);
       };
       const onUp = () => {
         stop();

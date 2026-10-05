@@ -8,6 +8,7 @@ export const CLEAR_HINTS = {
   empty: "The board is already empty.",
   busy: "Wait until the items being added are saved.",
   clearing: "The board is being cleared.",
+  deleting: "Wait until the delete finishes.",
 } as const;
 
 export interface ClearState {
@@ -18,11 +19,14 @@ export interface ClearState {
   busy: boolean;
   /** A clear is still running. */
   clearing: boolean;
+  /** A delete of a selection with frames is still running (v0.20.0). */
+  deleting?: boolean;
 }
 
 export function clearBoardReason(s: ClearState): string | null {
   if (!s.live) return CLEAR_HINTS.offline;
   if (s.clearing) return CLEAR_HINTS.clearing;
+  if (s.deleting) return CLEAR_HINTS.deleting;
   if (s.notes + s.frames === 0) return CLEAR_HINTS.empty;
   if (s.busy) return CLEAR_HINTS.busy;
   return null;

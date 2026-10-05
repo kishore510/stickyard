@@ -3,6 +3,7 @@ import { create } from "zustand";
 import {
   EMPTY_SELECTION,
   clearSelection,
+  onlySelected,
   pruneSelection,
   renameInSelection,
   selectAll,
@@ -29,9 +30,12 @@ interface BoardUi {
   /** Selected note ids, in the order they were selected (see selection.ts). */
   selection: Selection;
   /**
-   * The selected frame, if any (protocol v9). Apart from the note selection: selecting a frame
-   * clears the notes and selecting notes clears the frame. Marquee, Ctrl+A and arrange are notes only.
+   * Selected frame ids, in the order they were selected (v0.20.0). A selection can hold notes and
+   * frames together: Shift/Ctrl/Cmd-click toggles either, a marquee takes the frames it encloses,
+   * Ctrl+A takes everything. A plain click on one selects just it.
    */
+  frames: Selection;
+  /** The one selected frame when it's selected alone (no notes, no other frame), else null. Derived from `frames`. */
   frameSelected: string | null;
   /** Asks a frame's header to take focus (a new frame: its title is ready to type). */
   frameEditRequest: { id: string; n: number } | null;
@@ -51,8 +55,11 @@ interface BoardUi {
   select(id: string): void;
   /** Shift/Ctrl-click: adds the note or takes it out. */
   toggle(id: string): void;
+  /** Notes only (the frames are cleared). */
   setSelection(selection: Selection): void;
-  selectAll(ids: Iterable<string>): void;
+  /** Notes and frames together. */
+  setSelections(selection: Selection, frames: Selection): void;
+  selectAll(ids: Iterable<string>, frameIds?: Iterable<string>): void;
   clearSelection(): void;
   /** A note got its server id. */
   renameSelected(from: string, to: string): void;
@@ -60,9 +67,11 @@ interface BoardUi {
   pruneSelected(exists: (id: string) => boolean): void;
   /** Selects just this frame (no notes). */
   selectFrame(id: string): void;
+  /** Shift/Ctrl/Cmd-click on a frame: adds it or takes it out (notes stay). */
+  toggleFrame(id: string): void;
   /** A frame got its server id. */
   renameFrame(from: string, to: string): void;
-  /** Drops the frame if it no longer exists. */
+  /** Drops frames that no longer exist. */
   pruneFrame(exists: (id: string) => boolean): void;
   /** Selects the frame and puts the caret in its title. */
   requestFrameEdit(id: string): void;
@@ -80,11 +89,17 @@ interface BoardUi {
   resetRoom(): void;
 }
 
+/** The single frame selected alone, or null. */
+const soleFrame = (selection: Selection, frames: Selection) => (selection.size === 0 ? onlySelected(frames) : null);
+/** Both sets and the derived frameSelected, to spread into a state update. */
+const both = (selection: Selection, frames: Selection) => ({ selection, frames, frameSelected: soleFrame(selection, frames) });
+
 export const useBoardUi = create<BoardUi>()((set, get) => ({
   tool: "select",
   color: "yellow",
   minimap: null,
   selection: EMPTY_SELECTION,
+  frames: EMPTY_SELECTION,
   frameSelected: null,
   frameEditRequest: null,
   editRequest: null,
@@ -96,20 +111,23 @@ export const useBoardUi = create<BoardUi>()((set, get) => ({
   setTool: (tool) => set({ tool }),
   setColor: (color) => set({ color }),
   setMinimap: (minimap) => set({ minimap }),
-  select: (id) => set({ selection: selectOnly(get().selection, id), frameSelected: null }),
-  toggle: (id) => set({ selection: toggleSelected(get().selection, id), frameSelected: null }),
+  select: (id) => set(both(selectOnly(get().selection, id), EMPTY_SELECTION)),
+  toggle: (id) => set(both(toggleSelected(get().selection, id), get().frames)),
   setSelection: (selection) => {
-    if (selection !== get().selection || get().frameSelected !== null) set({ selection, frameSelected: null });
+    if (selection !== get().selection || get().frames.size > 0) set(both(selection, EMPTY_SELECTION));
   },
-  selectAll: (ids) => set({ selection: selectAll(ids), frameSelected: null }),
+  setSelections: (selection, frames) => {
+    if (selection !== get().selection || frames !== get().frames) set(both(selection, frames));
+  },
+  selectAll: (ids, frameIds = []) => set(both(selectAll(ids), selectAll(frameIds))),
   clearSelection: () => {
-    const { selection, frameSelected } = get();
-    if (selection.size > 0 || frameSelected !== null) set({ selection: clearSelection(selection), frameSelected: null });
+    const { selection, frames } = get();
+    if (selection.size > 0 || frames.size > 0) set(both(clearSelection(selection), clearSelection(frames)));
   },
   renameSelected: (from, to) => {
     const { selection, editRequest, inlineEdit } = get();
     set({
-      selection: renameInSelection(selection, from, to),
+      ...both(renameInSelection(selection, from, to), get().frames),
       editRequest: editRequest?.id === from ? { ...editRequest, id: to } : editRequest,
       inlineEdit: inlineEdit?.id === from ? { ...inlineEdit, id: to } : inlineEdit,
     });
@@ -121,35 +139,36 @@ export const useBoardUi = create<BoardUi>()((set, get) => ({
     const goneInline = inlineEdit !== null && !exists(inlineEdit.id);
     const goneRequest = editRequest !== null && !exists(editRequest.id);
     if (next !== selection || goneInline || goneRequest)
-      set({ selection: next, ...(goneInline ? { inlineEdit: null } : {}), ...(goneRequest ? { editRequest: null } : {}) });
+      set({ ...both(next, get().frames), ...(goneInline ? { inlineEdit: null } : {}), ...(goneRequest ? { editRequest: null } : {}) });
   },
   selectFrame: (id) => {
-    if (get().frameSelected !== id || get().selection.size > 0) set({ frameSelected: id, selection: EMPTY_SELECTION, inlineEdit: null });
+    if (get().frameSelected !== id) set({ ...both(EMPTY_SELECTION, selectOnly(get().frames, id)), inlineEdit: null });
   },
+  toggleFrame: (id) => set({ ...both(get().selection, toggleSelected(get().frames, id)), inlineEdit: null }),
   renameFrame: (from, to) => {
-    const { frameSelected, frameEditRequest } = get();
+    const { frames, frameEditRequest } = get();
     set({
-      frameSelected: frameSelected === from ? to : frameSelected,
+      ...both(get().selection, renameInSelection(frames, from, to)),
       frameEditRequest: frameEditRequest?.id === from ? { ...frameEditRequest, id: to } : frameEditRequest,
     });
   },
   pruneFrame: (exists) => {
-    const { frameSelected: id, frameEditRequest } = get();
+    const { frames, frameEditRequest } = get();
+    const next = pruneSelection(frames, exists);
     const goneRequest = frameEditRequest !== null && !exists(frameEditRequest.id);
-    if ((id !== null && !exists(id)) || goneRequest)
-      set({ ...(id !== null && !exists(id) ? { frameSelected: null } : {}), ...(goneRequest ? { frameEditRequest: null } : {}) });
+    if (next !== frames || goneRequest) set({ ...both(get().selection, next), ...(goneRequest ? { frameEditRequest: null } : {}) });
   },
-  requestFrameEdit: (id) => set({ frameSelected: id, selection: EMPTY_SELECTION, frameEditRequest: { id, n: (get().frameEditRequest?.n ?? 0) + 1 } }),
-  requestEdit: (id) => set({ selection: selectOnly(get().selection, id), frameSelected: null, editRequest: { id, n: (get().editRequest?.n ?? 0) + 1 } }),
+  requestFrameEdit: (id) => set({ ...both(EMPTY_SELECTION, selectOnly(get().frames, id)), frameEditRequest: { id, n: (get().frameEditRequest?.n ?? 0) + 1 } }),
+  requestEdit: (id) => set({ ...both(selectOnly(get().selection, id), EMPTY_SELECTION), editRequest: { id, n: (get().editRequest?.n ?? 0) + 1 } }),
   startInlineEdit: (id, part) =>
-    set({ selection: selectOnly(get().selection, id), frameSelected: null, inlineEdit: { id, part, n: (get().inlineEdit?.n ?? 0) + 1 } }),
+    set({ ...both(selectOnly(get().selection, id), EMPTY_SELECTION), inlineEdit: { id, part, n: (get().inlineEdit?.n ?? 0) + 1 } }),
   endInlineEdit: () => {
     if (get().inlineEdit) set({ inlineEdit: null });
   },
   setAddSheetOpen: (addSheetOpen) => set({ addSheetOpen }),
   setTimerPickerOpen: (timerPickerOpen) => set({ timerPickerOpen }),
   requestReveal: (id) =>
-    set({ selection: selectOnly(get().selection, id), frameSelected: null, inlineEdit: null, revealRequest: { id, n: (get().revealRequest?.n ?? 0) + 1 } }),
+    set({ ...both(selectOnly(get().selection, id), EMPTY_SELECTION), inlineEdit: null, revealRequest: { id, n: (get().revealRequest?.n ?? 0) + 1 } }),
   setGridColumns: (gridColumns) => set({ gridColumns }),
-  resetRoom: () => set({ selection: EMPTY_SELECTION, frameSelected: null, frameEditRequest: null, editRequest: null, inlineEdit: null, addSheetOpen: false, timerPickerOpen: false, revealRequest: null }),
+  resetRoom: () => set({ ...both(EMPTY_SELECTION, EMPTY_SELECTION), frameEditRequest: null, editRequest: null, inlineEdit: null, addSheetOpen: false, timerPickerOpen: false, revealRequest: null }),
 }));

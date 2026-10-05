@@ -39,6 +39,7 @@ Draft roadmap. When a slice starts, rewrite its prompt against the real code (se
 | 9 (trimmed) Hardening | Load test and accessibility pass (message-rate limits already exist since slice 2) | Not started |
 | 6 (part) Silent brainstorm with reveal | The server withholds other people's note text until the host reveals it (snapshot and broadcast paths change). Riskiest slice | Not started |
 | 3b Presence: live cursors | Live cursors (throttled, never stored). Protocol v14 | Done (v0.19.0, PR #37; built ahead of export by choice) |
+| Frame multi-select | Frames in the selection with notes: marquee (enclosed frames), Ctrl+A, Shift/Ctrl-click; group move with carry, paced delete, arrange/Grid/Match size on frames, Colour and Title text for several frames, Duplicate of mixed selections. Web only, no protocol change | Done (v0.20.0, PR #38) |
 | 7a Text box and shapes | Text box and basic shapes (rectangle, oval, diamond), reusing 2.7's sizing and colour work | Not started |
 | 7b Arrows | (i) Free endpoints and a line style; (ii) endpoints bound to notes and shapes, re-routed when a bound object moves, with a rule for deleting a bound object | Not started |
 | 7c Structure (remaining) | Group boxes, affinity grouping, Stencils tab and Save as stencil. Frames, templates and export moved to their own slices | Not started |
@@ -288,8 +289,6 @@ Draft roadmap. When a slice starts, rewrite its prompt against the real code (se
 - Spin-offs reusing the relay (planning poker, vote room)
 - Phone sends its touch position as a cursor while a finger is down
 - Layers panel, and forward/backward one step
-- Frame multi-select: marquee picks up frames, delete them together. Bigger than it looks: arrange, Properties and batches assume notes only
-- Frame-aware Grid (frames as grid containers)
 - Undoable order changes (needs a new message; the server owns z)
 - ~~Bar height tidy-up (possible 0.12.1)~~: done differently in v0.15.1 (the bar moved into the top bar)
 - Facilitator-defined note palette (host-only; from the old slice 6 notes)

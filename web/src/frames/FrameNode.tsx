@@ -1,8 +1,9 @@
-import { createContext, memo, useContext, useEffect, useRef, useState, type KeyboardEvent } from "react";
+import { createContext, memo, useContext, useEffect, useRef, useState, type KeyboardEvent, type MouseEvent } from "react";
 import { NodeResizer, type NodeProps } from "@xyflow/react";
-import { GripHorizontal } from "lucide-react";
+import { Check, GripHorizontal } from "lucide-react";
 import { FRAME_MAX_H, FRAME_MAX_W, FRAME_MIN_H, FRAME_MIN_W, MAX_FRAME_TITLE, type NoteRect } from "@stickyard/shared";
 import type { FrameFlowNode } from "../canvas/nodes";
+import { noteClick } from "../canvas/pointer";
 import { useBoardUi } from "../canvas/uiStore";
 import { isLocalId } from "../notes/board";
 import { cn } from "../lib/utils";
@@ -11,6 +12,8 @@ import { frameHeaderStyle, frameRootStyle, frameTitleClasses } from "./style";
 export interface FrameActions {
   /** Selects just this frame (clears the note selection). */
   selectFrame(id: string): void;
+  /** Shift/Ctrl/Cmd-click: adds the frame to the selection or takes it out (md and up). */
+  toggleFrame(id: string): void;
   /** The title being typed (a draft: no messages until it's committed). */
   setDraft(id: string, draft: string): void;
   /** Saves the draft, if there is one (Enter, Esc, or leaving the field). */
@@ -46,6 +49,8 @@ export const FrameNode = memo(function FrameNode({ id, data }: NodeProps<FrameFl
   const { frame } = entry;
   const input = useRef<HTMLInputElement>(null);
   const request = useBoardUi((s) => (s.frameEditRequest?.id === id ? s.frameEditRequest : null));
+  // Two or more items selected: each selected one shows a tick (selection isn't by colour alone).
+  const several = useBoardUi((s) => s.selection.size + s.frames.size > 1);
 
   // A new frame (or an edit request) puts the caret at the end of the title. A new frame's node is
   // replaced when its server id arrives, so the request stays until the confirmed node has focus.
@@ -62,8 +67,10 @@ export const FrameNode = memo(function FrameNode({ id, data }: NodeProps<FrameFl
   // The title takes presses only while it's being edited: a click on it selects the frame (so
   // Delete deletes it) and drags with the header; double-click (or Enter, or Tab) edits it.
   const [titleFocused, setTitleFocused] = useState(false);
-  const select = () => {
-    if (editable) actions?.selectFrame(id);
+  const select = (e?: MouseEvent) => {
+    if (!editable) return;
+    if (e && noteClick(e) === "toggle") actions?.toggleFrame(id);
+    else actions?.selectFrame(id);
   };
   const editTitle = () => {
     const el = input.current;
@@ -148,6 +155,11 @@ export const FrameNode = memo(function FrameNode({ id, data }: NodeProps<FrameFl
         </div>
         {editable && EDGES.map((edge) => <div key={edge} aria-hidden="true" data-frame-handle="edge" className={cn("absolute", edge, handle)} onClick={select} />)}
       </div>
+      {selected && several && (
+        <span data-select-badge aria-hidden="true" className="sy-select-badge">
+          <Check strokeWidth={3} />
+        </span>
+      )}
     </>
   );
 });

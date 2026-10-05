@@ -26,13 +26,14 @@ import {
   Undo2,
   Vote,
 } from "lucide-react";
-import type { NoteRect, OrderAction } from "@stickyard/shared";
+import { clampFrameRect, type NoteRect, type OrderAction } from "@stickyard/shared";
 import { Button } from "../components/ui/button";
 import { Panel } from "../components/ui/panel";
 import { ORDER_COMMANDS } from "../notes/OrderFields";
 import { cn } from "../lib/utils";
 import { GRID_GAP, align, autoColumns, distribute, grid, matchSize, type AlignMode, type Axis, type GridReason, type MatchMode, type Placed } from "./arrange";
 import { useBoardUi } from "./uiStore";
+import { ARRANGE_HINTS, arrangeReason } from "./frameSelect";
 import { LOCK_TEXT, lockToggle } from "../facilitation/lock";
 import { useMediaQuery } from "../lib/useMediaQuery";
 import { useRoomUi } from "../rooms/roomStore";
@@ -316,6 +317,13 @@ export const DELETE_HINTS = {
 export interface BoardBarProps {
   /** Selected notes, in selection order (the first is Match size's reference). */
   notes: Placed[];
+  /** Selected frames, in selection order (v0.20.0): arranged like notes when they're all that's selected. */
+  frames?: Placed[];
+  /** A selected frame is being moved or resized here, or has no server id yet. */
+  framesHeld?: boolean;
+  framesUnsaved?: boolean;
+  /** Sends arranged frame rects (frames carry their notes when they move). */
+  applyFrames?: (rects: (NoteRect & { id: string })[]) => void;
   /** A frame is selected (instead of notes). */
   frame: boolean;
   live: boolean;
@@ -348,19 +356,47 @@ export interface BoardBarProps {
  * `notice` tells why a grid didn't fit. Everything is off while disconnected; Grid also while a
  * note in the selection is held or unsaved.
  */
-export function BoardBar({ notes, frame, live, held, unsaved, duplicateReason, duplicate, undoReason, redoReason, undo, redo, remove, apply, order, notice, lockedReason = null, session = null }: BoardBarProps) {
-  const send = (changes: Map<string, NoteRect>) => apply([...changes].map(([id, rect]) => ({ id, ...rect })));
+export function BoardBar({
+  notes,
+  frames = [],
+  framesHeld = false,
+  framesUnsaved = false,
+  applyFrames = () => {},
+  frame,
+  live,
+  held,
+  unsaved,
+  duplicateReason,
+  duplicate,
+  undoReason,
+  redoReason,
+  undo,
+  redo,
+  remove,
+  apply,
+  order,
+  notice,
+  lockedReason = null,
+  session = null,
+}: BoardBarProps) {
+  // Arrange works on the notes, or (v0.20.0) on the frames when only frames are selected; a mix is refused with a reason.
+  const onFrames = frames.length > 0;
+  const mixed = onFrames && notes.length > 0;
+  const items = onFrames ? frames : notes;
+  const clamp = onFrames ? clampFrameRect : undefined;
+  const send = (changes: Map<string, NoteRect>) => (onFrames ? applyFrames : apply)([...changes].map(([id, rect]) => ({ id, ...rect })));
   const count = notes.length;
-  const gridReason = lockedReason ?? gridDisabledReason({ count, live, held, unsaved });
+  const frameReason = onFrames ? arrangeReason({ notes: notes.length, frames: frames.length, live, locked: lockedReason, held: framesHeld, unsaved: framesUnsaved }) : null;
+  const gridReason = onFrames ? frameReason : (lockedReason ?? gridDisabledReason({ count, live, held, unsaved }));
   const runGrid = (columns: number) => {
-    const result = grid(notes, columns, GRID_GAP);
+    const result = grid(items, columns, GRID_GAP, clamp);
     if (result.reason) notice(GRID_NO_ROOM[result.reason]);
     else send(result.changes);
   };
   const deleteReason = lockedReason ?? (count === 0 && !frame ? DELETE_HINTS.none : !live ? DELETE_HINTS.offline : null);
   const orderReason = lockedReason ?? (count === 0 ? (frame ? ORDER_HINTS.frame : ORDER_HINTS.none) : !live ? ORDER_HINTS.offline : null);
-  // Align and Match size need 2+ notes and a connection; Distribute needs 3.
-  const arrangeReason = lockedReason ?? (count < 2 ? GRID_HINTS.few : !live ? GRID_HINTS.offline : null);
+  // Align and Match size need 2+ notes (or frames) and a connection; Distribute needs 3.
+  const arrangeOff = onFrames ? frameReason : (lockedReason ?? (count < 2 ? GRID_HINTS.few : !live ? GRID_HINTS.offline : null));
   const off = (reason: string | null) => ({ disabled: reason !== null, ...(reason ? { hint: reason } : {}) });
   const toggle = session ? lockToggle({ locked: session.locked, pending: session.pending, live }) : null;
   // From xl up every group is in full; below, Order and the host's Session fold into panels (with
@@ -374,7 +410,7 @@ export function BoardBar({ notes, frame, live, held, unsaved, duplicateReason, d
       {LOCK_TEXT.locked}
     </span>
   ) : null;
-  const distributeReason = arrangeReason ?? (count < 3 ? DISTRIBUTE_HINT : null);
+  const distributeReason = arrangeOff ?? (items.length < 3 ? (onFrames ? ARRANGE_HINTS.fewFramesDistribute : DISTRIBUTE_HINT) : null);
   return (
     <FloatingBar
       label="Board actions"
@@ -400,11 +436,21 @@ export function BoardBar({ notes, frame, live, held, unsaved, duplicateReason, d
           commands: [
             // Below xl, Order folds in here so the top bar keeps one row.
             ...(full ? [] : orderCommands),
-            ...ALIGN.map((a) => ({ ...a, ...off(arrangeReason), run: () => send(align(notes, a.mode)) })),
-            ...DISTRIBUTE.map((d) => ({ ...d, ...off(distributeReason), run: () => send(distribute(notes, d.axis)) })),
-            ...MATCH.map((m) => ({ ...m, ...off(arrangeReason), run: () => send(matchSize(notes, m.mode)) })),
+            ...ALIGN.map((a) => ({ ...a, ...off(arrangeOff), run: () => send(align(items, a.mode, clamp)) })),
+            ...DISTRIBUTE.map((d) => ({ ...d, ...off(distributeReason), run: () => send(distribute(items, d.axis, clamp)) })),
+            ...MATCH.map((m) => ({ ...m, ...off(arrangeOff), run: () => send(matchSize(items, m.mode, clamp)) })),
           ],
-          content: <GridControls notes={notes} reason={gridReason} onGrid={runGrid} />,
+          content: (
+            <>
+              {/* A mix of notes and frames: the reason as text in the panel, not only in tooltips. */}
+              {mixed && (
+                <p data-arrange-reason="" className="w-full px-xs pb-xs text-sm text-fg-muted">
+                  {ARRANGE_HINTS.mixed}
+                </p>
+              )}
+              <GridControls notes={items} reason={gridReason} onGrid={runGrid} />
+            </>
+          ),
         },
         ...(session && toggle
           ? [

@@ -1,7 +1,7 @@
 ---
 title: Notes
 order: 3
-summary: Add notes from the palette, duplicate them, undo and redo your changes, clear the board, edit, colour, style and resize them in Properties, bring them to the front or send them to the back, group them in frames, start from a template, select several to move, arrange or delete together; pan, zoom and fit the board.
+summary: Add notes from the palette, duplicate them, undo and redo your changes, clear the board, edit, colour, style and resize them in Properties, bring them to the front or send them to the back, group them in frames, start from a template, select several notes and frames to move, arrange or delete together; pan, zoom and fit the board.
 keywords: undo, redo, history, duplicate, copy, clear, clear board, empty, restore, ctrl+z, ctrl+y, ctrl+d, tick, outline, template, templates, retro, retrospective, start stop continue, 2x2, matrix, impact, effort, sprint, planning, kanban, frame, frames, area, section, title, carry, front, back, order, stack, overlap, behind, top, bottom, inline, place, double-click, marquee, multi, several, many, group, arrange, align, distribute, grid, columns, rows, tidy, layout, match, right-click, middle, note, notes, sticky, board, add, edit, move, drag, delete, colour, color, text, title, body, size, width, height, bigger, smaller, handle, corner, font, bold, italic, align, alignment, left, centre, center, right, style, palette, tile, properties, panel, select, selection, collapse, resize, pan, hand, zoom, pinch, wheel, fit, overview, map, shortcut, full, saved
 ---
 Every session has one shared **board**. Everyone in the session sees the same notes, and changes show up for everyone as they happen. The board fills the screen; its edge is the outline around the dotted area, and notes always stay inside it.
@@ -23,12 +23,13 @@ Every session has one shared **board**. Everyone in the session sees the same no
 
 On a wider screen, with a mouse:
 
-- Drag across an empty part of the board to draw a **marquee**: every note it touches is selected. Hold **Shift** while you start dragging to add to what's already selected.
-- **Shift**-click or **Ctrl**-click (**Cmd**-click on a Mac) a note to add it to the selection, or take it out.
-- **Ctrl+A** (**Cmd+A**) selects every note. **Esc**, or a click on an empty part of the board, clears the selection.
-- Each selected note has a thick outline and a tick in its corner, and a dashed box surrounds the whole selection, so it's easy to see what's selected.
+- Drag across an empty part of the board to draw a **marquee**: every note it touches is selected, and every frame it fully surrounds (a box drawn inside a frame never picks up the frame). Hold **Shift** while you start dragging to add to what's already selected.
+- **Shift**-click or **Ctrl**-click (**Cmd**-click on a Mac) a note, or a frame's title bar or border, to add it to the selection, or take it out. A plain click selects just that note or frame.
+- **Ctrl+A** (**Cmd+A**) selects every note and frame. **Esc**, or a click on an empty part of the board, clears the selection.
+- Each selected note and frame has a thick outline and a tick in its corner, and a dashed box surrounds the whole selection, so it's easy to see what's selected.
 - Drag any selected note to move them all together. They keep their places relative to each other, and stop together at the edge of the board. Dragging a note that isn't selected selects just that note.
-- With a note of the selection focused, the **arrow keys** move them all (**Shift** for bigger steps).
+- With a note of the selection focused, the **arrow keys** move them all (**Shift** for bigger steps). With frames selected, the arrow keys move the selection too (frames bring the notes inside them), as long as nothing else has focus.
+- Selections can mix notes and frames; **Frames** below says how they move and delete together.
 - **Delete** deletes every selected note, for example straight after **Ctrl+A** or a marquee. You're asked once, with how many. Afterwards the board says how many were deleted, or, if some weren't (too quick, or the connection was lost), how many and why. When you're not connected, nothing is deleted and the board says so. **Delete** while you're typing in a note or a field only edits the text.
 - Properties shows how many are selected, with a bin to delete them. Their colour, text style and size are shown as **Mixed** where they differ; for now, colour and text style change one note at a time.
 - Others see the notes move as you drag (for big selections, the first 50 move live and the rest catch up when you let go).
@@ -40,30 +41,32 @@ On a wider screen the board's buttons sit in the top bar, between the Stickyard 
 
 ## Duplicate
 
-- Select notes (or one frame) and choose **Duplicate** in the bar, or press **Ctrl+D** (**Cmd+D** on a Mac) on the board.
+- Select notes, frames, or both, and choose **Duplicate** in the bar, or press **Ctrl+D** (**Cmd+D** on a Mac) on the board.
 - The copies have everything the originals have: text, colour, text style and size. They land a little to the right of and below the originals, keep their arrangement and the order of which is in front, and go in front of everything else. The copies are selected afterwards.
-- Duplicating a frame copies the frame alone (its title, colour, title style and size), not the notes inside it.
+- Duplicating a frame copies the frame alone (its title, colour, title style and size), not the notes inside it, unless those notes are selected too. Frames and notes duplicated together keep their arrangement.
 - If the board hasn't room for every copy (200 notes, 30 frames), nothing is copied and Duplicate's label says how many are needed and how many are free. Duplicate is also off while you're not connected, while a selected note is being moved or hasn't been saved yet, and while other items are still being added.
 - **Ctrl+D** never does anything while you type in a note or a field. Duplicate isn't on phones.
 
 ## Undo and redo
 
 - **Undo** (**Ctrl+Z**, **Cmd+Z** on a Mac) takes back your last change; **Redo** (**Ctrl+Shift+Z**, **Cmd+Shift+Z**, or **Ctrl+Y**) puts it back. The shortcuts work when the board has focus; while you're typing in a note or a field, they undo your typing instead, as usual.
-- You can undo moving, resizing and arranging notes (a whole drag, or a burst of arrow-key moves, is one step), text, colour and style changes, moving, resizing and editing frames, adding notes and frames, **Duplicate**, a template, deleting, and **Clear board**.
+- You can undo moving, resizing and arranging notes and frames (a whole drag, or a burst of arrow-key moves, is one step, even with several frames and notes), text, colour and style changes (one step for several frames at once), moving, resizing and editing frames, adding notes and frames, **Duplicate**, a template, deleting, and **Clear board**.
 - Only your own changes are undone, never anyone else's. If someone else changed a note or frame after you, undo leaves that one as it is and says how many were left.
 - Deleted notes and frames come back as new copies, with you as the one who added them. Large undos come back in steps, and the board shows how far it's got ("Restoring 120 of 200…").
 - **Bring to front** and **Send to back** can't be undone. When the last thing you did was one of them, Undo says so; press it again to undo what you did before.
 - Undo history is kept for this visit only, up to 50 steps. It's cleared when you leave, rejoin or lose the connection. It's kept in this tab and never stored or sent anywhere.
 
-## Arranging notes
+## Arranging notes and frames
 
-With two or more notes selected, choose **Arrange** in the top bar. It opens these tools (**Esc**, or choosing **Arrange** again, closes them):
+With two or more notes, or two or more frames, selected, choose **Arrange** in the top bar. It opens these tools (**Esc**, or choosing **Arrange** again, closes them):
 
 - **Align**: line them up on their left edges, centres or right edges, or their top edges, middles or bottom edges.
 - **Distribute**: space three or more evenly across or down, with equal gaps between them. The outermost two stay where they are.
 - **Grid** (under **Arrange**): lay them out in tidy rows and columns, in reading order (top row first, left to right). Each column is as wide as its widest note and each row as tall as its tallest, with an equal gap; sizes don't change. The grid starts at the top-left of the selection. **Columns** sets how many columns (**Auto** picks a count from the selection's shape); your choice is kept until you close the page. If the grid wouldn't fit on the board, nothing moves and the board says why. Grid doesn't fit notes inside a frame.
 - **Match size**: give them the width, height, or both, of the first selected note (within the usual 96 to 480).
-- Notes always stay on the board. Everyone sees the change at once.
+- The same tools work on frames when only frames are selected. Frames that move bring the notes inside them, as a drag does (a frame holding more than 50 notes moves on its own, and the board says so). **Match size** gives the frames the first selected frame's size (within 240 to 2400 wide and 160 to 1600 tall) and leaves the notes where they are.
+- With notes and frames selected together, the arranging tools are off, and the Arrange panel says why: select only notes, or only frames.
+- Notes and frames always stay on the board. Everyone sees the change at once, and one **Undo** puts it back.
 
 ## Editing a note
 
@@ -109,10 +112,19 @@ A frame is a named, coloured area that sits behind the notes, for example Start,
 - A board holds up to 30 frames. Frames are 240 to 2400 wide and 160 to 1600 tall, and always stay on the board.
 - Drag a frame by its title bar or its border. The notes inside it (any note whose middle is inside the frame) move with it and keep their places. Hold **Alt** while you start dragging to move the frame on its own. A frame holding more than 50 notes moves on its own, and the board says so.
 - The inside of a frame lets clicks through: you can select, move and edit the notes in it, and drag across it to select several, as if the frame wasn't there. Notes can be dragged in and out of a frame freely.
-- Click a frame's title bar (the title too) or border to select it (this clears any selected notes). It gets a thick outline. Small squares at its corners resize it. **Properties** shows its **Title**, **Colour**, **Title text**, **Width** and **Height**, and who added it.
+- Click a frame's title bar (the title too) or border to select it (this clears any selected notes). It gets a thick outline. **Shift**-click or **Ctrl**-click adds it to the selection instead (see **Selecting several notes** above). Small squares at its corners resize it. **Properties** shows its **Title**, **Colour**, **Title text**, **Width** and **Height**, and who added it.
 - **Title text** styles the frame's title like a note's: **Size**, **Bold** and **Italic**, **Align** (left, centre or right) and **Text colour**. The title bar gets taller for the larger sizes. Frame titles start bold; a bold frame title is a little lighter than a bold note title. Every text colour stays readable on every frame colour, in light and dark.
 - To delete a frame, use the bin in **Properties** or press **Delete** with the frame selected. You're asked first if it has a title or notes inside. Deleting a frame never deletes its notes.
+
+### Several frames, or frames with notes
+
+- Drag any selected frame or note to move the whole selection. Each frame brings the notes inside it, each note only once (a note inside two selected frames goes with the first one you selected), and any selected notes outside the frames come too. Everything stops together at the edge of the board. Hold **Alt** while you start dragging to leave the notes inside the frames behind (selected notes still come).
+- Others see the frames move as you drag; with many frames selected, they take turns, so some move in steps until you let go.
+- **Delete** (the key, or the bin in **Properties**) asks once, with how many notes and frames, and how many notes inside the frames aren't selected and will stay on the board. The notes go first, then the frames one by one. When it's done, the board says how many were deleted, or how many weren't and why (nothing is tried again). One **Undo** brings them all back.
+- **Properties** sums up what's selected (for example "3 notes, 2 frames selected"). With only frames selected, **Colour** and **Title text** change every selected frame at once; **Title** shows **Mixed** when the titles differ and is edited one frame at a time, and **Width** and **Height** are off (use **Match size** under **Arrange**).
+- **Bring to front** and **Send to back** act on the selected notes only; with only frames selected they're off, because frames always sit behind notes.
 - Frames are always behind every note; **Bring to front** and **Send to back** only change the order of notes.
+- A template's frames and the notes in them can be selected with one marquee (or **Ctrl+A**), then moved or deleted together.
 - On a phone, frames are shown, with their title styles, but can't be added, moved or changed.
 - Others see a frame move as you drag it. If two people change the same frame, the change that reaches the relay last wins.
 
@@ -161,7 +173,7 @@ When you're not typing in a box:
 - **+** and **-** zoom in and out, **0** goes back to 100%, and **F** fits the view to the notes.
 - **V** is Select, **H** is Hand, **N** adds a note (on a wider screen, in the colour you last added), and **M** shows or hides the overview map.
 - **[** collapses or expands the palette, and **]** collapses or expands Properties.
-- **Ctrl+A** (**Cmd+A**) selects every note, and **Esc** clears the selection.
+- **Ctrl+A** (**Cmd+A**) selects every note and frame, and **Esc** clears the selection.
 - **Ctrl+D** (**Cmd+D**) duplicates the selection, **Ctrl+Z** (**Cmd+Z**) undoes, and **Ctrl+Shift+Z** (**Cmd+Shift+Z**) or **Ctrl+Y** redoes.
 
 With a note focused: **arrow keys** move it (and the rest of the selection, if several are selected), **Alt+arrow keys** resize it when it's the only one selected (add **Shift** for bigger steps), **Enter** edits it, **Delete** deletes it (or the whole selection) and **Esc** clears the selection.
