@@ -41,7 +41,7 @@ import { VOTE_TEXT } from "../voting/voting";
 import { openSheet } from "../shell/nav";
 import { createPortal } from "react-dom";
 import type { Placed } from "./arrange";
-import { BoardCanvas, deleteFrameAsking, deleteSelected, type BoardRoom } from "./BoardCanvas";
+import { BoardCanvas, deleteFrameAsking, deleteSelected, deleteSelectionAsking, type BoardRoom } from "./BoardCanvas";
 import { duplicateDisabledReason } from "./duplicate";
 import { BoardBar } from "./SelectionBar";
 import type { BoardCommand } from "./shortcuts";
@@ -242,6 +242,7 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
   const addSheetOpen = useBoardUi((s) => s.addSheetOpen);
   const selection = useBoardUi((s) => s.selection);
   const frameSelected = useBoardUi((s) => s.frameSelected);
+  const frameSelection = useBoardUi((s) => s.frames);
   const panels = usePanels();
   const zoom = useStore((s) => s.transform[2]);
   const free = useStore((s) => s.width);
@@ -414,6 +415,17 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
+  // Notes and frames together (interim until the paced delete run).
+  const deleteSelection = (noteIds: readonly string[], frameIds: readonly string[]) => {
+    if (!live) {
+      room.deleteNotes(noteIds);
+      return false;
+    }
+    if (noteIds.length > 0) room.deleteNotes(noteIds);
+    for (const id of frameIds) room.deleteFrame(id);
+    return true;
+  };
+
   const boardRoom: BoardRoom = {
     board: view.board,
     live,
@@ -435,6 +447,7 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
     startFrameResize: room.startFrameResize,
     resizeFrame: room.resizeFrame,
     deleteFrame: room.deleteFrame,
+    deleteSelection,
     shareCursor: room.shareCursor,
     hideCursor: room.hideCursor,
   };
@@ -466,8 +479,16 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
     if (ids && ids.length > 0) useBoardUi.getState().setSelection(new Set(ids));
   };
 
+  const selectedFrameEntries = wide ? orderedIds(frameSelection).flatMap((id) => findFrame(view.board, id) ?? []) : [];
   /** Deletes the selection as the Delete key does (same confirms and report). */
   const removeSelection = () => {
+    if (selectedFrameEntries.length > 0 && selectedFrameEntries.length + selectedEntries.length > 1) {
+      return deleteSelectionAsking(
+        { board: view.board, live, deleteSelection },
+        selectedEntries.map((e) => e.note.id),
+        selectedFrameEntries.map((e) => e.frame.id),
+      );
+    }
     if (frameEntry) return deleteFrameAsking({ board: view.board, deleteFrame: room.deleteFrame }, frameEntry.frame.id);
     deleteSelected({ board: view.board, live, deleteNote: room.deleteNote, deleteNotes: room.deleteNotes }, selectedEntries.map((e) => e.note.id));
   };
@@ -521,7 +542,7 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
   const bar = wide ? (
     <BoardBar
       notes={selectedNotes}
-      frame={frameEntry !== undefined}
+      frame={frameEntry !== undefined || selectedFrameEntries.length > 0}
       live={live}
       held={selectedEntries.some(isHeld)}
       unsaved={selectedEntries.some((e) => isLocalId(e.note.id))}
@@ -647,6 +668,7 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
                 editFrame: room.editFrame,
                 setFrameSize: room.setFrameSize,
                 deleteFrame: room.deleteFrame,
+                deleteSelection,
                 clearBoard: room.clearBoard,
                 adding: view.adding,
                 clearing: view.clearing,

@@ -22,6 +22,7 @@ import { boardShortcut, type BoardCommand } from "./shortcuts";
 import { orderedIds } from "./selection";
 import { useBoardUi } from "./uiStore";
 import { useMarquee } from "./useMarquee";
+import { confirmDeleteSelection, deleteCounts } from "./frameSelect";
 import { VOTE_TEXT } from "../voting/voting";
 import type { CanvasView } from "./useCanvasView";
 import { CursorLayer } from "../cursors/CursorLayer";
@@ -73,6 +74,8 @@ export interface BoardRoom {
   startFrameResize(id: string): boolean;
   resizeFrame(id: string, rect: NoteRect, final: boolean): void;
   deleteFrame(id: string): void;
+  /** Deletes notes and frames together (v0.20.0): one paced run, one report, one undo step. False if it couldn't start. */
+  deleteSelection(noteIds: readonly string[], frameIds: readonly string[]): boolean;
   /** Live cursors (protocol v14): share my pointer (false: not sent), and say it left. */
   shareCursor(x: number, y: number): boolean;
   hideCursor(): void;
@@ -107,6 +110,22 @@ export function deleteFrameAsking(room: Pick<BoardRoom, "board" | "deleteFrame">
 }
 
 /**
+ * Deletes a selection that holds frames (several, or frames and notes), asking once with the
+ * counts and how many unselected notes inside the frames stay. Clears the selection.
+ */
+export function deleteSelectionAsking(
+  room: Pick<BoardRoom, "board" | "live" | "deleteSelection">,
+  noteIds: readonly string[],
+  frameIds: readonly string[],
+): void {
+  if (noteIds.length + frameIds.length === 0) return;
+  if (!room.live) return void room.deleteSelection(noteIds, frameIds);
+  const counts = deleteCounts(room.board, noteIds, frameIds);
+  if (!confirmDeleteSelection(counts)) return;
+  if (room.deleteSelection(noteIds, frameIds)) useBoardUi.getState().clearSelection();
+}
+
+/**
  * The board canvas: React Flow, controlled. Notes come from the room's board as memoised nodes;
  * React Flow owns only the viewport and gestures (pan, pinch, wheel, drag) and reports drags
  * back through the canvas layer (nodes.ts). Board units are flow units (geometry.ts).
@@ -137,7 +156,7 @@ export function BoardCanvas({
   const helpId = useId();
   const tool = useBoardUi((s) => s.tool);
   const selection = useBoardUi((s) => s.selection);
-  const frameSelected = useBoardUi((s) => s.frameSelected);
+  const frameSelection = useBoardUi((s) => s.frames);
   const [spaceHeld, setSpaceHeld] = useState(false);
   const panOnly = tool === "hand" || spaceHeld;
   const latest = useRef(room);
@@ -149,14 +168,20 @@ export function BoardCanvas({
   useEffect(() => () => clearTimeout(keyCommit.current), []);
 
   const map = useMemo(createNoteNodeMapper, []);
-  // Several notes selected: a dashed box round them (board units; it follows a group drag).
+  // Several items selected (notes and frames): a dashed box round them (board units; it follows a group drag).
   const selectionBox = useMemo(
-    () => (selection.size > 1 ? notesBounds([...selection].flatMap((id) => findNote(room.board, id)?.note ?? [])) : null),
-    [selection, room.board],
+    () =>
+      selection.size + frameSelection.size > 1
+        ? notesBounds([
+            ...[...selection].flatMap((id) => findNote(room.board, id)?.note ?? []),
+            ...[...frameSelection].flatMap((id) => findFrame(room.board, id)?.frame ?? []),
+          ])
+        : null,
+    [selection, frameSelection, room.board],
   );
   const nodes = useMemo(
-    () => map(room.board, editable, !panOnly, selection, { selected: frameSelected, wide: multiSelect }),
-    [map, room.board, editable, panOnly, selection, frameSelected, multiSelect],
+    () => map(room.board, editable, !panOnly, selection, { selected: frameSelection, wide: multiSelect }),
+    [map, room.board, editable, panOnly, selection, frameSelection, multiSelect],
   );
   const drag = useMemo(
     () =>
@@ -191,6 +216,10 @@ export function BoardCanvas({
   const frameActions = useMemo<FrameActions>(
     () => ({
       selectFrame: (id) => useBoardUi.getState().selectFrame(id),
+      toggleFrame: (id) => {
+        if (multi.current) useBoardUi.getState().toggleFrame(id);
+        else useBoardUi.getState().selectFrame(id);
+      },
       setDraft: (id, draft) => latest.current.setFrameDraft(id, draft),
       commitTitle: (id) => {
         const draft = findFrame(latest.current.board, id)?.draft;
@@ -297,21 +326,26 @@ export function BoardCanvas({
     };
   }, []);
 
-  // Ctrl+A (Cmd+A) selects every note and Escape clears the selection, outside fields and sheets.
+  // Ctrl+A (Cmd+A) selects every note and frame and Escape clears the selection, outside fields and sheets.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.defaultPrevented || inField(e.target) || document.querySelector('[aria-modal="true"]')) return;
       if (multi.current && (e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === "a") {
         e.preventDefault();
-        useBoardUi.getState().selectAll(latest.current.board.notes.map((n) => n.note.id));
+        const { board } = latest.current;
+        useBoardUi.getState().selectAll(
+          board.notes.map((n) => n.note.id),
+          board.frames.map((f) => f.frame.id),
+        );
         return;
       }
       const ui = useBoardUi.getState();
-      if (e.key === "Escape" && (ui.selection.size > 0 || ui.frameSelected !== null)) ui.clearSelection();
+      if (e.key === "Escape" && (ui.selection.size > 0 || ui.frames.size > 0)) ui.clearSelection();
       const target = deleteKeyTarget(e, {
         multi: multi.current,
         selection: ui.selection.size,
         frameSelected: ui.frameSelected !== null,
+        frames: ui.frames.size,
         modal: document.querySelector('[aria-modal="true"]') !== null,
         board: sectionRef.current,
       });
@@ -319,6 +353,12 @@ export function BoardCanvas({
       if (e.key === "Enter" && multi.current && ui.frameSelected !== null && !ownsSpace(e.target) && onBoard(e.target, sectionRef.current)) {
         e.preventDefault();
         ui.requestFrameEdit(ui.frameSelected);
+        return;
+      }
+      // Frames with notes, or several frames: one confirm with the counts, then one paced delete.
+      if (target === "selection") {
+        e.preventDefault();
+        deleteSelectionAsking(latest.current, orderedIds(ui.selection), orderedIds(ui.frames));
         return;
       }
       // Delete with the selection but no note focused (after Ctrl+A or a marquee): delete the selection.
@@ -369,6 +409,7 @@ export function BoardCanvas({
     spaceHeld,
     threshold,
     notes: () => latest.current.board.notes.map((n) => n.note),
+    frames: () => latest.current.board.frames.map((f) => f.frame),
   });
   // My pointer, shared from md up with a mouse or a hovering pen (phones only receive).
   useCursorSharing(sectionRef, multiSelect, room);

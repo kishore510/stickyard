@@ -3,8 +3,8 @@
  * (a focused note card handles its own Delete first; see NoteCard). Pure, so it's tested.
  */
 
-/** The selected frame, the selected notes, or nothing. */
-export type DeleteKeyTarget = "frame" | "notes" | null;
+/** The selected frame (alone), the selected notes (no frames), a selection with frames (2+ frames, or frames and notes), or nothing. */
+export type DeleteKeyTarget = "frame" | "notes" | "selection" | null;
 
 export interface DeleteKeyEvent {
   key: string;
@@ -20,7 +20,10 @@ export interface DeleteKeyState {
   multi: boolean;
   /** Notes selected. */
   selection: number;
+  /** One frame selected alone. */
   frameSelected: boolean;
+  /** Frames selected (v0.20.0; absent counts as one when frameSelected, else none). */
+  frames?: number;
   /** A modal sheet is open. */
   modal: boolean;
   /** The board's element: focus inside it (or on nothing) is the board's. */
@@ -48,6 +51,8 @@ export const onBoardBar = (target: EventTarget | null) => target instanceof Elem
 export function deleteKeyTarget(e: DeleteKeyEvent, state: DeleteKeyState): DeleteKeyTarget {
   if (!isDeleteKey(e.key) || e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey) return null;
   if (inField(e.target) || state.modal || !state.multi || !(onBoard(e.target, state.board) || onBoardBar(e.target))) return null;
-  if (state.frameSelected) return "frame";
+  const frames = state.frames ?? (state.frameSelected ? 1 : 0);
+  if (frames > 1 || (frames > 0 && state.selection > 0)) return "selection";
+  if (frames === 1) return "frame";
   return state.selection > 0 ? "notes" : null;
 }

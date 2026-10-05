@@ -126,9 +126,9 @@ function toFrameNode(entry: BoardFrame, editable: boolean, movable: boolean, sel
 
 const cnNode = (...names: (string | false)[]) => names.filter(Boolean).join(" ");
 
-/** Frames on the canvas: which is selected, and whether this layout can change them (md and up). */
+/** Frames on the canvas: which are selected (one id, or the set since v0.20.0), and whether this layout can change them (md and up). */
 export interface FrameView {
-  selected: string | null;
+  selected: string | null | Selection;
   wide: boolean;
 }
 const NO_FRAMES: FrameView = { selected: null, wide: false };
@@ -152,9 +152,12 @@ export function createNoteNodeMapper(): (board: Board, editable: boolean, movabl
     }
     const nodes: CanvasNode[] = [BOARD_NODE];
     const frameEditable = editable && frames.wide;
+    const chosen: Selection = typeof frames.selected === "string" ? new Set([frames.selected]) : (frames.selected ?? EMPTY_SELECTION);
+    // Resize handles only for one frame selected alone (several resize through Match size).
+    const soleFrame = chosen.size === 1 && selection.size === 0;
     for (const entry of board.frames) {
-      const selected = frames.selected === entry.frame.id;
-      const resizable = selected && frameEditable && movable && !isLocalId(entry.frame.id);
+      const selected = chosen.has(entry.frame.id);
+      const resizable = selected && soleFrame && frameEditable && movable && !isLocalId(entry.frame.id);
       let node = frameCache.get(entry);
       if (!node || node.data.selected !== selected || node.data.resizable !== resizable) {
         node = toFrameNode(entry, frameEditable, movable, selected, resizable);
@@ -163,7 +166,7 @@ export function createNoteNodeMapper(): (board: Board, editable: boolean, movabl
       nodes.push(node);
     }
     // Resize handles only for a single selected note (several resize through Match size).
-    const single = selection.size === 1;
+    const single = selection.size === 1 && chosen.size === 0;
     for (const entry of board.notes) {
       const selected = isSelected(selection, entry.note.id);
       const resizable = selected && single && editable && movable && !isLocalId(entry.note.id);

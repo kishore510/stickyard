@@ -273,7 +273,7 @@ const rectOf = (p: { x: number; y: number; width: number; height: number }): Not
  */
 export const NoteNode = memo(function NoteNode({ id, data }: NodeProps<NoteFlowNode>) {
   const actions = useContext(NoteActionsContext);
-  const several = useBoardUi((s) => s.selection.size > 1);
+  const several = useBoardUi((s) => s.selection.size + s.frames.size > 1);
   const voteLabel = useNoteVoteLabel(id);
   const votingOpen = useRoomUi((s) => s.room?.voting.state === "open");
   return (

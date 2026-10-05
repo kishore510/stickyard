@@ -4,6 +4,7 @@ import { BOARD_HEIGHT, BOARD_WIDTH, MAX_NOTES_PER_ROOM, NOTE_STYLE_FIELDS, type 
 import { Button } from "../components/ui/button";
 import { useBoardUi } from "../canvas/uiStore";
 import { onlySelected, orderedIds } from "../canvas/selection";
+import { confirmDeleteSelection, deleteCounts, itemsLabel, selectionLabel } from "../canvas/frameSelect";
 import { confirmFrameDelete } from "../frames/label";
 import { findFrame, framedNotes, type FrameEdit } from "../frames/board";
 import { FrameFields } from "../frames/FrameFields";
@@ -46,6 +47,8 @@ export interface PropertiesRoom {
   editFrame(id: string, change: FrameEdit): boolean;
   setFrameSize(id: string, w: number, h: number): boolean;
   deleteFrame(id: string): void;
+  /** Deletes notes and frames together (v0.20.0): one paced run, one report, one undo step. */
+  deleteSelection(noteIds: readonly string[], frameIds: readonly string[]): boolean;
   /** Deletes every note and frame (asked first here); false if it couldn't start. */
   clearBoard(): boolean;
   /** An add run (template, duplicate, restore) is still being sent. */
@@ -73,6 +76,17 @@ export function mixedFields(notes: readonly Note[]): MixedFields {
 }
 
 const noop = () => {};
+
+/** Frames with notes, or several frames: what they are and what they do together. */
+function GroupFields({ notes, frames }: { notes: number; frames: number }) {
+  return (
+    <p data-group-summary="" className="rounded-md bg-surface-muted p-ms text-sm text-fg-muted">
+      {notes > 0
+        ? "Drag any of them to move them all; each frame brings the notes inside it. Delete removes the selected notes and frames; notes inside a frame stay unless they’re selected."
+        : `Drag one to move them all with the notes inside. Delete removes the ${frames} frames; the notes inside stay unless they’re selected.`}
+    </p>
+  );
+}
 
 /** Several notes selected: what they share, read-only (they move, arrange, restack and delete together). */
 function SelectionFields({ notes, live, onOrder }: { notes: Note[]; live: boolean; onOrder: (action: OrderAction) => void }) {
@@ -168,6 +182,12 @@ export function PropertiesContent({ room, collapse }: { room: PropertiesRoom; co
   const many = selection.size > 1 ? orderedIds(selection).flatMap((n) => findNote(room.board, n)?.note ?? []) : [];
   const frameId = useBoardUi((s) => s.frameSelected);
   const frame = frameId === null ? undefined : findFrame(room.board, frameId);
+  // A selection with frames and anything else (v0.20.0): a summary with Delete.
+  const frameSet = useBoardUi((s) => s.frames);
+  const groupFrames = frameSet.size > 0 && frameSet.size + selection.size > 1 ? orderedIds(frameSet).flatMap((f) => findFrame(room.board, f) ?? []) : [];
+  const groupNotes = groupFrames.length > 0 ? orderedIds(selection).flatMap((n) => findNote(room.board, n)?.note ?? []) : [];
+  const group = groupFrames.length > 0 && groupFrames.length + groupNotes.length > 1;
+  const groupWhat = itemsLabel(groupNotes.length, groupFrames.length).replace(", ", " and ");
 
   return (
     <div className="px-md">
@@ -177,9 +197,27 @@ export function PropertiesContent({ room, collapse }: { room: PropertiesRoom; co
       </div>
       <div className="flex min-h-touch items-center gap-xs">
         <h3 className="min-w-0 flex-1 truncate text-sm font-semibold">
-          {frame ? "Frame" : many.length > 1 ? `${many.length} selected` : entry ? `${NOTE_COLOR_NAMES[entry.note.color]} note` : "Board"}
+          {group ? selectionLabel(groupNotes.length, groupFrames.length) : frame ? "Frame" : many.length > 1 ? `${many.length} selected` : entry ? `${NOTE_COLOR_NAMES[entry.note.color]} note` : "Board"}
         </h3>
-        {frame && (
+        {group && (
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label={`Delete ${groupWhat}`}
+            title={`Delete ${groupWhat} (Del)`}
+            disabled={!editable}
+            onClick={() => {
+              const noteIds = groupNotes.map((n) => n.id);
+              const frameIds = groupFrames.map((f) => f.frame.id);
+              if (!confirmDeleteSelection(deleteCounts(room.board, noteIds, frameIds))) return;
+              if (room.deleteSelection(noteIds, frameIds)) useBoardUi.getState().clearSelection();
+            }}
+            className="text-status-error"
+          >
+            <Trash2 />
+          </Button>
+        )}
+        {!group && frame && (
           <Button
             variant="ghost"
             size="icon"
@@ -197,7 +235,7 @@ export function PropertiesContent({ room, collapse }: { room: PropertiesRoom; co
             <Trash2 />
           </Button>
         )}
-        {many.length > 1 && (
+        {!group && many.length > 1 && (
           <Button
             variant="ghost"
             size="icon"
@@ -231,12 +269,14 @@ export function PropertiesContent({ room, collapse }: { room: PropertiesRoom; co
         )}
       </div>
       <div className="flex flex-col gap-md pb-md">
-        {room.live && room.locked && (selection.size > 0 || frame) && (
+        {room.live && room.locked && (selection.size > 0 || frameSet.size > 0) && (
           <p data-locked-reason="" className="rounded-md bg-surface-muted p-ms text-sm">
             {LOCK_TEXT.reason}
           </p>
         )}
-        {frame ? (
+        {group ? (
+          <GroupFields notes={groupNotes.length} frames={groupFrames.length} />
+        ) : frame ? (
           <FrameFields
             entry={frame}
             live={editable}
