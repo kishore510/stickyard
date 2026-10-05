@@ -1,7 +1,7 @@
 ---
 title: Running a session
 order: 9
-summary: What the host can do (timer, lock the board, end the session) and what everyone else sees.
+summary: What the host can do (timer, lock the board, dot voting, end the session) and what everyone else sees.
 keywords: host, hosting, facilitate, facilitator, timer, countdown, time, timebox, lock, locked, unlock, end, end session, delete, crown, badge
 ---
 ## Who the host is
@@ -23,6 +23,15 @@ keywords: host, hosting, facilitate, facilitator, timer, countdown, time, timebo
 - The host can **Lock board** (on a wider screen at the right of the board buttons in the top bar; on a phone in **Session**). It waits for the relay to confirm, then says **Locked**.
 - While it's locked, everyone else sees "The host has locked the board. You can still chat and look around." Adding, moving, editing, deleting, arranging, undo and clearing are greyed out and say "The board is locked by the host." Hosts keep editing.
 - **Unlock board** gives everyone their editing back, and the board says so.
+
+## Dot voting
+
+- The host runs dot voting from **Session** at the right of the board buttons in the top bar (choose **Voting**), or on a phone from **Session** in **Participants**.
+- Set **Dots each** (1 to 20) and choose **Start voting**. While a round is open or its results are showing, the button says **Start a new round**. It asks first, because a new round clears the last one.
+- **Stop and reveal** asks "End voting and show results to everyone?" and then shows everyone the totals. **Clear votes** asks first, then removes every vote and turns voting off.
+- The host votes like everyone else, and sees only totals too: not who voted, or how many people have voted so far.
+- These controls aren't available while you're not connected, or while something is still being added or the board is being cleared.
+- See [Dot voting](help:dot-voting) for what everyone else sees.
 
 ## Ending a session
 

@@ -165,7 +165,7 @@ describe("Help", () => {
     await mount("#/help");
     expect(button(/Quick start/)).toBeDefined();
     const topics = [...(dialog()?.querySelectorAll('[aria-labelledby="help-topics"] li') ?? [])].map((li) => li.textContent);
-    expect(topics).toEqual(["Starting and joining a session", "Notes", "Participants", "Chat", "Names and identity", "Connection", "Touch and keyboard tips", "Running a session"]);
+    expect(topics).toEqual(["Starting and joining a session", "Notes", "Participants", "Chat", "Names and identity", "Connection", "Touch and keyboard tips", "Running a session", "Dot voting"]);
   });
 
   it("search filters topics", async () => {
