@@ -2,6 +2,7 @@ import { useId, type ReactNode } from "react";
 import { Eraser, Power, Trash2 } from "lucide-react";
 import { BOARD_HEIGHT, BOARD_WIDTH, MAX_NOTES_PER_ROOM, NOTE_STYLE_FIELDS, type FrameColor, type Note, type OrderAction, type Participant } from "@stickyard/shared";
 import { Button } from "../components/ui/button";
+import { cn } from "../lib/utils";
 import { useBoardUi } from "../canvas/uiStore";
 import { onlySelected, orderedIds } from "../canvas/selection";
 import { confirmDeleteSelection, deleteCounts, itemsLabel, selectionLabel } from "../canvas/frameSelect";
@@ -200,7 +201,8 @@ export function PropertiesContent({ room, collapse }: { room: PropertiesRoom; co
         <h2 className="flex min-h-touch min-w-0 flex-1 items-center justify-center border-b-2 border-accent text-sm font-medium">Properties</h2>
       </div>
       <div className="flex min-h-touch items-center gap-xs">
-        <h3 className="min-w-0 flex-1 truncate text-sm font-semibold">
+        {/* A selection summary wraps at the panel's narrowest; a note or frame name stays on one line. */}
+        <h3 className={cn("min-w-0 flex-1 text-sm font-semibold", group ? "break-words" : "truncate")}>
           {group ? selectionLabel(groupNotes.length, groupFrames.length) : frame ? "Frame" : many.length > 1 ? `${many.length} selected` : entry ? `${NOTE_COLOR_NAMES[entry.note.color]} note` : "Board"}
         </h3>
         {group && (

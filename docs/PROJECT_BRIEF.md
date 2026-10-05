@@ -106,6 +106,7 @@ Keep tsc, tests and build green. Stop for review with a summary of what was buil
 | Dot voting groundwork (6c-a) | Anonymous voters, budgets, rounds and reveal in the relay; web plumbing; no visible voting UI yet | Done (v0.17.0, protocol v13, PR #35) |
 | Dot voting UI (6c-b) | Strip, my dots, vote controls on notes, Properties and phones; host Start/Stop and reveal/Clear; totals, Top voted and a Results list | Done (v0.18.0, web only, PR #36) |
 | Live cursors (3b) | Other people's pointers with names, live and never stored; Show / Share switches in Participants; phones receive only | Done (v0.19.0, protocol v14, PR #37) |
+| Frame multi-select | Select, move, delete, arrange, style and duplicate frames with notes | Done (v0.20.0, web only) |
 | Next | Export, trimmed hardening, then silent brainstorm | Not started; see PHASE_PLAN.md |
 | 3 onwards | See PHASE_PLAN.md | See PHASE_PLAN.md |
 
