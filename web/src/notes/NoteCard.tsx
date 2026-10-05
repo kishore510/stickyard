@@ -1,5 +1,6 @@
 import { createContext, memo, useContext, useEffect, useRef, type KeyboardEvent, type PointerEvent } from "react";
 import { useBoardUi } from "../canvas/uiStore";
+import { useRoomUi } from "../rooms/roomStore";
 import { NodeResizer, type NodeProps } from "@xyflow/react";
 import { Check } from "lucide-react";
 import { NOTE_MAX_H, NOTE_MAX_W, NOTE_MIN_H, NOTE_MIN_W, type NoteRect } from "@stickyard/shared";
@@ -14,6 +15,9 @@ import { noteLabel } from "./label";
 import { keyResize } from "./size";
 import { splitTitleBody } from "./titleBody";
 import { partTextClasses } from "./style";
+import { VoteBadges, VoteControls, useNoteVoteLabel } from "../voting/NoteVotes";
+import { voteFromKey } from "../voting/VoteButtons";
+import { voteKey } from "../voting/voting";
 
 /** Arrow keys move by this many board units; with Shift, by KEY_STEP_BIG. */
 const KEY_STEP = 10;
@@ -72,7 +76,7 @@ export const NoteHelpContext = createContext("");
  * from the node (notes/size.ts); its text style from the note's keys (notes/style.ts): the
  * title and the body each have their own.
  */
-export function NoteCard({ entry, editable, selected }: { entry: BoardNote; editable: boolean; selected: boolean }) {
+export function NoteCard({ entry, editable, selected, voteLabel = "" }: { entry: BoardNote; editable: boolean; selected: boolean; voteLabel?: string }) {
   const actions = useContext(NoteActionsContext);
   const describedBy = useContext(NoteHelpContext);
   const { note, dragging } = entry;
@@ -107,6 +111,12 @@ export function NoteCard({ entry, editable, selected }: { entry: BoardNote; edit
     if (e.key === "Escape" && selected) {
       e.preventDefault();
       actions.clearSelection();
+      return;
+    }
+    // D adds a dot, Shift+D takes one off, while a round is open (even on a locked board).
+    const vote = voteKey(e);
+    if (vote && voteFromKey(note.id, !pending, vote)) {
+      e.preventDefault();
       return;
     }
     if (!editable) return;
@@ -164,7 +174,7 @@ export function NoteCard({ entry, editable, selected }: { entry: BoardNote; edit
       tabIndex={0}
       aria-roledescription="note"
       data-editing={editing || undefined}
-      aria-label={noteLabel(note)}
+      aria-label={voteLabel ? `${noteLabel(note)} ${voteLabel}` : noteLabel(note)}
       aria-describedby={describedBy}
       aria-disabled={!editable || undefined}
       aria-busy={pending || undefined}
@@ -264,6 +274,8 @@ const rectOf = (p: { x: number; y: number; width: number; height: number }): Not
 export const NoteNode = memo(function NoteNode({ id, data }: NodeProps<NoteFlowNode>) {
   const actions = useContext(NoteActionsContext);
   const several = useBoardUi((s) => s.selection.size > 1);
+  const voteLabel = useNoteVoteLabel(id);
+  const votingOpen = useRoomUi((s) => s.room?.voting.state === "open");
   return (
     <>
       <NodeResizer
@@ -278,7 +290,9 @@ export const NoteNode = memo(function NoteNode({ id, data }: NodeProps<NoteFlowN
         onResize={(_, p) => actions?.resizeNote(id, rectOf(p), false)}
         onResizeEnd={(_, p) => actions?.resizeNote(id, rectOf(p), true)}
       />
-      <NoteCard entry={data.entry} editable={data.editable} selected={data.selected} />
+      <NoteCard entry={data.entry} editable={data.editable} selected={data.selected} voteLabel={voteLabel} />
+      <VoteBadges id={id} />
+      {votingOpen && data.selected && !several && <VoteControls id={id} confirmed={data.entry.confirmed !== null} />}
       {data.selected && several && (
         <span data-select-badge aria-hidden="true" className="sy-select-badge">
           <Check strokeWidth={3} />

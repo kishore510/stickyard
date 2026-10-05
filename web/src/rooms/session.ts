@@ -248,6 +248,8 @@ export interface RoomView {
   myVotes: ReadonlyMap<string, number>;
   /** Dots I have left this round. */
   remaining: number;
+  /** The relay said this round has its maximum of voters (claimVoter or a vote refused with voters_full). */
+  votersFull: boolean;
   /** The round's totals (non-zero, in note creation order), only while voting is closed. Never who voted. */
   results: readonly VoteTotal[] | null;
 }
@@ -296,6 +298,7 @@ export const INITIAL_VIEW: RoomView = {
   isVoter: false,
   myVotes: new Map(),
   remaining: VOTE_BUDGET_DEFAULT,
+  votersFull: false,
   results: null,
 };
 
@@ -1010,10 +1013,12 @@ export class RoomSession {
     this.retry = { phase: this.env.online() ? "reconnecting" : "network", attempt: 1, failedOpens: 0, probes: 0, timer: undefined, trying: false, due: false, lastTryAt: -Infinity, gen: ++this.retryGen };
     // Votes still waiting go too: the next claim's voterGranted says what the relay has.
     this.votesPending.clear();
+    this.votersFull = false;
     this.update({
       status: "disconnected",
       lockPending: null,
       isVoter: false,
+      votersFull: false,
       ...this.voteView(),
       board,
       dropReport: unsaved > 0 ? DROP_TEXT.unsaved(unsaved) : null,
@@ -2352,11 +2357,20 @@ export class RoomSession {
         this.votesPending.clear();
         this.votesLeft = message.remaining;
         this.votersFull = false;
-        return this.update({ isVoter: true, ...this.voteView() });
+        return this.update({ isVoter: true, votersFull: false, ...this.voteView() });
       }
 
-      case "votingChanged":
-        return this.update(this.votingFrom(message.voting));
+      case "votingChanged": {
+        const newRound = message.voting.round !== this.view.voting.round;
+        this.update(this.votingFrom(message.voting));
+        // A page left without a voter (the last round was full) tries again for a new round.
+        if (newRound && message.voting.state === "open" && !this.view.isVoter && this.view.status === "joined") {
+          this.votersFull = false;
+          this.update({ votersFull: false });
+          this.claimVoter();
+        }
+        return;
+      }
 
       case "voteConfirmed": {
         if (message.count > 0) this.votesConfirmed.set(message.noteId, message.count);
@@ -2522,7 +2536,7 @@ export class RoomSession {
         if (message.code === "voters_full" && message.noteId === undefined) {
           // claimVoter refused: this round has its voters. Said when a vote is tried.
           this.votersFull = true;
-          return this.update({ isVoter: false });
+          return this.update({ isVoter: false, votersFull: true });
         }
         const batch = message.clientRef === undefined ? undefined : this.itemBatches.get(message.clientRef);
         if (batch) return this.itemsErrored(message, batch);
@@ -2728,6 +2742,7 @@ export class RoomSession {
     this.votesConfirmed.clear();
     this.votesPending.clear();
     this.votesLeft = VOTE_BUDGET_DEFAULT;
+    this.votersFull = false;
     clearTimeout(this.timer);
     this.stopRetry();
     this.unlisten?.();
@@ -2757,6 +2772,7 @@ export class RoomSession {
       lockPending: null,
       voting: VOTING_OFF,
       isVoter: false,
+      votersFull: false,
       myVotes: new Map(),
       remaining: VOTE_BUDGET_DEFAULT,
       results: null,
@@ -2774,6 +2790,11 @@ export class RoomSession {
   /** Host commands (facilitation UI) go out only from a live host; the relay checks again (not_host). */
   private canHost(): boolean {
     return !this.stopped && this.view.status === "joined" && this.view.isHost;
+  }
+
+  /** A run is going (an itemsAdd run, a restore, a clear, a template): End session and the voting commands wait. */
+  private running(): boolean {
+    return this.itemBatches.size > 0 || this.restoreRun !== null || this.clearRun !== null || this.template !== null;
   }
 
   /** Host: starts (or replaces) the room's timer. False (nothing sent) outside the relay's bounds, for a guest or while disconnected. */
@@ -2799,7 +2820,7 @@ export class RoomSession {
    * while disconnected or while a run (a template, a duplicate, a restore, a clear) is going.
    */
   endSession(): boolean {
-    if (!this.canHost() || this.itemBatches.size > 0 || this.restoreRun !== null || this.clearRun !== null || this.template !== null) return false;
+    if (!this.canHost() || this.running()) return false;
     this.send({ type: "endSession" });
     return true;
   }
@@ -2818,7 +2839,7 @@ export class RoomSession {
     this.claimVoter();
   }
 
-  /* ── Dot voting (protocol v13): plumbing, no UI yet ─────────────── */
+  /* ── Dot voting (protocol v13; the UI since v0.18.0) ────────────── */
 
   /** Claims this device's voter for the room, after every join and reconnect. The key is never shown or logged. */
   private claimVoter(): void {
@@ -2864,6 +2885,7 @@ export class RoomSession {
   /** A vote refused by the relay: rolled back (the oldest waiting one on that note), with one notice. */
   private voteRefused(noteId: string, code: string): void {
     this.shiftPendingVote(noteId);
+    if (code === "voters_full") this.votersFull = true;
     const noteNotice =
       code === "over_budget"
         ? NOTICES.overBudget
@@ -2874,7 +2896,7 @@ export class RoomSession {
             : code === "rate_limited"
               ? NOTICES.tooQuick
               : NOTICES.noVoter;
-    this.update({ ...this.voteView(), noteNotice, ...(code === "rate_limited" ? { rateLimited: true } : {}) });
+    this.update({ ...this.voteView(), noteNotice, votersFull: this.votersFull, ...(code === "rate_limited" ? { rateLimited: true } : {}) });
   }
 
   /**
@@ -2937,21 +2959,21 @@ export class RoomSession {
 
   /** Host: starts a new round (every earlier vote goes). False (nothing sent) for a bad budget, a guest or while disconnected. */
   startVote(budget: number): boolean {
-    if (!this.canHost() || !Number.isInteger(budget) || budget < VOTE_BUDGET_MIN || budget > VOTE_BUDGET_MAX) return false;
+    if (!this.canHost() || this.running() || !Number.isInteger(budget) || budget < VOTE_BUDGET_MIN || budget > VOTE_BUDGET_MAX) return false;
     this.send({ type: "voteStart", budget });
     return true;
   }
 
-  /** Host: closes the round; everyone gets the totals. */
+  /** Host: closes the round; everyone gets the totals. Not while a run is going (as End session). */
   stopVote(): boolean {
-    if (!this.canHost()) return false;
+    if (!this.canHost() || this.running()) return false;
     this.send({ type: "voteStop" });
     return true;
   }
 
-  /** Host: deletes every vote and turns voting off. */
+  /** Host: deletes every vote and turns voting off. Not while a run is going. */
   clearVotes(): boolean {
-    if (!this.canHost()) return false;
+    if (!this.canHost() || this.running()) return false;
     this.send({ type: "voteClear" });
     return true;
   }

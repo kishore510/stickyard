@@ -201,6 +201,12 @@
   --sy-select-offset: 3px;
   --sy-select-badge: 22px;
   --sy-selection-pad: 12px;
+  /* Dot voting (v0.18.0): the badges in a row just above a note (my dots, the total, Top voted;
+     index.css .sy-vote-badges), clear of the resize handles and the select tick, and how far
+     below the selected note its − / + controls sit (screen px, past the bottom handles). */
+  --sy-vote-badge: 22px;
+  --sy-vote-badge-gap: 8px;
+  --sy-vote-controls-offset: 16px;
   /* Gap between cells of Arrange > Grid, in board units (= GRID_GAP in canvas/arrange.ts, test checks). */
   --sy-grid-gap: 24px;
   /* How far Duplicate puts the copies from the originals, right and down, in board units

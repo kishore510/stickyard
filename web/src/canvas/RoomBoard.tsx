@@ -35,6 +35,7 @@ import { TIMER_HINTS } from "../timer/controls";
 import { LOCK_TEXT, lockedOut, withLock } from "../facilitation/lock";
 import { LockNotices } from "../facilitation/LockNotices";
 import { TimerPicker } from "../timer/TimerPicker";
+import { VotingStrip } from "../voting/VotingStrip";
 import { createPortal } from "react-dom";
 import type { Placed } from "./arrange";
 import { BoardCanvas, deleteFrameAsking, deleteSelected, type BoardRoom } from "./BoardCanvas";
@@ -475,7 +476,16 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
   const onShortcut = useCallback((command: BoardCommand) => commands.current[command](), []);
 
   const barSlot = useTopBarSlot((s) => s.el);
-  const lockNotices = useMemo(() => <LockNotices locked={view.locked} isHost={isHost} />, [view.locked, isHost]);
+  // The lock's banner first, then the voting strip under it (v0.18.0).
+  const lockNotices = useMemo(
+    () => (
+      <>
+        <LockNotices locked={view.locked} isHost={isHost} />
+        <VotingStrip voting={view.voting} remaining={view.remaining} />
+      </>
+    ),
+    [view.locked, isHost, view.voting, view.remaining],
+  );
   const bar = wide ? (
     <BoardBar
       notes={selectedNotes}

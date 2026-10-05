@@ -32,9 +32,11 @@ export interface PublishedRoom {
   /** Why End session is off (disconnected, a run in progress), or null. */
   endReason: string | null;
   endSession(): boolean;
-  /** Dot voting (protocol v13; no visible UI yet): the state, my dots and the results (closed only). */
+  /** Dot voting (protocol v13; the UI since v0.18.0): the state, my dots and the results (closed only). */
   voting: VotingState;
   isVoter: boolean;
+  /** The relay said this round has its maximum of voters. */
+  votersFull: boolean;
   myVotes: ReadonlyMap<string, number>;
   remaining: number;
   results: readonly VoteTotal[] | null;
