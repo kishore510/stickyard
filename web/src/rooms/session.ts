@@ -117,6 +117,7 @@ import { validDuration } from "../timer/timer";
 import { LOCK_TEXT, lockedOut } from "../facilitation/lock";
 import { LEAVE_GRACE_MS, RESYNC_QUIET_MS, TOAST_BATCH_MS, TOAST_GAP_MS, TOAST_SHOW_MS, summarizePresence, type PresenceEvent } from "../presence/toasts";
 import { discardUnconfirmed, resyncFrames, resyncNotes, unsavedKeys, type OrphanDraft } from "./resync";
+import type { CursorSink } from "../cursors/cursors";
 
 /*
  * One visit to a room: connect, hello, join, then follow participants, echoes and notes.
@@ -563,6 +564,8 @@ export interface SessionOptions {
   voterKey?(): string | null;
   /** Protocol v13: forget the voter key (the session ended or expired). */
   forgetVoterKey?(): void;
+  /** Protocol v14: where other people's pointers go (cursors/cursorStore.ts). Never part of the view. */
+  cursors?: CursorSink;
 }
 
 /** Refusals of a voteSet that roll the vote back. */
@@ -674,6 +677,8 @@ export class RoomSession {
   /** After my own reconnect: names that were here before the drop, quiet until `quietUntil`. */
   private quietNames = new Set<string>();
   private quietUntil = 0;
+  /** Protocol v14: the others were sent my pointer and not told it left (cursorLeft is owed). */
+  private cursorShown = false;
 
   constructor(private readonly options: SessionOptions) {
     this.env = options.env ?? STATIC_ENV;
@@ -949,6 +954,8 @@ export class RoomSession {
     if (this.stopped) return;
     if (this.env.hidden()) {
       this.hiddenSince ??= Date.now();
+      // A hidden tab shares no pointer.
+      this.hideCursor();
       return;
     }
     this.hiddenSince = null;
@@ -971,6 +978,7 @@ export class RoomSession {
     clearTimeout(this.timer);
     this.stopAllMoves();
     this.socket = null;
+    this.forgetCursors();
     // Joins and leaves not shown yet are forgotten; people here now aren't news when they come back.
     clearTimeout(this.presenceTimer);
     this.presenceTimer = undefined;
@@ -2224,6 +2232,54 @@ export class RoomSession {
     this.stopGroup();
   }
 
+  /* ── Live cursors (protocol v14) ────────────────────────────────── */
+
+  /**
+   * Shares my pointer at a board position (whole units). Only while joined, visible, and with
+   * someone else here; false (nothing sent) otherwise. The caller throttles (cursors/cursors.ts).
+   * Sent straight to the socket: no view update, no history.
+   */
+  shareCursor(x: number, y: number): boolean {
+    if (!this.live || this.env.hidden() || !this.othersHere()) return false;
+    this.sendCursor({ type: "cursor", x: Math.round(x), y: Math.round(y) });
+    this.cursorShown = true;
+    return true;
+  }
+
+  /** My pointer left the board (or the window, or sharing was switched off): cursorLeft once, if it was shown. */
+  hideCursor(): void {
+    if (!this.cursorShown) return;
+    this.cursorShown = false;
+    if (this.live) this.sendCursor({ type: "cursorLeft" });
+  }
+
+  private othersHere(): boolean {
+    return this.view.participants.some((p) => !this.yourIds.has(p.id));
+  }
+
+  private sendCursor(message: Extract<ClientMessage, { type: "cursor" | "cursorLeft" }>): void {
+    try {
+      this.socket?.send(encodeMessage(message));
+    } catch {
+      // The close handler reports the lost connection.
+    }
+  }
+
+  /** Someone else's pointer: only from a participant here now, never my own (any of my ids this visit). */
+  private otherCursor(message: Extract<ServerMessage, { type: "cursorMoved" | "cursorGone" }>): void {
+    const sink = this.options.cursors;
+    if (!sink) return;
+    if (message.type === "cursorGone") return sink.gone(message.id);
+    if (this.yourIds.has(message.id) || !this.view.participants.some((p) => p.id === message.id)) return;
+    sink.moved(message.id, message.x, message.y);
+  }
+
+  /** The connection or the visit ended: no pointer is shown either way. */
+  private forgetCursors(): void {
+    this.cursorShown = false;
+    this.options.cursors?.clear();
+  }
+
   /** Leaves: closes the socket and reports nothing further. */
   close(): void {
     this.stopped = true;
@@ -2241,6 +2297,7 @@ export class RoomSession {
     clearTimeout(this.clearTimer);
     this.history.clear();
     this.stopAllMoves();
+    this.forgetCursors();
     this.socket?.close();
   }
 
@@ -2277,6 +2334,8 @@ export class RoomSession {
     if (this.stopped) return;
     const parsed = parseMessage(typeof data === "string" ? data : new ArrayBuffer(0), serverMessageSchema, MAX_SERVER_MESSAGE_BYTES);
     if (!parsed.ok) return this.finish("reload");
+    // Pointers (protocol v14) go straight to the cursor sink: never a view update, so nothing re-renders for them.
+    if (parsed.value.type === "cursorMoved" || parsed.value.type === "cursorGone") return this.otherCursor(parsed.value);
     const before = this.view.board;
     this.handle(parsed.value);
     this.pruneVotes();
@@ -2293,6 +2352,9 @@ export class RoomSession {
         return;
 
       case "joined":
+        // A new visit (or a reconnect): pointers seen before are stale.
+        this.cursorShown = false;
+        this.options.cursors?.clear();
         for (const p of message.participants) this.known.set(p.id, p);
         this.known.set(message.you.id, message.you);
         this.yourIds.add(message.you.id);
@@ -2408,6 +2470,7 @@ export class RoomSession {
       }
 
       case "participant_left": {
+        this.options.cursors?.gone(message.id);
         const gone = this.view.participants.find((p) => p.id === message.id);
         if (!gone) return;
         // An old socket of someone who is back already (same name, new id) isn't news.
@@ -2436,6 +2499,7 @@ export class RoomSession {
       case "snapshot": {
         // A (re)sync: what the history knows about ids and revs can't be trusted any more.
         this.history.clear();
+        if (this.resyncing) this.options.cursors?.clear();
         if (!this.resyncing) return this.update({ board: applySnapshot(this.view.board, message.notes), synced: true });
         // After a reconnect the relay's notes replace the board; its frames follow (framesSnapshot).
         clearTimeout(this.timer);
@@ -2763,6 +2827,7 @@ export class RoomSession {
     clearTimeout(this.toastTimer);
     this.history.clear();
     this.stopAllMoves();
+    this.forgetCursors();
     this.detach(true);
     this.update({
       status,

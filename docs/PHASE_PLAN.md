@@ -38,7 +38,7 @@ Draft roadmap. When a slice starts, rewrite its prompt against the real code (se
 | Export PNG/Markdown | One session, so a retro leaves something behind | Not started |
 | 9 (trimmed) Hardening | Load test and accessibility pass (message-rate limits already exist since slice 2) | Not started |
 | 6 (part) Silent brainstorm with reveal | The server withholds other people's note text until the host reveals it (snapshot and broadcast paths change). Riskiest slice | Not started |
-| 3b Presence: live cursors | Live cursors (throttled, never stored). Protocol change | Deferred |
+| 3b Presence: live cursors | Live cursors (throttled, never stored). Protocol v14 | Done (v0.19.0, PR #37; built ahead of export by choice) |
 | 7a Text box and shapes | Text box and basic shapes (rectangle, oval, diamond), reusing 2.7's sizing and colour work | Not started |
 | 7b Arrows | (i) Free endpoints and a line style; (ii) endpoints bound to notes and shapes, re-routed when a bound object moves, with a rule for deleting a bound object | Not started |
 | 7c Structure (remaining) | Group boxes, affinity grouping, Stencils tab and Save as stencil. Frames, templates and export moved to their own slices | Not started |
@@ -54,8 +54,8 @@ Draft roadmap. When a slice starts, rewrite its prompt against the real code (se
 - Test on the live deployment; merge and deploy each slice, roll back if needed (single user).
 - Every new object type (frame, timer, text box, group box) needs its own protocol/schema change with a version bump, caps and tests. The palette gets its tile with one registry entry; no placeholder tiles for things that don't exist.
 - Each protocol or stored-schema change is its own slice and branch (2.7, 2.7.1, 2.7.2, 2.8, z-order, frames, 3b are separate for that reason).
-- Protocol numbers are assigned when each slice starts, not in advance (v13 is the current one, since dot voting (a) in v0.17.0; expiry (v0.14.0), the top-bar move (v0.15.1) and the facilitation UI (v0.16.0) changed no protocol).
-- Order from here (decided 4 October 2026; Reconnect and Presence 3a were built together in one session, v0.13.0; Idle expiry done in v0.14.0; Timer and lock board (a) in v0.15.0 and (b) in v0.16.0; Dot voting (a) in v0.17.0 and (b) in v0.18.0): Export PNG/Markdown, Hardening (trimmed 9), then Silent brainstorm with reveal, then 3b cursors, 7a, 7b, 7c (remaining), 8, 10. Slice numbers are kept as names; the table above is in build order.
+- Protocol numbers are assigned when each slice starts, not in advance (v14 is the current one, since live cursors in v0.19.0; expiry (v0.14.0), the top-bar move (v0.15.1) and the facilitation UI (v0.16.0) changed no protocol).
+- Order from here (decided 4 October 2026; Reconnect and Presence 3a were built together in one session, v0.13.0; Idle expiry done in v0.14.0; Timer and lock board (a) in v0.15.0 and (b) in v0.16.0; Dot voting (a) in v0.17.0 and (b) in v0.18.0; 3b cursors brought forward to v0.19.0): Export PNG/Markdown, Hardening (trimmed 9), then Silent brainstorm with reveal, then 7a, 7b, 7c (remaining), 8, 10. Slice numbers are kept as names; the table above is in build order.
 - Estimate to a demo-able retro tool (through trimmed hardening): about 2 to 4 more Claude Code sessions, one per prompt, plus about 20% for reruns (it was 3 to 5 before the voting UI, 4 to 6 before the voting groundwork, 5 to 7 before the facilitation UI, 6 to 8 before the host groundwork, 7 to 9 before Idle expiry, 11 to 13 before Reconnect and Presence).
 
 ## Slice notes
@@ -135,8 +135,9 @@ Draft roadmap. When a slice starts, rewrite its prompt against the real code (se
 - Split from slice 3. Avatar stack in the top bar (participant colours, overflow count) opens the Participants sheet; join/leave toasts.
 - Built with Reconnect on one branch (PR #28). No protocol change, confirmed. From md up the Participants button is an avatar stack (you first, three faces, then +N); phones keep a count button; the accessible name gives the number of people. Toasts are batched (a burst is one summary), polite and plain text; none for yourself, the list on joining, your own reconnect's churn, or someone else's quick reconnect (a leave waits 3 s; found in a real-browser run). Trade-off: a second person with the same name as someone present gets no join toast.
 
-### 3b Presence: live cursors (protocol change, deferred)
-- Split from slice 3. Comes after the remaining facilitation work.
+### 3b Presence: live cursors — done, v0.19.0
+- Done in v0.19.0 (PR #37, protocol v14, no stored-schema change), one branch in three parts, tests first. `cursor`/`cursorLeft` from pages, `cursorMoved`/`cursorGone` to the others only (id from the socket), clamped, zero storage calls, nothing scheduled. Own per-socket bucket `CURSOR_LIMITS` 15/s, burst 20 (never SOCKET_LIMITS); drops silent up to 100 in 10 s, then violations. `cursorGone` before `participant_left` and before `sessionEnded`. Web sends from md up with a mouse or hovering pen only, every 100 ms at most after a 1-unit move, only with someone else here; a separate memoised layer, counter-scaled, 5 s idle fade; Show / Share switches in Participants (stored). Cost: about 0.5 DO requests/s per person moving non-stop; worst-case script per socket rises from about 1.6 to 2.8 DO requests/s (LIMITS.md). Checked with two pages in headless Chromium at 360/768/1280 in both themes.
+- The original plan, for reference:
 - `cursor { x, y }` in board units, max ~15/s, only when position changed, only while another participant is present, paused when the tab is hidden or the pointer leaves the board. Phones receive only.
 - Server: separate cursor rate budget, forward to others only, zero SQLite writes (tested), sender identity, name and colour always from the socket's participant record, clamped to the board.
 - Client: remote cursors hide after ~5 s idle and on leave/disconnect, cleared on reconnect; labels plain text, truncated; motion in its own memoised layer so notes don't re-render.

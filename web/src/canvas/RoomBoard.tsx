@@ -435,6 +435,8 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
     startFrameResize: room.startFrameResize,
     resizeFrame: room.resizeFrame,
     deleteFrame: room.deleteFrame,
+    shareCursor: room.shareCursor,
+    hideCursor: room.hideCursor,
   };
 
   // The bar: md and up, always there. Notes in selection order (the first is Match size's reference).

@@ -7,6 +7,7 @@ import { browserSocketFactory } from "../connection/socket";
 import { useBoardUi } from "../canvas/uiStore";
 import { STORAGE_KEYS, hostTokenKey, readKey, removeKey, writeKey } from "../storage";
 import { forgetVoterKey, voterKeyFor } from "../voting/voterKey";
+import { cursorSink } from "../cursors/cursorStore";
 import { browserFetch, checkRoom } from "./api";
 import type { FrameEdit } from "../frames/board";
 import type { StylePatch } from "../notes/board";
@@ -50,6 +51,8 @@ export function useRoom(code: string) {
       voterKey: () => (roomId ? voterKeyFor(roomId) : null),
       forgetVoterKey: () => forgetVoterKey(roomId),
       env: browserConnectionEnv,
+      // Protocol v14: other people's pointers go to their own store, never the view.
+      cursors: cursorSink,
       onChange: setView,
       onNoteConfirmed: (from, to) => useBoardUi.getState().renameSelected(from, to),
       onFrameConfirmed: (from, to) => useBoardUi.getState().renameFrame(from, to),
@@ -106,6 +109,8 @@ export function useRoom(code: string) {
     startVote: (budget: number) => session.current?.startVote(budget) ?? false,
     stopVote: () => session.current?.stopVote() ?? false,
     clearVotes: () => session.current?.clearVotes() ?? false,
+    shareCursor: (x: number, y: number) => session.current?.shareCursor(x, y) ?? false,
+    hideCursor: () => session.current?.hideCursor(),
     leave: () => session.current?.close(),
   };
 }

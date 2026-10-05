@@ -107,6 +107,12 @@ export function AboutPage() {
             id the relay gave the visit that added it. Deleting a frame removes only the frame, never its notes.
           </li>
           <li>
+            While you share your cursor (a mouse or pen over the board, on a wider screen), your pointer’s position on the board is passed on live
+            to the others in the session, with the relay’s random id for your visit so their page can show your name beside it. It is never stored,
+            and nothing is sent while your pointer is still, off the board, in a hidden tab, or when you’re the only one there. Phones never share a
+            pointer. You can stop sharing, or stop showing other people’s, in Participants.
+          </li>
+          <li>
             Undo and redo history is kept only in this tab’s memory: it’s never stored or sent anywhere, and it’s gone when you
             leave or reconnect. Notes and frames that undo brings back are added again as new ones, recorded as added by your visit.
           </li>
@@ -121,8 +127,8 @@ export function AboutPage() {
           </li>
           <li>
             This browser stores your theme choice, the last version whose notes you opened, the last name you joined with,
-            how wide the board’s side panels are and whether they’re collapsed, and the chat panel’s size if you resized it:
-            layout preferences only, with no session content and nothing about you, and it stays on this device. Where you
+            how wide the board’s side panels are and whether they’re collapsed, the chat panel’s size if you resized it, and
+            whether you show other people’s cursors and share yours: layout preferences only, with no session content and nothing about you, and it stays on this device. Where you
             are on the board, the zoom, the tool you pick and which note is selected stay in the open page: they aren’t
             stored or sent anywhere.
           </li>

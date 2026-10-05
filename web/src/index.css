@@ -175,6 +175,62 @@
   pointer-events: none;
 }
 
+/* Live cursors (v0.19.0): other people's pointers in the viewport, above every note (z-index past
+   NOTE_Z_LIMIT). Each mark sits at its board point, counter-scaled (the transform comes from
+   cursors/CursorLayer.tsx) and eases there; idle ones fade. Both timings are tokens, 0 under
+   reduced motion. Never takes presses. */
+.sy-cursor-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 200000;
+  pointer-events: none;
+}
+.sy-cursor {
+  position: absolute;
+  left: 0;
+  top: 0;
+  display: flex;
+  align-items: flex-start;
+  transform-origin: 0 0;
+  transition:
+    transform var(--sy-duration-cursor) linear,
+    opacity var(--sy-cursor-fade) ease-out;
+  will-change: transform;
+}
+.sy-cursor-idle {
+  opacity: 0;
+}
+.sy-cursor-arrow {
+  width: var(--sy-cursor-size);
+  height: var(--sy-cursor-size);
+  flex: none;
+  overflow: visible;
+}
+.sy-cursor-arrow-sm {
+  width: var(--sy-cursor-size-sm);
+  height: var(--sy-cursor-size-sm);
+}
+.sy-cursor-label {
+  margin-top: var(--sy-cursor-size);
+  max-width: var(--sy-cursor-label-max);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 0 var(--sy-space-xs);
+  border: var(--sy-border-width) solid var(--sy-cursor-halo);
+  border-radius: var(--sy-radius-xs);
+  color: var(--sy-cursor-label-fg);
+  line-height: 1.4;
+}
+.sy-cursor-arrow-sm + .sy-cursor-label {
+  margin-top: var(--sy-cursor-size-sm);
+}
+/* Near the right edge the label goes on the left of the arrow. */
+.sy-cursor-flip {
+  flex-direction: row-reverse;
+  translate: calc(-100% + var(--sy-cursor-size)) 0;
+}
+
 /* Dot voting: a row of badges just above the note, starting past the top-left resize handle and
    ending before the select tick, so neither is covered and the note's text never is. They scale
    with the note (they're in the node). Wraps upward on a narrow note. Never takes presses. */

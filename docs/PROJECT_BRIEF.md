@@ -37,7 +37,7 @@ Positioning hypothesis: the retro and workshop board you can start in 10 seconds
 | Secrets | `CREATE_PASSCODE` and `ROOM_SIGNING_KEY` only as GitHub secrets pushed to Worker secrets by the deploy job, and `.dev.vars` (gitignored). Tests use fake values. GitHub secret scanning and push protection on |
 | Security | Worker checks `Origin` (Pages origin + localhost dev; stops other websites, not scripts); Zod-validates every message; long unguessable room codes; no secrets in the repo |
 | Storage keys | Prefixed with the app name (shared `github.io` origin); nothing sensitive in browser storage |
-| Cursors | Throttled (~15/s), never stored |
+| Cursors | Sent at most every 100 ms, only when moved and someone else is here; relay budget 15/s; never stored |
 | Timer | Sent as start time + duration; each client counts down locally |
 | Cost control | Free plan acts as a cap; check current Cloudflare limits before designing around any number |
 | Dev environment | Raspberry Pi 5 (arm64) is a build machine only. Verify wrangler works on arm64 in slice 0; fallback is a deployed dev Worker |
@@ -105,6 +105,7 @@ Keep tsc, tests and build green. Stop for review with a summary of what was buil
 | Facilitation UI (6b) | Timer for everyone; host Timer tile, Lock board, End session; guest banner and greyed-out controls while locked; Host badges | Done (v0.16.0, web only, PR #33) |
 | Dot voting groundwork (6c-a) | Anonymous voters, budgets, rounds and reveal in the relay; web plumbing; no visible voting UI yet | Done (v0.17.0, protocol v13, PR #35) |
 | Dot voting UI (6c-b) | Strip, my dots, vote controls on notes, Properties and phones; host Start/Stop and reveal/Clear; totals, Top voted and a Results list | Done (v0.18.0, web only, PR #36) |
+| Live cursors (3b) | Other people's pointers with names, live and never stored; Show / Share switches in Participants; phones receive only | Done (v0.19.0, protocol v14, PR #37) |
 | Next | Export, trimmed hardening, then silent brainstorm | Not started; see PHASE_PLAN.md |
 | 3 onwards | See PHASE_PLAN.md | See PHASE_PLAN.md |
 
@@ -146,6 +147,7 @@ Start a thread with the slice and what I want (for example "Slice 1, write the C
 - Thread 9, evening (4 October 2026): Facilitation UI (6b) built on one branch in three parts, tests first (v0.16.0, web only, PR #33): a timer chip everyone sees (relay clock, polite announcements at start, 1 minute and end), the host's Timer tile and picker, Lock board with a guest banner and every board control greyed out with the reason, End session, Host badges and named avatars, a phone Session section. A host-and-guest run in Chromium at 360/768/1280 in both themes found a top-bar overflow at 1280, fixed before merging. Merged and deployed. Next: dot voting.
 - Thread 9, later that evening (4 October 2026): Dot voting groundwork built on one branch in three parts, tests first (v0.17.0, protocol v13, stored schema 8, PR #35): anonymous voters (an HMAC of a random per-room key from the page; the key is never stored by the relay), budgets enforced by the relay, host start/stop/clear, totals only on reveal and to late joiners, at most 40 voters a round, votes deleted with their note and at burial; the web keeps the key per room, claims on every join and keeps votes, dots left and results in state. No visible voting UI. Checked in headless Chromium against a local relay. Merged and deployed. Next: dot voting UI.
 - Thread 9, overnight (5 October 2026): Dot voting UI built on one branch in three parts, tests first (v0.18.0, web only, PR #36): the voting strip and its announcer, my dots on notes, − / + on the selected note and in Properties and the phone editor, D / Shift+D, visible reasons, voting allowed on a locked board, the host's budget stepper and Start / Stop and reveal / Clear votes, Total and Top voted badges, a Results list (Properties, phone sheet) that selects and reveals a note, Help topic. Checked with a host and a guest in headless Chromium at 360/768/1280 in both themes. Merged and deployed. Next: export.
+- Thread 9, morning (5 October 2026): Live cursors (3b) built ahead of export on one branch in three parts, tests first (v0.19.0, protocol v14, PR #37): pointers forwarded to the others only with zero storage and nothing scheduled, their own rate bucket so they never starve edits, cursorGone on leave and End session; a separate cursor layer (counter-scaled, kept in view, fades when idle, reduced-motion aware), mouse or hovering pen from md up only, phones receive only; Show / Share switches in Participants. Checked with two pages in headless Chromium at 360/768/1280 in both themes. Merged and deployed. Next: export.
 
 ## 10. One-time manual setup
 

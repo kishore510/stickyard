@@ -84,9 +84,18 @@ describe("help topics", () => {
     expect(sessions).not.toMatch(/end session button|lock button|timer tile/);
   });
 
-  it("help topics only claim what exists: no cursors or QR codes yet (the timer since v0.16.0, dot voting since v0.18.0)", () => {
+  it("help topics only claim what exists: no QR codes yet (the timer since v0.16.0, dot voting since v0.18.0, cursors since v0.19.0)", () => {
     const all = HELP_TOPICS.map((t) => t.text).join("\n");
-    expect(all).not.toMatch(/qr code|cursor/);
+    expect(all).not.toMatch(/qr code/);
+    // Cursors are covered in Participants only.
+    for (const t of HELP_TOPICS) if (t.id !== "participants" && t.id !== "touch-and-keyboard") expect(t.text, t.id).not.toMatch(/cursor/);
+  });
+
+  it("Participants covers live cursors: live only, never stored, the two switches, phones show but don't share", () => {
+    const participants = HELP_TOPICS.find((t) => t.id === "participants")?.text ?? "";
+    for (const claim of ["cursor", "live", "never stored", "show other people's cursors", "share my cursor", "phone", "don't share"]) {
+      expect(participants, claim).toContain(claim);
+    }
   });
 
   it("Dot voting covers a round, private dots, anonymity, browser data, the budget, restarting, the lock and the keys", () => {
