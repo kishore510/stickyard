@@ -42,19 +42,22 @@ export function ResultsList({ rows, onPick }: { rows: readonly ResultRow[]; onPi
                 type="button"
                 data-result-row=""
                 onClick={() => onPick(row.noteId)}
-                className="flex min-h-touch w-full min-w-0 cursor-pointer items-center gap-sm rounded-md border border-border bg-surface px-ms text-left text-sm hover:bg-surface-muted focus-visible:ring-2 focus-visible:ring-focus"
+                className="flex min-h-touch w-full min-w-0 cursor-pointer flex-col items-stretch gap-2xs rounded-md border border-border bg-surface px-ms py-xs text-left text-sm hover:bg-surface-muted focus-visible:ring-2 focus-visible:ring-focus"
               >
-                <span data-result-title="" className="min-w-0 flex-1 truncate">
+                {/* The title has the first line to itself, so it stays readable in a narrow panel. */}
+                <span data-result-title="" className="min-w-0 truncate">
                   {row.title}
                 </span>
-                {row.top && (
-                  <span data-result-top="" className="inline-flex shrink-0 items-center gap-2xs rounded-full bg-accent px-sm text-xs font-semibold text-accent-fg">
-                    <Trophy aria-hidden="true" className="size-icon-sm" />
-                    {VOTE_TEXT.topVoted}
+                <span className="flex items-center gap-sm">
+                  <span data-result-count="" className="font-semibold tabular-nums">
+                    {dotsWord(row.count)}
                   </span>
-                )}
-                <span data-result-count="" className="shrink-0 font-semibold tabular-nums">
-                  {dotsWord(row.count)}
+                  {row.top && (
+                    <span data-result-top="" className="inline-flex shrink-0 items-center gap-2xs rounded-full bg-accent px-sm text-xs font-semibold text-accent-fg">
+                      <Trophy aria-hidden="true" className="size-icon-sm" />
+                      {VOTE_TEXT.topVoted}
+                    </span>
+                  )}
                 </span>
               </button>
             </li>
