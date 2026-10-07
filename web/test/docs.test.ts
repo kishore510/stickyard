@@ -54,7 +54,7 @@ function statusCells(doc: string, heading: RegExp): string[] {
 const mentions = (cell: string, version: string): boolean =>
   new RegExp(`\\bv${version.replace(/\./g, "\\.")}(?![\\d.])`).test(cell);
 
-const releases = parseChangelog(root("CHANGELOG.md"));
+const releases = parseChangelog(root("CHANGELOG.md")) ?? [];
 const newest = releases[0];
 const plan = root("docs/PHASE_PLAN.md");
 const brief = root("docs/PROJECT_BRIEF.md");
