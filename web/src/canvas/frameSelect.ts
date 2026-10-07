@@ -144,7 +144,7 @@ export function carryPlan(
 
 /** Why Arrange (Align, Distribute, Grid, Match size) is off for a selection with frames. */
 export const ARRANGE_HINTS = {
-  mixed: "Arrange works on notes or on frames, not both. Select only notes, or only frames.",
+  mixed: "Arrange works on notes and shapes, or on frames, not both. Select only notes and shapes, or only frames.",
   fewFrames: "Select 2 or more frames to arrange.",
   fewFramesDistribute: "Select 3 or more frames to distribute.",
   offline: "Not connected.",

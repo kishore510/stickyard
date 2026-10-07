@@ -89,7 +89,7 @@ export function ShapeLookSection({ shape, live, onEdit, mixed = new Set() }: { s
     <Section title="Shape">
       <SwatchGroup label="Fill" groupLabel="Fill colour" current={fillMixed ? "Mixed" : SHAPE_FILL_NAMES[shape.fill]}>
         {SHAPE_FILLS.map((key) => (
-          <Swatch key={key} label={SHAPE_FILL_NAMES[key]} fill="" fillStyle={shapeFillSwatch(key)} pressed={!fillMixed && key === shape.fill} disabled={!live} onClick={() => onEdit({ fill: key })} />
+          <Swatch key={key} label={key === "none" ? SHAPE_FILL_NAMES[key] : `${SHAPE_FILL_NAMES[key]} fill`} fill="" fillStyle={shapeFillSwatch(key)} pressed={!fillMixed && key === shape.fill} disabled={!live} onClick={() => onEdit({ fill: key })} />
         ))}
       </SwatchGroup>
       <SwatchGroup label="Border colour" current={strokeMixed ? "Mixed" : FRAME_COLOR_NAMES[shape.stroke]}>
@@ -217,6 +217,73 @@ export function ShapeFields({
           <span className="break-words">{author}</span>
         </p>
       </Section>
+    </div>
+  );
+}
+
+/** Text for what several shapes can't share. */
+export const SHAPES_TEXT = {
+  text: "Edit text one shape at a time.",
+  size: "Use Match size (Arrange in the top bar) to give them one size.",
+} as const;
+
+/**
+ * Two or more shapes selected alone (protocol v15, Properties md and up): text style, fill and
+ * border apply to every selected shape (RoomSession.editShapes: one shapeEdit each, paced, one
+ * undo step). Fields that differ show "Mixed". Text and Width/Height can't be set for several at
+ * once: Text shows the shared text or "Mixed", disabled; Width and Height are disabled and point
+ * to Match size. Fill and border show when any selected shape isn't a text box. Delete is in the
+ * panel's header. Read-only while disconnected or locked out.
+ */
+export function ShapesFields({ shapes, live, onEdit }: { shapes: readonly Shape[]; live: boolean; onEdit: (change: ShapeEdit) => void }) {
+  const id = useId();
+  const first = shapes[0];
+  if (!first) return null;
+  const differs = (key: keyof Shape) => shapes.some((x) => x[key] !== first[key]);
+  const mixed = new Set((["fill", "stroke", "strokeWidth", "strokeStyle"] as const).filter((k) => differs(k)));
+  const textMixed = differs("text");
+  return (
+    <div data-shapes-fields="" className="flex flex-col gap-md">
+      <p className="rounded-md bg-surface-muted p-ms text-sm text-fg-muted">
+        Text style, fill and border change every selected shape. Drag one to move them all.
+      </p>
+      <div className="flex flex-col gap-xs">
+        <Label htmlFor={`${id}-text`}>Text</Label>
+        <Textarea
+          id={`${id}-text`}
+          name="shapeText"
+          value={textMixed ? "" : first.text}
+          placeholder={textMixed ? "Mixed" : ""}
+          rows={2}
+          disabled
+          readOnly
+          aria-describedby={`${id}-text-help`}
+        />
+        <p id={`${id}-text-help`} className="text-sm text-fg-muted">
+          {SHAPES_TEXT.text}
+        </p>
+      </div>
+      <TextStyleSection
+        part="text"
+        title="Text style"
+        style={shapeTextValues(first)}
+        live={live}
+        sizes={SHAPE_SIZES}
+        differs={(key) => differs(key as keyof Shape)}
+        swatch={(key) => ({ fill: "", fillStyle: SHAPE_INK_SWATCHES[key] })}
+        onChange={(change) => onEdit(change as ShapeEdit)}
+      />
+      {shapes.some((x) => x.kind !== "text") && <ShapeLookSection shape={first} live={live} onEdit={onEdit} mixed={mixed} />}
+      <Section title="Size">
+        <div className="flex gap-ms">
+          <SizeField label="Width" name="shapeWidth" value={first.w} min={SHAPE_MIN_W} max={SHAPE_MAX_W} disabled mixed={differs("w")} onCommit={() => null} />
+          <SizeField label="Height" name="shapeHeight" value={first.h} min={SHAPE_MIN_H} max={SHAPE_MAX_H} disabled mixed={differs("h")} onCommit={() => null} />
+        </div>
+        <p data-shapes-size-hint="" className="text-xs text-fg-muted">
+          {SHAPES_TEXT.size}
+        </p>
+      </Section>
+      {!live && <p className="text-sm text-fg-muted">{READ_ONLY}</p>}
     </div>
   );
 }

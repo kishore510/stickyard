@@ -99,6 +99,7 @@ export function useRoom(code: string) {
     deleteFrame: (id: string) => session.current?.deleteFrame(id),
     addShape: (at: { kind: ShapeKind; x: number; y: number }) => session.current?.addShape(at) ?? null,
     editShape: (id: string, change: ShapeEdit) => session.current?.editShape(id, change) ?? false,
+    editShapes: (ids: readonly string[], change: ShapeEdit) => session.current?.editShapes(ids, change) ?? false,
     setShapeDraft: (id: string, draft: string | null) => session.current?.setShapeDraft(id, draft),
     startShapeDrag: (id: string) => session.current?.startShapeDrag(id) ?? false,
     moveShape: (id: string, x: number, y: number, final: boolean) => session.current?.moveShape(id, x, y, final),

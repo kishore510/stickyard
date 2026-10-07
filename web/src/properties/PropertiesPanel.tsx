@@ -20,7 +20,7 @@ import { clearBoardReason, confirmClearBoard } from "./clearBoard";
 import { ResultsList } from "../voting/Results";
 import { findShape, type ShapeEdit } from "../shapes/board";
 import { confirmShapeDelete } from "../shapes/label";
-import { ShapeFields } from "../shapes/ShapeFields";
+import { ShapeFields, ShapesFields } from "../shapes/ShapeFields";
 import { SHAPE_KIND_NAMES } from "../shapes/style";
 import type { ResultRow } from "../voting/voting";
 import { LOCK_TEXT, confirmEndSession, endSessionReason, withLock } from "../facilitation/lock";
@@ -74,6 +74,8 @@ export interface PropertiesRoom {
   /** Shapes (protocol v15): text being typed, a committed text or style, a size, a delete. */
   setShapeDraft?(id: string, draft: string | null): void;
   editShape?(id: string, change: ShapeEdit): boolean;
+  /** Text style, fill and border for several shapes at once. */
+  editShapes?(ids: readonly string[], change: ShapeEdit): boolean;
   setShapeSize?(id: string, w: number, h: number): boolean;
   deleteShape?(id: string): void;
   /** Dot voting results while a round is closed (sorted; null otherwise): the board summary lists them first. */
@@ -316,6 +318,8 @@ export function PropertiesContent({ room, collapse }: { room: PropertiesRoom; co
         )}
         {group && groupNotes.length === 0 && groupShapes.length === 0 ? (
           <FramesFields frames={groupFrames.map((f) => f.frame)} live={editable} onEdit={(change) => room.editFrames?.(groupFrames.map((f) => f.frame.id), change)} />
+        ) : group && groupNotes.length === 0 && groupFrames.length === 0 ? (
+          <ShapesFields shapes={groupShapes.map((x) => x.shape)} live={editable} onEdit={(change) => room.editShapes?.(groupShapes.map((x) => x.shape.id), change)} />
         ) : group ? (
           <GroupFields />
         ) : shape ? (

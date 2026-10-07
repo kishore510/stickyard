@@ -1421,26 +1421,45 @@ export class RoomSession {
   }
 
   /**
-   * Arrange (align, distribute, match size): new rects for several notes, shown at once and sent
-   * as final batches. Position-only changes go as moves, size changes as resizes. False if refused.
+   * Arrange (align, distribute, match size, grid): new rects for several notes and shapes (v15),
+   * shown at once and sent as final batches (noteBatch, shapeBatch), one history step.
+   * Position-only changes go as moves, size changes as resizes. False if refused.
    */
   applyRects(rects: readonly (NoteRect & { id: string })[]): boolean {
     if (!this.live) return false;
     let board = this.view.board;
     const ops: NoteBatchEntry[] = [];
+    // Shapes arranged with notes (protocol v15): their rects go out as one shapeBatch.
+    const shapeOps: ShapeBatchEntry[] = [];
     for (const rect of rects) {
+      if (isLocalId(rect.id)) continue;
+      const shape = findShape(board, rect.id)?.shape;
+      if (shape) {
+        board = resizeShapeLocal(board, rect.id, rect);
+        const after = findShape(board, rect.id)?.shape;
+        if (!after || after === shape) continue;
+        const { id, x, y, w, h } = after;
+        shapeOps.push(w === shape.w && h === shape.h ? { op: "move", id, x, y } : { op: "resize", id, x, y, w, h });
+        continue;
+      }
       const before = findNote(board, rect.id)?.note;
-      if (!before || isLocalId(rect.id)) continue;
+      if (!before) continue;
       board = resizeLocal(board, rect.id, rect);
       const after = findNote(board, rect.id)?.note;
       if (!after || after === before) continue;
       const { id, x, y, w, h } = after;
       ops.push(w === before.w && h === before.h ? { op: "move", id, x, y } : { op: "resize", id, x, y, w, h });
     }
-    if (ops.length === 0) return true;
+    if (ops.length + shapeOps.length === 0) return true;
     this.update({ board, noteNotice: null });
-    this.recordRects("Arrange", ["note"], ops.map((o) => o.id), ["x", "y", "w", "h"]);
+    this.recordRects(
+      "Arrange",
+      [...ops.map(() => "note" as const), ...shapeOps.map(() => "shape" as const)],
+      [...ops.map((o) => o.id), ...shapeOps.map((o) => o.id)],
+      ["x", "y", "w", "h"],
+    );
     this.sendBatch(ops, true);
+    this.sendShapeBatch(shapeOps, true);
     return true;
   }
 
@@ -1852,7 +1871,38 @@ export class RoomSession {
     return true;
   }
 
-  /** Sends the next queued frameEdit, then waits CLEAR_FRAME_STEP_MS. */
+  /**
+   * Text style, fill and border for several shapes at once (protocol v15, Properties): shown at
+   * once, then one shapeEdit per shape with only what changes for it, paced like editFrames (one
+   * every CLEAR_FRAME_STEP_MS), one history step. Text isn't edited here. Confirmed shapes only.
+   * False if refused (not connected, or a guest on a locked board).
+   */
+  editShapes(ids: readonly string[], change: ShapeEdit): boolean {
+    if (!this.live || lockedOut(this.view)) return false;
+    const { text: _, ...style } = change;
+    let board = this.view.board;
+    const edits: { id: string; edit: ShapeEdit }[] = [];
+    for (const id of ids) {
+      const entry = findShape(board, id);
+      if (!entry || isLocalId(id)) continue;
+      const before = entry.shape;
+      board = editShapeLocal(board, id, style);
+      const edit = shapeChanges(before, findShape(board, id)?.shape ?? before);
+      if (Object.keys(edit).length > 0) edits.push({ id, edit });
+    }
+    if (edits.length === 0) return true;
+    this.update({ board, noteNotice: null });
+    this.record(
+      "Edit shapes",
+      edits.map((e) => ({ kind: "shape" as const, id: e.id, after: e.edit as Fields })),
+    );
+    // The same paced queue as frame edits (it holds any edit message).
+    for (const { id, edit } of edits) this.frameEditQueue.push({ type: "shapeEdit", id, ...edit });
+    this.pumpFrameEdits();
+    return true;
+  }
+
+  /** Sends the next queued frameEdit or shapeEdit, then waits CLEAR_FRAME_STEP_MS. */
   private pumpFrameEdits(): void {
     if (this.frameEditTimer !== undefined || !this.live) return;
     const message = this.frameEditQueue.shift();

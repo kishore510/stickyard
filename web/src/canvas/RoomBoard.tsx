@@ -726,6 +726,7 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
                 deleteFrame: room.deleteFrame,
                 setShapeDraft: room.setShapeDraft,
                 editShape: room.editShape,
+                editShapes: room.editShapes,
                 setShapeSize: room.setShapeSize,
                 deleteShape: room.deleteShape,
                 deleteSelection,

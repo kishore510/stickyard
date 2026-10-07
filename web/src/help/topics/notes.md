@@ -23,9 +23,9 @@ Every session has one shared **board**. Everyone in the session sees the same no
 
 On a wider screen, with a mouse:
 
-- Drag across an empty part of the board to draw a **marquee**: every note it touches is selected, and every frame it fully surrounds (a box drawn inside a frame never picks up the frame). Hold **Shift** while you start dragging to add to what's already selected.
+- Drag across an empty part of the board to draw a **marquee**: every note and shape it touches is selected, and every frame it fully surrounds (a box drawn inside a frame never picks up the frame). Hold **Shift** while you start dragging to add to what's already selected.
 - **Shift**-click or **Ctrl**-click (**Cmd**-click on a Mac) a note, or a frame's title bar or border, to add it to the selection, or take it out. A plain click selects just that note or frame.
-- **Ctrl+A** (**Cmd+A**) selects every note and frame. **Esc**, or a click on an empty part of the board, clears the selection.
+- **Ctrl+A** (**Cmd+A**) selects every note, frame and shape (see [Text and shapes](help:text-and-shapes)). **Esc**, or a click on an empty part of the board, clears the selection.
 - Each selected note and frame has a thick outline and a tick in its corner, and a dashed box surrounds the whole selection, so it's easy to see what's selected.
 - Drag any selected note to move them all together. They keep their places relative to each other, and stop together at the edge of the board. Dragging a note that isn't selected selects just that note.
 - With a note of the selection focused, the **arrow keys** move them all (**Shift** for bigger steps). With frames selected, the arrow keys move the selection too (frames bring the notes inside them), as long as nothing else has focus.
@@ -110,7 +110,7 @@ A frame is a named, coloured area that sits behind the notes, for example Start,
 
 - On a wider screen, choose **Frame** under **Frames** in the palette to add one in the middle of the view (or drag the tile onto the board). Its title is ready to type: **Enter**, **Esc** or clicking elsewhere saves it. To change it later, **double-click** the title, or select the frame and press **Enter**; you can also type it under **Title** in Properties.
 - A board holds up to 30 frames. Frames are 240 to 2400 wide and 160 to 1600 tall, and always stay on the board.
-- Drag a frame by its title bar or its border. The notes inside it (any note whose middle is inside the frame) move with it and keep their places. Hold **Alt** while you start dragging to move the frame on its own. A frame holding more than 50 notes moves on its own, and the board says so.
+- Drag a frame by its title bar or its border. The notes and shapes inside it (any whose middle is inside the frame) move with it and keep their places. Hold **Alt** while you start dragging to move the frame on its own. A frame holding more than 50 notes and shapes together moves on its own, and the board says so.
 - The inside of a frame lets clicks through: you can select, move and edit the notes in it, and drag across it to select several, as if the frame wasn't there. Notes can be dragged in and out of a frame freely.
 - Click a frame's title bar (the title too) or border to select it (this clears any selected notes). It gets a thick outline. **Shift**-click or **Ctrl**-click adds it to the selection instead (see **Selecting several notes** above). Small squares at its corners resize it. **Properties** shows its **Title**, **Colour**, **Title text**, **Width** and **Height**, and who added it.
 - **Title text** styles the frame's title like a note's: **Size**, **Bold** and **Italic**, **Align** (left, centre or right) and **Text colour**. The title bar gets taller for the larger sizes. Frame titles start bold; a bold frame title is a little lighter than a bold note title. Every text colour stays readable on every frame colour, in light and dark.
@@ -123,7 +123,7 @@ A frame is a named, coloured area that sits behind the notes, for example Start,
 - **Delete** (the key, or the bin in **Properties**) asks once, with how many notes and frames, and how many notes inside the frames aren't selected and will stay on the board. The notes go first, then the frames one by one. When it's done, the board says how many were deleted, or how many weren't and why (nothing is tried again). One **Undo** brings them all back.
 - **Properties** sums up what's selected (for example "3 notes, 2 frames selected"). With only frames selected, **Colour** and **Title text** change every selected frame at once; **Title** shows **Mixed** when the titles differ and is edited one frame at a time, and **Width** and **Height** are off (use **Match size** under **Arrange**).
 - **Bring to front** and **Send to back** act on the selected notes only; with only frames selected they're off, because frames always sit behind notes.
-- Frames are always behind every note; **Bring to front** and **Send to back** only change the order of notes.
+- Frames are always behind every note and shape; **Bring to front** and **Send to back** only change the order of notes and shapes.
 - A template's frames and the notes in them can be selected with one marquee (or **Ctrl+A**), then moved or deleted together.
 - On a phone, frames are shown, with their title styles, but can't be added, moved or changed.
 - Others see a frame move as you drag it. If two people change the same frame, the change that reaches the relay last wins.

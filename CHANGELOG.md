@@ -2,6 +2,23 @@
 
 All notable changes to Stickyard, newest first. The format follows Keep a Changelog. Versions are 0.x: a minor bump for each slice and a patch bump for each follow-up fix. This file is shown in the app under **What’s new**, so entries are written for the people using it.
 
+## [0.21.0] - 2026-10-07
+
+### Added
+- **Text and shapes.** On a wider screen the palette has a **Shapes** section: **Text**, **Rectangle**, **Oval** and **Diamond**. Click one to add it in the middle of the view, or drag it onto the board. Its text is ready to type.
+- Type in a shape by double-clicking it, or select it and press **Enter**. **Enter** starts a new line; **Esc** or clicking elsewhere saves. A shape holds up to 500 characters, and its text stays inside an oval's or a diamond's outline.
+- A **Text** label has no fill or border, just words. While it's empty it shows a faint outline and the word "Text" so you can find it.
+- **Properties** for a shape: its text, a text style with seven sizes (up to three heading sizes), **Bold**, **Italic**, **Underline**, left, centre or right, top, middle or bottom, and a text colour; for shapes, a **Fill**, **Border colour**, **Border width** and **Border style** (solid or dashed); **Width** and **Height**; and **Bring to front** or **Send to back**.
+- With several shapes selected, **Properties** changes the text style, fill and border of all of them at once.
+- Shapes work with everything else: select them with notes and frames (click, **Shift**-click, a marquee, **Ctrl+A**), drag or arrow-key them together, align, distribute, grid and match size them with notes, duplicate them, delete them, and undo any of it. A frame brings the shapes inside it when you drag it.
+- A board holds up to 50 shapes. Every text colour stays readable on every fill, in light and dark.
+
+### Changed
+- Notes and shapes share one front-to-back order: **Bring to front** and **Send to back** work on both, and frames stay behind everything.
+- A frame carries at most 50 notes and shapes together; a frame holding more moves on its own, as before.
+- Phones show shapes, with their styles, but can't add or change them yet.
+- Everyone in a session needs this version: an older open page is asked to reload.
+
 ## [0.20.0] - 2026-10-05
 
 ### Added
