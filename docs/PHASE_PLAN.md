@@ -55,8 +55,9 @@ Draft roadmap. When a slice starts, rewrite its prompt against the real code (se
 - Test on the live deployment; merge and deploy each slice, roll back if needed (single user).
 - Every new object type (frame, timer, shapes, group box, connector) needs its own protocol/schema change with a version bump, caps and tests. The palette gets its tile with one registry entry; no placeholder tiles for things that don't exist.
 - Each protocol or stored-schema change is its own slice and branch (2.7, 2.7.1, 2.7.2, 2.8, z-order, frames, 3b are separate for that reason).
-- Protocol numbers are assigned when each slice starts, not in advance (v14 is the current one, since live cursors in v0.19.0; expiry (v0.14.0), the top-bar move (v0.15.1) and the facilitation UI (v0.16.0) changed no protocol).
+- Protocol numbers are assigned when each slice starts, not in advance (v15 is the current one, since text and shapes in v0.21.0; expiry (v0.14.0), the top-bar move (v0.15.1) and the facilitation UI (v0.16.0) changed no protocol).
 - Order from here (decided 4 October 2026; Reconnect and Presence 3a were built together in one session, v0.13.0; Idle expiry done in v0.14.0; Timer and lock board (a) in v0.15.0 and (b) in v0.16.0; Dot voting (a) in v0.17.0 and (b) in v0.18.0; 3b cursors brought forward to v0.19.0): Export PNG/Markdown, Hardening (trimmed 9), then Silent brainstorm with reveal, then 7a, 7b, 7c (remaining), 8, 10. Slice numbers are kept as names; the table above is in build order.
+- Working setup (7 October 2026): one fresh Claude Code session per part, at most per slice, handing over through the PR description. CLAUDE.md stays short; area detail is in `docs/architecture/`. Stale status docs fail CI (`web/test/docs.test.ts`), and `npm run shots` takes the screenshot set.
 - Estimate to a demo-able retro tool (through trimmed hardening): about 2 to 4 more Claude Code sessions, one per prompt, plus about 20% for reruns (it was 3 to 5 before the voting UI, 4 to 6 before the voting groundwork, 5 to 7 before the facilitation UI, 6 to 8 before the host groundwork, 7 to 9 before Idle expiry, 11 to 13 before Reconnect and Presence).
 
 ## Slice notes
@@ -120,7 +121,7 @@ Draft roadmap. When a slice starts, rewrite its prompt against the real code (se
 - Worst-case snapshot is now 401,829 bytes (about 120 KiB under the 512 KiB cap; see LIMITS.md).
 
 ### 2.8 Multi-select and arrange (protocol v7) — done, v0.7.0
-- Built as planned below, mouse-first: left-drag on empty canvas is a marquee, right/middle drag pans, touch and pen still pan (decided by pointer type). One `noteBatch` message (move/resize/delete entries, 50 a batch) with per-entry errors; final batches in one transaction; a separate per-socket entries budget. Editing colour or style for several notes at once is not in it (fields show Mixed, disabled). See CLAUDE.md "Multi-select and protocol v7".
+- Built as planned below, mouse-first: left-drag on empty canvas is a marquee, right/middle drag pans, touch and pen still pan (decided by pointer type). One `noteBatch` message (move/resize/delete entries, 50 a batch) with per-entry errors; final batches in one transaction; a separate per-socket entries budget. Editing colour or style for several notes at once is not in it (fields show Mixed, disabled). See docs/architecture/canvas.md "Multi-select and protocol v7".
 
 - Selection set from 2.6 becomes real: marquee on the Select tool, Shift/Ctrl-click to toggle, Ctrl+A. Dragging one selected note moves the whole selection.
 - Floating selection bar at the top of the canvas, like Chalkline: Align (left, centre, right, top, middle, bottom), Distribute (horizontal, vertical), Match size (width, height, both). Pure, tested layout functions.
@@ -186,13 +187,13 @@ Draft roadmap. When a slice starts, rewrite its prompt against the real code (se
 - Load test and accessibility pass only. Message-rate limits and malformed-message tests already exist; keyboard support and reduced motion are handled slice by slice.
 
 ### Z-order (protocol v8) — done, v0.8.0
-- Bring to front / send to back, because frames and shapes will overlap notes. Notes gain a server-assigned `z` (bounded ±100,000; renumbered at the bound); stored schema 4 -> 5 backfills z from creation order, so nothing looks different. One `notesOrder` message (front | back, up to 50 ids, chunked in stacking order beyond that), one transaction, one `notesOrdered` broadcast; only notes whose z changes are written. Selecting, dragging and resizing no longer raise a note (React Flow's elevate-on-select off). Order buttons in Properties, the phone editor and the selection bar; no shortcut. See CLAUDE.md "Z-order, protocol v8".
+- Bring to front / send to back, because frames and shapes will overlap notes. Notes gain a server-assigned `z` (bounded ±100,000; renumbered at the bound); stored schema 4 -> 5 backfills z from creation order, so nothing looks different. One `notesOrder` message (front | back, up to 50 ids, chunked in stacking order beyond that), one transaction, one `notesOrdered` broadcast; only notes whose z changes are written. Selecting, dragging and resizing no longer raise a note (React Flow's elevate-on-select off). Order buttons in Properties, the phone editor and the selection bar; no shortcut. See docs/architecture/notes.md "Z-order, protocol v8".
 - Not in it: forward/backward one step, a layers panel (backlog). Tab order and the minimap still follow creation order.
 
 ### Frames (protocol v9) — done, v0.9.0
 - A named, resizable, coloured area that always sits behind notes, in its own `frames` table (schema 6). Palette tile (md and up), title typed in the header, colour and size in Properties, delete never removes notes. Phones show frames only.
 - Decided: dragging a frame carries the notes whose centre is inside it (computed when the drag starts, never stored), by one delta clamped for the whole group, in one transaction with one `frameMoved`; Alt moves it alone; more than 50 inside moves it alone with a notice.
-- Frames come in their own `framesSnapshot` right after the notes snapshot (the notes snapshot was too close to its 400 KiB tripwire to carry them). See CLAUDE.md "Frames, protocol v9".
+- Frames come in their own `framesSnapshot` right after the notes snapshot (the notes snapshot was too close to its 400 KiB tripwire to carry them). See docs/architecture/frames.md "Frames, protocol v9".
 
 
 ### Frame title styling (protocol v10) — done, v0.9.1

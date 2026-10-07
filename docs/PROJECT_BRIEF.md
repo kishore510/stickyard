@@ -1,6 +1,6 @@
 # Project Brief: Stickyard
 
-Last updated: 7 October 2026 (thread 10). Update the status table and session log at the end of every thread, then re-upload.
+Last updated: 7 October 2026 (thread 11). Update the status table and session log at the end of every thread, then re-upload.
 
 ## 1. Purpose
 
@@ -41,7 +41,7 @@ Positioning hypothesis: the retro and workshop board you can start in 10 seconds
 | Timer | Sent as start time + duration; each client counts down locally |
 | Cost control | Free plan acts as a cap; check current Cloudflare limits before designing around any number |
 | Dev environment | Raspberry Pi 5 (arm64) is a build machine only. Verify wrangler works on arm64 in slice 0; fallback is a deployed dev Worker |
-| Verification | `npx tsc --noEmit`, `npm test`, `npm run build` (web and worker) |
+| Verification | `npx tsc --noEmit`, `npm test`, `npm run build` (web and worker); `npm run shots` for the 360/768/1280 light/dark screenshots |
 | Design | Tokens (CSS variables), light and dark, mobile-first, pointer events, 44px touch targets, no hover-only features, `dvh` and safe-area insets |
 | AI (late) | Optional, explicit buttons only, summary and sentiment, add-only. Key handling decided at that phase (BYO client key vs Worker-held key) |
 
@@ -55,11 +55,14 @@ Positioning hypothesis: the retro and workshop board you can start in 10 seconds
 - After the one-time credential setup, Claude Code handles repo, CI, secrets and deploys itself (see section 10).
 - Big multi-part prompts may run on a GitHub runner instead of the Pi: no Chalkline source there, the full test suites run normally, a PR is opened and never merged by Claude Code.
 - On the Pi, worker tests run file by file when memory is short, and a browser can't always be run.
+- Keep sessions short (decided 7 October 2026): one fresh Claude Code session per part, at most per slice; each ends with the PR description as the handoff and the next starts from it. Give the whole end state in one message (for example "merge, deploy, update docs"). Mechanical sessions (docs, merges) can use a lower effort or a smaller model.
+- CLAUDE.md stays short (at most 6 KB, tested): stack, key decisions, working rules, secrets, verification, done. Each area's detail lives in `docs/architecture/<area>.md`, read before touching that area.
+- Stale docs fail CI (`web/test/docs.test.ts`): the newest CHANGELOG version must be Done in the plan and brief status tables and named in the README status, no released version may still say "in review", and neither "Last updated" date may be older than the newest CHANGELOG date.
 
 ## 5. Claude Code prompt skeleton
 
 ```
-Read CLAUDE.md. <Slice name>, on a `phase-...` branch. Do NOT start <list of other slices>.
+Read CLAUDE.md and the matching docs/architecture/ files. <Slice name>, on a `phase-...` branch. Do NOT start <list of other slices>.
 
 First read the current <relevant code areas>. Where they differ from what is assumed below, follow the existing code and list the differences in your final summary.
 
@@ -152,6 +155,7 @@ Start a thread with the slice and what I want (for example "Slice 1, write the C
 - Thread 9, morning (5 October 2026): Live cursors (3b) built ahead of export on one branch in three parts, tests first (v0.19.0, protocol v14, PR #37): pointers forwarded to the others only with zero storage and nothing scheduled, their own rate bucket so they never starve edits, cursorGone on leave and End session; a separate cursor layer (counter-scaled, kept in view, fades when idle, reduced-motion aware), mouse or hovering pen from md up only, phones receive only; Show / Share switches in Participants. Checked with two pages in headless Chromium at 360/768/1280 in both themes. Merged and deployed. Next: export.
 - Frame multi-select (5 October 2026): frames join the selection with notes (marquee takes enclosed frames, Ctrl+A, Shift/Ctrl-click), group moves carry each frame's notes, one paced delete with one confirm and one undo, arrange and Match size on frames, Colour and Title text for several frames, Duplicate of mixed selections (v0.20.0, web only, PR #38).
 - Thread 10 (7 October 2026): Text and shapes (7a) built on one branch in four parts, tests first (v0.21.0, protocol v15, stored schema 9, PR #39): a shapes table and relay messages, one stacking space with notes, frames carrying shapes, shapes in `itemsAdd`; the web model, canvas node, palette tiles, inline editing and Properties; shapes in selections, moves, deletes, duplicate, order, arrange and undo; Properties for several shapes; then (part 5) a built-in emoji picker for notes, shapes and frame titles. Follow-ups in the same PR: Ctrl+A then Delete now removes notes, frames and shapes wherever focus is; the emoji panel stays inside the canvas (found by Chromium screenshots at 360/768/1280, light and dark); a worker rate-limit test made independent of runner speed (a flaky CI run). Merged and deployed. Emoji reactions stay in the backlog. Next: export.
+- Thread 11 (7 October 2026): cheaper sessions, no app change (no version bump, no CHANGELOG entry). CLAUDE.md cut from 94 KB to 5 KB; the per-slice sections moved verbatim into `docs/architecture/` (shell, rooms, notes, canvas, frames, editing, connection, facilitation, shapes, with an index). A docs test fails CI on stale status rows, "in review" after release, or old "Last updated" dates, and caps CLAUDE.md at 6 KB. `npm run shots` takes the 360/768/1280 light/dark screenshots against a local relay in one command. Merged and deployed. Next: export.
 
 ## 10. One-time manual setup
 

@@ -49,6 +49,10 @@ npm test            # vitest; worker tests run inside workerd
 npm run build       # web build + worker dry-run bundle
 ```
 
+Screenshots (local only, not in CI): `npm run shots` starts a local relay with made-up secrets and the Vite dev server, seeds a room, and saves the welcome page and the room at 360, 768 and 1280 px in light and dark to `shots/` (gitignored). It uses the Chromium at `CHROMIUM_PATH` or `/opt/pw-browsers/chromium`, else Playwright's own; `SHOTS_HASHES="#/help,#/about"` adds pages.
+
+Notes for Claude Code: `CLAUDE.md` is kept short (a test caps it at 6 KB); the detail for each area lives in `docs/architecture/`.
+
 `worker/.dev.vars` holds local-only values for `CREATE_PASSCODE`, `ROOM_SIGNING_KEY` and `CREATION_ENABLED=true`. Use made-up values, never the production ones. Tests use their own obviously fake values (`worker/vitest.config.ts`).
 
 Endpoints (all browser calls are Origin-checked; see below):
