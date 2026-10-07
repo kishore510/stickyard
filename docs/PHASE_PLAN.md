@@ -35,12 +35,18 @@ Draft roadmap. When a slice starts, rewrite its prompt against the real code (se
 | 6 (part) Timer and lock board | Two sessions: (a) protocol v12 (minimal host token, lock flag, timer, End session); (b) UI | Done: (a) v0.15.0, PR #31 (relay and plumbing); (b) v0.16.0, PR #33 (web only) |
 | Board bar in the top bar | Board actions moved into the top bar, reasons as hover/focus tooltips, Arrange behind one button (user feedback). Web only | Done (v0.15.1) |
 | 6 (part) Dot voting | Two sessions: (a) protocol v13 (anonymous voters, budget enforced by the relay, host start/stop/clear, totals on reveal); (b) UI: dots on notes, counters, results, host controls | Done: (a) v0.17.0, PR #35 (relay and plumbing); (b) v0.18.0, PR #36 (web only) |
-| Export PNG/Markdown | One session, so a retro leaves something behind | Not started |
-| 9 (trimmed) Hardening | Load test and accessibility pass (message-rate limits already exist since slice 2) | Not started |
-| 6 (part) Silent brainstorm with reveal | The server withholds other people's note text until the host reveals it (snapshot and broadcast paths change). Riskiest slice | Not started |
 | 3b Presence: live cursors | Live cursors (throttled, never stored). Protocol v14 | Done (v0.19.0, PR #37; built ahead of export by choice) |
 | Frame multi-select | Frames in the selection with notes: marquee (enclosed frames), Ctrl+A, Shift/Ctrl-click; group move with carry, paced delete, arrange/Grid/Match size on frames, Colour and Title text for several frames, Duplicate of mixed selections. Web only, no protocol change | Done (v0.20.0, PR #38) |
 | 7a Text box and shapes | Text labels and basic shapes (rectangle, oval, diamond) with text, fill and border styles; one stacking space with notes; frames carry them; selection, arrange, duplicate, undo. Protocol v15, stored schema 9 | Done (v0.21.0, PR #39, merged and deployed 7 October 2026) |
+| Export PNG/Markdown | One session, so a retro leaves something behind | Not started |
+| Board size | Board grows from 3200 x 2000 to 6400 x 4000 (2x each way). Protocol v16, no stored-schema bump; `MIN_ZOOM` stays 0.1 | Not started |
+| Panel layout at 768 px | At 768 px the two side panels leave only about 280 px of canvas, so the first fit is far out. Web only | Not started |
+| Navigation | Zoom to selection; Jump to a person (from Participants). Web only, no protocol change | Not started |
+| Follow and Bring to me | Opt-in Follow (a person's viewport relayed to their followers, never stored); host-only Bring to me as a banner with "Go there", never a forced move. Protocol v17 | Not started |
+| 6 (part) Silent brainstorm with reveal | The server withholds other people's note text until the host reveals it (snapshot and broadcast paths change). Riskiest slice. Decide at its start whether Anonymous notes mode ships with it | Not started |
+| 9 (trimmed) Hardening | Load test and accessibility pass (message-rate limits already exist since slice 2); after silent brainstorm so the load test covers its paths | Not started |
+| Reactions on notes | A fixed set of emoji reactions on notes. Protocol change, about one row per reaction; comments stay in the backlog | Not started |
+| More built-in templates | More templates as data entries only (no protocol change); any time, as filler between slices | Not started |
 | 7b Arrows | (i) Free endpoints and a line style; (ii) endpoints bound to notes and shapes, re-routed when a bound object moves, with a rule for deleting a bound object | Not started |
 | 7c Structure (remaining) | Group boxes, affinity grouping, Stencils tab and Save as stencil. Frames, templates and export moved to their own slices | Not started |
 | 8 Phone view | Phone participant view, QR join | Not started |
@@ -56,9 +62,10 @@ Draft roadmap. When a slice starts, rewrite its prompt against the real code (se
 - Every new object type (frame, timer, shapes, group box, connector) needs its own protocol/schema change with a version bump, caps and tests. The palette gets its tile with one registry entry; no placeholder tiles for things that don't exist.
 - Each protocol or stored-schema change is its own slice and branch (2.7, 2.7.1, 2.7.2, 2.8, z-order, frames, 3b are separate for that reason).
 - Protocol numbers are assigned when each slice starts, not in advance (v15 is the current one, since text and shapes in v0.21.0; expiry (v0.14.0), the top-bar move (v0.15.1) and the facilitation UI (v0.16.0) changed no protocol).
-- Order from here (decided 4 October 2026; Reconnect and Presence 3a were built together in one session, v0.13.0; Idle expiry done in v0.14.0; Timer and lock board (a) in v0.15.0 and (b) in v0.16.0; Dot voting (a) in v0.17.0 and (b) in v0.18.0; 3b cursors brought forward to v0.19.0): Export PNG/Markdown, Hardening (trimmed 9), then Silent brainstorm with reveal, then 7a, 7b, 7c (remaining), 8, 10. Slice numbers are kept as names; the table above is in build order.
+- Earlier order (decided 4 October 2026, replaced by the next line for everything not yet built; Reconnect and Presence 3a were built together in one session, v0.13.0; Idle expiry done in v0.14.0; Timer and lock board (a) in v0.15.0 and (b) in v0.16.0; Dot voting (a) in v0.17.0 and (b) in v0.18.0; 3b cursors brought forward to v0.19.0; Frame multi-select in v0.20.0 and 7a in v0.21.0): Export PNG/Markdown, Hardening (trimmed 9), then Silent brainstorm with reveal, then 7a, 7b, 7c (remaining), 8, 10. Slice numbers are kept as names; the table above is in build order.
+- Order from here (decided 7 October 2026, thread 12): Export PNG/Markdown, Board size (protocol v16), Panel layout at 768 px, Navigation, Follow and Bring to me (protocol v17), Silent brainstorm with reveal, Hardening (trimmed 9, after silent brainstorm so the load test covers its paths), Reactions on notes, then 7b Arrows, 7c Structure (remaining), 8 Phone view (with QR join), 10 AI. More built-in templates has no fixed slot: it is data entries only and fills any gap between slices. The protocol numbers here are the expected ones; each is still confirmed when its slice starts.
 - Working setup (7 October 2026): one fresh Claude Code session per part, at most per slice, handing over through the PR description. CLAUDE.md stays short; area detail is in `docs/architecture/`. Stale status docs fail CI (`web/test/docs.test.ts`), and `npm run shots` takes the screenshot set.
-- Estimate to a demo-able retro tool (through trimmed hardening): about 2 to 4 more Claude Code sessions, one per prompt, plus about 20% for reruns (it was 3 to 5 before the voting UI, 4 to 6 before the voting groundwork, 5 to 7 before the facilitation UI, 6 to 8 before the host groundwork, 7 to 9 before Idle expiry, 11 to 13 before Reconnect and Presence).
+- Estimate to a demo-able retro tool (through trimmed hardening, recomputed 7 October 2026 for the order above): about 8 to 10 more Claude Code sessions, plus about 20% for reruns. One each for Export, Board size, Panel layout, Navigation and Hardening; one or two for Follow and Bring to me (protocol, then UI); two for Silent brainstorm (relay, then UI; more if Anonymous notes mode joins it). The rise from the last estimate is the new slices, not slower work (it was 2 to 4 before thread 12, 3 to 5 before the voting UI, 4 to 6 before the voting groundwork, 5 to 7 before the facilitation UI, 6 to 8 before the host groundwork, 7 to 9 before Idle expiry, 11 to 13 before Reconnect and Presence).
 
 ## Slice notes
 
@@ -177,14 +184,42 @@ Draft roadmap. When a slice starts, rewrite its prompt against the real code (se
 - Dot voting, two sessions: a vote budget per person enforced by the server, host start/stop, a results display.
   - (a) done, v0.17.0 (PR #35, protocol v13, stored schema 8): a voter is an HMAC of the room id and a random key the page makes and keeps per room (the relay never stores the key; a reload, second tab or reconnect is the same voter); budget 1 to 20 (default 5) checked by the relay; several dots on one note and on your own notes allowed; at most 40 voters a round (voters_full). Host voteStart (new round, earlier votes deleted), voteStop (totals to everyone), voteClear. Anonymous: confirmations go only to the voter's own sockets, nothing to anyone else while open, and totals never say who. A note's votes go with it in the same transaction; burial drops the votes table. Votes aren't board writes, so a locked board still takes them. The web keeps the key under `stickyard:voter:<room id>`, claims on every join, and keeps my votes (optimistic, rolled back on refusal), dots left and results in state. No visible voting UI. Checked in headless Chromium against a local relay.
   - (b) done, v0.18.0 (PR #36, web only, no protocol or schema change): a voting strip under the top bar (dots left; polite announcements only at start, last dot and end), my dots as badges above notes, − / + on the selected note (a React Flow NodeToolbar, 44px at any zoom), in Properties and the phone editor sheet, D / Shift+D on a focused note; every off control says why; the lock never blocks voting. Host: budget stepper, Start / Start a new round, Stop and reveal, Clear votes in the Session group and the phone Session section. Results: Total and Top voted badges, a sorted Results list in Properties and a phone Results sheet; a row selects and reveals its note. Help topic Dot voting. Checked with a host and a guest in headless Chromium at 360/768/1280 in both themes (a narrow-panel results row fixed before merging).
-- Silent brainstorm with reveal: after export. The server must withhold other people's note text until the host reveals it, which changes the snapshot and broadcast paths. Riskiest slice; own branch.
+- Silent brainstorm with reveal: after Follow and Bring to me (order of 7 October 2026). The server must withhold other people's note text until the host reveals it, which changes the snapshot and broadcast paths. Riskiest slice; own branch.
+  - Decide at its start whether Anonymous notes mode (backlog) ships with it: both touch how a note's author is stored, sent and shown, so doing them together may be cheaper than touching author handling twice.
+  - The host can use Bring to me (previous slice) to take everyone to the reveal.
 - Facilitator-defined note palette (host-only, a small list of { id, colorKey, label } from a fixed set of token colours, caps on entries and label length, labels untrusted plain text): no slot yet; see the backlog.
 
 ### Export PNG/Markdown
-- One session, so a retro leaves something behind. Moved out of 7c.
+- One session, so a retro leaves something behind. Moved out of 7c. Export on phones and Export selection only are in the backlog.
+
+### Board size (protocol v16)
+- Decided 7 October 2026: the board grows 2x each way, from 3200 x 2000 to 6400 x 4000 (not 3x). The goal is room to work and easy navigation, not fitting the whole board on screen, so `MIN_ZOOM` stays 0.1 (at 0.1 a 6400-unit board is 640 px wide, so only screens wider than that see all of it).
+- `BOARD_WIDTH` / `BOARD_HEIGHT` live once in `shared/src/protocol.ts` and are used by the relay (clamps on every add, move, resize, batch and `itemsAdd`, and the re-clamp on load) and by the web (notes size, templates placement, arrange/Grid, pan extent, the board node and its edge, the minimap, cursors, the Properties board summary). Frame and shape maximum sizes (2400 x 1600) don't depend on the board.
+- Protocol v16 because a v15 page's schemas refuse positions past 3200 x 2000; mismatched pages get "please reload". No stored-schema bump: every stored position is still on a larger board, so the load-time clamp changes nothing.
+- Message sizes: coordinates stay 4 digits at 6400 x 4000. The worst-case frames and shapes snapshots gain 1 byte per coordinate (their worst-case positions go from 3 to 4 digits): frames 18,306 -> 18,366 bytes (still under the 18,432-byte tripwire), shapes 167,686 -> 167,786; notes snapshot, batches, `itemsAdd` counts and `frameMove` unchanged. Tests with exact sizes or hard-coded positions (for example clamping at x 3000 or 5000) need updating; LIMITS.md gets the new figures in the slice.
+
+### Panel layout at 768 px
+- At 768 px the palette and Properties together leave only about 280 px of canvas, so the first fit is far out (moved from the backlog, seen in the v0.21.0 screenshots; older than shapes). Web only. Decide the fix at slice start (for example one panel collapsed by default at that width); check with `npm run shots`.
+
+### Navigation
+- Zoom to selection (fit the view to the selected items) and Jump to a person from the Participants sheet (what to centre on is decided at slice start, for example their live cursor when they share one). Web only, no protocol change.
+- The minimap today (checked 7 October 2026 in `canvas/BoardCanvas.tsx` and React Flow 12.12): it is `pannable` and `zoomable`, so dragging on it moves the view and the wheel over it zooms. A click does nothing (no `onClick` handler, and React Flow has no click-to-jump of its own). It isn't keyboard operable, and it only shows from md up (the user's minimap switch, on by default). Click-to-jump would be a small addition in this slice if wanted.
+
+### Follow and Bring to me (protocol v17)
+- (a) Follow: opt-in. While at least one person follows someone, that person's viewport (x, y, zoom) is relayed to their followers only, at most about 5 a second, with its own per-socket rate bucket like `CURSOR_LIMITS` so it never starves edits. Nothing stored, nothing scheduled. Following stops when the follower pans or zooms.
+- (b) Bring to me: host only. One message relayed to everyone, shown as a banner with a "Go there" button, never a forced move. Reduced-motion aware (no animated flight), rate-limited.
+- Cost to work out at slice start, for LIMITS.md: viewport messages bill 20:1 like cursors.
+- Open decisions: whether followers are tracked in the socket attachment; a cap on followers; phones can follow but not send.
 
 ### 9 (trimmed) Hardening
 - Load test and accessibility pass only. Message-rate limits and malformed-message tests already exist; keyboard support and reduced motion are handled slice by slice.
+- Comes after Silent brainstorm with reveal (order of 7 October 2026), so the load test covers the new paths (withheld text, reveal, follow and bring-to-me messages).
+
+### Reactions on notes
+- A fixed set of emoji reactions on notes (moved from the backlog to a planned slice). Protocol change and its own branch; about one stored row per reaction. Caps and the cost go in LIMITS.md at slice start. Comments on notes stay in the backlog.
+
+### More built-in templates
+- More templates as data entries in the template registry only: no protocol or schema change. Any time, as filler between slices. Templates created by users stay in the backlog (they need a storage decision, because there are no accounts).
 
 ### Z-order (protocol v8) — done, v0.8.0
 - Bring to front / send to back, because frames and shapes will overlap notes. Notes gain a server-assigned `z` (bounded ±100,000; renumbered at the bound); stored schema 4 -> 5 backfills z from creation order, so nothing looks different. One `notesOrder` message (front | back, up to 50 ids, chunked in stacking order beyond that), one transaction, one `notesOrdered` broadcast; only notes whose z changes are written. Selecting, dragging and resizing no longer raise a note (React Flow's elevate-on-select off). Order buttons in Properties, the phone editor and the selection bar; no shortcut. See docs/architecture/notes.md "Z-order, protocol v8".
@@ -248,7 +283,7 @@ Draft roadmap. When a slice starts, rewrite its prompt against the real code (se
 - Web: md and up edits (palette Shapes category, inline text editing, Properties for one or several shapes); phones show shapes read-only. Selection, marquee, group moves, Delete, Duplicate, Order, Arrange and undo/redo cover shapes.
 - Also in v0.21.0: a built-in emoji picker (48 emoji, no library) beside text edited in place (notes, shapes) and in the Properties text fields (note title and body, shape text, frame title); it inserts at the caret, keeps the caps, is keyboard operable and stays inside the canvas. And a fix: Ctrl+A then Delete removes every note, frame and shape wherever focus is (a focused note or shape, or the Palette or Properties).
 - Checked in Chromium against a local Worker at 360/768/1280 in both themes (screenshots); that found the emoji panel running under Properties, fixed before merge.
-- Left for later: editing shapes on phones, arrows (7b), group boxes (7c), emoji in the frame header's own title field, emoji reactions (backlog: "Reactions and comments on notes").
+- Left for later: editing shapes on phones, arrows (7b), group boxes (7c), emoji in the frame header's own title field, emoji reactions (now the "Reactions on notes" slice).
 
 ### 7b Arrows
 - Step (i): arrows with free endpoints and a line style.
@@ -288,8 +323,8 @@ Draft roadmap. When a slice starts, rewrite its prompt against the real code (se
 
 - Anonymous notes mode
 - Saved boards / board history (needs a storage decision)
-- Reactions and comments on notes
-- Templates created by users
+- Comments on notes (reactions are now a planned slice)
+- Templates created by users (needs a storage decision: there are no accounts)
 - Revocable invite codes per friend
 - Spin-offs reusing the relay (planning poker, vote room)
 - Phone sends its touch position as a cursor while a finger is down
@@ -303,4 +338,5 @@ Draft roadmap. When a slice starts, rewrite its prompt against the real code (se
 - Timer pause and sound (v1 has neither)
 - Add and edit shapes on phones (v0.21.0 shows them read-only)
 - Emoji picker in the frame header's own title field (v0.21.0 has it in Properties only)
-- First fit at 768 px is far out (11%): the canvas between the two side panels is only about 360 px wide (seen in v0.21.0 screenshots; older than shapes)
+- Export on phones
+- Export selection only
