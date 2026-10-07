@@ -1,6 +1,6 @@
 # Phase plan: Stickyard
 
-Last updated: 4 October 2026
+Last updated: 7 October 2026
 
 Draft roadmap. When a slice starts, rewrite its prompt against the real code (see the skeleton in PROJECT_BRIEF.md). Do not treat these notes as final prompts.
 
