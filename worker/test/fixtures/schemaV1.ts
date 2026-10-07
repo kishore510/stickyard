@@ -13,6 +13,8 @@ export const V1_NOTES = [
 export function loadSchemaV1(sql: SqlStorage): void {
   sql.exec("DROP TABLE IF EXISTS notes");
   sql.exec("DROP TABLE IF EXISTS meta");
+  // Older schemas have no shapes table (schema 9).
+  sql.exec("DROP TABLE IF EXISTS shapes");
   sql.exec("CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value INTEGER NOT NULL)");
   sql.exec(
     `CREATE TABLE IF NOT EXISTS notes (

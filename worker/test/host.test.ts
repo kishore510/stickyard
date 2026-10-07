@@ -45,7 +45,7 @@ const meta = async (stub: DurableObjectStub<Room>) =>
   Object.fromEntries(((await allRows(stub)).meta ?? []).map((r) => [String(r.key), Number(r.value)]));
 const closeAll = (...cs: TestClient[]) => cs.forEach((c) => c.close());
 
-/** A room with a host (Alex, claimed) and a guest (Sam), and one note and one frame by Alex. */
+/** A room with a host (Alex, claimed) and a guest (Sam), and one note, one frame and one shape by Alex. */
 async function hostedRoom() {
   const room = await newRoom();
   const host = await TestClient.open(room.code);
@@ -61,7 +61,10 @@ async function hostedRoom() {
   host.send({ type: "frameAdd", clientRef: "f1", x: 0, y: 600, color: "neutral", title: "Frame" });
   const frame = (await nextOfType(host, "frameAdded")).frame;
   await nextOfType(guest, "frameAdded");
-  return { ...room, host, guest, note, frame };
+  host.send({ type: "shapeAdd", clientRef: "s1", kind: "rect", x: 1200, y: 10 });
+  const shape = (await nextOfType(host, "shapeAdded")).shape;
+  await nextOfType(guest, "shapeAdded");
+  return { ...room, host, guest, note, frame, shape };
 }
 
 async function lock(host: TestClient, guest: TestClient, locked = true) {
@@ -220,7 +223,7 @@ describe("claimHost", () => {
 });
 
 /** One message of every board-changing type, as a non-host would send it, with the ref fields a refusal must carry. */
-function mutating(noteId: string, frameId: string): [ClientMessageType, Record<string, unknown>, Record<string, unknown>][] {
+function mutating(noteId: string, frameId: string, shapeId = "shape00000000000"): [ClientMessageType, Record<string, unknown>, Record<string, unknown>][] {
   return [
     ["noteAdd", { type: "noteAdd", clientRef: "g1", x: 100, y: 100, color: "pink", text: "Hi" }, { clientRef: "g1" }],
     ["noteEdit", { type: "noteEdit", id: noteId, text: "Changed" }, { noteId }],
@@ -235,6 +238,13 @@ function mutating(noteId: string, frameId: string): [ClientMessageType, Record<s
     ["frameResize", { type: "frameResize", id: frameId, x: 0, y: 600, w: 700, h: 500, final: true }, { frameId }],
     ["frameDelete", { type: "frameDelete", id: frameId }, { frameId }],
     ["itemsAdd", { type: "itemsAdd", clientRef: "g3", notes: [{ ref: "r1", x: 10, y: 10, w: 160, h: 160, text: "", color: "yellow", fontSize: "m", bold: false, italic: false, textColor: "auto", align: "left", titleFontSize: "m", titleBold: false, titleItalic: false, titleTextColor: "auto", titleAlign: "left" }] }, { clientRef: "g3" }],
+    // Shapes (protocol v15).
+    ["shapeAdd", { type: "shapeAdd", clientRef: "g4", kind: "rect", x: 10, y: 10 }, { clientRef: "g4" }],
+    ["shapeEdit", { type: "shapeEdit", id: shapeId, text: "Changed" }, { shapeId }],
+    ["shapeMove", { type: "shapeMove", id: shapeId, x: 300, y: 300, final: true }, { shapeId }],
+    ["shapeResize", { type: "shapeResize", id: shapeId, x: 10, y: 10, w: 300, h: 200, final: true }, { shapeId }],
+    ["shapeDelete", { type: "shapeDelete", id: shapeId }, { shapeId }],
+    ["shapeBatch", { type: "shapeBatch", ops: [{ op: "move", id: shapeId, x: 50, y: 50 }], final: true }, { shapeIds: [shapeId] }],
   ];
 }
 
@@ -271,9 +281,9 @@ describe("the lock", () => {
   });
 
   it.each(mutating("NOTE", "FRAME").map(([t]) => t))("refuses a guest's %s with board_locked and the rollback refs; no write, no broadcast", async (type) => {
-    const { host, guest, stub, note, frame } = await hostedRoom();
+    const { host, guest, stub, note, frame, shape } = await hostedRoom();
     await lock(host, guest);
-    const [, message, refs] = mutating(note.id, frame.id).find(([t]) => t === type)!;
+    const [, message, refs] = mutating(note.id, frame.id, shape.id).find(([t]) => t === type)!;
     const before = await rowsWritten(stub);
     const rows = await allRows(stub);
     const reply = await guest.request(message);

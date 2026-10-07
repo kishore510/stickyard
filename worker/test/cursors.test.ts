@@ -355,7 +355,7 @@ describe("lock and protocol", () => {
   it("a protocol v13 page is refused with version_mismatch (please reload)", async () => {
     const { code } = await newRoom();
     const c = await TestClient.open(code);
-    expect(PROTOCOL_VERSION).toBe(14);
+    expect(PROTOCOL_VERSION).toBeGreaterThanOrEqual(14);
     expect(await c.request({ type: "hello", protocolVersion: 13 })).toMatchObject({ type: "error", code: "version_mismatch" });
     expect(await c.request({ type: "join", name: "Priya" })).toMatchObject({ type: "error", code: "bad_message" });
     c.close();
