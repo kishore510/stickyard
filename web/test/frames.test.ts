@@ -388,10 +388,10 @@ describe("palette: the Frames tile", () => {
   it("creates a frame through plain actions, and is off with the frames reason", () => {
     const item = PALETTE_CATEGORIES.find((c) => c.id === "frames")?.items[0];
     const addFrame = vi.fn();
-    item?.create({ addNote: vi.fn(), addFrame, applyTemplate: vi.fn(), openTimer: vi.fn() }, { x: 10, y: 20 });
+    item?.create({ addNote: vi.fn(), addFrame, applyTemplate: vi.fn(), openTimer: vi.fn(), addShape: vi.fn() }, { x: 10, y: 20 });
     expect(addFrame).toHaveBeenCalledWith("neutral", { x: 10, y: 20 });
-    expect(item?.disabled({ noteReason: null, frameReason: "Full", templateReason: null, timerReason: null })).toBe("Full");
-    expect(item?.disabled({ noteReason: "Disconnected", frameReason: null, templateReason: null, timerReason: null })).toBeNull();
+    expect(item?.disabled({ noteReason: null, frameReason: "Full", templateReason: null, timerReason: null, shapeReason: null })).toBe("Full");
+    expect(item?.disabled({ noteReason: "Disconnected", frameReason: null, templateReason: null, timerReason: null, shapeReason: null })).toBeNull();
   });
 });
 

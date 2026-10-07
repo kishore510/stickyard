@@ -1,4 +1,4 @@
-import { FRAME_DEFAULTS, NOTE_DEFAULTS, PROTOCOL_VERSION, type Frame, type Note, type Participant } from "@stickyard/shared";
+import { FRAME_DEFAULTS, NOTE_DEFAULTS, PROTOCOL_VERSION, shapeDefaults, type Frame, type Note, type Participant, type Shape, type ShapeKind } from "@stickyard/shared";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { vi } from "vitest";
@@ -163,8 +163,9 @@ export async function inRoom({
   others = [sam],
   notes = [],
   frames = [],
+  shapes = [],
   voting = { state: "off", budget: 5, round: 0 },
-}: { host?: boolean; isWide?: boolean; locked?: boolean; timer?: unknown; others?: Participant[]; notes?: Note[]; frames?: Frame[]; voting?: unknown } = {}) {
+}: { host?: boolean; isWide?: boolean; locked?: boolean; timer?: unknown; others?: Participant[]; notes?: Note[]; frames?: Frame[]; shapes?: Shape[]; voting?: unknown } = {}) {
   setWide(isWide);
   if (host) localStorage.setItem(`stickyard:host:${ROOM_ID}`, HOST_TOKEN);
   await mount(`#/room/${CODE}`);
@@ -177,12 +178,14 @@ export async function inRoom({
   if (host) await server(socket, { data: { type: "hostGranted" } });
   await server(socket, { data: { type: "snapshot", notes } });
   await server(socket, { data: { type: "framesSnapshot", frames } });
+  await server(socket, { data: { type: "shapesSnapshot", shapes } });
   for (
     let i = 0;
     i < 40 &&
     (!document.querySelector(".react-flow") ||
       document.querySelectorAll('[aria-roledescription="note"]').length < notes.length ||
-      document.querySelectorAll("[data-frame-id]").length < frames.length);
+      document.querySelectorAll("[data-frame-id]").length < frames.length ||
+      document.querySelectorAll("[data-shape-id]").length < shapes.length);
     i++
   )
     await settle();
@@ -221,6 +224,13 @@ export const frameAt = (i: number, extra: Partial<Frame> = {}): Frame => ({
   authorId: sam.id,
   ...extra,
 });
+
+/** A shape by Sam (protocol v15) at a spot, a rectangle unless said; ids 16 characters, like the relay's. */
+export const shapeAt = (i: number, extra: Partial<Shape> = {}): Shape => {
+  const kind: ShapeKind = extra.kind ?? "rect";
+  return { id: `SSSSSSSSSSSSSSS${i}`, kind, x: 60 + i * 260, y: 900, ...shapeDefaults(kind), text: `Step ${i}`, z: 50 + i, rev: 1, authorId: sam.id, ...extra };
+};
+export const shapesShown = () => [...document.querySelectorAll<HTMLElement>('[aria-roledescription="shape"]')];
 
 export const notesShown = () => [...document.querySelectorAll<HTMLElement>('[aria-roledescription="note"]')];
 export const boardBar = () => document.querySelector<HTMLElement>('header [role="toolbar"][aria-label="Board actions"]');

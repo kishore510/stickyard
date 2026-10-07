@@ -4,11 +4,15 @@ import {
   NOTE_DEFAULTS,
   PROTOCOL_VERSION,
   clientMessageSchema,
+  shapeDefaults,
   type Frame,
   type FrameItem,
   type Note,
   type NoteItem,
   type Participant,
+  type Shape,
+  type ShapeItem,
+  type ShapeKind,
 } from "@stickyard/shared";
 import type { SocketFactory, SocketHandlers } from "../../src/connection/socket";
 import { findNote } from "../../src/notes/board";
@@ -26,10 +30,19 @@ export const nid = (i: number) => `note${String(i).padStart(12, "0")}`;
 export const fid = (i: number) => `frme${String(i).padStart(12, "0")}`;
 export const note = (i: number, extra: Partial<Note> = {}): Note => ({ id: nid(i), x: 10 * i, y: 20, ...NOTE_DEFAULTS, text: `Note ${i}`, color: "yellow", z: i, rev: 1, authorId: sam.id, ...extra });
 export const frame = (i: number, extra: Partial<Frame> = {}): Frame => ({ id: fid(i), x: 0, y: 0, w: 640, h: 400, title: `F${i}`, color: "neutral", ...FRAME_DEFAULTS, rev: 1, authorId: sam.id, ...extra });
+export const sid = (i: number) => `shap${String(i).padStart(12, "0")}`;
+/** A shape by Sam (protocol v15): a rectangle unless said, at its kind's default size and style. */
+export const shape = (i: number, extra: Partial<Shape> = {}): Shape => {
+  const kind: ShapeKind = extra.kind ?? "rect";
+  return { id: sid(i), kind, x: 300 + 10 * i, y: 300, ...shapeDefaults(kind), text: `Step ${i}`, z: 100 + i, rev: 1, authorId: sam.id, ...extra };
+};
 
 export class Relay {
   notes = new Map<string, Note>();
   frames = new Map<string, Frame>();
+  shapes = new Map<string, Shape>();
+  /** Shape messages to refuse with this error code (once each), e.g. board_locked, shapes_full. */
+  refuseShapes: string | null = null;
   received: Record<string, unknown>[] = [];
   private next = 1000;
   /** Answers are held while paused (a slow relay). */
@@ -65,9 +78,10 @@ export class Relay {
   /** Sockets opened so far, and how many of them this page closed. */
   sockets = 0;
   closes = 0;
-  constructor(notes: Note[], frames: Frame[]) {
+  constructor(notes: Note[], frames: Frame[], shapes: Shape[] = []) {
     for (const n of notes) this.notes.set(n.id, n);
     for (const f of frames) this.frames.set(f.id, f);
+    for (const x of shapes) this.shapes.set(x.id, x);
   }
   private newId = (prefix: string) => `${prefix}${String(this.next++).padStart(12, "0")}`;
   private out(message: unknown) {
@@ -81,7 +95,7 @@ export class Relay {
     for (const votes of this.votes.values()) for (const [id, c] of votes) if (this.notes.has(id) && c > 0) sums.set(id, (sums.get(id) ?? 0) + c);
     return [...this.notes.keys()].flatMap((noteId) => (sums.get(noteId) ? [{ noteId, count: sums.get(noteId)! }] : []));
   }
-  private topZ = () => Math.max(-1, ...[...this.notes.values()].map((n) => n.z)) + 1;
+  private topZ = () => Math.max(-1, ...[...this.notes.values()].map((n) => n.z), ...[...this.shapes.values()].map((x) => x.z)) + 1;
   socket = (handlers: SocketHandlers) => {
     this.handlers = handlers;
     this.sockets++;
@@ -128,9 +142,10 @@ export class Relay {
   failOpen() {
     this.drop();
   }
-  /** Sends the held framesSnapshot. */
+  /** Sends the held framesSnapshot (and the shapesSnapshot after it). */
   sendFrames() {
     this.out({ type: "framesSnapshot", frames: [...this.frames.values()] });
+    this.out({ type: "shapesSnapshot", shapes: [...this.shapes.values()] });
   }
   /** Someone else joins or leaves. */
   arrive(p: Participant) {
@@ -147,6 +162,13 @@ export class Relay {
     this.queue = [];
     for (const m of queued) this.handle(m);
   }
+  /** Sam stores a change to a shape: broadcast like the Worker. */
+  samEditShape(id: string, change: Partial<Shape>) {
+    const current = this.shapes.get(id)!;
+    const x = { ...current, ...change, rev: current.rev + 1 };
+    this.shapes.set(id, x);
+    this.out({ type: "shapeUpdated", shape: x });
+  }
   /** Sam stores a change to a note: broadcast like the Worker. */
   samEdit(id: string, change: Partial<Note>) {
     const current = this.notes.get(id)!;
@@ -155,7 +177,71 @@ export class Relay {
     this.out({ type: "noteUpdated", note: n });
   }
   private handle(m: Record<string, unknown>) {
+    if (typeof m.type === "string" && m.type.startsWith("shape") && this.refuseShapes) {
+      const code = this.refuseShapes;
+      this.refuseShapes = null;
+      const ref =
+        m.type === "shapeAdd"
+          ? { clientRef: m.clientRef }
+          : m.type === "shapeBatch"
+            ? { shapeIds: (m.ops as { id: string }[]).map((o) => o.id) }
+            : { shapeId: m.id };
+      return this.out({ type: "error", code, message: "No.", ...ref });
+    }
     switch (m.type) {
+      case "shapeAdd": {
+        const kind = m.kind as ShapeKind;
+        const x: Shape = { id: this.newId("shap"), kind, x: m.x as number, y: m.y as number, ...shapeDefaults(kind), text: "", z: this.topZ(), rev: 1, authorId: alex.id };
+        this.shapes.set(x.id, x);
+        return this.out({ type: "shapeAdded", shape: x, clientRef: m.clientRef });
+      }
+      case "shapeEdit": {
+        const c = this.shapes.get(m.id as string);
+        if (!c) return;
+        const { type: _, id: __, ...change } = m;
+        const next = { ...c, ...change } as Shape;
+        if (JSON.stringify(next) === JSON.stringify(c)) return;
+        const x = { ...next, rev: c.rev + 1 };
+        this.shapes.set(x.id, x);
+        return this.out({ type: "shapeUpdated", shape: x });
+      }
+      case "shapeMove": {
+        const c = this.shapes.get(m.id as string);
+        if (!c || !m.final) return;
+        const x = c.x !== m.x || c.y !== m.y ? { ...c, x: m.x as number, y: m.y as number, rev: c.rev + 1 } : c;
+        this.shapes.set(x.id, x);
+        return this.out({ type: "shapeMoved", id: x.id, x: x.x, y: x.y, rev: x.rev, final: true });
+      }
+      case "shapeResize": {
+        const c = this.shapes.get(m.id as string);
+        if (!c || !m.final) return;
+        const x = { ...c, x: m.x as number, y: m.y as number, w: m.w as number, h: m.h as number, rev: c.rev + 1 };
+        this.shapes.set(x.id, x);
+        return this.out({ type: "shapeResized", id: x.id, x: x.x, y: x.y, w: x.w, h: x.h, rev: x.rev, final: true });
+      }
+      case "shapeDelete":
+        if (!this.shapes.delete(m.id as string)) return;
+        return this.out({ type: "shapeDeleted", id: m.id });
+      case "shapeBatch": {
+        if (!m.final) return;
+        const results: unknown[] = [];
+        for (const op of m.ops as { op: string; id: string; x: number; y: number; w: number; h: number }[]) {
+          const c = this.shapes.get(op.id);
+          if (!c) continue;
+          if (op.op === "delete") {
+            this.shapes.delete(op.id);
+            results.push({ type: "shapeDeleted", id: op.id });
+            continue;
+          }
+          const rect = op.op === "move" ? { x: op.x, y: op.y, w: c.w, h: c.h } : { x: op.x, y: op.y, w: op.w, h: op.h };
+          const changed = rect.x !== c.x || rect.y !== c.y || rect.w !== c.w || rect.h !== c.h;
+          const x = changed ? { ...c, ...rect, rev: c.rev + 1 } : c;
+          this.shapes.set(x.id, x);
+          results.push(op.op === "move" ? { type: "shapeMoved", id: x.id, x: x.x, y: x.y, rev: x.rev, final: true } : { type: "shapeResized", id: x.id, x: x.x, y: x.y, w: x.w, h: x.h, rev: x.rev, final: true });
+        }
+        if (results.length > 0) this.out({ type: "shapesBatchApplied", results, final: true });
+        return;
+      }
       case "hello":
         return this.out({ type: "welcome", protocolVersion: this.welcomeVersion });
       case "join": {
@@ -165,6 +251,7 @@ export class Relay {
         this.out({ type: "snapshot", notes: [...this.notes.values()] });
         if (this.holdFrames) return;
         this.out({ type: "framesSnapshot", frames: [...this.frames.values()] });
+        this.out({ type: "shapesSnapshot", shapes: [...this.shapes.values()] });
         if (this.voting.state === "closed") this.out({ type: "votesRevealed", round: this.voting.round, totals: this.totals() });
         return;
       }
@@ -258,11 +345,13 @@ export class Relay {
         return this.out({ type: "noteAdded", note: n, clientRef: m.clientRef });
       }
       case "notesOrder": {
+        const lowest = () => Math.min(...[...this.notes.values()].map((x) => x.z), ...[...this.shapes.values()].map((x) => x.z));
         const results = (m.ids as string[]).flatMap((id) => {
-          const c = this.notes.get(id);
+          const c = this.notes.get(id) ?? this.shapes.get(id);
           if (!c) return [];
-          const n = { ...c, z: m.action === "front" ? this.topZ() : Math.min(...[...this.notes.values()].map((x) => x.z)) - 1, rev: c.rev + 1 };
-          this.notes.set(id, n);
+          const n = { ...c, z: m.action === "front" ? this.topZ() : lowest() - 1, rev: c.rev + 1 };
+          if (this.notes.has(id)) this.notes.set(id, n as Note);
+          else this.shapes.set(id, n as Shape);
           return [{ id, z: n.z, rev: n.rev }];
         });
         return this.out({ type: "notesOrdered", results });
@@ -278,7 +367,13 @@ export class Relay {
           this.frames.set(f.id, f);
           return { ref, frame: f };
         });
-        return this.out({ type: "itemsAdded", clientRef: m.clientRef, notes, frames, refused: [] });
+        // Notes and shapes stack by rank when given (protocol v15), else notes then shapes.
+        const shapes = ((m.shapes ?? []) as ShapeItem[]).map(({ ref, rank: _, ...item }) => {
+          const x: Shape = { id: this.newId("shap"), ...item, z: this.topZ(), rev: 1, authorId: alex.id };
+          this.shapes.set(x.id, x);
+          return { ref, shape: x };
+        });
+        return this.out({ type: "itemsAdded", clientRef: m.clientRef, notes, frames, ...(shapes.length > 0 ? { shapes } : {}), refused: [] });
       }
       case "frameAdd": {
         const f: Frame = { id: this.newId("frme"), x: m.x as number, y: m.y as number, w: 640, h: 400, title: m.title as string, color: m.color as Frame["color"], ...FRAME_DEFAULTS, rev: 1, authorId: alex.id };
@@ -307,7 +402,23 @@ export class Relay {
           this.notes.set(id, moved);
           return [{ id, x: moved.x, y: moved.y, rev: moved.rev }];
         });
-        return this.out({ type: "frameMoved", id: f.id, x: f.x, y: f.y, rev: f.rev, final: true, ...(carried.length ? { notes: carried } : {}) });
+        const carriedShapes = ((m.shapeIds ?? []) as string[]).flatMap((id) => {
+          const x = this.shapes.get(id);
+          if (!x) return [];
+          const moved = dx || dy ? { ...x, x: x.x + dx, y: x.y + dy, rev: x.rev + 1 } : x;
+          this.shapes.set(id, moved);
+          return [{ id, x: moved.x, y: moved.y, rev: moved.rev }];
+        });
+        return this.out({
+          type: "frameMoved",
+          id: f.id,
+          x: f.x,
+          y: f.y,
+          rev: f.rev,
+          final: true,
+          ...(carried.length ? { notes: carried } : {}),
+          ...(carriedShapes.length ? { shapes: carriedShapes } : {}),
+        });
       }
       case "frameResize": {
         const c = this.frames.get(m.id as string);
@@ -324,8 +435,8 @@ export class Relay {
   }
 }
 
-export function room(notes: Note[] = [], frames: Frame[] = [], options: Partial<SessionOptions> = {}, setup?: (relay: Relay) => void) {
-  const relay = new Relay(notes, frames);
+export function room(notes: Note[] = [], frames: Frame[] = [], options: Partial<SessionOptions> = {}, setup?: (relay: Relay) => void, shapes: Shape[] = []) {
+  const relay = new Relay(notes, frames, shapes);
   setup?.(relay);
   const views: RoomView[] = [];
   const createSocket: SocketFactory = (_url, handlers) => relay.socket(handlers);

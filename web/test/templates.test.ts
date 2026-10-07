@@ -312,12 +312,12 @@ describe("session: applying a template", () => {
 
 describe("palette: Templates", () => {
   const state = { live: true, noteCount: 0, isHost: false };
-  const ctx = { noteReason: null, frameReason: null, templateReason: null, timerReason: null };
+  const ctx = { noteReason: null, frameReason: null, templateReason: null, timerReason: null, shapeReason: null };
 
   it("is a Templates category on the panel (md and up) only, one tile per template", () => {
     const panel = paletteSections(PALETTE_CATEGORIES, "add", state, "", "panel");
     const drawer = paletteSections(PALETTE_CATEGORIES, "add", state, "", "drawer");
-    expect(panel.map((s) => s.category.label)).toEqual(["Notes", "Frames", "Templates"]);
+    expect(panel.map((s) => s.category.label)).toEqual(["Notes", "Frames", "Shapes", "Templates"]);
     expect(panel.find((s) => s.category.id === "templates")?.items.map((i) => i.label)).toEqual(TEMPLATES.map((t) => t.label));
     expect(drawer.map((s) => s.category.id)).not.toContain("templates");
   });
@@ -336,13 +336,13 @@ describe("palette: Templates", () => {
   it("each tile applies its template through plain actions, drops at its own size, and is off with the template reason", () => {
     const items = PALETTE_CATEGORIES.find((c) => c.id === "templates")?.items ?? [];
     const applyTemplate = vi.fn();
-    items[0]?.create({ addNote: vi.fn(), addFrame: vi.fn(), applyTemplate, openTimer: vi.fn() }, { x: 10, y: 20 });
+    items[0]?.create({ addNote: vi.fn(), addFrame: vi.fn(), applyTemplate, openTimer: vi.fn(), addShape: vi.fn() }, { x: 10, y: 20 });
     expect(applyTemplate).toHaveBeenCalledWith(TEMPLATES[0], { x: 10, y: 20 });
     const { width, height } = templateBounds(TEMPLATES[0]!);
     expect(items[0]?.dropSize).toEqual({ width, height });
     expect(items[0]?.preview).toEqual({ kind: "template", template: TEMPLATES[0] });
     expect(items[0]?.disabled(ctx)).toBeNull();
-    expect(items[0]?.disabled({ ...ctx, templateReason: "Busy", timerReason: null })).toBe("Busy");
+    expect(items[0]?.disabled({ ...ctx, templateReason: "Busy", timerReason: null, shapeReason: null })).toBe("Busy");
   });
 });
 

@@ -151,6 +151,8 @@ describe("canvas nodes: every selected frame is marked; handles only for one fra
     removed: [],
     frames: [frame(0), frame(1), frame(2)].map((f) => ({ frame: f, confirmed: f, clientRef: null, draft: null, dragging: false, resizing: false })),
     framesRemoved: [],
+    shapes: [],
+    shapesRemoved: [],
   });
   const frameNodes = (nodes: ReturnType<ReturnType<typeof createNoteNodeMapper>>) => nodes.filter((n): n is FrameFlowNode => n.type === "frame");
   it("a set of frames: selected on each, resizable on none", () => {
