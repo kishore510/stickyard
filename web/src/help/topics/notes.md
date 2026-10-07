@@ -76,6 +76,7 @@ With two or more notes, or two or more frames, selected, choose **Arrange** in t
 - On a phone, tap a note to open its editor. (With **Hand** on, a tap doesn't open it; switch back to **Select**.)
 - **Title** is the note's first line and **Body** is the rest. They're saved as one text, with a line break between them.
 - **Enter** saves. **Shift+Enter** starts a new line. On a wider screen, clicking away from the fields also saves. On a phone, leaving the editor (**Done**, **Esc**, **X**, tapping outside it) saves.
+- **Emoji**: the smiley button beside a note you're editing in place, and beside **Title** and **Body** in Properties, opens 48 emoji. Pick one (click, or move with the arrow keys and press **Enter**) to put it where you're typing; **Esc** closes it. Each emoji counts as one character. A frame's **Title** in Properties has the same button.
 - Notes can be up to 280 characters; a counter shows how many you've used. Long text is cut off on the board; the whole text is in the editor.
 - Properties also shows who added the note.
 - Notes are plain text: formatting and links are shown exactly as typed.

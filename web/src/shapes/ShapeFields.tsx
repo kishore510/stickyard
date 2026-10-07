@@ -1,4 +1,4 @@
-import { useId } from "react";
+import { useId, useRef, useState } from "react";
 import {
   MAX_SHAPE_TEXT,
   SHAPE_FILLS,
@@ -17,6 +17,8 @@ import {
 import { Button } from "../components/ui/button";
 import { Label } from "../components/ui/field";
 import { Textarea } from "../components/ui/textarea";
+import { EmojiPicker } from "../emoji/EmojiPicker";
+import { withinChars } from "../emoji/emoji";
 import { cn } from "../lib/utils";
 import { OrderSection } from "../notes/OrderFields";
 import { sizeFieldValue } from "../notes/size";
@@ -129,6 +131,7 @@ export function ShapeLookSection({ shape, live, onEdit, mixed = new Set() }: { s
  * A shape's fields in the Properties panel (md and up, protocol v15): its text (a draft until
  * leaving the field), text style (size, bold, italic, underline, alignment, vertical placement and
  * ink), its look (fill and border; not for a text box), size, stacking order, and who added it.
+ * Text has an emoji button (inserts at the caret, within the 500-character cap).
  * Delete is in the panel's header. Phones show shapes read-only. Read-only while disconnected or
  * locked. Text is untrusted: it's only ever a field value.
  */
@@ -152,6 +155,8 @@ export function ShapeFields({
   onOrder: (action: OrderAction) => void;
 }) {
   const id = useId();
+  const textRef = useRef<HTMLTextAreaElement>(null);
+  const [slot, setSlot] = useState<HTMLDivElement | null>(null);
   const { shape } = entry;
   const text = entry.draft ?? shape.text;
   const length = codePointLength(text);
@@ -165,8 +170,12 @@ export function ShapeFields({
   return (
     <div data-shape-fields="" className="flex flex-col gap-md">
       <div className="flex flex-col gap-xs">
-        <Label htmlFor={`${id}-text`}>Text</Label>
+        <div className="flex items-center justify-between gap-sm">
+          <Label htmlFor={`${id}-text`}>Text</Label>
+          <EmojiPicker label="Insert emoji in text" target={() => textRef.current} fits={withinChars(MAX_SHAPE_TEXT)} onInsert={(value) => onDraft(value)} disabled={!live} slot={slot} />
+        </div>
         <Textarea
+          ref={textRef}
           id={`${id}-text`}
           name="shapeText"
           value={text}
@@ -179,6 +188,7 @@ export function ShapeFields({
           onBlur={onCommit}
           aria-describedby={`${id}-help`}
         />
+        <div ref={setSlot} />
         <p id={`${id}-help`} className="flex justify-between gap-sm text-sm text-fg-muted">
           <span>{live ? "Saved when you leave the field." : READ_ONLY}</span>
           <span className="tabular-nums">

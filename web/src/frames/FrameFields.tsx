@@ -1,7 +1,9 @@
-import { useId, type KeyboardEvent } from "react";
+import { useId, useRef, useState, type KeyboardEvent } from "react";
 import { FRAME_COLORS, FRAME_MAX_H, FRAME_MAX_W, FRAME_MIN_H, FRAME_MIN_W, MAX_FRAME_TITLE, codePointLength, type FrameColor } from "@stickyard/shared";
 import { FieldError, Label } from "../components/ui/field";
 import { Input } from "../components/ui/input";
+import { EmojiPicker } from "../emoji/EmojiPicker";
+import { withinChars } from "../emoji/emoji";
 import { READ_ONLY, Section, SizeField, Swatch, SwatchGroup, TextStyleSection } from "../notes/StyleFields";
 import type { BoardFrame, FrameEdit } from "./board";
 import { FRAME_COLOR_NAMES, FRAME_INK_SWATCHES, frameSwatchStyle, frameTitleStyle } from "./style";
@@ -9,7 +11,8 @@ import { FRAME_COLOR_NAMES, FRAME_INK_SWATCHES, frameSwatchStyle, frameTitleStyl
 /**
  * A frame's fields in the Properties panel (md and up): Title (one line, a draft until Enter or
  * leaving the field, like the header), Colour, Title text (size, bold, italic, alignment and ink,
- * the note Title text fields; v10), Width and Height, and who added it. Delete is in
+ * the note Title text fields; v10), Width and Height, and who added it. Title has an emoji button
+ * (inserts at the caret, within the 60-character cap). Delete is in
  * the panel's header. Phones have no frame editor. Read-only while disconnected.
  */
 export function FrameFields({
@@ -32,6 +35,8 @@ export function FrameFields({
   onSize: (w: number, h: number) => void;
 }) {
   const id = useId();
+  const titleRef = useRef<HTMLInputElement>(null);
+  const [slot, setSlot] = useState<HTMLDivElement | null>(null);
   const { frame } = entry;
   const title = entry.draft ?? frame.title;
   const tooLong = codePointLength(title) > MAX_FRAME_TITLE;
@@ -52,8 +57,19 @@ export function FrameFields({
   return (
     <div className="flex flex-col gap-md">
       <div className="flex flex-col gap-xs">
-        <Label htmlFor={`${id}-title`}>Title</Label>
+        <div className="flex items-center justify-between gap-sm">
+          <Label htmlFor={`${id}-title`}>Title</Label>
+          <EmojiPicker
+            label="Insert emoji in title"
+            target={() => titleRef.current}
+            fits={withinChars(MAX_FRAME_TITLE)}
+            onInsert={(value) => onDraft(value)}
+            disabled={!live}
+            slot={slot}
+          />
+        </div>
         <Input
+          ref={titleRef}
           id={`${id}-title`}
           name="frameTitle"
           autoComplete="off"
@@ -68,6 +84,7 @@ export function FrameFields({
           aria-invalid={tooLong || undefined}
           aria-describedby={`${id}-help`}
         />
+        <div ref={setSlot} />
         <p id={`${id}-help`} className="text-sm text-fg-muted">
           {live ? `One line, up to ${MAX_FRAME_TITLE} characters. Enter saves.` : READ_ONLY}
         </p>

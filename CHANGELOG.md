@@ -12,6 +12,7 @@ All notable changes to Stickyard, newest first. The format follows Keep a Change
 - With several shapes selected, **Properties** changes the text style, fill and border of all of them at once.
 - Shapes work with everything else: select them with notes and frames (click, **Shift**-click, a marquee, **Ctrl+A**), drag or arrow-key them together, align, distribute, grid and match size them with notes, duplicate them, delete them, and undo any of it. A frame brings the shapes inside it when you drag it.
 - A board holds up to 50 shapes. Every text colour stays readable on every fill, in light and dark.
+- **Emoji**: a smiley button beside text you're editing on the board, and beside the text fields in **Properties** (a note's title and body, a shape's text, a frame's title), opens 48 emoji to add where you're typing. It works with the keyboard too, and each emoji counts as one character.
 
 ### Changed
 - Notes and shapes share one front-to-back order: **Bring to front** and **Send to back** work on both, and frames stay behind everything.

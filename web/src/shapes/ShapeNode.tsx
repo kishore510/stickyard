@@ -16,6 +16,9 @@ import {
 import type { ShapeFlowNode } from "../canvas/nodes";
 import { noteClick } from "../canvas/pointer";
 import { useBoardUi } from "../canvas/uiStore";
+import { intoEmojiPicker } from "../emoji/EmojiPicker";
+import { withinChars } from "../emoji/emoji";
+import { EmojiToolbar } from "../emoji/EmojiToolbar";
 import { cn } from "../lib/utils";
 import { KEY_STEP, KEY_STEP_BIG, NoteHelpContext } from "../notes/NoteCard";
 import { keyResize, type SizeLimits } from "../notes/size";
@@ -77,7 +80,8 @@ function Outline({ shape }: { shape: Shape }) {
  * The shape's text edited in place (md and up): one plain textarea, never contenteditable, styled
  * like the shape's text. What's typed is the shape's draft (remote edits never replace it) until
  * Escape or focus leaving commits it. Enter is a new line. Input stops at MAX_SHAPE_TEXT
- * characters; paste is cleaned plain text cut to what fits.
+ * characters; paste is cleaned plain text cut to what fits. The emoji button beside the shape
+ * inserts at the caret, within the cap; focus moving into it doesn't end the edit.
  */
 function ShapeTextEditor({
   shape,
@@ -123,33 +127,48 @@ function ShapeTextEditor({
     onDraft(before + insert + after);
   };
   return (
-    <textarea
-      ref={ref}
-      data-shape-input=""
-      aria-label="Shape text"
-      rows={1}
-      value={text}
-      readOnly={readOnly}
-      aria-readonly={readOnly || undefined}
-      placeholder={SHAPE_PLACEHOLDER}
-      spellCheck
-      onChange={(e) => {
-        // Over the cap: refused, so the field keeps what it had.
-        if (codePointLength(e.target.value) <= MAX_SHAPE_TEXT) onDraft(e.target.value);
-      }}
-      onPaste={paste}
-      onKeyDown={(e) => {
-        // The text's keys: never the shape's, the board's or React Flow's.
-        e.stopPropagation();
-        if (e.key === "Escape" && !e.nativeEvent.isComposing) {
-          e.preventDefault();
-          onCommit(true);
-        }
-      }}
-      onBlur={() => onCommit(false)}
-      style={shapeTextStyle(shape)}
-      className="nodrag nopan nowheel block w-full resize-none overflow-hidden border-0 bg-transparent p-0 break-words whitespace-pre-wrap outline-none placeholder:text-fg-muted"
-    />
+    <>
+      <textarea
+        ref={ref}
+        data-shape-input=""
+        aria-label="Shape text"
+        rows={1}
+        value={text}
+        readOnly={readOnly}
+        aria-readonly={readOnly || undefined}
+        placeholder={SHAPE_PLACEHOLDER}
+        spellCheck
+        onChange={(e) => {
+          // Over the cap: refused, so the field keeps what it had.
+          if (codePointLength(e.target.value) <= MAX_SHAPE_TEXT) onDraft(e.target.value);
+        }}
+        onPaste={paste}
+        onKeyDown={(e) => {
+          // The text's keys: never the shape's, the board's or React Flow's.
+          e.stopPropagation();
+          if (e.key === "Escape" && !e.nativeEvent.isComposing) {
+            e.preventDefault();
+            onCommit(true);
+          }
+        }}
+        onBlur={(e) => {
+          if (intoEmojiPicker(e.relatedTarget)) return;
+          onCommit(false);
+        }}
+        style={shapeTextStyle(shape)}
+        className="nodrag nopan nowheel block w-full resize-none overflow-hidden border-0 bg-transparent p-0 break-words whitespace-pre-wrap outline-none placeholder:text-fg-muted"
+      />
+      <EmojiToolbar
+        target={() => ref.current}
+        fits={withinChars(MAX_SHAPE_TEXT)}
+        onInsert={(value, at) => {
+          caret.current = at;
+          onDraft(value);
+        }}
+        disabled={readOnly}
+        onAway={() => onCommit(false)}
+      />
+    </>
   );
 }
 

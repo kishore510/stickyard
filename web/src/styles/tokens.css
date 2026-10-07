@@ -304,6 +304,8 @@
   --sy-welcome-max: 52rem;
   /* The board bar's Arrange panel (opened from the top bar, v0.15.1): wraps its rows within this. */
   --sy-arrange-max: 24rem;
+  /* The emoji picker beside text edited in place (v0.21.0): eight 44px buttons a row, gaps and padding. */
+  --sy-emoji-panel: calc(8 * var(--sy-touch-min) + 7 * var(--sy-space-xs) + 2 * var(--sy-space-xs) + 2 * var(--sy-border-width));
   /* Menu popover, and the label column in About's details. */
   --sy-menu-width: 18rem;
   --sy-menu-max-h: 80dvh;
@@ -605,6 +607,7 @@
   --container-content: var(--sy-content-max);
   --container-welcome: var(--sy-welcome-max);
   --container-arrange: var(--sy-arrange-max);
+  --container-emoji: var(--sy-emoji-panel);
   --container-sheet: var(--sy-sheet-width);
 
   --radius-*: initial;

@@ -17,6 +17,7 @@ Besides notes and frames, a board can hold **shapes**: a **Text** label, a **Rec
 
 - **Double-click** a shape, or select it and press **Enter**, to type in it. **Enter** starts a new line; **Esc**, or clicking elsewhere, saves the text. A shape holds up to 500 characters.
 - Text wraps inside the shape and anything that doesn't fit is cut off at its edge; make the shape bigger to see it all. In an oval or a diamond the text stays inside the outline.
+- The smiley button beside the shape (and beside **Text** in Properties) adds an emoji where you're typing. Each counts as one character.
 - If the connection drops while you're typing, what you typed stays (read only) and is saved when you're back.
 
 ## Styling it

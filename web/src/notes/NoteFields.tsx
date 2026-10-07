@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, type FocusEvent, type KeyboardEvent } from "react";
+import { useEffect, useId, useRef, useState, type FocusEvent, type KeyboardEvent } from "react";
 import { Trash2 } from "lucide-react";
 import { MAX_NOTE_TEXT, codePointLength, type OrderAction } from "@stickyard/shared";
 import { Button } from "../components/ui/button";
@@ -11,6 +11,8 @@ import { OrderSection } from "./OrderFields";
 import { ColourSection, PartTextSection, READ_ONLY, Section, SizeSection } from "./StyleFields";
 import { joinTitleBody, splitTitleBody } from "./titleBody";
 import { VotesSection } from "../voting/VoteButtons";
+import { EmojiPicker } from "../emoji/EmojiPicker";
+import { fitsCap } from "./inlineEdit";
 
 /**
  * A note's fields: Title (its first line) and Body (the rest), a character count, its colour,
@@ -22,7 +24,8 @@ import { VotesSection } from "../voting/VoteButtons";
  * draft (notes/board.ts keeps it apart from the note, so remote edits never replace it) until
  * it's committed: Enter in either field; Shift+Enter is a line break (in Title it moves the rest
  * of the line into Body). With `commitOnBlur`, leaving the fields commits too. Text over the cap
- * isn't committed. Note text is untrusted: it's only ever a field value, never HTML.
+ * isn't committed. Each field has an emoji button that inserts at its caret, within the cap.
+ * Note text is untrusted: it's only ever a field value, never HTML.
  */
 export function NoteFields({
   entry,
@@ -71,6 +74,8 @@ export function NoteFields({
   const length = codePointLength(text);
   const tooLong = length > MAX_NOTE_TEXT;
   const focused = useRef(onFocused);
+  const [titleSlot, setTitleSlot] = useState<HTMLDivElement | null>(null);
+  const [bodySlot, setBodySlot] = useState<HTMLDivElement | null>(null);
   focused.current = onFocused;
 
   useEffect(() => {
@@ -118,7 +123,17 @@ export function NoteFields({
       <VotesSection noteId={entry.note.id} confirmed={entry.confirmed !== null} />
       <div className="flex flex-col gap-sm" onBlur={onBlur}>
         <div className="flex flex-col gap-xs">
-          <Label htmlFor={`${id}-title`}>Title</Label>
+          <div className="flex items-center justify-between gap-sm">
+            <Label htmlFor={`${id}-title`}>Title</Label>
+            <EmojiPicker
+              label="Insert emoji in title"
+              target={() => titleRef.current}
+              fits={(next) => fitsCap(next, body)}
+              onInsert={(value) => onDraft(joinTitleBody(value, body))}
+              disabled={!live}
+              slot={titleSlot}
+            />
+          </div>
           <Input
             ref={titleRef}
             id={`${id}-title`}
@@ -132,9 +147,20 @@ export function NoteFields({
             aria-describedby={`${id}-help ${id}-count`}
             aria-invalid={tooLong || undefined}
           />
+          <div ref={setTitleSlot} />
         </div>
         <div className="flex flex-col gap-xs">
-          <Label htmlFor={`${id}-body`}>Body</Label>
+          <div className="flex items-center justify-between gap-sm">
+            <Label htmlFor={`${id}-body`}>Body</Label>
+            <EmojiPicker
+              label="Insert emoji in body"
+              target={() => bodyRef.current}
+              fits={(next) => fitsCap(title, next)}
+              onInsert={(value) => onDraft(joinTitleBody(title, value))}
+              disabled={!live}
+              slot={bodySlot}
+            />
+          </div>
           <Textarea
             ref={bodyRef}
             id={`${id}-body`}
@@ -147,6 +173,7 @@ export function NoteFields({
             aria-describedby={`${id}-help ${id}-count`}
             aria-invalid={tooLong || undefined}
           />
+          <div ref={setBodySlot} />
         </div>
         <div className="flex flex-wrap justify-between gap-sm text-sm text-fg-muted">
           <span id={`${id}-help`}>{live ? "Enter saves. Shift+Enter adds a new line." : READ_ONLY}</span>
