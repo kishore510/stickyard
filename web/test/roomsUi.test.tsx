@@ -1737,7 +1737,7 @@ describe("multi-select and arrange (slice 2.8, md up)", () => {
     await noteClick(0);
     // The bar is always there from md up; with one note the arrange commands are off, and say why.
     expect(isOff(bar()?.querySelector<HTMLButtonElement>('[aria-label="Align left edges"]'))).toBe(true);
-    expect(bar()?.textContent).toContain("Select 2 or more notes to arrange.");
+    expect(bar()?.textContent).toContain("Select 2 or more notes or shapes to arrange.");
     await noteClick(1, { shiftKey: true });
     expect(isOff(bar()?.querySelector<HTMLButtonElement>('[aria-label="Align left edges"]'))).toBe(false);
     const distribute = bar()?.querySelector<HTMLButtonElement>('[aria-label="Distribute horizontally (equal gaps)"]');
@@ -2699,7 +2699,7 @@ describe("the floating bar and Duplicate (md up)", () => {
       expect(text.trim().length, button.getAttribute("aria-label") ?? button.textContent ?? "").toBeGreaterThan(0);
     }
     expect(tipOf(command("Delete"))?.textContent).toContain("Select notes, shapes or a frame first.");
-    expect(hint("Arrange")?.textContent).toContain("Select 2 or more notes to arrange.");
+    expect(hint("Arrange")?.textContent).toContain("Select 2 or more notes or shapes to arrange.");
     // Since v0.16.0 History, Edit and Order are icons (room in the top bar for the timer and the
     // host's Session group); each is named, and its tooltip names it when it's on.
     expect(command("Duplicate")?.getAttribute("aria-label")).toBe("Duplicate");

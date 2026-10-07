@@ -143,7 +143,7 @@ describe("Properties for one shape", () => {
     const socket = await inRoom({ shapes: [shapeAt(0)] });
     await press(shapesShown()[0]!);
     const panel = properties()!;
-    await click(panel.querySelector<HTMLButtonElement>('button[aria-label="Pink"]'));
+    await click(panel.querySelector<HTMLButtonElement>('button[aria-label="Pink fill"]'));
     await click(panel.querySelector<HTMLButtonElement>('button[aria-label="Underline text"]'));
     await click(panel.querySelector<HTMLButtonElement>('button[aria-label="Text at the bottom"]'));
     await click([...panel.querySelectorAll<HTMLButtonElement>('[aria-label="Border style"] button')].find((b) => b.textContent === "Dashed"));
@@ -177,7 +177,7 @@ describe("Properties for one shape", () => {
     await inRoom({ shapes: [shapeAt(0)], locked: true });
     await press(shapesShown()[0]!);
     expect(properties()?.querySelector("[data-locked-reason]")).not.toBeNull();
-    expect(properties()?.querySelector<HTMLButtonElement>('button[aria-label="Pink"]')?.disabled).toBe(true);
+    expect(properties()?.querySelector<HTMLButtonElement>('button[aria-label="Pink fill"]')?.disabled).toBe(true);
     // And the palette's shape tiles are off with the reason.
     expect(tile("Rectangle")?.getAttribute("aria-disabled") ?? String(tile("Rectangle")?.disabled)).toMatch(/true/);
   });

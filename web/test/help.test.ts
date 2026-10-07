@@ -5,7 +5,7 @@ import { buildTopics, parseFrontMatter, searchTopics } from "../src/help/topics"
 
 describe("help topics", () => {
   it("loads the topics, quick start first", () => {
-    expect(HELP_TOPICS.map((t) => t.id)).toEqual(["quick-start", "sessions", "notes", "participants", "chat", "names", "connection", "touch-and-keyboard", "hosting", "dot-voting"]);
+    expect(HELP_TOPICS.map((t) => t.id)).toEqual(["quick-start", "sessions", "notes", "text-and-shapes", "participants", "chat", "names", "connection", "touch-and-keyboard", "hosting", "dot-voting"]);
     expect(topicById("sessions")?.title).toBe("Starting and joining a session");
     expect(topicById(QUICK_START_ID)?.title).toBe("Quick start");
   });
