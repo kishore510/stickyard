@@ -2698,7 +2698,7 @@ describe("the floating bar and Duplicate (md up)", () => {
       const text = ids.map((id) => document.getElementById(id)?.textContent ?? "").join(" ");
       expect(text.trim().length, button.getAttribute("aria-label") ?? button.textContent ?? "").toBeGreaterThan(0);
     }
-    expect(tipOf(command("Delete"))?.textContent).toContain("Select notes or a frame first.");
+    expect(tipOf(command("Delete"))?.textContent).toContain("Select notes, shapes or a frame first.");
     expect(hint("Arrange")?.textContent).toContain("Select 2 or more notes to arrange.");
     // Since v0.16.0 History, Edit and Order are icons (room in the top bar for the timer and the
     // host's Session group); each is named, and its tooltip names it when it's on.
@@ -2730,7 +2730,7 @@ describe("the floating bar and Duplicate (md up)", () => {
     expect(tip.hidden).toBe(true);
     await act(async () => del.dispatchEvent(new MouseEvent("mouseover", { bubbles: true })));
     expect(tip.hidden).toBe(false);
-    expect(tip.textContent).toContain("Select notes or a frame first.");
+    expect(tip.textContent).toContain("Select notes, shapes or a frame first.");
     await act(async () => del.dispatchEvent(new MouseEvent("mouseout", { bubbles: true })));
     expect(tip.hidden).toBe(true);
     // Off, but still focusable, so a keyboard user hears and sees why.
