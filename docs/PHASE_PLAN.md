@@ -40,7 +40,7 @@ Draft roadmap. When a slice starts, rewrite its prompt against the real code (se
 | 6 (part) Silent brainstorm with reveal | The server withholds other people's note text until the host reveals it (snapshot and broadcast paths change). Riskiest slice | Not started |
 | 3b Presence: live cursors | Live cursors (throttled, never stored). Protocol v14 | Done (v0.19.0, PR #37; built ahead of export by choice) |
 | Frame multi-select | Frames in the selection with notes: marquee (enclosed frames), Ctrl+A, Shift/Ctrl-click; group move with carry, paced delete, arrange/Grid/Match size on frames, Colour and Title text for several frames, Duplicate of mixed selections. Web only, no protocol change | Done (v0.20.0, PR #38) |
-| 7a Text box and shapes | Text labels and basic shapes (rectangle, oval, diamond) with text, fill and border styles; one stacking space with notes; frames carry them; selection, arrange, duplicate, undo. Protocol v15, stored schema 9 | Built (v0.21.0, PR #39, in review) |
+| 7a Text box and shapes | Text labels and basic shapes (rectangle, oval, diamond) with text, fill and border styles; one stacking space with notes; frames carry them; selection, arrange, duplicate, undo. Protocol v15, stored schema 9 | Done (v0.21.0, PR #39, merged and deployed 7 October 2026) |
 | 7b Arrows | (i) Free endpoints and a line style; (ii) endpoints bound to notes and shapes, re-routed when a bound object moves, with a rule for deleting a bound object | Not started |
 | 7c Structure (remaining) | Group boxes, affinity grouping, Stencils tab and Save as stencil. Frames, templates and export moved to their own slices | Not started |
 | 8 Phone view | Phone participant view, QR join | Not started |
@@ -241,11 +241,13 @@ Draft roadmap. When a slice starts, rewrite its prompt against the real code (se
 - Known small bug, fixed in v0.13.0 (Reconnect): when a waiting undo entry was dropped after 10 s, the bar buttons didn't refresh.
 - Clear board: in Properties when nothing is selected. One confirm with counts. Notes first in batches of 50, then frames (one `frameDelete` every 50 ms). One history entry, so a single undo restores it, through a paced restore with a visible "Restoring N of M…" status. A full-board restore at the 4 KiB cap is 105 messages (about 10.5 s).
 
-### 7a Text box and basic shapes (built, v0.21.0)
+### 7a Text box and basic shapes (done, v0.21.0)
 - One new object, the shape: `kind` text | rect | oval | diamond (a text label is a shape with no fill and no border). Text up to 500 characters; seven text sizes (heading sizes); bold, italic, underline; horizontal and vertical alignment; fill, border colour, width and style. Keys only, tokens in both themes, every ink 4.5:1 on every fill and the board.
 - Protocol v15, stored schema 9 (a `shapes` table). At most 50 shapes a room; worst-case `shapesSnapshot` 167,686 bytes (192 KiB test cap, 90% tripwire). Notes and shapes share one stacking space (`notesOrder` accepts shape ids); frames carry shapes with notes (one 50-item cap); `itemsAdd` takes shapes with a `rank` so stacking survives duplicate and undo.
 - Web: md and up edits (palette Shapes category, inline text editing, Properties for one or several shapes); phones show shapes read-only. Selection, marquee, group moves, Delete, Duplicate, Order, Arrange and undo/redo cover shapes.
-- Left for later: editing shapes on phones, arrows (7b), group boxes (7c).
+- Also in v0.21.0: a built-in emoji picker (48 emoji, no library) beside text edited in place (notes, shapes) and in the Properties text fields (note title and body, shape text, frame title); it inserts at the caret, keeps the caps, is keyboard operable and stays inside the canvas. And a fix: Ctrl+A then Delete removes every note, frame and shape wherever focus is (a focused note or shape, or the Palette or Properties).
+- Checked in Chromium against a local Worker at 360/768/1280 in both themes (screenshots); that found the emoji panel running under Properties, fixed before merge.
+- Left for later: editing shapes on phones, arrows (7b), group boxes (7c), emoji in the frame header's own title field, emoji reactions (backlog: "Reactions and comments on notes").
 
 ### 7b Arrows
 - Step (i): arrows with free endpoints and a line style.
@@ -298,3 +300,6 @@ Draft roadmap. When a slice starts, rewrite its prompt against the real code (se
 - Sweep rooms that were idle before v0.14.0 (they only get an expiry alarm at their next last-close)
 - Host recovery: move host powers to another device (today they stay on the device that started the session)
 - Timer pause and sound (v1 has neither)
+- Add and edit shapes on phones (v0.21.0 shows them read-only)
+- Emoji picker in the frame header's own title field (v0.21.0 has it in Properties only)
+- First fit at 768 px is far out (11%): the canvas between the two side panels is only about 360 px wide (seen in v0.21.0 screenshots; older than shapes)
