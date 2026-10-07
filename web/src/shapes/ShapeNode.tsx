@@ -41,6 +41,8 @@ export interface ShapeActions {
   resize(id: string, rect: NoteRect, final: boolean): void;
   /** Arrow keys: a move (live, then final a moment after the last press). */
   move(id: string, x: number, y: number, final: boolean): void;
+  /** Arrow keys on a shape that's one of several selected: moves the whole selection. False if it isn't. */
+  moveSelection(id: string, dx: number, dy: number): boolean;
   /** The Delete key: the shape, or the selection when it's one of several (asks first). */
   remove(id: string): void;
   reveal(id: string): void;
@@ -164,6 +166,8 @@ export function ShapeCard({ entry, editable, selected }: { entry: BoardShape; ed
   const pending = entry.confirmed === null;
   const editRequest = useBoardUi((s) => (s.shapeEdit?.id === shape.id ? s.shapeEdit : null));
   const editing = editRequest !== null && !isShapeHeld(entry);
+  // Alt+arrow resizes one shape at a time (several resize through Match size).
+  const several = useBoardUi((s) => s.selection.size + s.frames.size + s.shapes.size > 1);
   const cardRef = useRef<HTMLDivElement>(null);
   const pressing = useRef(false);
   const keyCommit = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -189,6 +193,7 @@ export function ShapeCard({ entry, editable, selected }: { entry: BoardShape; ed
     const move = delta[e.key];
     if (move && e.altKey) {
       e.preventDefault();
+      if (several) return;
       const rect = keyResize(shape, e.key, e.shiftKey, SHAPE_LIMITS);
       if (pending || !rect || !actions.startResize(shape.id)) return;
       actions.resize(shape.id, rect, false);
@@ -198,6 +203,7 @@ export function ShapeCard({ entry, editable, selected }: { entry: BoardShape; ed
     }
     if (move) {
       e.preventDefault();
+      if (actions.moveSelection(shape.id, move[0], move[1])) return;
       if (pending) return;
       actions.move(shape.id, shape.x + move[0], shape.y + move[1], false);
       actions.reveal(shape.id);

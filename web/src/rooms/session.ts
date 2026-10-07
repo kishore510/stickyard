@@ -620,14 +620,20 @@ const randomRef = (): string => {
 
 /** A selection with frames being dragged: every frame and note it moves, where each started. */
 interface SelectionDrag {
-  /** In selection order, each with the notes it carries. */
-  frames: { id: string; start: NoteRect; noteIds: string[] }[];
+  /** In selection order, each with the notes and shapes it carries. */
+  frames: { id: string; start: NoteRect; noteIds: string[]; shapeIds: string[] }[];
   /** Every note moved (carried or loose) and its start. */
   notes: Map<string, NoteRect>;
+  /** Every shape moved (carried or loose) and its start (protocol v15). */
+  shapes: Map<string, NoteRect>;
   /** Selected notes no frame carries. */
   loose: string[];
+  /** Selected shapes no frame carries. */
+  looseShapes: string[];
   /** The next frame whose live move goes out (they take turns). */
   turn: number;
+  /** Which loose batch (notes or shapes) goes out next when there are both. */
+  batchTurn: number;
 }
 
 interface Throttle {
@@ -697,6 +703,8 @@ interface FrameDrag {
   start: NoteRect;
   /** Carried notes (confirmed ids only), by id, at their start. Empty: the frame moves alone. */
   notes: Map<string, NoteRect>;
+  /** Carried shapes (protocol v15), likewise. */
+  shapes: Map<string, NoteRect>;
 }
 
 /** A sent itemsAdd's list for one kind (to find a refused item's ref by its index). */
@@ -1573,12 +1581,16 @@ export class RoomSession {
     const entry = findFrame(this.view.board, id);
     if (!this.live || isLocalId(id) || !entry) return false;
     const inside = carry ? framedNotes(entry.frame, this.view.board.notes.map((n) => n.note)).filter((n) => !isLocalId(n.id)) : [];
-    const tooMany = inside.length > MAX_BATCH_ENTRIES;
+    const insideShapes = carry ? framedNotes(entry.frame, this.view.board.shapes.map((x) => x.shape)).filter((x) => !isLocalId(x.id)) : [];
+    // The carry cap is shared by notes and shapes (protocol v15).
+    const tooMany = inside.length + insideShapes.length > MAX_BATCH_ENTRIES;
     const notes = new Map(tooMany ? [] : inside.map((n) => [n.id, { x: n.x, y: n.y, w: n.w, h: n.h }] as const));
+    const shapes = new Map(tooMany ? [] : insideShapes.map((n) => [n.id, { x: n.x, y: n.y, w: n.w, h: n.h }] as const));
     let board = setFrameDragging(this.view.board, id, true);
     for (const noteId of notes.keys()) board = setDragging(board, noteId, true);
+    for (const shapeId of shapes.keys()) board = setShapeDragging(board, shapeId, true);
     const { x, y, w, h } = entry.frame;
-    this.frameDrag = { id, start: { x, y, w, h }, notes };
+    this.frameDrag = { id, start: { x, y, w, h }, notes, shapes };
     this.update({ board, noteNotice: tooMany ? NOTICES.frameTooFull : null });
     return true;
   }
@@ -1591,25 +1603,36 @@ export class RoomSession {
     if (!this.live || isLocalId(id)) return;
     const entry = findFrame(this.view.board, id);
     if (!entry) return this.stopFrameMove(id);
-    const drag = this.frameDrag?.id === id ? this.frameDrag : { id, start: { x: entry.frame.x, y: entry.frame.y, w: entry.frame.w, h: entry.frame.h }, notes: new Map<string, NoteRect>() };
+    const drag =
+      this.frameDrag?.id === id
+        ? this.frameDrag
+        : { id, start: { x: entry.frame.x, y: entry.frame.y, w: entry.frame.w, h: entry.frame.h }, notes: new Map<string, NoteRect>(), shapes: new Map<string, NoteRect>() };
     const target = clampFramePosition(x, y, drag.start);
     const want = { dx: target.x - drag.start.x, dy: target.y - drag.start.y };
-    const { dx, dy } = drag.notes.size > 0 ? groupOffset([drag.start, ...drag.notes.values()], want.dx, want.dy) : want;
+    const { dx, dy } = drag.notes.size + drag.shapes.size > 0 ? groupOffset([drag.start, ...drag.notes.values(), ...drag.shapes.values()], want.dx, want.dy) : want;
     let board = moveFrameLocal(this.view.board, id, drag.start.x + dx, drag.start.y + dy);
     for (const [noteId, r] of drag.notes) board = moveLocal(board, noteId, r.x + dx, r.y + dy);
+    for (const [shapeId, r] of drag.shapes) board = moveShapeLocal(board, shapeId, r.x + dx, r.y + dy);
     const noteIds = [...drag.notes.keys()].filter((n) => findNote(board, n));
+    const shapeIds = [...drag.shapes.keys()].filter((n) => findShape(board, n));
     if (final) {
       board = setFrameDragging(board, id, false);
       for (const n of drag.notes.keys()) board = setDragging(board, n, false);
+      for (const n of drag.shapes.keys()) board = setShapeDragging(board, n, false);
       this.frameDrag = null;
     }
     this.update({ board });
     if (final) {
       this.stopFrameMove(id);
-      this.recordRects("Move frame", ["frame", ...noteIds.map(() => "note" as const)], [id, ...noteIds], ["x", "y"]);
-      return this.sendFrameMove(id, noteIds, true);
+      this.recordRects(
+        "Move frame",
+        ["frame", ...noteIds.map(() => "note" as const), ...shapeIds.map(() => "shape" as const)],
+        [id, ...noteIds, ...shapeIds],
+        ["x", "y"],
+      );
+      return this.sendFrameMove(id, noteIds, true, shapeIds);
     }
-    this.throttle(this.frameMoves, id, MOVE_INTERVAL_MS, () => this.sendFrameMove(id, noteIds, false));
+    this.throttle(this.frameMoves, id, MOVE_INTERVAL_MS, () => this.sendFrameMove(id, noteIds, false, shapeIds));
   }
 
   /**
@@ -1620,7 +1643,7 @@ export class RoomSession {
    * confirmed items that aren't already moving. False if nothing can move, not connected, or a
    * guest on a locked board.
    */
-  startSelectionDrag(frameIds: readonly string[], noteIds: readonly string[], carry: boolean): boolean {
+  startSelectionDrag(frameIds: readonly string[], noteIds: readonly string[], carry: boolean, shapeIds: readonly string[] = []): boolean {
     if (!this.live || lockedOut(this.view)) return false;
     const board0 = this.view.board;
     const frames = frameIds.flatMap((id) => {
@@ -1628,22 +1651,32 @@ export class RoomSession {
       return entry && !isLocalId(id) && !isFrameHeld(entry) ? [entry.frame] : [];
     });
     const movable = board0.notes.filter((n) => !isLocalId(n.note.id) && !isHeld(n)).map((n) => n.note);
-    const plan = carryPlan(frames, movable, noteIds, carry);
-    if (plan.frames.length + plan.loose.length === 0) return false;
+    const movableShapes = board0.shapes.filter((x) => !isLocalId(x.shape.id) && !isShapeHeld(x)).map((x) => x.shape);
+    const plan = carryPlan(frames, movable, noteIds, carry, MAX_BATCH_ENTRIES, movableShapes, shapeIds);
+    if (plan.frames.length + plan.loose.length + plan.looseShapes.length === 0) return false;
     const rectOf = (r: NoteRect): NoteRect => ({ x: r.x, y: r.y, w: r.w, h: r.h });
     const notes = new Map<string, NoteRect>();
     for (const id of [...plan.frames.flatMap((f) => f.noteIds), ...plan.loose]) {
       const note = findNote(board0, id)?.note;
       if (note) notes.set(id, rectOf(note));
     }
+    const shapes = new Map<string, NoteRect>();
+    for (const id of [...plan.frames.flatMap((f) => f.shapeIds), ...plan.looseShapes]) {
+      const shape = findShape(board0, id)?.shape;
+      if (shape) shapes.set(id, rectOf(shape));
+    }
     let board = board0;
     for (const f of frames) board = setFrameDragging(board, f.id, true);
     for (const id of notes.keys()) board = setDragging(board, id, true);
+    for (const id of shapes.keys()) board = setShapeDragging(board, id, true);
     this.selectionDrag = {
-      frames: plan.frames.map((p) => ({ id: p.id, start: rectOf(findFrame(board0, p.id)!.frame), noteIds: p.noteIds })),
+      frames: plan.frames.map((p) => ({ id: p.id, start: rectOf(findFrame(board0, p.id)!.frame), noteIds: p.noteIds, shapeIds: p.shapeIds })),
       notes,
+      shapes,
       loose: plan.loose,
+      looseShapes: plan.looseShapes,
       turn: 0,
+      batchTurn: 0,
     };
     this.update({ board, noteNotice: plan.alone.length > 0 ? NOTICES.frameTooFull : null });
     return true;
@@ -1659,10 +1692,11 @@ export class RoomSession {
   moveSelection(dx: number, dy: number, final: boolean): { dx: number; dy: number } {
     const drag = this.selectionDrag;
     if (!this.live || !drag) return { dx: 0, dy: 0 };
-    const offset = groupOffset([...drag.frames.map((f) => f.start), ...drag.notes.values()], dx, dy);
+    const offset = groupOffset([...drag.frames.map((f) => f.start), ...drag.notes.values(), ...drag.shapes.values()], dx, dy);
     let board = this.view.board;
     for (const f of drag.frames) board = moveFrameLocal(board, f.id, f.start.x + offset.dx, f.start.y + offset.dy);
     for (const [id, r] of drag.notes) board = moveLocal(board, id, r.x + offset.dx, r.y + offset.dy);
+    for (const [id, r] of drag.shapes) board = moveShapeLocal(board, id, r.x + offset.dx, r.y + offset.dy);
     if (!final) {
       this.update({ board });
       this.throttle(this.groupMoves, "selection", SELECTION_MOVE_INTERVAL_MS, () => this.sendSelectionTick());
@@ -1670,20 +1704,23 @@ export class RoomSession {
     }
     for (const f of drag.frames) board = setFrameDragging(board, f.id, false);
     for (const id of drag.notes.keys()) board = setDragging(board, id, false);
+    for (const id of drag.shapes.keys()) board = setShapeDragging(board, id, false);
     this.stopSelectionDrag();
     this.update({ board });
     const frames = drag.frames.filter((f) => findFrame(board, f.id));
     const notes = [...drag.notes.keys()].filter((id) => findNote(board, id));
-    const ids = [...frames.map((f) => f.id), ...notes];
+    const shapes = [...drag.shapes.keys()].filter((id) => findShape(board, id));
+    const ids = [...frames.map((f) => f.id), ...notes, ...shapes];
     this.recordRects(
       "Move",
-      [...frames.map(() => "frame" as const), ...notes.map(() => "note" as const)],
+      [...frames.map(() => "frame" as const), ...notes.map(() => "note" as const), ...shapes.map(() => "shape" as const)],
       ids,
       ["x", "y"],
       `move:${[...ids].sort().join(",")}`,
     );
-    for (const f of frames) this.sendFrameMove(f.id, f.noteIds.filter((id) => findNote(board, id)), true);
+    for (const f of frames) this.sendFrameMove(f.id, f.noteIds.filter((id) => findNote(board, id)), true, f.shapeIds.filter((id) => findShape(board, id)));
     this.sendBatch(this.moveEntries(drag.loose), true);
+    this.sendShapeBatch(this.shapeMoveEntries(drag.looseShapes), true);
     return offset;
   }
 
@@ -1692,15 +1729,28 @@ export class RoomSession {
     const drag = this.selectionDrag;
     if (!drag || !this.live) return;
     let budget = SELECTION_LIVE_MESSAGES;
-    if (drag.loose.length > 0) {
-      this.sendBatch(this.moveEntries(drag.loose.slice(0, MAX_BATCH_ENTRIES)), false);
+    // At most one live batch a tick (notes and shapes take turns when there are both), so the
+    // entries stay at most 50 a tick (500 a second) inside BATCH_LIMITS.
+    const batches = [
+      ...(drag.loose.length > 0 ? [() => this.sendBatch(this.moveEntries(drag.loose.slice(0, MAX_BATCH_ENTRIES)), false)] : []),
+      ...(drag.looseShapes.length > 0 ? [() => this.sendShapeBatch(this.shapeMoveEntries(drag.looseShapes.slice(0, MAX_BATCH_ENTRIES)), false)] : []),
+    ];
+    if (batches.length > 0) {
+      batches[drag.batchTurn++ % batches.length]!();
       budget--;
     }
     const count = Math.min(budget, drag.frames.length);
     for (let i = 0; i < count; i++) {
       const f = drag.frames[drag.turn++ % drag.frames.length]!;
-      this.sendFrameMove(f.id, f.noteIds.filter((id) => findNote(this.view.board, id)), false);
+      this.sendFrameMove(f.id, f.noteIds.filter((id) => findNote(this.view.board, id)), false, f.shapeIds.filter((id) => findShape(this.view.board, id)));
     }
+  }
+
+  private shapeMoveEntries(ids: readonly string[]): ShapeBatchEntry[] {
+    return ids.flatMap((id) => {
+      const shape = findShape(this.view.board, id)?.shape;
+      return shape ? [{ op: "move" as const, id, x: shape.x, y: shape.y }] : [];
+    });
   }
 
   private stopSelectionDrag(): void {
@@ -1726,8 +1776,10 @@ export class RoomSession {
     });
     const moving = usable.filter(({ rect, frame }) => rect.w === frame.w && rect.h === frame.h);
     const movable = board0.notes.filter((n) => !isLocalId(n.note.id) && !isHeld(n)).map((n) => n.note);
-    const plan = carryPlan(moving.map((m) => m.frame), movable, [], true);
+    const movableShapes = board0.shapes.filter((x) => !isLocalId(x.shape.id) && !isShapeHeld(x)).map((x) => x.shape);
+    const plan = carryPlan(moving.map((m) => m.frame), movable, [], true, MAX_BATCH_ENTRIES, movableShapes, []);
     const carried = new Map(plan.frames.map((p) => [p.id, p.noteIds]));
+    const carriedShapes = new Map(plan.frames.map((p) => [p.id, p.shapeIds]));
     let board = board0;
     const sends: ClientMessage[] = [];
     const kinds: ItemKind[] = [];
@@ -1744,14 +1796,24 @@ export class RoomSession {
         continue;
       }
       const notes = noteIds.flatMap((id) => findNote(board, id)?.note ?? []);
+      const shapes = (carriedShapes.get(frame.id) ?? []).flatMap((id) => findShape(board, id)?.shape ?? []);
       const target = clampFramePosition(rect.x, rect.y, frame);
-      const { dx, dy } = groupOffset([frame, ...notes], target.x - frame.x, target.y - frame.y);
+      const { dx, dy } = groupOffset([frame, ...notes, ...shapes], target.x - frame.x, target.y - frame.y);
       if (dx === 0 && dy === 0) continue;
       board = moveFrameLocal(board, frame.id, frame.x + dx, frame.y + dy);
       for (const n of notes) board = moveLocal(board, n.id, n.x + dx, n.y + dy);
-      sends.push({ type: "frameMove", id: frame.id, x: frame.x + dx, y: frame.y + dy, final: true, ...(notes.length > 0 ? { noteIds: notes.map((n) => n.id) } : {}) });
-      kinds.push("frame", ...notes.map(() => "note" as const));
-      ids.push(frame.id, ...notes.map((n) => n.id));
+      for (const x of shapes) board = moveShapeLocal(board, x.id, x.x + dx, x.y + dy);
+      sends.push({
+        type: "frameMove",
+        id: frame.id,
+        x: frame.x + dx,
+        y: frame.y + dy,
+        final: true,
+        ...(notes.length > 0 ? { noteIds: notes.map((n) => n.id) } : {}),
+        ...(shapes.length > 0 ? { shapeIds: shapes.map((x) => x.id) } : {}),
+      });
+      kinds.push("frame", ...notes.map(() => "note" as const), ...shapes.map(() => "shape" as const));
+      ids.push(frame.id, ...notes.map((n) => n.id), ...shapes.map((x) => x.id));
     }
     if (sends.length === 0) return true;
     this.update({ board, noteNotice: plan.alone.length > 0 ? NOTICES.frameTooFull : null });
@@ -2292,12 +2354,19 @@ export class RoomSession {
    * locked board, and when the board hasn't room for every copy (a notice gives the counts). The
    * copies' local ids by kind, or null.
    */
-  duplicateSelection(noteIds: readonly string[], frameIds: readonly string[]): { notes: string[]; frames: string[] } | null {
-    if (!this.live || lockedOut(this.view) || noteIds.length + frameIds.length === 0) return null;
+  duplicateSelection(noteIds: readonly string[], frameIds: readonly string[], shapeIds: readonly string[] = []): { notes: string[]; frames: string[]; shapes: string[] } | null {
+    if (!this.live || lockedOut(this.view) || noteIds.length + frameIds.length + shapeIds.length === 0) return null;
     const notes = noteIds.map((id) => findNote(this.view.board, id));
     const frames = frameIds.map((id) => findFrame(this.view.board, id));
+    const shapes = shapeIds.map((id) => findShape(this.view.board, id));
     if (notes.some((e) => !e || e.confirmed === null || isLocalId(e.note.id) || isHeld(e))) return null;
     if (frames.some((e) => !e || e.confirmed === null || isLocalId(e.frame.id) || isFrameHeld(e))) return null;
+    if (shapes.some((e) => !e || e.confirmed === null || isLocalId(e.shape.id) || isShapeHeld(e))) return null;
+    const freeShapes = Math.max(0, MAX_SHAPES_PER_ROOM - this.view.board.shapes.length);
+    if (shapes.length > freeShapes) {
+      this.update({ noteNotice: DUPLICATE_HINTS.shapesFull(shapes.length, freeShapes) });
+      return null;
+    }
     const freeFrames = Math.max(0, MAX_FRAMES_PER_ROOM - this.view.board.frames.length);
     const freeNotes = Math.max(0, MAX_NOTES_PER_ROOM - this.view.board.notes.length);
     if (frames.length > freeFrames) {
@@ -2312,13 +2381,15 @@ export class RoomSession {
     const inputs = duplicateSelectionInputs(
       notes.flatMap((e) => (e ? [e.note] : [])),
       frames.flatMap((e) => (e ? [e.frame] : [])),
+      undefined,
+      shapes.flatMap((e) => (e ? [e.shape] : [])),
     );
     const ids = this.addItems(inputs, "Duplicate");
     if (!ids) return null;
-    const out = { notes: [] as string[], frames: [] as string[] };
+    const out = { notes: [] as string[], frames: [] as string[], shapes: [] as string[] };
     inputs.forEach((input, i) => {
       const id = ids[i];
-      if (id) (input.kind === "frame" ? out.frames : out.notes).push(id);
+      if (id) (input.kind === "frame" ? out.frames : input.kind === "shape" ? out.shapes : out.notes).push(id);
     });
     return out;
   }
@@ -2768,10 +2839,18 @@ export class RoomSession {
     }
   }
 
-  private sendFrameMove(id: string, noteIds: readonly string[], final: boolean): void {
+  private sendFrameMove(id: string, noteIds: readonly string[], final: boolean, shapeIds: readonly string[] = []): void {
     const frame = findFrame(this.view.board, id)?.frame;
     if (!frame || !this.live) return;
-    this.send({ type: "frameMove", id, x: frame.x, y: frame.y, final, ...(noteIds.length > 0 ? { noteIds: [...noteIds] } : {}) });
+    this.send({
+      type: "frameMove",
+      id,
+      x: frame.x,
+      y: frame.y,
+      final,
+      ...(noteIds.length > 0 ? { noteIds: [...noteIds] } : {}),
+      ...(shapeIds.length > 0 ? { shapeIds: [...shapeIds] } : {}),
+    });
   }
 
   private sendFrameResize(id: string, final: boolean): void {

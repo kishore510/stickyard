@@ -303,14 +303,14 @@ function GridControls({ notes, reason, onGrid }: { notes: Placed[]; reason: stri
 
 /** Why Order is off: frames always sit behind notes, so only notes restack. */
 export const ORDER_HINTS = {
-  none: "Select notes to restack them.",
+  none: "Select notes or shapes to restack them.",
   frame: "Frames always sit behind notes.",
   offline: "Not connected.",
 } as const;
 
 /** Why Delete is off. */
 export const DELETE_HINTS = {
-  none: "Select notes or a frame first.",
+  none: "Select notes, shapes or a frame first.",
   offline: "Not connected.",
 } as const;
 
@@ -326,6 +326,11 @@ export interface BoardBarProps {
   applyFrames?: (rects: (NoteRect & { id: string })[]) => void;
   /** A frame is selected (instead of notes). */
   frame: boolean;
+  /** Selected shapes (protocol v15), in selection order: they delete, restack and arrange with notes. */
+  shapes?: Placed[];
+  /** A selected shape is being moved or resized here, or has no server id yet. */
+  shapesHeld?: boolean;
+  shapesUnsaved?: boolean;
   live: boolean;
   /** A selected note is being moved or resized here. */
   held: boolean;
@@ -363,6 +368,9 @@ export function BoardBar({
   framesUnsaved = false,
   applyFrames = () => {},
   frame,
+  shapes = [],
+  shapesHeld = false,
+  shapesUnsaved = false,
   live,
   held,
   unsaved,
@@ -393,8 +401,9 @@ export function BoardBar({
     if (result.reason) notice(GRID_NO_ROOM[result.reason]);
     else send(result.changes);
   };
-  const deleteReason = lockedReason ?? (count === 0 && !frame ? DELETE_HINTS.none : !live ? DELETE_HINTS.offline : null);
-  const orderReason = lockedReason ?? (count === 0 ? (frame ? ORDER_HINTS.frame : ORDER_HINTS.none) : !live ? ORDER_HINTS.offline : null);
+  const stackable = count + shapes.length;
+  const deleteReason = lockedReason ?? (stackable === 0 && !frame ? DELETE_HINTS.none : !live ? DELETE_HINTS.offline : null);
+  const orderReason = lockedReason ?? (stackable === 0 ? (frame ? ORDER_HINTS.frame : ORDER_HINTS.none) : !live ? ORDER_HINTS.offline : null);
   // Align and Match size need 2+ notes (or frames) and a connection; Distribute needs 3.
   const arrangeOff = onFrames ? frameReason : (lockedReason ?? (count < 2 ? GRID_HINTS.few : !live ? GRID_HINTS.offline : null));
   const off = (reason: string | null) => ({ disabled: reason !== null, ...(reason ? { hint: reason } : {}) });

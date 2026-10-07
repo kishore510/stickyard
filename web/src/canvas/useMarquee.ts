@@ -39,6 +39,7 @@ export function useMarquee({
   threshold,
   notes,
   frames = () => [],
+  shapes = () => [],
 }: {
   section: RefObject<HTMLElement | null>;
   /** Multi-select is on (md and up). */
@@ -50,12 +51,14 @@ export function useMarquee({
   notes: () => { id: string; x: number; y: number; w: number; h: number }[];
   /** The frames as board rects, likewise. */
   frames?: () => { id: string; x: number; y: number; w: number; h: number }[];
+  /** The shapes as board rects (protocol v15): taken like notes, by touching. */
+  shapes?: () => { id: string; x: number; y: number; w: number; h: number }[];
 }) {
   const flow = useReactFlow();
   const [box, setBox] = useState<MarqueeBox | null>(null);
   const handledClick = useRef(false);
-  const latest = useRef({ enabled, tool, spaceHeld, threshold, notes, frames, flow });
-  latest.current = { enabled, tool, spaceHeld, threshold, notes, frames, flow };
+  const latest = useRef({ enabled, tool, spaceHeld, threshold, notes, frames, shapes, flow });
+  latest.current = { enabled, tool, spaceHeld, threshold, notes, frames, shapes, flow };
 
   useEffect(() => {
     const el = section.current;
@@ -77,13 +80,15 @@ export function useMarquee({
       const start = { x: e.clientX, y: e.clientY };
       const base: Selection = useBoardUi.getState().selection;
       const baseFrames: Selection = useBoardUi.getState().frames;
+      const baseShapes: Selection = useBoardUi.getState().shapes;
       const additive = e.shiftKey;
       let moved = false;
       let last: Selection | undefined;
       let lastFrames: Selection | undefined;
+      let lastShapes: Selection | undefined;
 
       const onMove = (m: PointerEvent) => {
-        const { threshold: limit, flow: f, notes: list, frames: frameList } = latest.current;
+        const { threshold: limit, flow: f, notes: list, frames: frameList, shapes: shapeList } = latest.current;
         if (!moved && !isDrag(m.clientX - start.x, m.clientY - start.y, limit)) return;
         moved = true;
         const bounds = el.getBoundingClientRect();
@@ -98,7 +103,8 @@ export function useMarquee({
         const area = { x: a.x, y: a.y, width: b.x - a.x, height: b.y - a.y };
         last = marqueeSelection(list(), area, base, additive, last);
         lastFrames = marqueeFrames(frameList(), area, baseFrames, additive, lastFrames);
-        useBoardUi.getState().setSelections(last, lastFrames);
+        lastShapes = marqueeSelection(shapeList(), area, baseShapes, additive, lastShapes);
+        useBoardUi.getState().setSelections(last, lastFrames, lastShapes);
       };
       const onUp = () => {
         stop();

@@ -1,11 +1,11 @@
 import { useId, type ReactNode } from "react";
 import { Eraser, Power, Trash2 } from "lucide-react";
-import { BOARD_HEIGHT, BOARD_WIDTH, MAX_NOTES_PER_ROOM, NOTE_STYLE_FIELDS, type FrameColor, type Note, type OrderAction, type Participant } from "@stickyard/shared";
+import { BOARD_HEIGHT, BOARD_WIDTH, MAX_NOTES_PER_ROOM, MAX_SHAPES_PER_ROOM, NOTE_STYLE_FIELDS, type FrameColor, type Note, type OrderAction, type Participant } from "@stickyard/shared";
 import { Button } from "../components/ui/button";
 import { cn } from "../lib/utils";
 import { useBoardUi } from "../canvas/uiStore";
 import { onlySelected, orderedIds } from "../canvas/selection";
-import { confirmDeleteSelection, deleteCounts, itemsLabel, selectionLabel } from "../canvas/frameSelect";
+import { confirmDeleteSelection, deleteCounts, itemsInWords, selectionLabel } from "../canvas/frameSelect";
 import { confirmFrameDelete } from "../frames/label";
 import { findFrame, framedNotes, type FrameEdit } from "../frames/board";
 import { FrameFields } from "../frames/FrameFields";
@@ -56,7 +56,7 @@ export interface PropertiesRoom {
   setFrameSize(id: string, w: number, h: number): boolean;
   deleteFrame(id: string): void;
   /** Deletes notes and frames together (v0.20.0): one paced run, one report, one undo step. */
-  deleteSelection(noteIds: readonly string[], frameIds: readonly string[]): boolean;
+  deleteSelection(noteIds: readonly string[], frameIds: readonly string[], shapeIds?: readonly string[]): boolean;
   /** Deletes every note and frame (asked first here); false if it couldn't start. */
   clearBoard(): boolean;
   /** An add run (template, duplicate, restore) is still being sent. */
@@ -96,8 +96,8 @@ const noop = () => {};
 function GroupFields() {
   return (
     <p data-group-summary="" className="rounded-md bg-surface-muted p-ms text-sm text-fg-muted">
-      Drag any of them to move them all; each frame brings the notes inside it. Delete removes the selected notes and frames; notes inside a
-      frame stay unless they’re selected. To arrange or change colour, select only notes or only frames.
+      Drag any of them to move them all; each frame brings the notes and shapes inside it. Delete removes what’s selected; items inside a
+      frame stay unless they’re selected. To arrange, select only notes and shapes, or only frames. To change colour, select one kind.
     </p>
   );
 }
@@ -127,7 +127,8 @@ function Summary({ room }: { room: PropertiesRoom }) {
   const hintId = useId();
   const notes = room.board.notes.length;
   const frames = room.board.frames.length;
-  const reason = withLock(clearBoardReason({ live: room.live, notes, frames, busy: room.adding, clearing: room.clearing, deleting: room.deleting ?? false }), {
+  const shapes = room.board.shapes.length;
+  const reason = withLock(clearBoardReason({ live: room.live, notes, frames, shapes, busy: room.adding, clearing: room.clearing, deleting: room.deleting ?? false }), {
     live: room.live,
     locked: room.locked ?? false,
     isHost: room.isHost ?? false,
@@ -137,15 +138,15 @@ function Summary({ room }: { room: PropertiesRoom }) {
     <>
       {room.results && <ResultsList rows={room.results} onPick={(id) => room.onPickResult?.(id)} />}
       <p className="text-sm text-fg-muted tabular-nums">
-        {notes} of {MAX_NOTES_PER_ROOM} notes. Board size {BOARD_WIDTH} × {BOARD_HEIGHT}.
+        {notes} of {MAX_NOTES_PER_ROOM} notes{shapes > 0 ? `, ${shapes} of ${MAX_SHAPES_PER_ROOM} shapes` : ""}. Board size {BOARD_WIDTH} × {BOARD_HEIGHT}.
       </p>
-      <p className="text-sm text-fg-muted">Select a note to see and edit it here.</p>
+      <p className="text-sm text-fg-muted">Select a note, shape or frame to see and edit it here.</p>
       <div className="flex flex-col gap-xs">
         <Button
           aria-describedby={reason ? hintId : undefined}
           disabled={reason !== null}
           onClick={() => {
-            if (!confirmClearBoard(notes, frames)) return;
+            if (!confirmClearBoard(notes, frames, undefined, shapes)) return;
             if (room.clearBoard()) useBoardUi.getState().clearSelection();
           }}
           className="self-start text-status-error"
@@ -196,12 +197,15 @@ export function PropertiesContent({ room, collapse }: { room: PropertiesRoom; co
   const many = selection.size > 1 ? orderedIds(selection).flatMap((n) => findNote(room.board, n)?.note ?? []) : [];
   const frameId = useBoardUi((s) => s.frameSelected);
   const frame = frameId === null ? undefined : findFrame(room.board, frameId);
-  // A selection with frames and anything else (v0.20.0): a summary with Delete.
+  // A selection of several items with frames or shapes in it (v0.20.0; shapes v15): a summary with Delete.
   const frameSet = useBoardUi((s) => s.frames);
-  const groupFrames = frameSet.size > 0 && frameSet.size + selection.size > 1 ? orderedIds(frameSet).flatMap((f) => findFrame(room.board, f) ?? []) : [];
-  const groupNotes = groupFrames.length > 0 ? orderedIds(selection).flatMap((n) => findNote(room.board, n)?.note ?? []) : [];
-  const group = groupFrames.length > 0 && groupFrames.length + groupNotes.length > 1;
-  const groupWhat = itemsLabel(groupNotes.length, groupFrames.length).replace(", ", " and ");
+  const shapeSet = useBoardUi((s) => s.shapes);
+  const several = frameSet.size + shapeSet.size > 0 && frameSet.size + selection.size + shapeSet.size > 1;
+  const groupFrames = several ? orderedIds(frameSet).flatMap((f) => findFrame(room.board, f) ?? []) : [];
+  const groupShapes = several ? orderedIds(shapeSet).flatMap((f) => findShape(room.board, f) ?? []) : [];
+  const groupNotes = several ? orderedIds(selection).flatMap((n) => findNote(room.board, n)?.note ?? []) : [];
+  const group = groupFrames.length + groupShapes.length > 0 && groupFrames.length + groupNotes.length + groupShapes.length > 1;
+  const groupWhat = itemsInWords(groupNotes.length, groupFrames.length, groupShapes.length);
   // One shape selected alone (protocol v15).
   const shapeId = useBoardUi((s) => s.shapeSelected);
   const shape = shapeId === null ? undefined : findShape(room.board, shapeId);
@@ -215,7 +219,7 @@ export function PropertiesContent({ room, collapse }: { room: PropertiesRoom; co
       <div className="flex min-h-touch items-center gap-xs">
         {/* A selection summary wraps at the panel's narrowest; a note or frame name stays on one line. */}
         <h3 className={cn("min-w-0 flex-1 text-sm font-semibold", group ? "break-words" : "truncate")}>
-          {group ? selectionLabel(groupNotes.length, groupFrames.length) : shape ? (shape.shape.kind === "text" ? "Text box" : SHAPE_KIND_NAMES[shape.shape.kind]) : frame ? "Frame" : many.length > 1 ? `${many.length} selected` : entry ? `${NOTE_COLOR_NAMES[entry.note.color]} note` : "Board"}
+          {group ? selectionLabel(groupNotes.length, groupFrames.length, groupShapes.length) : shape ? (shape.shape.kind === "text" ? "Text box" : SHAPE_KIND_NAMES[shape.shape.kind]) : frame ? "Frame" : many.length > 1 ? `${many.length} selected` : entry ? `${NOTE_COLOR_NAMES[entry.note.color]} note` : "Board"}
         </h3>
         {group && (
           <Button
@@ -227,8 +231,9 @@ export function PropertiesContent({ room, collapse }: { room: PropertiesRoom; co
             onClick={() => {
               const noteIds = groupNotes.map((n) => n.id);
               const frameIds = groupFrames.map((f) => f.frame.id);
-              if (!confirmDeleteSelection(deleteCounts(room.board, noteIds, frameIds))) return;
-              if (room.deleteSelection(noteIds, frameIds)) useBoardUi.getState().clearSelection();
+              const shapeIds = groupShapes.map((x) => x.shape.id);
+              if (!confirmDeleteSelection(deleteCounts(room.board, noteIds, frameIds, shapeIds))) return;
+              if (room.deleteSelection(noteIds, frameIds, shapeIds)) useBoardUi.getState().clearSelection();
             }}
             className="text-status-error"
           >
@@ -304,12 +309,12 @@ export function PropertiesContent({ room, collapse }: { room: PropertiesRoom; co
         )}
       </div>
       <div className="flex flex-col gap-md pb-md">
-        {room.live && room.locked && (selection.size > 0 || frameSet.size > 0 || shape !== undefined) && (
+        {room.live && room.locked && (selection.size > 0 || frameSet.size > 0 || shapeSet.size > 0) && (
           <p data-locked-reason="" className="rounded-md bg-surface-muted p-ms text-sm">
             {LOCK_TEXT.reason}
           </p>
         )}
-        {group && groupNotes.length === 0 ? (
+        {group && groupNotes.length === 0 && groupShapes.length === 0 ? (
           <FramesFields frames={groupFrames.map((f) => f.frame)} live={editable} onEdit={(change) => room.editFrames?.(groupFrames.map((f) => f.frame.id), change)} />
         ) : group ? (
           <GroupFields />

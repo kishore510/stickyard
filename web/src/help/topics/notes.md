@@ -37,7 +37,7 @@ On a wider screen, with a mouse:
 
 ## The board buttons at the top
 
-On a wider screen the board's buttons sit in the top bar, between the Stickyard mark and the menu. They're grouped: **History** (**Undo**, **Redo**), **Edit** (**Duplicate**, **Delete**), **Order** (**Bring to front**, **Send to back**) and **Arrange**, one button that opens the arranging tools (below). A button that can't be used right now is greyed out; point at it, or move to it with **Tab**, and a small label says why (for example "Select notes or a frame first."). **Esc** hides the label. On a phone, **Undo** and **Redo** are in the bar at the bottom instead.
+On a wider screen the board's buttons sit in the top bar, between the Stickyard mark and the menu. They're grouped: **History** (**Undo**, **Redo**), **Edit** (**Duplicate**, **Delete**), **Order** (**Bring to front**, **Send to back**) and **Arrange**, one button that opens the arranging tools (below). A button that can't be used right now is greyed out; point at it, or move to it with **Tab**, and a small label says why (for example "Select notes, shapes or a frame first."). **Esc** hides the label. On a phone, **Undo** and **Redo** are in the bar at the bottom instead.
 
 ## Duplicate
 

@@ -87,9 +87,9 @@ export interface BoardRoom {
   resizeFrame(id: string, rect: NoteRect, final: boolean): void;
   deleteFrame(id: string): void;
   /** Deletes notes and frames together (v0.20.0): one paced run, one report, one undo step. False if it couldn't start. */
-  deleteSelection(noteIds: readonly string[], frameIds: readonly string[]): boolean;
-  /** A selection with frames dragged together (v0.20.0); moveSelection returns the delta applied (clamped for the group). */
-  startSelectionDrag(frameIds: readonly string[], noteIds: readonly string[], carry: boolean): boolean;
+  deleteSelection(noteIds: readonly string[], frameIds: readonly string[], shapeIds?: readonly string[]): boolean;
+  /** A selection with frames or shapes dragged together (v0.20.0); moveSelection returns the delta applied (clamped for the group). */
+  startSelectionDrag(frameIds: readonly string[], noteIds: readonly string[], carry: boolean, shapeIds?: readonly string[]): boolean;
   moveSelection(dx: number, dy: number, final: boolean): { dx: number; dy: number };
   /** Live cursors (protocol v14): share my pointer (false: not sent), and say it left. */
   shareCursor(x: number, y: number): boolean;
@@ -148,12 +148,13 @@ export function deleteSelectionAsking(
   room: Pick<BoardRoom, "board" | "live" | "deleteSelection">,
   noteIds: readonly string[],
   frameIds: readonly string[],
+  shapeIds: readonly string[] = [],
 ): void {
-  if (noteIds.length + frameIds.length === 0) return;
-  if (!room.live) return void room.deleteSelection(noteIds, frameIds);
-  const counts = deleteCounts(room.board, noteIds, frameIds);
+  if (noteIds.length + frameIds.length + shapeIds.length === 0) return;
+  if (!room.live) return void room.deleteSelection(noteIds, frameIds, shapeIds);
+  const counts = deleteCounts(room.board, noteIds, frameIds, shapeIds);
   if (!confirmDeleteSelection(counts)) return;
-  if (room.deleteSelection(noteIds, frameIds)) useBoardUi.getState().clearSelection();
+  if (room.deleteSelection(noteIds, frameIds, shapeIds)) useBoardUi.getState().clearSelection();
 }
 
 /**
@@ -206,7 +207,7 @@ export function BoardCanvas({
     const room = latest.current;
     const ui = useBoardUi.getState();
     if (!keyNudge.current) {
-      if (!room.startSelectionDrag(orderedIds(ui.frames), orderedIds(ui.selection), true)) return;
+      if (!room.startSelectionDrag(orderedIds(ui.frames), orderedIds(ui.selection), true, orderedIds(ui.shapes))) return;
       keyNudge.current = { dx: 0, dy: 0 };
     }
     keyNudge.current = room.moveSelection(keyNudge.current.dx + dx, keyNudge.current.dy + dy, false);
@@ -265,14 +266,16 @@ export function BoardCanvas({
         selectionDragFor: (id, type) => {
           if (!multi.current) return null;
           const ui = useBoardUi.getState();
-          const inSelection = type === "frame" ? ui.frames.has(id) : ui.selection.has(id);
-          if (!inSelection || ui.frames.size === 0 || ui.frames.size + ui.selection.size < 2) return null;
-          const item = type === "frame" ? findFrame(latest.current.board, id)?.frame : findNote(latest.current.board, id)?.note;
+          const inSelection = type === "frame" ? ui.frames.has(id) : type === "shape" ? ui.shapes.has(id) : ui.selection.has(id);
+          // Notes alone move as a group drag; with frames or shapes (v15) the whole selection moves together.
+          if (!inSelection || ui.frames.size + ui.shapes.size === 0 || ui.frames.size + ui.selection.size + ui.shapes.size < 2) return null;
+          const board = latest.current.board;
+          const item = type === "frame" ? findFrame(board, id)?.frame : type === "shape" ? findShape(board, id)?.shape : findNote(board, id)?.note;
           return item ? { x: item.x, y: item.y, w: item.w, h: item.h } : null;
         },
         startSelectionDrag: (carry) => {
           const ui = useBoardUi.getState();
-          return latest.current.startSelectionDrag(orderedIds(ui.frames), orderedIds(ui.selection), carry);
+          return latest.current.startSelectionDrag(orderedIds(ui.frames), orderedIds(ui.selection), carry, orderedIds(ui.shapes));
         },
         moveSelection: (dx, dy, final) => void latest.current.moveSelection(dx, dy, final),
         startShapeDrag: (id) => {
@@ -310,6 +313,13 @@ export function BoardCanvas({
       startResize: (id) => latest.current.startShapeResize(id),
       resize: (id, rect, final) => latest.current.resizeShape(id, rect, final),
       move: (id, x, y, final) => latest.current.moveShape(id, x, y, final),
+      moveSelection: (id, dx, dy) => {
+        // Arrow keys on a shape that's one of several selected: the whole selection moves, like a drag.
+        const ui = useBoardUi.getState();
+        if (!multi.current || !ui.shapes.has(id) || ui.selection.size + ui.frames.size + ui.shapes.size < 2) return false;
+        nudgeSelection.current(dx, dy);
+        return true;
+      },
       remove: (id) => deleteShapeAsking(latest.current, id),
       reveal: (id) => {
         const entry = findShape(latest.current.board, id);
@@ -366,12 +376,13 @@ export function BoardCanvas({
       clearSelection: () => useBoardUi.getState().clearSelection(),
       canTapEdit: () => useBoardUi.getState().tool === "select",
       groupOf: (id) => {
-        const { selection, frames } = useBoardUi.getState();
-        return selection.size + frames.size > 1 && selection.has(id) ? orderedIds(selection) : null;
+        const { selection, frames, shapes } = useBoardUi.getState();
+        return selection.size + frames.size + shapes.size > 1 && selection.has(id) ? orderedIds(selection) : null;
       },
       moveSelection: (dx, dy) => {
-        // With frames: the same group move as a drag (frames carry their notes).
-        if (useBoardUi.getState().frames.size > 0) return nudgeSelection.current(dx, dy);
+        // With frames or shapes: the same group move as a drag (frames carry their notes and shapes).
+        const ui = useBoardUi.getState();
+        if (ui.frames.size > 0 || ui.shapes.size > 0) return nudgeSelection.current(dx, dy);
         const room = latest.current;
         const notes = orderedIds(useBoardUi.getState().selection).flatMap((id) => findNote(room.board, id)?.note ?? []);
         if (notes.length === 0 || !room.startGroupDrag(notes.map((n) => n.id))) return;
@@ -458,12 +469,13 @@ export function BoardCanvas({
         selection: ui.selection.size,
         frameSelected: ui.frameSelected !== null,
         frames: ui.frames.size,
+        shapes: ui.shapes.size,
         modal: document.querySelector('[aria-modal="true"]') !== null,
         board: sectionRef.current,
       });
       // Arrow keys with frames selected and nothing else focused: move the selection like a drag.
       const arrow = ARROWS[e.key];
-      if (arrow && multi.current && editableRef.current && ui.frames.size > 0 && !e.altKey && !e.ctrlKey && !e.metaKey && !ownsSpace(e.target) && onBoard(e.target, sectionRef.current)) {
+      if (arrow && multi.current && editableRef.current && ui.frames.size + ui.shapes.size > 0 && !e.altKey && !e.ctrlKey && !e.metaKey && !ownsSpace(e.target) && onBoard(e.target, sectionRef.current)) {
         e.preventDefault();
         const step = e.shiftKey ? KEY_STEP_BIG : KEY_STEP;
         nudgeSelection.current(arrow[0] * step, arrow[1] * step);
@@ -478,7 +490,15 @@ export function BoardCanvas({
       // Frames with notes, or several frames: one confirm with the counts, then one paced delete.
       if (target === "selection") {
         e.preventDefault();
-        deleteSelectionAsking(latest.current, orderedIds(ui.selection), orderedIds(ui.frames));
+        deleteSelectionAsking(latest.current, orderedIds(ui.selection), orderedIds(ui.frames), orderedIds(ui.shapes));
+        return;
+      }
+      // One shape selected alone: delete it, asking first when it has text.
+      if (target === "shape" && ui.shapeSelected !== null) {
+        e.preventDefault();
+        // Read-only (disconnected, or a guest on a locked board): nothing to delete.
+        if (!editableRef.current) return;
+        deleteShapeAsking(latest.current, ui.shapeSelected);
         return;
       }
       // Delete with the selection but no note focused (after Ctrl+A or a marquee): delete the selection.
@@ -530,6 +550,7 @@ export function BoardCanvas({
     threshold,
     notes: () => latest.current.board.notes.map((n) => n.note),
     frames: () => latest.current.board.frames.map((f) => f.frame),
+    shapes: () => latest.current.board.shapes.map((x) => x.shape),
   });
   // My pointer, shared from md up with a mouse or a hovering pen (phones only receive).
   useCursorSharing(sectionRef, multiSelect, room);
