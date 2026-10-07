@@ -16,9 +16,11 @@
     "test": "npm run test --workspaces",
     "build": "npm run build -w web -w worker",
     "dev:web": "npm run dev -w web",
-    "dev:worker": "npm run dev -w worker"
+    "dev:worker": "npm run dev -w worker",
+    "shots": "node scripts/shots.mjs"
   },
   "devDependencies": {
+    "playwright-core": "^1.56.1",
     "typescript": "5.9",
     "vitest": "^4.1.11"
   }
