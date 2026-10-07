@@ -12,6 +12,7 @@ import {
   type OrderAction,
 } from "@stickyard/shared";
 import type { BoardFrame } from "../frames/board";
+import type { BoardShape } from "../shapes/board";
 
 /*
  * The board as this page sees it: the server's notes plus optimistic local changes.
@@ -57,9 +58,13 @@ export interface Board {
   frames: BoardFrame[];
   /** Frames deleted here, waiting for the server; restored (at `index`) if it refuses. */
   framesRemoved: (BoardFrame & { index: number })[];
+  /** Shapes (protocol v15; shapes/board.ts), in creation order. They share the notes' stacking (z). */
+  shapes: BoardShape[];
+  /** Shapes deleted here, waiting for the server; restored (at `index`) if it refuses. */
+  shapesRemoved: (BoardShape & { index: number })[];
 }
 
-export const EMPTY_BOARD: Board = { notes: [], removed: [], frames: [], framesRemoved: [] };
+export const EMPTY_BOARD: Board = { notes: [], removed: [], frames: [], framesRemoved: [], shapes: [], shapesRemoved: [] };
 
 /** The id a note has until the server assigns one. Never sent to the server. */
 export const localId = (clientRef: string) => `local:${clientRef}`;
@@ -168,6 +173,11 @@ export function applyResized(board: Board, resize: NoteRect & { id: string; rev:
 export function applyOrdered(board: Board, results: readonly { id: string; z: number; rev: number }[]): Board {
   let next = board;
   for (const r of results) {
+    // Shapes share the stacking space (v15): the same rules, on the shape.
+    if (!next.notes.some((n) => n.note.id === r.id) && !next.removed.some((n) => n.note.id === r.id)) {
+      next = orderShape(next, r);
+      continue;
+    }
     const reorder = (e: BoardNote): BoardNote => {
       if (!e.confirmed || isStale(e, r.rev)) return e;
       if (e.confirmed.z === r.z && e.confirmed.rev === r.rev && e.note.z === r.z) return e;
@@ -182,6 +192,27 @@ export function applyOrdered(board: Board, results: readonly { id: string; z: nu
     next = patch(next, r.id, reorder);
   }
   return next;
+}
+
+function orderShape(board: Board, r: { id: string; z: number; rev: number }): Board {
+  const reorder = <E extends BoardShape>(e: E): E => {
+    if (!e.confirmed || (r.rev < e.confirmed.rev)) return e;
+    if (e.confirmed.z === r.z && e.confirmed.rev === r.rev && e.shape.z === r.z) return e;
+    return { ...e, confirmed: { ...e.confirmed, z: r.z, rev: r.rev }, shape: { ...e.shape, z: r.z, rev: Math.max(e.shape.rev, r.rev) } };
+  };
+  const index = board.shapes.findIndex((s) => s.shape.id === r.id);
+  if (index >= 0) {
+    const entry = board.shapes[index]!;
+    const next = reorder(entry);
+    if (next === entry) return board;
+    const shapes = [...board.shapes];
+    shapes[index] = next;
+    return { ...board, shapes };
+  }
+  const removed = board.shapesRemoved.find((s) => s.shape.id === r.id);
+  if (!removed) return board;
+  const changed = reorder(removed);
+  return changed === removed ? board : { ...board, shapesRemoved: board.shapesRemoved.map((s) => (s === removed ? changed : s)) };
 }
 
 export function applyDeleted(board: Board, id: string): Board {
@@ -239,8 +270,8 @@ export function addItemLocal(board: Board, item: NoteItem, authorId: string): Bo
   return withPending(board, note, ref);
 }
 
-/** On top, as the server will put a new note (its z replaces this once confirmed). */
-const topZ = (board: Board) => Math.max(-1, ...board.notes.map((n) => n.note.z)) + 1;
+/** On top of every note and shape, as the server will put a new one (its z replaces this once confirmed). */
+export const topZ = (board: Board) => Math.max(-1, ...board.notes.map((n) => n.note.z), ...board.shapes.map((s) => s.shape.z)) + 1;
 
 function withPending(board: Board, note: Note, clientRef: string): Board {
   return { ...board, notes: [...board.notes, { note, confirmed: null, clientRef, draft: null, dragging: false, resizing: false }] };
@@ -309,14 +340,24 @@ export function setDragging(board: Board, id: string, dragging: boolean): Board 
  * so nothing changes until its notesOrdered arrives. The same board when nothing changes.
  */
 export function reorderLocal(board: Board, ids: readonly string[], action: OrderAction): Board {
+  // Notes and shapes share one stacking space (v15).
   const { changes, renormalised } = restack(
-    board.notes.map((n) => n.note),
+    [...board.notes.map((n) => n.note), ...board.shapes.map((s) => s.shape)],
     ids,
     action,
   );
   if (renormalised) return board;
   let next = board;
-  for (const { id, z } of changes) next = patch(next, id, (e) => (e.note.z === z ? e : { ...e, note: { ...e.note, z } }));
+  for (const { id, z } of changes) {
+    next = patch(next, id, (e) => (e.note.z === z ? e : { ...e, note: { ...e.note, z } }));
+    const index = next.shapes.findIndex((s) => s.shape.id === id);
+    const entry = next.shapes[index];
+    if (entry && entry.shape.z !== z) {
+      const shapes = [...next.shapes];
+      shapes[index] = { ...entry, shape: { ...entry.shape, z } };
+      next = { ...next, shapes };
+    }
+  }
   return next;
 }
 

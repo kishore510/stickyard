@@ -1,5 +1,5 @@
 import { Hand, Map as MapIcon, Maximize, MousePointer2, Plus, Redo2, Undo2, ZoomIn, ZoomOut, type LucideIcon } from "lucide-react";
-import { MAX_FRAMES_PER_ROOM, MAX_NOTES_PER_ROOM } from "@stickyard/shared";
+import { MAX_FRAMES_PER_ROOM, MAX_NOTES_PER_ROOM, MAX_SHAPES_PER_ROOM } from "@stickyard/shared";
 import { MAX_ZOOM, MIN_ZOOM } from "./geometry";
 
 /*
@@ -73,6 +73,12 @@ export function noteToolReason({ live, count }: { live: boolean; count: number }
 export function frameToolReason({ live, count }: { live: boolean; count: number }): string | null {
   if (!live) return NOTE_TOOL_REASONS.disconnected;
   return count >= MAX_FRAMES_PER_ROOM ? `The board has the maximum of ${MAX_FRAMES_PER_ROOM} frames.` : null;
+}
+
+/** Why the palette's shape tiles are off right now (protocol v15), or null when shapes can be added. */
+export function shapeToolReason({ live, count }: { live: boolean; count: number }): string | null {
+  if (!live) return NOTE_TOOL_REASONS.disconnected;
+  return count >= MAX_SHAPES_PER_ROOM ? `The board has the maximum of ${MAX_SHAPES_PER_ROOM} shapes and text boxes.` : null;
 }
 
 /** Why the palette's template tiles are off right now, or null. Too few free frames is a notice when one is tried. */

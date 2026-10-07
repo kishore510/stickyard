@@ -7,9 +7,12 @@ import {
   MAX_FRAMES_PER_ROOM,
   MAX_NOTES_PER_ROOM,
   clampFramePosition,
+  clampShapePosition,
+  shapeDefaults,
   type Frame,
   type FrameColor,
   type NoteColor,
+  type ShapeKind,
 } from "@stickyard/shared";
 import { ChatDock } from "../chat/ChatDock";
 import { Button } from "../components/ui/button";
@@ -18,6 +21,7 @@ import { useMediaQuery } from "../lib/useMediaQuery";
 import { useWindowWidth } from "../lib/useWindowWidth";
 import { findFrame, isFrameHeld } from "../frames/board";
 import { findNote, isHeld, isLocalId, type Board } from "../notes/board";
+import { findShape } from "../shapes/board";
 import type { InlinePart } from "../notes/inlineEdit";
 import { AddDrawer, CompactPalette, PaletteContent, type PaletteHost } from "../palette/Palette";
 import { cornerLifted, panelWidths, type PanelId } from "../panels/layout";
@@ -50,7 +54,7 @@ import { newNotePosition, type XY } from "./geometry";
 import { Ribbon, ViewBar } from "./ToolBars";
 import { placeTemplate, templateOrigin } from "../templates/place";
 import type { Template } from "../templates/registry";
-import { frameToolReason, noteToolReason, templateToolReason, toolForKey, type ToolContext } from "./tools";
+import { frameToolReason, noteToolReason, shapeToolReason, templateToolReason, toolForKey, type ToolContext } from "./tools";
 import { useBoardUi } from "./uiStore";
 import { useCanvasView } from "./useCanvasView";
 
@@ -259,6 +263,7 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
   const timerReason = live ? null : TIMER_HINTS.offline;
   const frameCount = view.board.frames.length;
   const frameReason = withLock(frameToolReason({ live, count: frameCount }), lock);
+  const shapeReason = withLock(shapeToolReason({ live, count: view.board.shapes.length }), lock);
   const templateReason = withLock(templateToolReason({ live, applying: view.template?.state === "applying", adding: view.adding }), lock);
   const sizes = panelWidths(windowWidth, panels);
 
@@ -271,6 +276,7 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
     // Also the note being edited in place or asked for in Properties (a resync may remove it).
     useBoardUi.getState().pruneSelected((id) => findNote(view.board, id) !== undefined);
     useBoardUi.getState().pruneFrame((id) => findFrame(view.board, id) !== undefined);
+    useBoardUi.getState().pruneShapes((id) => findShape(view.board, id) !== undefined);
   }, [view.board]);
 
   /**
@@ -323,6 +329,18 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
     [canvas],
   );
 
+  /** Adds a shape of a kind at `at` (a board position) or centred in the view, its text ready to type (md and up). */
+  const addShape = useCallback(
+    (kind: ShapeKind, at?: XY) => {
+      const centre = canvas.centre();
+      const { w, h } = shapeDefaults(kind);
+      const position = at ?? clampShapePosition(centre.x - w / 2, centre.y - h / 2, { w, h });
+      const id = latest.current.room.addShape({ kind, ...position });
+      if (id) useBoardUi.getState().startShapeEdit(id);
+    },
+    [canvas],
+  );
+
   /**
    * Applies a template: centred on `at`'s box (a drop gives its top-left) or on the viewport
    * centre, clamped onto the board. Nothing existing is touched, so there's no confirmation.
@@ -358,7 +376,10 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
       noteReason,
       toggleMinimap: () => setMinimap(!minimap),
       // Fit to notes includes frames.
-      fit: () => canvas.fit([...latest.current.view.board.notes.map((n) => n.note), ...latest.current.view.board.frames.map((f) => f.frame)]),
+      fit: () => {
+        const { board } = latest.current.view;
+        canvas.fit([...board.notes.map((n) => n.note), ...board.frames.map((f) => f.frame), ...board.shapes.map((x) => x.shape)]);
+      },
       zoomIn: canvas.zoomIn,
       zoomOut: canvas.zoomOut,
       resetZoom: canvas.resetZoom,
@@ -376,15 +397,15 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
 
   const paletteHost = useMemo<PaletteHost>(
     () => ({
-      ctx: { noteReason, frameReason, templateReason, timerReason },
+      ctx: { noteReason, frameReason, templateReason, timerReason, shapeReason },
       state: { live, noteCount, isHost },
       activate: (item, at) => {
         useBoardUi.getState().setAddSheetOpen(false);
-        item.create({ addNote, addFrame, applyTemplate, openTimer: () => useBoardUi.getState().setTimerPickerOpen(true) }, at);
+        item.create({ addNote, addFrame, applyTemplate, addShape, openTimer: () => useBoardUi.getState().setTimerPickerOpen(true) }, at);
       },
       dropAt: canvas.dropAt,
     }),
-    [noteReason, frameReason, templateReason, timerReason, live, noteCount, isHost, addNote, addFrame, applyTemplate, canvas],
+    [noteReason, frameReason, templateReason, timerReason, shapeReason, live, noteCount, isHost, addNote, addFrame, applyTemplate, addShape, canvas],
   );
 
   const rejoinRef = useRef(onRejoin);
@@ -443,6 +464,13 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
     moveSelection: room.moveSelection,
     shareCursor: room.shareCursor,
     hideCursor: room.hideCursor,
+    startShapeDrag: room.startShapeDrag,
+    moveShape: room.moveShape,
+    startShapeResize: room.startShapeResize,
+    resizeShape: room.resizeShape,
+    setShapeDraft: room.setShapeDraft,
+    editShape: room.editShape,
+    deleteShape: room.deleteShape,
   };
 
   // The bar: md and up, always there. Notes in selection order (the first is Match size's reference).
@@ -679,6 +707,10 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
                 editFrames: room.editFrames,
                 setFrameSize: room.setFrameSize,
                 deleteFrame: room.deleteFrame,
+                setShapeDraft: room.setShapeDraft,
+                editShape: room.editShape,
+                setShapeSize: room.setShapeSize,
+                deleteShape: room.deleteShape,
                 deleteSelection,
                 clearBoard: room.clearBoard,
                 adding: view.adding,

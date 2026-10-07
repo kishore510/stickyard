@@ -18,6 +18,10 @@ import { OrderSection } from "../notes/OrderFields";
 import { ColourSection, PartTextSection, SizeSection, type MixedFields } from "../notes/StyleFields";
 import { clearBoardReason, confirmClearBoard } from "./clearBoard";
 import { ResultsList } from "../voting/Results";
+import { findShape, type ShapeEdit } from "../shapes/board";
+import { confirmShapeDelete } from "../shapes/label";
+import { ShapeFields } from "../shapes/ShapeFields";
+import { SHAPE_KIND_NAMES } from "../shapes/style";
 import type { ResultRow } from "../voting/voting";
 import { LOCK_TEXT, confirmEndSession, endSessionReason, withLock } from "../facilitation/lock";
 
@@ -67,6 +71,11 @@ export interface PropertiesRoom {
   isHost?: boolean;
   /** Ends the session for everyone (asked first here); false if it couldn't start. */
   endSession?: () => boolean;
+  /** Shapes (protocol v15): text being typed, a committed text or style, a size, a delete. */
+  setShapeDraft?(id: string, draft: string | null): void;
+  editShape?(id: string, change: ShapeEdit): boolean;
+  setShapeSize?(id: string, w: number, h: number): boolean;
+  deleteShape?(id: string): void;
   /** Dot voting results while a round is closed (sorted; null otherwise): the board summary lists them first. */
   results?: readonly ResultRow[] | null;
   /** A results row: selects that note and moves the view to it. */
@@ -193,6 +202,9 @@ export function PropertiesContent({ room, collapse }: { room: PropertiesRoom; co
   const groupNotes = groupFrames.length > 0 ? orderedIds(selection).flatMap((n) => findNote(room.board, n)?.note ?? []) : [];
   const group = groupFrames.length > 0 && groupFrames.length + groupNotes.length > 1;
   const groupWhat = itemsLabel(groupNotes.length, groupFrames.length).replace(", ", " and ");
+  // One shape selected alone (protocol v15).
+  const shapeId = useBoardUi((s) => s.shapeSelected);
+  const shape = shapeId === null ? undefined : findShape(room.board, shapeId);
 
   return (
     <div className="px-md">
@@ -203,7 +215,7 @@ export function PropertiesContent({ room, collapse }: { room: PropertiesRoom; co
       <div className="flex min-h-touch items-center gap-xs">
         {/* A selection summary wraps at the panel's narrowest; a note or frame name stays on one line. */}
         <h3 className={cn("min-w-0 flex-1 text-sm font-semibold", group ? "break-words" : "truncate")}>
-          {group ? selectionLabel(groupNotes.length, groupFrames.length) : frame ? "Frame" : many.length > 1 ? `${many.length} selected` : entry ? `${NOTE_COLOR_NAMES[entry.note.color]} note` : "Board"}
+          {group ? selectionLabel(groupNotes.length, groupFrames.length) : shape ? (shape.shape.kind === "text" ? "Text box" : SHAPE_KIND_NAMES[shape.shape.kind]) : frame ? "Frame" : many.length > 1 ? `${many.length} selected` : entry ? `${NOTE_COLOR_NAMES[entry.note.color]} note` : "Board"}
         </h3>
         {group && (
           <Button
@@ -217,6 +229,23 @@ export function PropertiesContent({ room, collapse }: { room: PropertiesRoom; co
               const frameIds = groupFrames.map((f) => f.frame.id);
               if (!confirmDeleteSelection(deleteCounts(room.board, noteIds, frameIds))) return;
               if (room.deleteSelection(noteIds, frameIds)) useBoardUi.getState().clearSelection();
+            }}
+            className="text-status-error"
+          >
+            <Trash2 />
+          </Button>
+        )}
+        {!group && shape && (
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label={shape.shape.kind === "text" ? "Delete text box" : "Delete shape"}
+            title="Delete (Del)"
+            disabled={!editable}
+            onClick={() => {
+              if (!confirmShapeDelete(shape.shape)) return;
+              room.deleteShape?.(shape.shape.id);
+              useBoardUi.getState().clearSelection();
             }}
             className="text-status-error"
           >
@@ -275,7 +304,7 @@ export function PropertiesContent({ room, collapse }: { room: PropertiesRoom; co
         )}
       </div>
       <div className="flex flex-col gap-md pb-md">
-        {room.live && room.locked && (selection.size > 0 || frameSet.size > 0) && (
+        {room.live && room.locked && (selection.size > 0 || frameSet.size > 0 || shape !== undefined) && (
           <p data-locked-reason="" className="rounded-md bg-surface-muted p-ms text-sm">
             {LOCK_TEXT.reason}
           </p>
@@ -284,6 +313,19 @@ export function PropertiesContent({ room, collapse }: { room: PropertiesRoom; co
           <FramesFields frames={groupFrames.map((f) => f.frame)} live={editable} onEdit={(change) => room.editFrames?.(groupFrames.map((f) => f.frame.id), change)} />
         ) : group ? (
           <GroupFields />
+        ) : shape ? (
+          <ShapeFields
+            entry={shape}
+            live={editable}
+            author={authorName(shape.shape.authorId, room)}
+            onDraft={(t) => room.setShapeDraft?.(shape.shape.id, t)}
+            onCommit={() => {
+              if (shape.draft !== null) room.editShape?.(shape.shape.id, { text: shape.draft });
+            }}
+            onEdit={(change) => room.editShape?.(shape.shape.id, change)}
+            onSize={(w, h) => room.setShapeSize?.(shape.shape.id, w, h)}
+            onOrder={(action) => room.orderNotes([shape.shape.id], action)}
+          />
         ) : frame ? (
           <FrameFields
             entry={frame}

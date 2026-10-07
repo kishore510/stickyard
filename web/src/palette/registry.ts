@@ -1,5 +1,6 @@
 import { Frame as FrameIcon, Timer as TimerIcon, type LucideIcon } from "lucide-react";
-import { FRAME_DEFAULT_H, FRAME_DEFAULT_W, NOTE_COLORS, type FrameColor, type NoteColor } from "@stickyard/shared";
+import { FRAME_DEFAULT_H, FRAME_DEFAULT_W, NOTE_COLORS, SHAPE_KINDS, shapeDefaults, type FrameColor, type NoteColor, type ShapeKind } from "@stickyard/shared";
+import { SHAPE_KIND_NAMES } from "../shapes/style";
 import type { Size, XY } from "../canvas/geometry";
 import { NOTE_COLOR_NAMES } from "../notes/colours";
 import { templateBounds } from "../templates/place";
@@ -18,10 +19,19 @@ import { TEMPLATES, type Template } from "../templates/registry";
  */
 
 /** What the tile shows: a small note in a palette colour, an icon, or a template's frames in miniature. */
-export type PalettePreview = { kind: "note"; color: NoteColor } | { kind: "icon"; icon: LucideIcon } | { kind: "template"; template: Template };
+export type PalettePreview =
+  | { kind: "note"; color: NoteColor }
+  | { kind: "icon"; icon: LucideIcon }
+  | { kind: "template"; template: Template }
+  | { kind: "shape"; shape: ShapeKind };
 
 /** What a drag carries (shown under the pointer while dragging). */
-export type PalettePayload = { kind: "note"; color: NoteColor } | { kind: "frame"; color: FrameColor } | { kind: "template"; id: string } | { kind: "timer" };
+export type PalettePayload =
+  | { kind: "note"; color: NoteColor }
+  | { kind: "frame"; color: FrameColor }
+  | { kind: "template"; id: string }
+  | { kind: "timer" }
+  | { kind: "shape"; shape: ShapeKind };
 
 /**
  * What tiles can do, with plain data. `at` is a board position (a drop: the top-left of the
@@ -33,6 +43,8 @@ export interface PaletteActions {
   applyTemplate(template: Template, at?: XY): void;
   /** Opens the host's timer picker (a click or a drop both just open it). */
   openTimer(): void;
+  /** Adds a shape of a kind (protocol v15), its text ready to type. */
+  addShape(kind: ShapeKind, at?: XY): void;
 }
 
 /** What tiles need to know to be enabled. */
@@ -45,6 +57,8 @@ export interface PaletteContext {
   templateReason: string | null;
   /** Why the host can't start a timer right now (disconnected), or null. */
   timerReason: string | null;
+  /** Why shapes can't be added right now (disconnected, the board has its shapes, locked), or null. */
+  shapeReason: string | null;
 }
 
 /** Where tiles are listed: the palette panel (md and up, also its collapsed strip) or the phone add drawer. */
@@ -125,6 +139,29 @@ export const FRAME_TILES: readonly PaletteItem[] = [
   },
 ];
 
+/** Search words for each shape tile. */
+const SHAPE_KEYWORDS: Record<ShapeKind, readonly string[]> = {
+  text: ["text", "label", "heading", "title", "words", "type"],
+  rect: ["rectangle", "box", "square", "process", "step"],
+  oval: ["oval", "ellipse", "circle", "round", "start", "end"],
+  diamond: ["diamond", "decision", "choice", "rhombus"],
+};
+
+/** One tile per shape kind (protocol v15): a click adds it at the view centre, a drop where it lands; its text is ready to type. */
+export const SHAPE_TILES: readonly PaletteItem[] = SHAPE_KINDS.map((kind) => {
+  const { w, h } = shapeDefaults(kind);
+  return {
+    id: `shape-${kind}`,
+    label: SHAPE_KIND_NAMES[kind],
+    keywords: ["shape", ...SHAPE_KEYWORDS[kind]],
+    preview: { kind: "shape", shape: kind },
+    payload: { kind: "shape", shape: kind },
+    create: (actions, at) => actions.addShape(kind, at),
+    dropSize: { width: w, height: h },
+    disabled: (ctx) => ctx.shapeReason,
+  };
+});
+
 /** One tile per template (templates/registry.ts): a drop centres the whole template on the pointer. */
 export const TEMPLATE_TILES: readonly PaletteItem[] = TEMPLATES.map((template) => ({
   id: `template-${template.id}`,
@@ -168,6 +205,8 @@ export const PALETTE_CATEGORIES: readonly PaletteCategory[] = [
   { id: "notes", label: "Notes", order: 1, tab: "add", items: NOTE_TILES, fromRoom: roomNoteTiles },
   // Frames can only be added from md up (phones show them but don't change them).
   { id: "frames", label: "Frames", order: 2, tab: "add", items: FRAME_TILES, surfaces: ["panel"] },
+  // Shapes and text (protocol v15): edited from md up only, so not in the phone drawer.
+  { id: "shapes", label: "Shapes", order: 2.5, tab: "add", items: SHAPE_TILES, surfaces: ["panel"] },
   // Templates are frames, so md and up only too.
   { id: "templates", label: "Templates", order: 3, tab: "add", items: TEMPLATE_TILES, surfaces: ["panel"] },
   // Host only, md and up (phones: the Participants sheet's Session section).

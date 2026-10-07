@@ -1,6 +1,8 @@
 import { Search, X } from "lucide-react";
 import { useEffect, useId, useRef, useState, type ReactNode, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from "react";
 import { createPortal } from "react-dom";
+import { shapeDefaults, type ShapeKind } from "@stickyard/shared";
+import { shapeOutlineStyle } from "../shapes/style";
 import type { Size, XY } from "../canvas/geometry";
 import { Button } from "../components/ui/button";
 import { readPxToken } from "../lib/cssVar";
@@ -75,8 +77,33 @@ function TemplatePreview({ template }: { template: Template }) {
   );
 }
 
+/** A shape kind in miniature, in its default look (protocol v15). */
+function ShapePreview({ kind }: { kind: ShapeKind }) {
+  if (kind === "text") {
+    return (
+      <span aria-hidden="true" data-preview="shape" className="grid size-tile-preview place-items-center text-lg font-semibold text-fg">
+        Aa
+      </span>
+    );
+  }
+  const style = shapeOutlineStyle(shapeDefaults(kind));
+  const common = { style, vectorEffect: "non-scaling-stroke" as const };
+  return (
+    <svg aria-hidden="true" data-preview="shape" viewBox="0 0 100 100" className="size-tile-preview overflow-visible">
+      {kind === "oval" ? (
+        <ellipse cx="50" cy="50" rx="48" ry="34" {...common} />
+      ) : kind === "diamond" ? (
+        <polygon points="50,6 94,50 50,94 6,50" {...common} />
+      ) : (
+        <rect x="4" y="20" width="92" height="60" {...common} />
+      )}
+    </svg>
+  );
+}
+
 function Preview({ preview, size }: { preview: PalettePreview; size: "tile" | "ghost" }) {
   if (preview.kind === "template") return <TemplatePreview template={preview.template} />;
+  if (preview.kind === "shape") return <ShapePreview kind={preview.shape} />;
   if (preview.kind === "icon") {
     const Icon = preview.icon;
     return <Icon aria-hidden="true" className="size-icon-lg text-fg-muted" />;

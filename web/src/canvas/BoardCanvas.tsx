@@ -9,6 +9,10 @@ import { confirmFrameDelete } from "../frames/label";
 import { FrameActionsContext, FrameNode, type FrameActions } from "../frames/FrameNode";
 import { frameMinimapColour } from "../frames/style";
 import { findNote, type Board } from "../notes/board";
+import { findShape } from "../shapes/board";
+import { confirmShapeDelete } from "../shapes/label";
+import { ShapeActionsContext, ShapeNode, type ShapeActions } from "../shapes/ShapeNode";
+import { shapeMinimapColour } from "../shapes/style";
 import { confirmDelete, confirmDeleteNotes } from "../notes/label";
 import { DEFAULT_NOTE_SIZE, noteSize } from "../notes/size";
 import { KEY_STEP, KEY_STEP_BIG, NoteActionsContext, NoteHelpContext, NoteNode, type EditorRequest, type NoteActions } from "../notes/NoteCard";
@@ -33,7 +37,7 @@ function BoardSurface() {
   return <div className="sy-board-dots size-full rounded-lg border border-border-strong shadow-md" />;
 }
 
-const nodeTypes = { note: NoteNode, frame: FrameNode, board: BoardSurface };
+const nodeTypes = { note: NoteNode, frame: FrameNode, shape: ShapeNode, board: BoardSurface };
 /** Where the view can go (the board plus a margin), and where notes can go (the board). */
 const VIEW_EXTENT = panExtent();
 const BOARD_EXTENT: [[number, number], [number, number]] = [
@@ -42,7 +46,13 @@ const BOARD_EXTENT: [[number, number], [number, number]] = [
 ];
 
 const minimapColour = (node: CanvasNode) =>
-  node.type === "board" ? "var(--sy-board)" : node.type === "frame" ? frameMinimapColour(node.data.entry.frame.color) : `var(--sy-note-${node.data.entry.note.color})`;
+  node.type === "board"
+    ? "var(--sy-board)"
+    : node.type === "frame"
+      ? frameMinimapColour(node.data.entry.frame.color)
+      : node.type === "shape"
+        ? shapeMinimapColour(node.data.entry.shape)
+        : `var(--sy-note-${node.data.entry.note.color})`;
 
 /** After the last arrow key press on a selection, its position is committed (stored) this much later. */
 const KEY_COMMIT_MS = 400;
@@ -84,6 +94,22 @@ export interface BoardRoom {
   /** Live cursors (protocol v14): share my pointer (false: not sent), and say it left. */
   shareCursor(x: number, y: number): boolean;
   hideCursor(): void;
+  /** Shapes (protocol v15). */
+  startShapeDrag(id: string): boolean;
+  moveShape(id: string, x: number, y: number, final: boolean): void;
+  startShapeResize(id: string): boolean;
+  resizeShape(id: string, rect: NoteRect, final: boolean): void;
+  setShapeDraft(id: string, draft: string | null): void;
+  editShape(id: string, change: { text?: string }): boolean;
+  deleteShape(id: string): void;
+}
+
+/** Deletes a shape, asking first when it has text, and clears the selection. */
+export function deleteShapeAsking(room: Pick<BoardRoom, "board" | "deleteShape">, id: string): void {
+  const entry = findShape(room.board, id);
+  if (!entry || !confirmShapeDelete(entry.shape)) return;
+  room.deleteShape(id);
+  useBoardUi.getState().clearSelection();
 }
 
 /**
@@ -162,6 +188,7 @@ export function BoardCanvas({
   const tool = useBoardUi((s) => s.tool);
   const selection = useBoardUi((s) => s.selection);
   const frameSelection = useBoardUi((s) => s.frames);
+  const shapeSelection = useBoardUi((s) => s.shapes);
   const [spaceHeld, setSpaceHeld] = useState(false);
   const panOnly = tool === "hand" || spaceHeld;
   const latest = useRef(room);
@@ -195,17 +222,18 @@ export function BoardCanvas({
   // Several items selected (notes and frames): a dashed box round them (board units; it follows a group drag).
   const selectionBox = useMemo(
     () =>
-      selection.size + frameSelection.size > 1
+      selection.size + frameSelection.size + shapeSelection.size > 1
         ? notesBounds([
             ...[...selection].flatMap((id) => findNote(room.board, id)?.note ?? []),
             ...[...frameSelection].flatMap((id) => findFrame(room.board, id)?.frame ?? []),
+            ...[...shapeSelection].flatMap((id) => findShape(room.board, id)?.shape ?? []),
           ])
         : null,
-    [selection, frameSelection, room.board],
+    [selection, frameSelection, shapeSelection, room.board],
   );
   const nodes = useMemo(
-    () => map(room.board, editable, !panOnly, selection, { selected: frameSelection, wide: multiSelect }),
-    [map, room.board, editable, panOnly, selection, frameSelection, multiSelect],
+    () => map(room.board, editable, !panOnly, selection, { selected: frameSelection, wide: multiSelect, shapes: shapeSelection }),
+    [map, room.board, editable, panOnly, selection, frameSelection, shapeSelection, multiSelect],
   );
   const drag = useMemo(
     () =>
@@ -247,8 +275,49 @@ export function BoardCanvas({
           return latest.current.startSelectionDrag(orderedIds(ui.frames), orderedIds(ui.selection), carry);
         },
         moveSelection: (dx, dy, final) => void latest.current.moveSelection(dx, dy, final),
+        startShapeDrag: (id) => {
+          useBoardUi.getState().selectShape(id);
+          return latest.current.startShapeDrag(id);
+        },
+        moveShape: (id, x, y, final) => latest.current.moveShape(id, x, y, final),
       }),
     [],
+  );
+  const shapeActions = useMemo<ShapeActions>(
+    () => ({
+      select: (id) => useBoardUi.getState().selectShape(id),
+      toggle: (id) => {
+        if (multi.current) useBoardUi.getState().toggleShape(id);
+        else useBoardUi.getState().selectShape(id);
+      },
+      startEdit: (id) => {
+        // Text is edited in place from md up; phones show shapes read-only.
+        if (!multi.current || !editableRef.current) return;
+        const entry = findShape(latest.current.board, id);
+        if (!entry || entry.dragging || entry.resizing) return;
+        useBoardUi.getState().startShapeEdit(id);
+      },
+      setDraft: (id, text) => latest.current.setShapeDraft(id, text),
+      commit: (id) => {
+        // Only once per edit (Escape and the blur that follows both end it).
+        if (useBoardUi.getState().shapeEdit?.id !== id) return;
+        useBoardUi.getState().endShapeEdit();
+        const draft = findShape(latest.current.board, id)?.draft;
+        if (draft != null) {
+          if (!latest.current.editShape(id, { text: draft })) latest.current.setShapeDraft(id, null);
+        }
+      },
+      startResize: (id) => latest.current.startShapeResize(id),
+      resize: (id, rect, final) => latest.current.resizeShape(id, rect, final),
+      move: (id, x, y, final) => latest.current.moveShape(id, x, y, final),
+      remove: (id) => deleteShapeAsking(latest.current, id),
+      reveal: (id) => {
+        const entry = findShape(latest.current.board, id);
+        if (entry) view.reveal(entry.shape);
+      },
+      clearSelection: () => useBoardUi.getState().clearSelection(),
+    }),
+    [view],
   );
   const frameActions = useMemo<FrameActions>(
     () => ({
@@ -334,7 +403,10 @@ export function BoardCanvas({
     if (fitted.current || !synced || width === 0 || height === 0) return;
     fitted.current = true;
     // Notes, and any frames already here (they arrive right after the notes snapshot).
-    view.fit([...latest.current.board.notes.map((n) => n.note), ...latest.current.board.frames.map((f) => f.frame)], false);
+    view.fit(
+      [...latest.current.board.notes.map((n) => n.note), ...latest.current.board.frames.map((f) => f.frame), ...latest.current.board.shapes.map((x) => x.shape)],
+      false,
+    );
   }, [synced, width, height, view]);
 
   // A panel opened, closed or was resized (or the window changed): the canvas is a new size.
@@ -375,11 +447,12 @@ export function BoardCanvas({
         useBoardUi.getState().selectAll(
           board.notes.map((n) => n.note.id),
           board.frames.map((f) => f.frame.id),
+          board.shapes.map((x) => x.shape.id),
         );
         return;
       }
       const ui = useBoardUi.getState();
-      if (e.key === "Escape" && (ui.selection.size > 0 || ui.frames.size > 0)) ui.clearSelection();
+      if (e.key === "Escape" && (ui.selection.size > 0 || ui.frames.size > 0 || ui.shapes.size > 0)) ui.clearSelection();
       const target = deleteKeyTarget(e, {
         multi: multi.current,
         selection: ui.selection.size,
@@ -482,6 +555,7 @@ export function BoardCanvas({
       <NoteHelpContext.Provider value={helpId}>
         <NoteActionsContext.Provider value={actions}>
           <FrameActionsContext.Provider value={frameActions}>
+          <ShapeActionsContext.Provider value={shapeActions}>
           <ReactFlow<CanvasNode>
             nodes={nodes}
             nodeTypes={nodeTypes}
@@ -554,6 +628,7 @@ export function BoardCanvas({
               />
             )}
           </ReactFlow>
+          </ShapeActionsContext.Provider>
           </FrameActionsContext.Provider>
         </NoteActionsContext.Provider>
       </NoteHelpContext.Provider>
