@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState, type FocusEvent, type KeyboardEvent, type SyntheticEvent } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type FocusEvent, type KeyboardEvent, type SyntheticEvent } from "react";
 import { createPortal } from "react-dom";
 import { Smile } from "lucide-react";
 import { Button, buttonVariants } from "../components/ui/button";
@@ -13,6 +13,31 @@ export const EMOJI_ROOT = "[data-emoji-root]";
 
 /** Whether focus moving to `to` is moving into an emoji picker. */
 export const intoEmojiPicker = (to: EventTarget | null) => to instanceof Element && to.closest(EMOJI_ROOT) !== null;
+
+/** The floating panel's room from the canvas edges, in screen pixels. */
+const EDGE_GAP = 8;
+
+/**
+ * Where the floating panel goes so it stays inside `area` (the canvas): shifted left when it
+ * would run past the right edge, narrower (fewer columns) when the canvas is narrower than it,
+ * and above the button, scrolling if need be, when there's more room there than below. Null
+ * without layout (an area of no size).
+ */
+export function floatPlacement(
+  anchor: { left: number; top: number; bottom: number },
+  panel: { width: number; height: number },
+  area: { left: number; top: number; right: number; bottom: number },
+): { above: boolean; style: CSSProperties } | null {
+  if (area.right - area.left <= 0 || area.bottom - area.top <= 0) return null;
+  const maxWidth = Math.max(0, area.right - area.left - 2 * EDGE_GAP);
+  const width = Math.min(panel.width, maxWidth);
+  const left = Math.min(Math.max(anchor.left, area.left + EDGE_GAP), area.right - EDGE_GAP - width);
+  const below = area.bottom - anchor.bottom - EDGE_GAP;
+  const above = anchor.top - area.top - EDGE_GAP;
+  const up = panel.height > below && above > below;
+  // Never wider than the panel's own (eight-column) width: an inline max-width overrides its class.
+  return { above: up, style: { left: left - anchor.left, maxWidth: width, maxHeight: Math.max(0, up ? above : below), overflowY: "auto" } };
+}
 
 /** Keeps the picker's events from reaching the note or shape around it (React Flow's node handlers). */
 const contain = (e: SyntheticEvent) => e.stopPropagation();
@@ -57,6 +82,17 @@ export function EmojiPicker({
   const panelRef = useRef<HTMLDivElement>(null);
   const inside = (node: Node) => rootRef.current?.contains(node) === true || panelRef.current?.contains(node) === true;
   const buttons = useRef<(HTMLButtonElement | null)[]>([]);
+  const [placement, setPlacement] = useState<ReturnType<typeof floatPlacement>>(null);
+
+  // A floating panel stays inside the canvas (it would otherwise run under a side panel).
+  useLayoutEffect(() => {
+    const root = rootRef.current;
+    const panel = panelRef.current;
+    if (!open || !float || !root || !panel) return setPlacement(null);
+    const area = root.closest(".react-flow")?.getBoundingClientRect();
+    if (!area) return setPlacement(null);
+    setPlacement(floatPlacement(root.getBoundingClientRect(), { width: panel.offsetWidth, height: panel.offsetHeight }, area));
+  }, [open, float]);
 
   useEffect(() => {
     if (open) buttons.current[active]?.focus();
@@ -144,9 +180,10 @@ export function EmojiPicker({
       role="group"
       aria-label="Emoji"
       onKeyDown={keyDown}
+      style={float ? (placement?.style ?? undefined) : undefined}
       className={cn(
         "flex flex-wrap gap-xs rounded-md border border-border bg-surface p-xs",
-        float ? "absolute top-full left-0 z-10 mt-xs w-max max-w-emoji shadow-lg" : "mt-xs",
+        float ? cn("absolute left-0 z-10 w-max max-w-emoji shadow-lg", placement?.above ? "bottom-full mb-xs" : "top-full mt-xs") : "mt-xs",
       )}
     >
       {EMOJI.map((e, i) => (

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { MAX_FRAME_TITLE, MAX_NOTE_TEXT, MAX_SHAPE_TEXT, codePointLength } from "@stickyard/shared";
 import { EMOJI, EMOJI_COLUMNS, emojiKeyMove, insertEmoji, withinChars } from "../src/emoji/emoji";
+import { floatPlacement } from "../src/emoji/EmojiPicker";
 import { fitsCap } from "../src/notes/inlineEdit";
 import { joinTitleBody } from "../src/notes/titleBody";
 
@@ -79,5 +80,33 @@ describe("emojiKeyMove", () => {
   it("uses the laid-out column count when given (a narrow panel wraps sooner)", () => {
     expect(emojiKeyMove(2, "ArrowDown", 48, 4)).toBe(6);
     expect(emojiKeyMove(46, "ArrowDown", 48, 4)).toBe(46);
+  });
+});
+
+describe("floatPlacement (the panel beside a note or shape stays on the canvas)", () => {
+  const area = { left: 200, top: 50, right: 1000, bottom: 800 };
+  const panel = { width: 396, height: 330 };
+
+  it("room below and to the right: stays where it opens", () => {
+    expect(floatPlacement({ left: 300, top: 100, bottom: 144 }, panel, area)).toEqual({ above: false, style: { left: 0, maxWidth: 396, maxHeight: 648, overflowY: "auto" } });
+  });
+
+  it("near the right edge (a side panel next to it): shifted left to end inside the canvas", () => {
+    const out = floatPlacement({ left: 860, top: 100, bottom: 144 }, panel, area);
+    expect(out?.style.left).toBe(1000 - 8 - 396 - 860);
+  });
+
+  it("a canvas narrower than the panel: as wide as the canvas allows, from its left edge", () => {
+    const narrow = { left: 200, top: 50, right: 560, bottom: 800 };
+    expect(floatPlacement({ left: 500, top: 100, bottom: 144 }, panel, narrow)?.style).toMatchObject({ left: 208 - 500, maxWidth: 344 });
+  });
+
+  it("near the bottom: opens above when there's more room there, and scrolls within it", () => {
+    const out = floatPlacement({ left: 300, top: 600, bottom: 644 }, panel, area);
+    expect(out).toMatchObject({ above: true, style: { maxHeight: 542 } });
+  });
+
+  it("no layout (tests, hidden): null, so it opens as usual", () => {
+    expect(floatPlacement({ left: 0, top: 0, bottom: 0 }, panel, { left: 0, top: 0, right: 0, bottom: 0 })).toBeNull();
   });
 });
