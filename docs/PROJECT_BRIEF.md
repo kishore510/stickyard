@@ -1,6 +1,6 @@
 # Project Brief: Stickyard
 
-Last updated: 7 October 2026 (thread 11). Update the status table and session log at the end of every thread, then re-upload.
+Last updated: 7 October 2026 (thread 12). Update the status table and session log at the end of every thread, then re-upload.
 
 ## 1. Purpose
 
@@ -111,7 +111,7 @@ Keep tsc, tests and build green. Stop for review with a summary of what was buil
 | Live cursors (3b) | Other people's pointers with names, live and never stored; Show / Share switches in Participants; phones receive only | Done (v0.19.0, protocol v14, PR #37) |
 | Frame multi-select | Select, move, delete, arrange, style and duplicate frames with notes | Done (v0.20.0, web only, PR #38) |
 | Text and shapes (7a) | Text labels, rectangles, ovals and diamonds with text and fill/border styles, alongside notes and frames everywhere | Done (v0.21.0, protocol v15, stored schema 9, PR #39, deployed 7 October 2026) |
-| Next | Export, trimmed hardening, then silent brainstorm | Not started; see PHASE_PLAN.md |
+| Next | Export, board size (6400 x 4000, protocol v16), panel layout at 768 px, navigation, Follow and Bring to me (protocol v17), silent brainstorm, trimmed hardening, reactions on notes; more built-in templates as filler | Not started; see PHASE_PLAN.md |
 | 3 onwards | See PHASE_PLAN.md | See PHASE_PLAN.md |
 
 ## 7. Open decisions
@@ -156,6 +156,7 @@ Start a thread with the slice and what I want (for example "Slice 1, write the C
 - Frame multi-select (5 October 2026): frames join the selection with notes (marquee takes enclosed frames, Ctrl+A, Shift/Ctrl-click), group moves carry each frame's notes, one paced delete with one confirm and one undo, arrange and Match size on frames, Colour and Title text for several frames, Duplicate of mixed selections (v0.20.0, web only, PR #38).
 - Thread 10 (7 October 2026): Text and shapes (7a) built on one branch in four parts, tests first (v0.21.0, protocol v15, stored schema 9, PR #39): a shapes table and relay messages, one stacking space with notes, frames carrying shapes, shapes in `itemsAdd`; the web model, canvas node, palette tiles, inline editing and Properties; shapes in selections, moves, deletes, duplicate, order, arrange and undo; Properties for several shapes; then (part 5) a built-in emoji picker for notes, shapes and frame titles. Follow-ups in the same PR: Ctrl+A then Delete now removes notes, frames and shapes wherever focus is; the emoji panel stays inside the canvas (found by Chromium screenshots at 360/768/1280, light and dark); a worker rate-limit test made independent of runner speed (a flaky CI run). Merged and deployed. Emoji reactions stay in the backlog. Next: export.
 - Thread 11 (7 October 2026): cheaper sessions, no app change (no version bump, no CHANGELOG entry). CLAUDE.md cut from 94 KB to 5 KB; the per-slice sections moved verbatim into `docs/architecture/` (shell, rooms, notes, canvas, frames, editing, connection, facilitation, shapes, with an index). A docs test fails CI on stale status rows, "in review" after release, or old "Last updated" dates, and caps CLAUDE.md at 6 KB. `npm run shots` takes the 360/768/1280 light/dark screenshots against a local relay in one command. Merged and deployed. Next: export.
+- Thread 12 (7 October 2026): roadmap additions only, no app change (no code, no version bump, no CHANGELOG entry). New planned slices, in build order after Export: Board size (3200 x 2000 -> 6400 x 4000, protocol v16, no stored-schema bump; decided 2x not 3x, `MIN_ZOOM` stays 0.1), Panel layout at 768 px (from the backlog), Navigation (Zoom to selection, Jump to a person), Follow and Bring to me (protocol v17), then Silent brainstorm (decide Anonymous notes mode at its start), Hardening (moved after silent brainstorm), Reactions on notes (from the backlog; comments stay there), with More built-in templates as filler. Backlog gains Export on phones and Export selection only. Next: export.
 
 ## 10. One-time manual setup
 
