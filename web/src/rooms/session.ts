@@ -1885,6 +1885,8 @@ export class RoomSession {
       this.itemSettled(run, ref, findFrame(board, frame.id) ? frame.id : null);
     }
     for (const r of message.refused) {
+      // Shapes (protocol v15) aren't sent by this page yet.
+      if (r.kind === "shape") continue;
       const ref = (r.kind === "note" ? batch.message.notes : batch.message.frames)?.[r.index]?.ref;
       if (ref !== undefined) board = this.itemRefused(board, run, ref, r.kind, r.reason);
     }
@@ -1898,6 +1900,7 @@ export class RoomSession {
     if (message.clientRef !== undefined) this.itemBatches.delete(message.clientRef);
     let board = this.view.board;
     for (const r of message.refused ?? []) {
+      if (r.kind === "shape") continue;
       const ref = (r.kind === "note" ? batch.message.notes : batch.message.frames)?.[r.index]?.ref;
       if (ref !== undefined) board = this.itemRefused(board, batch.run, ref, r.kind, r.reason);
     }

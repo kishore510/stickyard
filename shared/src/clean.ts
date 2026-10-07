@@ -1,4 +1,4 @@
-import { MAX_FRAME_TITLE, MAX_NAME_LENGTH, MAX_NOTE_TEXT, MAX_TEXT_LENGTH } from "./protocol";
+import { MAX_FRAME_TITLE, MAX_NAME_LENGTH, MAX_NOTE_TEXT, MAX_SHAPE_TEXT, MAX_TEXT_LENGTH } from "./protocol";
 
 /*
  * Cleaning for untrusted display text (names, echoed messages and note text). Both sides use it:
@@ -49,13 +49,41 @@ const CONTROLS_EXCEPT_NEWLINE = /[\u0000-\u0009\u000B-\u001F\u007F-\u009F]/g;
  * Null if longer than MAX_NOTE_TEXT characters after cleaning.
  */
 export function cleanNoteText(raw: string): string | null {
+  return cleanMultiline(raw, MAX_NOTE_TEXT);
+}
+
+/**
+ * Shape text (protocol v15): cleaned exactly like note text (line breaks kept, may be empty),
+ * up to MAX_SHAPE_TEXT characters. Null if longer after cleaning.
+ */
+export function cleanShapeText(raw: string): string | null {
+  return cleanMultiline(raw, MAX_SHAPE_TEXT);
+}
+
+function cleanMultiline(raw: string, maxLength: number): string | null {
   const value = raw
     .replace(LINE_BREAKS, "\n")
     .replace(SPACE_CONTROLS, " ")
     .replace(INVISIBLE, "")
     .replace(CONTROLS_EXCEPT_NEWLINE, "")
     .trim();
-  return codePointLength(value) > MAX_NOTE_TEXT ? null : value;
+  return codePointLength(value) > maxLength ? null : value;
+}
+
+/**
+ * The first `max` characters (code points, as codePointLength counts them). Never cuts inside a
+ * surrogate pair: a pair is one character, a lone surrogate one more.
+ */
+export function truncateCodePoints(value: string, max: number): string {
+  if (value.length <= max) return value;
+  let out = "";
+  let n = 0;
+  for (const ch of value) {
+    if (n === max) break;
+    out += ch;
+    n++;
+  }
+  return out;
 }
 
 /**

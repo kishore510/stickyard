@@ -630,8 +630,8 @@ describe(`schema migration 7 -> ${SCHEMA_VERSION}`, () => {
       const sql = state.storage.sql;
       loadSchemaV7(sql);
       const store = new NoteStore(sql);
-      expect(SCHEMA_VERSION).toBe(8);
-      expect(version(sql)).toBe(8);
+      expect(SCHEMA_VERSION).toBeGreaterThanOrEqual(8);
+      expect(version(sql)).toBe(SCHEMA_VERSION);
       expect(store.all().map((n) => n.id)).toEqual(V5_NOTES.map((n) => n.id));
       expect(store.allFrames().map((f) => f.id)).toEqual(V6_FRAMES.map((f) => f.id));
       expect(store.getMeta("locked")).toBe(1);

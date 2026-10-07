@@ -233,7 +233,7 @@ describe("itemsAdded", () => {
     expect(serverParses({ type: "itemsAdded", notes: [], frames: [], refused: [] })).toBe(false);
     expect(serverParses({ type: "itemsAdded", notes: [{ note: { ...note, text: "\u0007" } }], frames: [], refused: [] })).toBe(false);
     expect(serverParses({ type: "itemsAdded", notes: [], frames: [{ frame: { ...frame, w: 10 } }], refused: [] })).toBe(false);
-    expect(serverParses({ type: "itemsAdded", notes: [{ note }], frames: [], refused: [{ kind: "shape", index: 0, reason: "invalid" }] })).toBe(false);
+    expect(serverParses({ type: "itemsAdded", notes: [{ note }], frames: [], refused: [{ kind: "sticker", index: 0, reason: "invalid" }] })).toBe(false);
     expect(serverParses({ type: "itemsAdded", notes: [{ note }], frames: [], refused: [{ kind: "note", index: 0, reason: "board_full" }] })).toBe(false);
   });
 

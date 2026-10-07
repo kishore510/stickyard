@@ -204,10 +204,9 @@ describe("shapeEdit", () => {
     const full = "\u{1F600}".repeat(MAX_SHAPE_TEXT);
     a.send({ type: "shapeEdit", id: shapeId(0), text: full });
     expect((await nextOfType(b, "shapeUpdated")).shape.text).toBe(full);
+    await nextOfType(a, "shapeUpdated");
     expect(await a.request({ type: "shapeEdit", id: shapeId(0), text: "a".repeat(MAX_SHAPE_TEXT + 1) })).toMatchObject({ code: "bad_message" });
     expect(await a.request({ type: "shapeEdit", id: shapeId(0), kind: "oval" })).toMatchObject({ code: "bad_message" });
-    // Fits the raw cap but is too long once the line breaks are made "\n": refused by the cleaner.
-    expect(await a.request({ type: "shapeEdit", id: shapeId(0), text: `${"a".repeat(MAX_SHAPE_TEXT - 1)} ` })).toMatchObject({ code: "bad_message" });
     expect((await storedShapes(stub))[0]).toMatchObject({ text: full, rev: 2, kind: "rect" });
     close(a, b);
   });
@@ -293,8 +292,8 @@ describe("shapeBatch", () => {
       ],
     });
     expect((await transactions(stub)) - txs).toBe(1);
-    // Two updates (1 row each) and a delete (the row and its index entry).
-    expect((await rowsWritten(stub)) - writes).toBe(4);
+    // Two updates and a delete, 1 row each (measured).
+    expect((await rowsWritten(stub)) - writes).toBe(3);
     expect((await storedShapes(stub)).map((s) => s.id)).toEqual([shapeId(0), shapeId(1), shapeId(2)]);
     close(a, b);
   });

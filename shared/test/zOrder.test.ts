@@ -3,6 +3,7 @@ import {
   MAX_BATCH_ENTRIES,
   MAX_MESSAGE_BYTES,
   MAX_NOTES_PER_ROOM,
+  MAX_SHAPES_PER_ROOM,
   MAX_SERVER_MESSAGE_BYTES,
   NOTE_DEFAULTS,
   NOTE_Z_LIMIT,
@@ -114,7 +115,9 @@ describe("notesOrder schema", () => {
     expect(raw.length).toBeLessThan(MAX_SERVER_MESSAGE_BYTES);
     expect(parseMessage(raw, serverMessageSchema, MAX_SERVER_MESSAGE_BYTES).ok).toBe(true);
     expect(serverMessageSchema.safeParse({ type: "notesOrdered", results: [] }).success).toBe(false);
-    expect(serverMessageSchema.safeParse({ type: "notesOrdered", results: [...results, { id: id(999), z: 0, rev: 1 }] }).success).toBe(false);
+    // Since v15 the stacking space holds shapes too, so the cap is notes plus shapes (shapes.test.ts checks it).
+    const more = Array.from({ length: MAX_SHAPES_PER_ROOM + 1 }, (_, i) => ({ id: id(500 + i), z: 0, rev: 1 }));
+    expect(serverMessageSchema.safeParse({ type: "notesOrdered", results: [...results, ...more] }).success).toBe(false);
   });
 });
 

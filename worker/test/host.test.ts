@@ -187,7 +187,7 @@ describe("claimHost", () => {
     await a.request({ type: "hello", protocolVersion: PROTOCOL_VERSION });
     const joined = await a.request({ type: "join", name: "host", host: true, participant: { host: true } });
     expect(joined).toMatchObject({ type: "joined", you: { host: false } });
-    await nextOfType(a, "framesSnapshot");
+    await nextOfType(a, "shapesSnapshot");
     expect(await a.request({ type: "lockSet", locked: true })).toMatchObject({ type: "error", code: "not_host" });
     a.close();
   });

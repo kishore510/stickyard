@@ -361,7 +361,7 @@ describe("message sizes", () => {
     }
   });
 
-  it("items per itemsAdd (recorded in docs/LIMITS.md): 1 shape at its largest, 18 with short content", () => {
+  it("items per itemsAdd (recorded in docs/LIMITS.md): 1 shape at its largest, 14 with short content", () => {
     const fits = (items: ShapeItem[]) => utf8Length(encodeMessage({ type: "itemsAdd", clientRef: "c".repeat(12), shapes: items })) <= MAX_MESSAGE_BYTES;
     const count = (make: (i: number) => ShapeItem) => {
       let n = 0;
@@ -370,7 +370,7 @@ describe("message sizes", () => {
     };
     const { id: _i, z: _z, rev: _r, authorId: _a, ...content } = worstShape();
     expect(count((i) => ({ ...content, ref: `r${String(i).padStart(11, "0")}` }))).toBe(1);
-    expect(count((i) => shapeItem(`r${String(i).padStart(11, "0")}`, { text: "" }))).toBe(18);
+    expect(count((i) => shapeItem(`r${String(i).padStart(11, "0")}`, { text: "" }))).toBe(14);
   });
 
   /**
@@ -380,11 +380,11 @@ describe("message sizes", () => {
    * needs a decision first (the frames rule). It is a separate message from the notes and frames
    * snapshots, whose tripwires are unchanged.
    */
-  it("the largest possible shapesSnapshot is 166,451 bytes, under the 192 KiB cap and its 90% tripwire", () => {
+  it("the largest possible shapesSnapshot is 167,686 bytes, under the 192 KiB cap and its 90% tripwire", () => {
     const raw = encodeMessage({ type: "shapesSnapshot", shapes: Array.from({ length: MAX_SHAPES_PER_ROOM }, (_, i) => worstShape(i)) });
     expect(/^[\x20-\x7e]*$/.test(raw)).toBe(true);
     // docs/LIMITS.md records this figure; update both together.
-    expect(raw.length).toBe(166_451);
+    expect(raw.length).toBe(167_686);
     const CAP = 192 * 1024;
     expect(raw.length).toBeLessThanOrEqual(CAP * 0.9);
     expect(raw.length).toBeLessThan(MAX_SERVER_MESSAGE_BYTES / 2);
@@ -392,7 +392,7 @@ describe("message sizes", () => {
   });
 
   it("the largest frameMoved (50 carried items, notes and shapes) stays small", () => {
-    const carried = (id: string) => ({ id, x: BOARD_WIDTH - SHAPE_MIN_W, y: BOARD_HEIGHT - SHAPE_MIN_H, rev: Number.MAX_SAFE_INTEGER });
+    const carried = (id: string, min = { w: SHAPE_MIN_W, h: SHAPE_MIN_H }) => ({ id, x: BOARD_WIDTH - min.w, y: BOARD_HEIGHT - min.h, rev: Number.MAX_SAFE_INTEGER });
     const raw = encodeMessage({
       type: "frameMoved",
       id: "frame00000000000",
@@ -400,7 +400,7 @@ describe("message sizes", () => {
       y: 1000,
       rev: Number.MAX_SAFE_INTEGER,
       final: true,
-      notes: Array.from({ length: 25 }, (_, i) => carried(nid(i))),
+      notes: Array.from({ length: 25 }, (_, i) => carried(nid(i), { w: 96, h: 96 })),
       shapes: Array.from({ length: 25 }, (_, i) => carried(sid(i))),
     });
     expect(raw.length).toBeLessThan(4 * 1024);

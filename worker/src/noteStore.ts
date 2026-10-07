@@ -6,11 +6,15 @@ import {
   VOTE_BUDGET_MAX,
   clampFrameRect,
   clampNoteRect,
+  clampShapeRect,
   clampZ,
   frameSchema,
   noteSchema,
+  shapeDefaults,
+  shapeSchema,
   type Frame,
   type Note,
+  type Shape,
 } from "@stickyard/shared";
 
 /**
@@ -43,8 +47,40 @@ import {
  *     with a count of 1 to VOTE_BUDGET_MAX; a note's rows go with it (same transaction). Votes
  *     that version 7 code leaves behind on a note it deletes are ignored on load (note ids are
  *     random, so the note never comes back). The voting state lives in meta (no version needed).
+ *   9 (text and shapes): a new shapes table (id, kind, x, y, w, h, text, fill, stroke,
+ *     stroke_width, stroke_style, font_size, bold, italic, underline, text_color, align, valign, z,
+ *     rev, author_id), every column but the key with a DEFAULT (the rectangle's defaults: SQL
+ *     can't give per-kind ones, and every row we write names every column). Additive: notes,
+ *     frames and votes are untouched, and version 8 code never reads it. Shapes share the notes'
+ *     z space; a version 8 Worker after a rollback would stack its new notes above them anyway.
  */
-export const SCHEMA_VERSION = 8;
+export const SCHEMA_VERSION = 9;
+
+const RECT = shapeDefaults("rect");
+/** The shapes table (schema 9). */
+const SHAPES_TABLE = `CREATE TABLE IF NOT EXISTS shapes (
+          id TEXT PRIMARY KEY,
+          kind TEXT NOT NULL DEFAULT 'rect',
+          x INTEGER NOT NULL DEFAULT 0,
+          y INTEGER NOT NULL DEFAULT 0,
+          w INTEGER NOT NULL DEFAULT ${RECT.w},
+          h INTEGER NOT NULL DEFAULT ${RECT.h},
+          text TEXT NOT NULL DEFAULT '',
+          fill TEXT NOT NULL DEFAULT '${RECT.fill}',
+          stroke TEXT NOT NULL DEFAULT '${RECT.stroke}',
+          stroke_width TEXT NOT NULL DEFAULT '${RECT.strokeWidth}',
+          stroke_style TEXT NOT NULL DEFAULT '${RECT.strokeStyle}',
+          font_size TEXT NOT NULL DEFAULT '${RECT.fontSize}',
+          bold INTEGER NOT NULL DEFAULT ${Number(RECT.bold)},
+          italic INTEGER NOT NULL DEFAULT ${Number(RECT.italic)},
+          underline INTEGER NOT NULL DEFAULT ${Number(RECT.underline)},
+          text_color TEXT NOT NULL DEFAULT '${RECT.textColor}',
+          align TEXT NOT NULL DEFAULT '${RECT.align}',
+          valign TEXT NOT NULL DEFAULT '${RECT.valign}',
+          z INTEGER NOT NULL DEFAULT 0,
+          rev INTEGER NOT NULL DEFAULT 1,
+          author_id TEXT NOT NULL DEFAULT ''
+        )`;
 
 /** Columns added by version 2, with their SQL definitions. Defaults come from NOTE_DEFAULTS. */
 const V2_COLUMNS: [name: string, definition: string][] = [
@@ -114,6 +150,32 @@ interface FrameRow extends Record<string, SqlStorageValue> {
   title_align: string;
 }
 
+interface ShapeRow extends Record<string, SqlStorageValue> {
+  id: string;
+  kind: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  text: string;
+  fill: string;
+  stroke: string;
+  stroke_width: string;
+  stroke_style: string;
+  font_size: string;
+  bold: number;
+  italic: number;
+  underline: number;
+  text_color: string;
+  align: string;
+  valign: string;
+  z: number;
+  rev: number;
+  author_id: string;
+}
+
+const SHAPE_COLUMNS = "id, kind, x, y, w, h, text, fill, stroke, stroke_width, stroke_style, font_size, bold, italic, underline, text_color, align, valign, z, rev, author_id";
+
 const FRAME_COLUMNS = "id, x, y, w, h, title, color, rev, author_id, title_font_size, title_bold, title_italic, title_text_color, title_align";
 
 const COLUMNS =
@@ -129,6 +191,7 @@ export class NoteStore {
   transactions = 0;
   private cache: Map<string, Note> | null = null;
   private frameCache: Map<string, Frame> | null = null;
+  private shapeCache: Map<string, Shape> | null = null;
   /** Votes by voter id, then note id (counts 1 to VOTE_BUDGET_MAX). */
   private voteCache: Map<string, Map<string, number>> | null = null;
 
@@ -220,6 +283,7 @@ export class NoteStore {
         )`,
       );
     }
+    if (version < 9) this.sql.exec(SHAPES_TABLE);
     this.write("INSERT OR REPLACE INTO meta (key, value) VALUES ('schema_version', ?)", SCHEMA_VERSION);
   }
 
@@ -290,13 +354,17 @@ export class NoteStore {
    * A final batch (or a restack): every update and delete in one transaction, so it lands whole or not at all.
    * The cache changes only once it has committed.
    */
-  applyBatch(updates: readonly Note[], deletes: readonly string[]): void {
-    if (updates.length === 0 && deletes.length === 0) return;
+  applyBatch(updates: readonly Note[], deletes: readonly string[], shapeUpdates: readonly Shape[] = []): void {
+    if (updates.length === 0 && deletes.length === 0 && shapeUpdates.length === 0) return;
     this.transact(() => {
       for (const note of updates) this.writeUpdate(note);
       for (const id of deletes) this.writeNoteDelete(id);
+      // A restack over notes and shapes (one stacking space since v15) lands whole too.
+      for (const shape of shapeUpdates) this.writeShapeUpdate(shape);
     });
     this.transactions += 1;
+    const shapes = this.shapes();
+    for (const shape of shapeUpdates) shapes.set(shape.id, shape);
     const cache = this.notes();
     for (const note of updates) cache.set(note.id, note);
     for (const id of deletes) {
@@ -306,22 +374,32 @@ export class NoteStore {
   }
 
   /**
-   * An itemsAdd: any renumbered notes (updates), then the new notes and frames, in one
-   * transaction. Each insert writes 2 rows (the row and its primary-key index entry), as insert
-   * and insertFrame do. Caches change once it has committed.
+   * An itemsAdd: any renumbered notes and shapes (updates), then the new notes, frames and shapes,
+   * in one transaction. Each insert writes 2 rows (the row and its primary-key index entry), as
+   * insert, insertFrame and insertShape do. Caches change once it has committed.
    */
-  applyAdds(updates: readonly Note[], notes: readonly Note[], frames: readonly Frame[]): void {
-    if (updates.length === 0 && notes.length === 0 && frames.length === 0) return;
+  applyAdds(
+    updates: readonly Note[],
+    notes: readonly Note[],
+    frames: readonly Frame[],
+    shapes: readonly Shape[] = [],
+    shapeUpdates: readonly Shape[] = [],
+  ): void {
+    if (updates.length === 0 && notes.length === 0 && frames.length === 0 && shapes.length === 0 && shapeUpdates.length === 0) return;
     this.transact(() => {
       for (const note of updates) this.writeUpdate(note);
+      for (const shape of shapeUpdates) this.writeShapeUpdate(shape);
       for (const note of notes) this.writeInsert(note);
       for (const frame of frames) this.writeFrameInsert(frame);
+      for (const shape of shapes) this.writeShapeInsert(shape);
     });
     this.transactions += 1;
     const cache = this.notes();
     for (const note of [...updates, ...notes]) cache.set(note.id, note);
     const frameCache = this.frames();
     for (const frame of frames) frameCache.set(frame.id, frame);
+    const shapeCache = this.shapes();
+    for (const shape of [...shapeUpdates, ...shapes]) shapeCache.set(shape.id, shape);
   }
 
   private writeUpdate(note: Note): void {
@@ -405,19 +483,23 @@ export class NoteStore {
   }
 
   /**
-   * A final frame move that carries notes: the frame (if it changed) and every changed note in
-   * one transaction, so they land together or not at all. Caches change once it has committed.
+   * A final frame move that carries notes and shapes: the frame (if it changed) and every changed
+   * note and shape in one transaction, so they land together or not at all. Caches change once
+   * it has committed.
    */
-  applyFrameMove(frame: Frame | null, notes: readonly Note[]): void {
-    if (!frame && notes.length === 0) return;
+  applyFrameMove(frame: Frame | null, notes: readonly Note[], shapes: readonly Shape[] = []): void {
+    if (!frame && notes.length === 0 && shapes.length === 0) return;
     this.transact(() => {
       if (frame) this.writeFrameUpdate(frame);
       for (const note of notes) this.writeUpdate(note);
+      for (const shape of shapes) this.writeShapeUpdate(shape);
     });
     this.transactions += 1;
     if (frame) this.frames().set(frame.id, frame);
     const cache = this.notes();
     for (const note of notes) cache.set(note.id, note);
+    const shapeCache = this.shapes();
+    for (const shape of shapes) shapeCache.set(shape.id, shape);
   }
 
   private writeFrameUpdate(frame: Frame): void {
@@ -428,6 +510,102 @@ export class NoteStore {
       ...frameUpdateValues(frame),
       frame.id,
     );
+  }
+
+  /* ── Shapes (schema 9, protocol v15) ─────────────────────────────────────────────────── */
+
+  /**
+   * Every shape, in creation order. Bad rows are skipped, never fatal; one off the board at its
+   * size is clamped back on, and a z outside the bound clamped into it (in memory).
+   */
+  private shapes(): Map<string, Shape> {
+    if (this.shapeCache) return this.shapeCache;
+    const cache = new Map<string, Shape>();
+    for (const row of this.sql.exec<ShapeRow>(`SELECT ${SHAPE_COLUMNS} FROM shapes ORDER BY rowid`)) {
+      const parsed = shapeSchema.safeParse({
+        id: row.id,
+        kind: row.kind,
+        ...clampShapeRect({ x: row.x, y: row.y, w: row.w, h: row.h }),
+        text: row.text,
+        fill: row.fill,
+        stroke: row.stroke,
+        strokeWidth: row.stroke_width,
+        strokeStyle: row.stroke_style,
+        fontSize: row.font_size,
+        bold: row.bold === 1,
+        italic: row.italic === 1,
+        underline: row.underline === 1,
+        textColor: row.text_color,
+        align: row.align,
+        valign: row.valign,
+        z: clampZ(row.z),
+        rev: row.rev,
+        authorId: row.author_id,
+      });
+      if (parsed.success) cache.set(parsed.data.id, parsed.data);
+    }
+    this.shapeCache = cache;
+    return cache;
+  }
+
+  allShapes(): Shape[] {
+    return [...this.shapes().values()];
+  }
+
+  getShape(id: string): Shape | undefined {
+    return this.shapes().get(id);
+  }
+
+  get shapeCount(): number {
+    return this.shapes().size;
+  }
+
+  insertShape(shape: Shape): void {
+    this.writeShapeInsert(shape);
+    this.shapes().set(shape.id, shape);
+  }
+
+  updateShape(shape: Shape): void {
+    this.writeShapeUpdate(shape);
+    this.shapes().set(shape.id, shape);
+  }
+
+  deleteShape(id: string): void {
+    this.writeShapeDelete(id);
+    this.shapes().delete(id);
+  }
+
+  /** A final shapeBatch: every update and delete in one transaction. Caches change once it has committed. */
+  applyShapeBatch(updates: readonly Shape[], deletes: readonly string[]): void {
+    if (updates.length === 0 && deletes.length === 0) return;
+    this.transact(() => {
+      for (const shape of updates) this.writeShapeUpdate(shape);
+      for (const id of deletes) this.writeShapeDelete(id);
+    });
+    this.transactions += 1;
+    const cache = this.shapes();
+    for (const shape of updates) cache.set(shape.id, shape);
+    for (const id of deletes) cache.delete(id);
+  }
+
+  private writeShapeInsert(shape: Shape): void {
+    const row = shapeValues(shape);
+    this.write(`INSERT INTO shapes (${SHAPE_COLUMNS}) VALUES (${row.map(() => "?").join(", ")})`, ...row);
+  }
+
+  /** Everything but the id, kind and author (the kind never changes). */
+  private writeShapeUpdate(shape: Shape): void {
+    this.write(
+      `UPDATE shapes SET x = ?, y = ?, w = ?, h = ?, text = ?, fill = ?, stroke = ?, stroke_width = ?, stroke_style = ?, font_size = ?,
+       bold = ?, italic = ?, underline = ?, text_color = ?, align = ?, valign = ?, z = ?, rev = ?
+       WHERE id = ?`,
+      ...shapeValues(shape).slice(2, -1),
+      shape.id,
+    );
+  }
+
+  private writeShapeDelete(id: string): void {
+    this.write("DELETE FROM shapes WHERE id = ?", id);
   }
 
   /* ── Room settings in meta (protocol v12: locked, timer_started_at, timer_duration_ms) ── */
@@ -556,6 +734,14 @@ function values(n: Note): SqlStorageValue[] {
     n.fontSize, Number(n.bold), Number(n.italic), n.textColor, n.align,
     n.titleAlign, n.titleFontSize, Number(n.titleBold), Number(n.titleItalic), n.titleTextColor,
     n.z, n.rev, n.authorId,
+  ];
+}
+
+/** A shape's column values, in SHAPE_COLUMNS order. */
+function shapeValues(s: Shape): SqlStorageValue[] {
+  return [
+    s.id, s.kind, s.x, s.y, s.w, s.h, s.text, s.fill, s.stroke, s.strokeWidth, s.strokeStyle, s.fontSize,
+    Number(s.bold), Number(s.italic), Number(s.underline), s.textColor, s.align, s.valign, s.z, s.rev, s.authorId,
   ];
 }
 
