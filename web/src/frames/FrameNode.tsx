@@ -120,7 +120,7 @@ export const FrameNode = memo(function FrameNode({ id, data }: NodeProps<FrameFl
           onClick={select}
           onDoubleClick={editTitle}
         >
-          {editable && <GripHorizontal aria-hidden="true" className="size-icon-sm shrink-0 opacity-60" />}
+          {editable && <GripHorizontal aria-hidden="true" data-export-skip="" className="size-icon-sm shrink-0 opacity-60" />}
           {editable ? (
             <input
               ref={input}

@@ -122,6 +122,10 @@ export function AboutPage() {
             leave or reconnect. Notes, frames and shapes that undo brings back are added again as new ones, recorded as added by your visit.
           </li>
           <li>
+            Export PNG and Export Markdown are made in your browser from the board your page shows: nothing is uploaded or sent to the relay, and
+            nothing is kept. The files are named by the date only, and contain no room code and no names.
+          </li>
+          <li>
             The create passcode is sent only to the relay, only when you start a session, and is never stored in your
             browser.
           </li>

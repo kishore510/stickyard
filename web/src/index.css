@@ -147,6 +147,18 @@
   outline-offset: var(--sy-select-offset);
 }
 
+/* Export PNG (v0.22.0): while the viewport is drawn (export/png.ts adds the class, and always
+   removes it), selection outlines and the editing ring don't show; the filter leaves out the
+   rest of the UI-only parts. */
+.sy-exporting .sy-selected {
+  outline: none;
+}
+.sy-exporting .react-flow__node * {
+  --tw-ring-shadow: 0 0 transparent;
+  --tw-ring-offset-shadow: 0 0 transparent;
+  transition: none;
+}
+
 .sy-select-badge {
   position: absolute;
   top: calc(var(--sy-select-badge) / -2);

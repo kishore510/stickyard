@@ -18,6 +18,7 @@ import { OrderSection } from "../notes/OrderFields";
 import { ColourSection, PartTextSection, SizeSection, type MixedFields } from "../notes/StyleFields";
 import { clearBoardReason, confirmClearBoard } from "./clearBoard";
 import { ResultsList } from "../voting/Results";
+import { ExportSection } from "../export/ExportSection";
 import { findShape, type ShapeEdit } from "../shapes/board";
 import { confirmShapeDelete } from "../shapes/label";
 import { ShapeFields, ShapesFields } from "../shapes/ShapeFields";
@@ -82,6 +83,8 @@ export interface PropertiesRoom {
   results?: readonly ResultRow[] | null;
   /** A results row: selects that note and moves the view to it. */
   onPickResult?: (noteId: string) => void;
+  /** React Flow's viewport element, for Export PNG (v0.22.0); without it there's no Export section. */
+  exportViewport?: () => HTMLElement | null;
 }
 
 /** The style and size fields whose values differ between these notes. */
@@ -162,6 +165,7 @@ function Summary({ room }: { room: PropertiesRoom }) {
           </p>
         )}
       </div>
+      {room.exportViewport && <ExportSection board={room.board} results={room.results ?? null} viewport={room.exportViewport} />}
       {room.isHost && room.endSession && (
         <div className="flex flex-col gap-xs border-t border-border pt-md">
           <p className="text-sm text-fg-muted">You’re the host. Ending the session deletes the board for everyone.</p>

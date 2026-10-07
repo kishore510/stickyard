@@ -2,6 +2,14 @@
 
 All notable changes to Stickyard, newest first. The format follows Keep a Changelog. Versions are 0.x: a minor bump for each slice and a patch bump for each follow-up fix. This file is shown in the app under **What’s new**, so entries are written for the people using it.
 
+## [0.22.0] - 2026-10-07
+
+### Added
+- **Export.** On a wider screen, with nothing selected, **Properties** has an **Export** section with **Export PNG** and **Export Markdown**. Hosts and guests can both use it, also on a locked board or while disconnected.
+- **Export PNG** saves a picture of every note, frame and shape at full size, whatever you're zoomed to, in the theme you're using, with a margin round the edge. Revealed vote totals and **Top voted** are in it; pointers, selection outlines, handles, the minimap and your own dots aren't. Very large boards are scaled down so the image opens on phones and tablets too.
+- **Export Markdown** saves the board as text: a section per frame with the notes inside it (top to bottom, then left to right), then the notes outside any frame, then the text in labels and shapes. Once the host has revealed the votes, each note shows its dots and a **Results** list comes last. Colours and authors aren't included.
+- Files are named by the date only, like `stickyard-board-2026-10-07.png`: never the room code or anyone's name. Exports are made in your browser and nothing is uploaded.
+
 ## [0.21.0] - 2026-10-07
 
 ### Added
