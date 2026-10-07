@@ -158,6 +158,36 @@ export function deleteSelectionAsking(
 }
 
 /**
+ * Deletes everything selected (notes, frames and shapes: Ctrl+A selects them all) by the Delete
+ * key's rules: several items with a frame or shape in them = one confirm with the counts and one
+ * run; one frame or one shape alone = its own confirm; notes only = the notes' confirm. Used
+ * where a focused note or shape gets Delete while it's one of several selected, so the key
+ * deletes the same things wherever focus is. False with nothing selected.
+ */
+export function deleteWholeSelection(room: BoardRoom): boolean {
+  const ui = useBoardUi.getState();
+  const notes = orderedIds(ui.selection);
+  const frames = orderedIds(ui.frames);
+  const shapes = orderedIds(ui.shapes);
+  const total = notes.length + frames.length + shapes.length;
+  const [frame] = frames;
+  const [shape] = shapes;
+  if (total === 0) return false;
+  if (frames.length + shapes.length > 0 && total > 1) deleteSelectionAsking(room, notes, frames, shapes);
+  else if (frame !== undefined) deleteFrameAsking(room, frame);
+  else if (shape !== undefined) deleteShapeAsking(room, shape);
+  else deleteSelected(room, notes);
+  return true;
+}
+
+/** Whether a focused item's Delete is its own: one-item selection, nothing else selected, or phones. */
+function deletesItself(multi: boolean, isSelected: boolean): boolean {
+  const ui = useBoardUi.getState();
+  const total = ui.selection.size + ui.frames.size + ui.shapes.size;
+  return !multi || total === 0 || (total === 1 && isSelected);
+}
+
+/**
  * The board canvas: React Flow, controlled. Notes come from the room's board as memoised nodes;
  * React Flow owns only the viewport and gestures (pan, pinch, wheel, drag) and reports drags
  * back through the canvas layer (nodes.ts). Board units are flow units (geometry.ts).
@@ -320,7 +350,11 @@ export function BoardCanvas({
         nudgeSelection.current(dx, dy);
         return true;
       },
-      remove: (id) => deleteShapeAsking(latest.current, id),
+      remove: (id) => {
+        // A shape that's one of several selected (or outside the selection) deletes the whole selection.
+        if (deletesItself(multi.current, useBoardUi.getState().shapes.has(id))) deleteShapeAsking(latest.current, id);
+        else deleteWholeSelection(latest.current);
+      },
       reveal: (id) => {
         const entry = findShape(latest.current.board, id);
         if (entry) view.reveal(entry.shape);
@@ -397,10 +431,10 @@ export function BoardCanvas({
         }, KEY_COMMIT_MS);
       },
       deleteFromKey: (id) => {
-        // A note outside the selection (focused before a marquee or Ctrl-click) deletes the selection, never itself.
-        const { selection } = useBoardUi.getState();
-        const own = selection.size === 0 || (selection.size === 1 && selection.has(id)) || !multi.current;
-        deleteSelected(latest.current, own ? [id] : orderedIds(selection));
+        // A note outside the selection (focused before a marquee or Ctrl-click) deletes the selection, never itself;
+        // so does one of several selected, frames and shapes included (after Ctrl+A).
+        if (deletesItself(multi.current, useBoardUi.getState().selection.has(id))) deleteSelected(latest.current, [id]);
+        else deleteWholeSelection(latest.current);
       },
     }),
     [view],

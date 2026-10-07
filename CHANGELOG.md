@@ -20,6 +20,9 @@ All notable changes to Stickyard, newest first. The format follows Keep a Change
 - Phones show shapes, with their styles, but can't add or change them yet.
 - Everyone in a session needs this version: an older open page is asked to reload.
 
+### Fixed
+- **Ctrl+A** then **Delete** now deletes everything on the board (notes, frames and shapes) wherever you last clicked. Before, with a note or shape focused it deleted only the notes, or only that shape, and with a palette tile or Properties focused it did nothing.
+
 ## [0.20.0] - 2026-10-05
 
 ### Added

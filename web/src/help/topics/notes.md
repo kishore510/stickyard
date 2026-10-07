@@ -30,7 +30,7 @@ On a wider screen, with a mouse:
 - Drag any selected note to move them all together. They keep their places relative to each other, and stop together at the edge of the board. Dragging a note that isn't selected selects just that note.
 - With a note of the selection focused, the **arrow keys** move them all (**Shift** for bigger steps). With frames selected, the arrow keys move the selection too (frames bring the notes inside them), as long as nothing else has focus.
 - Selections can mix notes and frames; **Frames** below says how they move and delete together.
-- **Delete** deletes every selected note, for example straight after **Ctrl+A** or a marquee. You're asked once, with how many. Afterwards the board says how many were deleted, or, if some weren't (too quick, or the connection was lost), how many and why. When you're not connected, nothing is deleted and the board says so. **Delete** while you're typing in a note or a field only edits the text.
+- **Delete** (or **Backspace**) deletes everything selected, for example straight after **Ctrl+A** or a marquee: notes, frames and shapes together. It works whether you last clicked the board, a note, a shape, or something in the palette or Properties. You're asked once, with how many. Afterwards the board says how many were deleted, or, if some weren't (too quick, or the connection was lost), how many and why. When you're not connected, nothing is deleted and the board says so. **Delete** while you're typing in a note or a field only edits the text.
 - Properties shows how many are selected, with a bin to delete them. Their colour, text style and size are shown as **Mixed** where they differ; for now, colour and text style change one note at a time.
 - Others see the notes move as you drag (for big selections, the first 50 move live and the rest catch up when you let go).
 - On a phone (or with a finger or pen), you select one note at a time, and dragging an empty part of the board moves around it.
@@ -174,7 +174,7 @@ When you're not typing in a box:
 - **+** and **-** zoom in and out, **0** goes back to 100%, and **F** fits the view to the notes.
 - **V** is Select, **H** is Hand, **N** adds a note (on a wider screen, in the colour you last added), and **M** shows or hides the overview map.
 - **[** collapses or expands the palette, and **]** collapses or expands Properties.
-- **Ctrl+A** (**Cmd+A**) selects every note and frame, and **Esc** clears the selection.
+- **Ctrl+A** (**Cmd+A**) selects every note, frame and shape, **Delete** deletes them all (asking once), and **Esc** clears the selection.
 - **Ctrl+D** (**Cmd+D**) duplicates the selection, **Ctrl+Z** (**Cmd+Z**) undoes, and **Ctrl+Shift+Z** (**Cmd+Shift+Z**) or **Ctrl+Y** redoes.
 
 With a note focused: **arrow keys** move it (and the rest of the selection, if several are selected), **Alt+arrow keys** resize it when it's the only one selected (add **Shift** for bigger steps), **Enter** edits it, **Delete** deletes it (or the whole selection) and **Esc** clears the selection.
