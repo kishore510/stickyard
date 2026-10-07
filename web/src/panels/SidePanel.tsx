@@ -142,7 +142,7 @@ export function SidePanel({
 
   if (collapsed) {
     return (
-      <aside aria-label={label} className={cn(frame, "sy-scroll-hidden w-strip items-center gap-xs overflow-y-auto py-xs")}>
+      <aside aria-label={label} data-side-panel="" className={cn(frame, "sy-scroll-hidden w-strip items-center gap-xs overflow-y-auto py-xs")}>
         <Button variant="ghost" size="icon" aria-label={`Expand ${name}`} title={`Expand ${name} (${shortcut})`} aria-expanded={false} onClick={onToggle}>
           <Expand />
         </Button>
@@ -162,7 +162,7 @@ export function SidePanel({
     </Button>
   );
   return (
-    <aside aria-label={label} className={frame} style={{ width }}>
+    <aside aria-label={label} data-side-panel="" className={frame} style={{ width }}>
       <div className="sy-scroll-hidden min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain">{children(collapseButton)}</div>
       <Resizer
         label={`Resize ${name}`}

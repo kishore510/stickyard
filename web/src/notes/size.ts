@@ -31,33 +31,42 @@ const KEY_DELTA: Record<string, [number, number]> = {
 
 const between = (value: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, value));
 
+/** Size limits: a note's by default (shapes pass theirs, protocol v15). */
+export interface SizeLimits {
+  minW: number;
+  minH: number;
+  maxW: number;
+  maxH: number;
+}
+export const NOTE_LIMITS: SizeLimits = { minW: NOTE_MIN_W, minH: NOTE_MIN_H, maxW: NOTE_MAX_W, maxH: NOTE_MAX_H };
+
 /**
  * The size (top-left corner fixed) after `w` x `h` is asked for: whole units, within min/max,
  * and no further than the board's right and bottom edges.
  */
-export function sizeAt(note: NoteRect, w: number, h: number): NoteRect {
+export function sizeAt(note: NoteRect, w: number, h: number, limits: SizeLimits = NOTE_LIMITS): NoteRect {
   return {
     x: note.x,
     y: note.y,
-    w: between(Math.round(w), NOTE_MIN_W, Math.min(NOTE_MAX_W, BOARD_WIDTH - note.x)),
-    h: between(Math.round(h), NOTE_MIN_H, Math.min(NOTE_MAX_H, BOARD_HEIGHT - note.y)),
+    w: between(Math.round(w), limits.minW, Math.min(limits.maxW, BOARD_WIDTH - note.x)),
+    h: between(Math.round(h), limits.minH, Math.min(limits.maxH, BOARD_HEIGHT - note.y)),
   };
 }
 
 /** Alt+Arrow: Right/Left widen/narrow, Down/Up heighten/shorten, by a step (`big`: Shift held). */
-export function keyResize(note: NoteRect, key: string, big: boolean): NoteRect | null {
+export function keyResize(note: NoteRect, key: string, big: boolean, limits: SizeLimits = NOTE_LIMITS): NoteRect | null {
   const delta = KEY_DELTA[key];
   if (!delta) return null;
   const step = big ? RESIZE_STEP_BIG : RESIZE_STEP;
-  return sizeAt(note, note.w + delta[0] * step, note.h + delta[1] * step);
+  return sizeAt(note, note.w + delta[0] * step, note.h + delta[1] * step, limits);
 }
 
 /** A Width or Height field's value: a whole number within the limits, or null if it isn't a number. */
-export function sizeFieldValue(raw: string, axis: "w" | "h", note: NoteRect): number | null {
+export function sizeFieldValue(raw: string, axis: "w" | "h", note: NoteRect, limits: SizeLimits = NOTE_LIMITS): number | null {
   const trimmed = raw.trim();
   if (trimmed === "") return null;
   const n = Number(trimmed);
   if (!Number.isFinite(n)) return null;
-  const sized = axis === "w" ? sizeAt(note, n, note.h) : sizeAt(note, note.w, n);
+  const sized = axis === "w" ? sizeAt(note, n, note.h, limits) : sizeAt(note, note.w, n, limits);
   return sized[axis];
 }

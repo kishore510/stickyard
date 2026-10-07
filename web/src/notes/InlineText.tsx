@@ -1,5 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, type ClipboardEvent, type FocusEvent, type KeyboardEvent } from "react";
 import type { Note } from "@stickyard/shared";
+import { intoEmojiPicker } from "../emoji/EmojiPicker";
+import { EmojiToolbar } from "../emoji/EmojiToolbar";
 import { cn } from "../lib/utils";
 import { INLINE_PLACEHOLDERS, PLACEHOLDER_CLASS, fitsCap, inlineKeyAction, pasteInto, titleLine, type InlinePart } from "./inlineEdit";
 import { partTextClasses } from "./style";
@@ -19,7 +21,8 @@ function autoSize(el: HTMLTextAreaElement | null) {
  * (or Shift+Enter, or Tab) in the title moves to the body; Shift+Tab goes back. Input stops at
  * the 280-character cap across both parts; paste is cleaned plain text. The placeholders are
  * helper text only. React Flow's nodrag/nopan/nowheel classes keep text selection from moving
- * the note or the board.
+ * the note or the board. The emoji button beside the note inserts into the part last edited, at
+ * its caret and within the cap; focus moving into it doesn't end the edit.
  */
 export function InlineText({
   note,
@@ -43,6 +46,8 @@ export function InlineText({
   const { title, body } = splitTitleBody(text);
   const refs = { title: useRef<HTMLTextAreaElement>(null), body: useRef<HTMLTextAreaElement>(null) };
   const caret = useRef<{ part: InlinePart; at: number } | null>(null);
+  const last = useRef<InlinePart>(request.part);
+  const box = useRef<HTMLDivElement>(null);
 
   const focus = (part: InlinePart) => {
     const el = refs[part].current;
@@ -51,6 +56,7 @@ export function InlineText({
   };
 
   useEffect(() => {
+    last.current = request.part;
     focus(request.part);
     // Only when asked again, not on every keystroke.
   }, [request.n, request.part]);
@@ -100,7 +106,14 @@ export function InlineText({
   // Focus leaving both parts (a click elsewhere) commits.
   const blur = (e: FocusEvent<HTMLDivElement>) => {
     if (e.relatedTarget instanceof Node && e.currentTarget.contains(e.relatedTarget)) return;
+    if (intoEmojiPicker(e.relatedTarget)) return;
     onCommit(false);
+  };
+
+  const insert = (value: string, at: number) => {
+    const part = last.current;
+    caret.current = { part, at };
+    onDraft(part === "title" ? joinTitleBody(value, body) : joinTitleBody(title, value));
   };
 
   const area = (part: InlinePart, value: string) => (
@@ -117,6 +130,9 @@ export function InlineText({
       onChange={(e) => change(part, e.target.value)}
       onPaste={paste(part)}
       onKeyDown={keyDown(part)}
+      onFocus={() => {
+        last.current = part;
+      }}
       className={cn(
         "nodrag nopan nowheel block w-full resize-none overflow-hidden border-0 bg-transparent p-0 break-words whitespace-pre-wrap outline-none",
         partTextClasses(note, part),
@@ -126,9 +142,21 @@ export function InlineText({
   );
 
   return (
-    <div data-note-text className="nodrag nopan nowheel min-h-0 flex-1 overflow-hidden" onBlur={blur}>
-      {area("title", title)}
-      {area("body", body)}
-    </div>
+    <>
+      <div ref={box} data-note-text className="nodrag nopan nowheel min-h-0 flex-1 overflow-hidden" onBlur={blur}>
+        {area("title", title)}
+        {area("body", body)}
+      </div>
+      <EmojiToolbar
+        target={() => refs[last.current].current}
+        fits={(next) => (last.current === "title" ? fitsCap(next, body) : fitsCap(title, next))}
+        onInsert={insert}
+        disabled={readOnly}
+        onAway={(to) => {
+          if (to && box.current?.contains(to)) return;
+          onCommit(false);
+        }}
+      />
+    </>
   );
 }

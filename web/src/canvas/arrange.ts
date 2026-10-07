@@ -1,4 +1,4 @@
-import { BOARD_HEIGHT, BOARD_WIDTH, clampNoteRect, type NoteRect } from "@stickyard/shared";
+import { BOARD_HEIGHT, BOARD_WIDTH, clampNoteRect, clampShapeRect, type NoteRect } from "@stickyard/shared";
 
 /*
  * Align, distribute, match size and grid for a multi-selection, and the group drag clamp. Pure, as in
@@ -7,8 +7,16 @@ import { BOARD_HEIGHT, BOARD_WIDTH, clampNoteRect, type NoteRect } from "@sticky
  * clampFrameRect, v0.20.0). The server clamps again.
  */
 
-/** Clamps a rect to an item's size limits, then onto the board (clampNoteRect or clampFrameRect). */
-export type Clamp = (rect: NoteRect) => NoteRect;
+/**
+ * Clamps a rect to an item's size limits, then onto the board (clampNoteRect or clampFrameRect;
+ * a mix of notes and shapes clamps each by its kind, from its id: mixedClamp).
+ */
+export type Clamp = (rect: NoteRect, id?: string) => NoteRect;
+
+/** Notes and shapes arranged together (protocol v15): each clamped to its own kind's limits. */
+export function mixedClamp(shapeIds: ReadonlySet<string>): Clamp {
+  return (rect, id) => (id !== undefined && shapeIds.has(id) ? clampShapeRect(rect) : clampNoteRect(rect));
+}
 
 export interface Placed extends NoteRect {
   id: string;
@@ -23,7 +31,7 @@ export type MatchMode = "width" | "height" | "both";
 function changes(before: readonly Placed[], after: readonly Placed[], clamp: Clamp = clampNoteRect): Map<string, NoteRect> {
   const out = new Map<string, NoteRect>();
   after.forEach((p, i) => {
-    const rect = clamp({ x: p.x, y: p.y, w: p.w, h: p.h });
+    const rect = clamp({ x: p.x, y: p.y, w: p.w, h: p.h }, p.id);
     const was = before[i]!;
     if (rect.x !== was.x || rect.y !== was.y || rect.w !== was.w || rect.h !== was.h) out.set(p.id, rect);
   });

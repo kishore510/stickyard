@@ -31,7 +31,7 @@ import { Button } from "../components/ui/button";
 import { Panel } from "../components/ui/panel";
 import { ORDER_COMMANDS } from "../notes/OrderFields";
 import { cn } from "../lib/utils";
-import { GRID_GAP, align, autoColumns, distribute, grid, matchSize, type AlignMode, type Axis, type GridReason, type MatchMode, type Placed } from "./arrange";
+import { GRID_GAP, align, autoColumns, distribute, grid, matchSize, mixedClamp, type AlignMode, type Axis, type GridReason, type MatchMode, type Placed } from "./arrange";
 import { useBoardUi } from "./uiStore";
 import { ARRANGE_HINTS, arrangeReason } from "./frameSelect";
 import { LOCK_TEXT, lockToggle } from "../facilitation/lock";
@@ -233,14 +233,14 @@ const MATCH: { mode: MatchMode; title: string; icon: ReactNode }[] = [
   { mode: "both", title: "Match size to the first selected", icon: <Scaling /> },
 ];
 
-export const DISTRIBUTE_HINT = "Select 3 or more notes to distribute.";
+export const DISTRIBUTE_HINT = "Select 3 or more notes or shapes to distribute.";
 
 /** Why Grid is off, shown next to it. */
 export const GRID_HINTS = {
-  few: "Select 2 or more notes to arrange.",
+  few: "Select 2 or more notes or shapes to arrange.",
   offline: "Not connected.",
   held: "Finish moving or resizing first.",
-  unsaved: "Wait until new notes are saved.",
+  unsaved: "Wait until new notes and shapes are saved.",
 } as const;
 
 /** The notice when a grid doesn't fit the board. */
@@ -303,14 +303,14 @@ function GridControls({ notes, reason, onGrid }: { notes: Placed[]; reason: stri
 
 /** Why Order is off: frames always sit behind notes, so only notes restack. */
 export const ORDER_HINTS = {
-  none: "Select notes to restack them.",
+  none: "Select notes or shapes to restack them.",
   frame: "Frames always sit behind notes.",
   offline: "Not connected.",
 } as const;
 
 /** Why Delete is off. */
 export const DELETE_HINTS = {
-  none: "Select notes or a frame first.",
+  none: "Select notes, shapes or a frame first.",
   offline: "Not connected.",
 } as const;
 
@@ -326,6 +326,11 @@ export interface BoardBarProps {
   applyFrames?: (rects: (NoteRect & { id: string })[]) => void;
   /** A frame is selected (instead of notes). */
   frame: boolean;
+  /** Selected shapes (protocol v15), in selection order: they delete, restack and arrange with notes. */
+  shapes?: Placed[];
+  /** A selected shape is being moved or resized here, or has no server id yet. */
+  shapesHeld?: boolean;
+  shapesUnsaved?: boolean;
   live: boolean;
   /** A selected note is being moved or resized here. */
   held: boolean;
@@ -363,6 +368,9 @@ export function BoardBar({
   framesUnsaved = false,
   applyFrames = () => {},
   frame,
+  shapes = [],
+  shapesHeld = false,
+  shapesUnsaved = false,
   live,
   held,
   unsaved,
@@ -379,22 +387,25 @@ export function BoardBar({
   lockedReason = null,
   session = null,
 }: BoardBarProps) {
-  // Arrange works on the notes, or (v0.20.0) on the frames when only frames are selected; a mix is refused with a reason.
+  // Arrange works on notes and shapes together (protocol v15; each clamped to its own limits), or
+  // (v0.20.0) on the frames when only frames are selected; a mix with frames is refused with a reason.
   const onFrames = frames.length > 0;
-  const mixed = onFrames && notes.length > 0;
-  const items = onFrames ? frames : notes;
-  const clamp = onFrames ? clampFrameRect : undefined;
+  const stacked = [...notes, ...shapes];
+  const mixed = onFrames && stacked.length > 0;
+  const items = onFrames ? frames : stacked;
+  const clamp = onFrames ? clampFrameRect : shapes.length > 0 ? mixedClamp(new Set(shapes.map((x) => x.id))) : undefined;
   const send = (changes: Map<string, NoteRect>) => (onFrames ? applyFrames : apply)([...changes].map(([id, rect]) => ({ id, ...rect })));
-  const count = notes.length;
-  const frameReason = onFrames ? arrangeReason({ notes: notes.length, frames: frames.length, live, locked: lockedReason, held: framesHeld, unsaved: framesUnsaved }) : null;
-  const gridReason = onFrames ? frameReason : (lockedReason ?? gridDisabledReason({ count, live, held, unsaved }));
+  const count = stacked.length;
+  const frameReason = onFrames ? arrangeReason({ notes: stacked.length, frames: frames.length, live, locked: lockedReason, held: framesHeld, unsaved: framesUnsaved }) : null;
+  const gridReason = onFrames ? frameReason : (lockedReason ?? gridDisabledReason({ count, live, held: held || shapesHeld, unsaved: unsaved || shapesUnsaved }));
   const runGrid = (columns: number) => {
     const result = grid(items, columns, GRID_GAP, clamp);
     if (result.reason) notice(GRID_NO_ROOM[result.reason]);
     else send(result.changes);
   };
-  const deleteReason = lockedReason ?? (count === 0 && !frame ? DELETE_HINTS.none : !live ? DELETE_HINTS.offline : null);
-  const orderReason = lockedReason ?? (count === 0 ? (frame ? ORDER_HINTS.frame : ORDER_HINTS.none) : !live ? ORDER_HINTS.offline : null);
+  const stackable = count;
+  const deleteReason = lockedReason ?? (stackable === 0 && !frame ? DELETE_HINTS.none : !live ? DELETE_HINTS.offline : null);
+  const orderReason = lockedReason ?? (stackable === 0 ? (frame ? ORDER_HINTS.frame : ORDER_HINTS.none) : !live ? ORDER_HINTS.offline : null);
   // Align and Match size need 2+ notes (or frames) and a connection; Distribute needs 3.
   const arrangeOff = onFrames ? frameReason : (lockedReason ?? (count < 2 ? GRID_HINTS.few : !live ? GRID_HINTS.offline : null));
   const off = (reason: string | null) => ({ disabled: reason !== null, ...(reason ? { hint: reason } : {}) });

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { FrameColor, NoteColor, NoteRect, OrderAction } from "@stickyard/shared";
+import type { FrameColor, NoteColor, NoteRect, OrderAction, ShapeKind } from "@stickyard/shared";
 import { WORKER_URL, healthUrl, toWebSocketUrl } from "../config";
 import { probeHealth } from "../connection/connectionCheck";
 import { browserConnectionEnv } from "../connection/reconnect";
@@ -11,6 +11,7 @@ import { cursorSink } from "../cursors/cursorStore";
 import { browserFetch, checkRoom } from "./api";
 import type { FrameEdit } from "../frames/board";
 import type { StylePatch } from "../notes/board";
+import type { ShapeEdit } from "../shapes/board";
 import { INITIAL_VIEW, RoomSession, type RoomView, type TemplateFramePlan } from "./session";
 
 /**
@@ -56,6 +57,7 @@ export function useRoom(code: string) {
       onChange: setView,
       onNoteConfirmed: (from, to) => useBoardUi.getState().renameSelected(from, to),
       onFrameConfirmed: (from, to) => useBoardUi.getState().renameFrame(from, to),
+      onShapeConfirmed: (from, to) => useBoardUi.getState().renameShape(from, to),
     });
     session.current = next;
     next.join(name);
@@ -95,13 +97,25 @@ export function useRoom(code: string) {
     resizeFrame: (id: string, rect: NoteRect, final: boolean) => session.current?.resizeFrame(id, rect, final),
     setFrameSize: (id: string, w: number, h: number) => session.current?.setFrameSize(id, w, h) ?? false,
     deleteFrame: (id: string) => session.current?.deleteFrame(id),
+    addShape: (at: { kind: ShapeKind; x: number; y: number }) => session.current?.addShape(at) ?? null,
+    editShape: (id: string, change: ShapeEdit) => session.current?.editShape(id, change) ?? false,
+    editShapes: (ids: readonly string[], change: ShapeEdit) => session.current?.editShapes(ids, change) ?? false,
+    setShapeDraft: (id: string, draft: string | null) => session.current?.setShapeDraft(id, draft),
+    startShapeDrag: (id: string) => session.current?.startShapeDrag(id) ?? false,
+    moveShape: (id: string, x: number, y: number, final: boolean) => session.current?.moveShape(id, x, y, final),
+    startShapeResize: (id: string) => session.current?.startShapeResize(id) ?? false,
+    resizeShape: (id: string, rect: NoteRect, final: boolean) => session.current?.resizeShape(id, rect, final),
+    setShapeSize: (id: string, w: number, h: number) => session.current?.setShapeSize(id, w, h) ?? false,
+    deleteShape: (id: string) => session.current?.deleteShape(id),
     clearBoard: () => session.current?.clearBoard() ?? false,
-    deleteSelection: (noteIds: readonly string[], frameIds: readonly string[]) => session.current?.deleteSelection(noteIds, frameIds) ?? false,
-    startSelectionDrag: (frameIds: readonly string[], noteIds: readonly string[], carry: boolean) =>
-      session.current?.startSelectionDrag(frameIds, noteIds, carry) ?? false,
+    deleteSelection: (noteIds: readonly string[], frameIds: readonly string[], shapeIds: readonly string[] = []) =>
+      session.current?.deleteSelection(noteIds, frameIds, shapeIds) ?? false,
+    startSelectionDrag: (frameIds: readonly string[], noteIds: readonly string[], carry: boolean, shapeIds: readonly string[] = []) =>
+      session.current?.startSelectionDrag(frameIds, noteIds, carry, shapeIds) ?? false,
     applyFrameRects: (rects: readonly (NoteRect & { id: string })[]) => session.current?.applyFrameRects(rects) ?? false,
     editFrames: (ids: readonly string[], change: FrameEdit) => session.current?.editFrames(ids, change) ?? false,
-    duplicateSelection: (noteIds: readonly string[], frameIds: readonly string[]) => session.current?.duplicateSelection(noteIds, frameIds) ?? null,
+    duplicateSelection: (noteIds: readonly string[], frameIds: readonly string[], shapeIds: readonly string[] = []) =>
+      session.current?.duplicateSelection(noteIds, frameIds, shapeIds) ?? null,
     moveSelection: (dx: number, dy: number, final: boolean) => session.current?.moveSelection(dx, dy, final) ?? { dx: 0, dy: 0 },
     undo: () => session.current?.undo(),
     redo: () => session.current?.redo(),

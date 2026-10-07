@@ -959,6 +959,8 @@ describe("the palette (md up)", () => {
       "Purple note",
       // Slice frames: the Frames category follows Notes.
       "Frame",
+      // Protocol v15: then Shapes (text and three outlines).
+      "Text", "Rectangle", "Oval", "Diamond",
       // Slice templates: then Templates.
       "Retro", "Start Stop Continue", "2x2 Impact and Effort", "Sprint planning",
     ]);
@@ -1002,7 +1004,7 @@ describe("the palette (md up)", () => {
     expect(palette()?.querySelector("h3")).toBeNull();
     expect(palette()?.textContent).toContain("No matches");
     await type(search() as HTMLInputElement, "");
-    expect(tiles()).toHaveLength(11);
+    expect(tiles()).toHaveLength(15);
   });
 
   it("collapses to a strip with an expand button and compact tiles (as in Chalkline), from the header or with [, and remembers it", async () => {
@@ -1011,7 +1013,7 @@ describe("the palette (md up)", () => {
     expect(search()).toBeNull();
     expect(palette()?.querySelector("h3")).toBeNull();
     // Collapsing never takes adding away: the strip keeps one compact tile per colour.
-    expect(tiles().map((t) => t.getAttribute("aria-label"))).toEqual(["Yellow note", "Pink note", "Blue note", "Green note", "Orange note", "Purple note", "Frame", "Retro", "Start Stop Continue", "2x2 Impact and Effort", "Sprint planning"]);
+    expect(tiles().map((t) => t.getAttribute("aria-label"))).toEqual(["Yellow note", "Pink note", "Blue note", "Green note", "Orange note", "Purple note", "Frame", "Text", "Rectangle", "Oval", "Diamond", "Retro", "Start Stop Continue", "2x2 Impact and Effort", "Sprint planning"]);
     await click(tiles()[2]);
     expect(sentOfType(socket, "noteAdd")[0]).toMatchObject({ color: "blue" });
     expect(palette()?.querySelector('[aria-label="Expand palette"]')?.getAttribute("aria-expanded")).toBe("false");
@@ -1019,7 +1021,7 @@ describe("the palette (md up)", () => {
     await act(async () => (document.activeElement as HTMLElement | null)?.blur());
     await press("[");
     expect(search()).not.toBeNull();
-    expect(tiles()).toHaveLength(11);
+    expect(tiles()).toHaveLength(15);
     expect(saved("stickyard:palette-panel")).toEqual({ width: null, collapsed: false });
   });
 
@@ -1735,7 +1737,7 @@ describe("multi-select and arrange (slice 2.8, md up)", () => {
     await noteClick(0);
     // The bar is always there from md up; with one note the arrange commands are off, and say why.
     expect(isOff(bar()?.querySelector<HTMLButtonElement>('[aria-label="Align left edges"]'))).toBe(true);
-    expect(bar()?.textContent).toContain("Select 2 or more notes to arrange.");
+    expect(bar()?.textContent).toContain("Select 2 or more notes or shapes to arrange.");
     await noteClick(1, { shiftKey: true });
     expect(isOff(bar()?.querySelector<HTMLButtonElement>('[aria-label="Align left edges"]'))).toBe(false);
     const distribute = bar()?.querySelector<HTMLButtonElement>('[aria-label="Distribute horizontally (equal gaps)"]');
@@ -2696,8 +2698,8 @@ describe("the floating bar and Duplicate (md up)", () => {
       const text = ids.map((id) => document.getElementById(id)?.textContent ?? "").join(" ");
       expect(text.trim().length, button.getAttribute("aria-label") ?? button.textContent ?? "").toBeGreaterThan(0);
     }
-    expect(tipOf(command("Delete"))?.textContent).toContain("Select notes or a frame first.");
-    expect(hint("Arrange")?.textContent).toContain("Select 2 or more notes to arrange.");
+    expect(tipOf(command("Delete"))?.textContent).toContain("Select notes, shapes or a frame first.");
+    expect(hint("Arrange")?.textContent).toContain("Select 2 or more notes or shapes to arrange.");
     // Since v0.16.0 History, Edit and Order are icons (room in the top bar for the timer and the
     // host's Session group); each is named, and its tooltip names it when it's on.
     expect(command("Duplicate")?.getAttribute("aria-label")).toBe("Duplicate");
@@ -2728,7 +2730,7 @@ describe("the floating bar and Duplicate (md up)", () => {
     expect(tip.hidden).toBe(true);
     await act(async () => del.dispatchEvent(new MouseEvent("mouseover", { bubbles: true })));
     expect(tip.hidden).toBe(false);
-    expect(tip.textContent).toContain("Select notes or a frame first.");
+    expect(tip.textContent).toContain("Select notes, shapes or a frame first.");
     await act(async () => del.dispatchEvent(new MouseEvent("mouseout", { bubbles: true })));
     expect(tip.hidden).toBe(true);
     // Off, but still focusable, so a keyboard user hears and sees why.

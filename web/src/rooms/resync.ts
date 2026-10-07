@@ -2,6 +2,7 @@ import type { Frame, Note, NoteColor } from "@stickyard/shared";
 import type { BoardFrame } from "../frames/board";
 import { rollbackFrame } from "../frames/board";
 import { rollback, type Board, type BoardNote } from "../notes/board";
+import { discardUnconfirmedShapes } from "../shapes/board";
 
 /*
  * A dropped connection and the resync after it (web only, pure). There's no offline queue: at the
@@ -46,11 +47,11 @@ export function discardUnconfirmed(board: Board): { board: Board; orphans: Orpha
     if (entry.frame === entry.confirmed && !entry.dragging && !entry.resizing) return [entry];
     return [{ ...entry, frame: entry.confirmed, dragging: false, resizing: false }];
   });
-  return { board: { notes, removed: [], frames, framesRemoved: [] }, orphans };
+  return { board: discardUnconfirmedShapes({ ...next, notes, removed: [], frames, framesRemoved: [] }), orphans };
 }
 
 /**
- * The items with changes of mine the relay hasn't confirmed, as "note:<id>" / "frame:<id>": adds
+ * The items with changes of mine the relay hasn't confirmed, as "note:<id>" / "frame:<id>" / "shape:<id>": adds
  * not confirmed, deletes not confirmed, items being moved or resized here, and `inFlight` (changes
  * sent and not heard back, from the history). Someone else's live drag isn't mine and isn't
  * counted. `excluded` items are reported elsewhere (a template, a restore, a delete or a clear).
@@ -61,6 +62,8 @@ export function unsavedKeys(board: Board, inFlight: Iterable<string>, excluded: 
   for (const n of board.removed) keys.add(`note:${n.note.id}`);
   for (const f of board.frames) if (f.confirmed === null || f.dragging || f.resizing) keys.add(`frame:${f.frame.id}`);
   for (const f of board.framesRemoved) keys.add(`frame:${f.frame.id}`);
+  for (const s of board.shapes) if (s.confirmed === null || s.dragging || s.resizing) keys.add(`shape:${s.shape.id}`);
+  for (const s of board.shapesRemoved) keys.add(`shape:${s.shape.id}`);
   for (const key of inFlight) keys.add(key);
   for (const key of excluded) keys.delete(key);
   return keys;

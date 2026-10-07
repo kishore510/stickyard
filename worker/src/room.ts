@@ -9,6 +9,9 @@ import {
   MAX_FRAMES_PER_ROOM,
   MAX_NOTES_PER_ROOM,
   MAX_PARTICIPANTS,
+  MAX_SHAPES_PER_ROOM,
+  SHAPE_EDIT_FIELDS,
+  SHAPE_STYLE_FIELDS,
   MAX_VOTERS_PER_ROUND,
   NOTE_DEFAULTS,
   NOTE_EDIT_FIELDS,
@@ -28,16 +31,21 @@ import {
   checkItems,
   checkOrder,
   clampNoteRect,
+  clampShapePosition,
+  clampShapeRect,
+  checkShapeBatch,
   clientMessageSchema,
   cleanFrameTitle,
   cleanName,
   cleanNoteText,
+  cleanShapeText,
   cleanText,
   encodeMessage,
   groupOffset,
   parseMessage,
   participantSchema,
   restack,
+  shapeDefaults,
   zForNew,
   type ClientMessage,
   type ErrorCode,
@@ -47,6 +55,8 @@ import {
   type NoteBatchResult,
   type Participant,
   type ServerMessage,
+  type Shape,
+  type ShapeBatchResult,
   type Stacked,
   type TimerState,
   type VotingState,
@@ -104,12 +114,14 @@ const socketStateSchema = z.object({
 });
 type SocketState = z.infer<typeof socketStateSchema>;
 
-/** Which note or frame (or pending add) an error is about, so the sender can roll back. */
+/** Which note, frame or shape (or pending add) an error is about, so the sender can roll back. */
 type ErrorRef =
   | { clientRef: string }
   | { noteId: string }
   | { noteIds: string[] }
-  | { frameId: string; noteIds?: string[] }
+  | { shapeId: string }
+  | { shapeIds: string[] }
+  | { frameId: string; noteIds?: string[]; shapeIds?: string[] }
   | Record<string, never>;
 
 const error = (code: ErrorCode, message: string, ref: ErrorRef = {}): ServerMessage => ({ type: "error", code, message, ...ref });
@@ -136,7 +148,18 @@ function refOf(message: ClientMessage): ErrorRef {
     }
     case "frameAdd":
     case "itemsAdd":
+    case "shapeAdd":
       return { clientRef: message.clientRef };
+    case "shapeEdit":
+    case "shapeMove":
+    case "shapeResize":
+    case "shapeDelete":
+      return { shapeId: message.id };
+    case "shapeBatch": {
+      const { valid, invalidIds } = checkShapeBatch(message.ops);
+      const shapeIds = [...new Set([...valid.map((v) => v.entry.id), ...invalidIds])];
+      return shapeIds.length > 0 ? { shapeIds } : {};
+    }
     case "frameEdit":
     case "frameResize":
     case "frameDelete":
@@ -144,8 +167,12 @@ function refOf(message: ClientMessage): ErrorRef {
     case "voteSet":
       return { noteId: message.noteId };
     case "frameMove":
-      // The notes it was carrying roll back with it.
-      return message.noteIds && message.noteIds.length > 0 ? { frameId: message.id, noteIds: message.noteIds } : { frameId: message.id };
+      // The notes and shapes it was carrying roll back with it.
+      return {
+        frameId: message.id,
+        ...(message.noteIds && message.noteIds.length > 0 ? { noteIds: message.noteIds } : {}),
+        ...(message.shapeIds && message.shapeIds.length > 0 ? { shapeIds: message.shapeIds } : {}),
+      };
     default:
       return {};
   }
@@ -156,6 +183,8 @@ type BatchMessage = Extract<ClientMessage, { type: "noteBatch" }>;
 type OrderMessage = Extract<ClientMessage, { type: "notesOrder" }>;
 type FrameMessage = Extract<ClientMessage, { type: "frameAdd" | "frameEdit" | "frameMove" | "frameResize" | "frameDelete" }>;
 type ItemsMessage = Extract<ClientMessage, { type: "itemsAdd" }>;
+type ShapeMessage = Extract<ClientMessage, { type: "shapeAdd" | "shapeEdit" | "shapeMove" | "shapeResize" | "shapeDelete" }>;
+type ShapeBatchMessage = Extract<ClientMessage, { type: "shapeBatch" }>;
 type VotingHostMessage = Extract<ClientMessage, { type: "voteStart" | "voteStop" | "voteClear" }>;
 type CursorMessage = Extract<ClientMessage, { type: "cursor" | "cursorLeft" }>;
 const isCursor = (message: ClientMessage): message is CursorMessage => message.type === "cursor" || message.type === "cursorLeft";
@@ -182,13 +211,23 @@ const isPreview = (message: ClientMessage) =>
     message.type === "noteResize" ||
     message.type === "noteBatch" ||
     message.type === "frameMove" ||
-    message.type === "frameResize") &&
+    message.type === "frameResize" ||
+    message.type === "shapeMove" ||
+    message.type === "shapeResize" ||
+    message.type === "shapeBatch") &&
   !message.final;
 
 /** A frame's live move or resize waiting to be relayed (latest per frame and kind). */
 interface PendingFrame {
   from: WebSocket;
   message: Extract<ServerMessage, { type: "frameMoved" | "frameResized" }>;
+}
+
+/** A shape's live move or resize waiting to be relayed. `batch`: it came in a shapeBatch (goes out in a shapesBatchApplied). */
+interface PendingShape {
+  from: WebSocket;
+  message: Extract<ServerMessage, { type: "shapeMoved" | "shapeResized" }>;
+  batch: boolean;
 }
 
 /** A relayed change waiting to go out. `batch`: it came in a noteBatch, so it goes out in a notesBatchApplied. */
@@ -221,6 +260,8 @@ export class Room extends DurableObject<Env> {
   private readonly pendingMoves = new Map<string, Pending>();
   /** Frames' live moves and resizes, likewise. */
   private readonly pendingFrames = new Map<string, PendingFrame>();
+  /** Shapes' live moves and resizes, likewise. */
+  private readonly pendingShapes = new Map<string, PendingShape>();
   private flushScheduled = false;
 
   constructor(ctx: DurableObjectState, env: Env) {
@@ -484,6 +525,7 @@ export class Room extends DurableObject<Env> {
     this.voting = VOTING_OFF;
     this.pendingMoves.clear();
     this.pendingFrames.clear();
+    this.pendingShapes.clear();
     return tombstone;
   }
 
@@ -543,9 +585,10 @@ export class Room extends DurableObject<Env> {
           timer: this.timerView(),
           voting: this.voting,
         });
-        // Notes, then frames, in this same step: nothing else can be sent to this socket between them.
+        // Notes, then frames, then shapes, in this same step: nothing else can be sent to this socket between them.
         send(ws, { type: "snapshot", notes: this.notes.all() });
         send(ws, { type: "framesSnapshot", frames: this.notes.allFrames() });
+        send(ws, { type: "shapesSnapshot", shapes: this.notes.allShapes() });
         // A closed round's totals, so a late joiner sees the results. While open, nothing about anyone's votes.
         if (this.voting.state === "closed") send(ws, this.revealed());
         this.broadcast({ type: "participant_joined", participant: you }, ws);
@@ -595,6 +638,24 @@ export class Room extends DurableObject<Env> {
         ws.serializeAttachment(state);
         if (!state.participant) return send(ws, error("not_joined", "Join the room first.", refOf(message)));
         this.handleFrame(ws, state.participant, message);
+        return;
+      }
+
+      case "shapeAdd":
+      case "shapeEdit":
+      case "shapeMove":
+      case "shapeResize":
+      case "shapeDelete": {
+        ws.serializeAttachment(state);
+        if (!state.participant) return send(ws, error("not_joined", "Join the room first.", refOf(message)));
+        this.handleShape(ws, state.participant, message);
+        return;
+      }
+
+      case "shapeBatch": {
+        ws.serializeAttachment(state);
+        if (!state.participant) return send(ws, error("not_joined", "Join the room first.", refOf(message)));
+        this.handleShapeBatch(ws, message);
         return;
       }
 
@@ -805,24 +866,26 @@ export class Room extends DurableObject<Env> {
   }
 
   /**
-   * Notes and frames with their full content (protocol v11). Each entry is checked on its own; a
-   * message using a ref twice is refused whole. Valid entries fill the room's free note and frame
-   * slots in order and the rest are refused (notes_full, frames_full). Text is cleaned and rects
-   * clamped as for noteAdd and frameAdd; ids, z, rev (1) and author are the server's. New notes go
-   * on top in array order (zForNew, one at a time); a renumbering at the bound is broadcast first
-   * as notesOrdered. Everything is written in one transaction and sent as one itemsAdded (refs and
-   * refusals only in the sender's copy). Nothing added: no broadcast, only an error to the sender.
-   * Content is untrusted text: cleaned, never logged.
+   * Notes, frames and shapes with their full content (protocol v11; shapes since v15). Each entry
+   * is checked on its own; a message using a ref twice is refused whole. Valid entries fill the
+   * room's free note, frame and shape slots in order and the rest are refused (notes_full,
+   * frames_full, shapes_full). Text is cleaned and rects clamped as for the single adds; ids, z,
+   * rev (1) and author are the server's. New notes and shapes go on top in `rank` order (items
+   * without one after, notes then shapes, each in array order), one at a time with zForNew over
+   * the shared stacking space; a renumbering at the bound is broadcast first as notesOrdered.
+   * Everything is written in one transaction and sent as one itemsAdded (refs and refusals only in
+   * the sender's copy). Nothing added: no broadcast, only an error to the sender. Content is
+   * untrusted text: cleaned, never logged.
    */
   private handleItems(ws: WebSocket, you: Participant, message: ItemsMessage): void {
-    const check = checkItems(message.notes, message.frames);
+    const check = checkItems(message.notes, message.frames, message.shapes);
     if (check.duplicate) return send(ws, error("bad_message", "An item is named twice.", refOf(message)));
     const refused: ItemRefusal[] = [...check.invalid];
     const refuse = (kind: ItemRefusal["kind"], index: number, ref: string, reason: ItemRefusal["reason"]) => refused.push({ kind, index, ref, reason });
 
-    // Notes: free slots in order, each on top of the last.
-    let stack: Stacked[] = this.notes.all().map(({ id, z }) => ({ id, z }));
-    const notes: { ref: string; note: Note }[] = [];
+    // Notes and shapes that pass cleaning and fit a free slot, in array order (slots are taken in that order).
+    type Stackable = { kind: "note"; rank: number | undefined; order: number; ref: string; note: Omit<Note, "z"> } | { kind: "shape"; rank: number | undefined; order: number; ref: string; shape: Omit<Shape, "z"> };
+    const stackable: Stackable[] = [];
     let noteSlots = MAX_NOTES_PER_ROOM - this.notes.count;
     for (const { index, entry } of check.notes) {
       const text = cleanNoteText(entry.text);
@@ -835,20 +898,47 @@ export class Room extends DurableObject<Env> {
         continue;
       }
       noteSlots--;
-      const { ref, x, y, w, h, text: _, ...style } = entry;
-      const id = randomBase64url(12);
+      const { ref, rank, x, y, w, h, text: _, ...style } = entry;
+      stackable.push({ kind: "note", rank, order: stackable.length, ref, note: { id: randomBase64url(12), ...clampNoteRect({ x, y, w, h }), text, ...style, rev: 1, authorId: you.id } });
+    }
+    let shapeSlots = MAX_SHAPES_PER_ROOM - this.notes.shapeCount;
+    for (const { index, entry } of check.shapes) {
+      const text = cleanShapeText(entry.text);
+      if (text === null) {
+        refuse("shape", index, entry.ref, "invalid");
+        continue;
+      }
+      if (shapeSlots <= 0) {
+        refuse("shape", index, entry.ref, "shapes_full");
+        continue;
+      }
+      shapeSlots--;
+      const { ref, rank, x, y, w, h, text: _, ...style } = entry;
+      stackable.push({ kind: "shape", rank, order: stackable.length, ref, shape: { id: randomBase64url(12), ...clampShapeRect({ x, y, w, h }), text, ...style, rev: 1, authorId: you.id } });
+    }
+
+    // Stacking: ranked items first (by rank, then array order), then the rest; each on top of the last.
+    const RANKLESS = Number.MAX_SAFE_INTEGER;
+    const byRank = [...stackable].sort((a, b) => (a.rank ?? RANKLESS) - (b.rank ?? RANKLESS) || a.order - b.order);
+    let stack: Stacked[] = this.stackItems();
+    const zOf = new Map<string, number>();
+    for (const item of byRank) {
+      const id = item.kind === "note" ? item.note.id : item.shape.id;
       const { z, changes } = zForNew(stack);
       if (changes.length > 0) {
         const renumbered = new Map(changes.map((c) => [c.id, c.z]));
         stack = stack.map((s) => ({ id: s.id, z: renumbered.get(s.id) ?? s.z }));
       }
       stack.push({ id, z });
-      notes.push({ ref, note: { id, ...clampNoteRect({ x, y, w, h }), text, ...style, z, rev: 1, authorId: you.id } });
+      zOf.set(id, z);
     }
-    // A renumbering may have moved notes added earlier in this message too: they take their final z.
-    const finalZ = new Map(stack.map((s) => [s.id, s.z]));
-    for (const added of notes) added.note = { ...added.note, z: finalZ.get(added.note.id) ?? added.note.z };
-    const renumbered = this.restacked(stack.filter((s) => this.notes.get(s.id)));
+    // A renumbering may have moved items added earlier in this message too: they take their final z.
+    for (const s of stack) if (zOf.has(s.id)) zOf.set(s.id, s.z);
+    const renumbered = this.restacked(stack.filter((s) => !zOf.has(s.id)));
+    const notes = stackable.flatMap((i) => (i.kind === "note" ? [{ ref: i.ref, note: { ...i.note, z: zOf.get(i.note.id) ?? 0 } as Note }] : []));
+    const shapes = stackable.flatMap((i) => (i.kind === "shape" ? [{ ref: i.ref, shape: { ...i.shape, z: zOf.get(i.shape.id) ?? 0 } as Shape }] : []));
+    // Notes go out in stacking order (bottom first), as before.
+    notes.sort((a, b) => a.note.z - b.note.z);
 
     const frames: { ref: string; frame: Frame }[] = [];
     let frameSlots = MAX_FRAMES_PER_ROOM - this.notes.frameCount;
@@ -866,25 +956,46 @@ export class Room extends DurableObject<Env> {
       const { ref, x, y, w, h, title: _, ...rest } = entry;
       frames.push({ ref, frame: { id: randomBase64url(12), ...clampFrameRect({ x, y, w, h }), title, ...rest, rev: 1, authorId: you.id } });
     }
-    refused.sort((a, b) => (a.kind === b.kind ? a.index - b.index : a.kind === "note" ? -1 : 1));
+    const kindOrder: Record<ItemRefusal["kind"], number> = { note: 0, frame: 1, shape: 2 };
+    refused.sort((a, b) => (a.kind === b.kind ? a.index - b.index : kindOrder[a.kind] - kindOrder[b.kind]));
 
-    if (notes.length === 0 && frames.length === 0) {
+    if (notes.length === 0 && frames.length === 0 && shapes.length === 0) {
       const reasons = new Set(refused.map((r) => r.reason));
-      const code: ErrorCode = reasons.size === 1 && !reasons.has("invalid") ? (reasons.has("notes_full") ? "notes_full" : "frames_full") : "bad_message";
+      const only = reasons.size === 1 ? [...reasons][0] : undefined;
+      const code: ErrorCode = only === "notes_full" || only === "frames_full" || only === "shapes_full" ? only : "bad_message";
       return send(ws, { type: "error", code, message: "Nothing was added.", clientRef: message.clientRef, refused });
     }
 
     this.notes.applyAdds(
-      renumbered,
+      renumbered.notes,
       notes.map((n) => n.note),
       frames.map((f) => f.frame),
+      shapes.map((x) => x.shape),
+      renumbered.shapes,
     );
-    if (renumbered.length > 0) this.broadcast({ type: "notesOrdered", results: renumbered.map((n) => ({ id: n.id, z: n.z, rev: n.rev })) });
-    send(ws, { type: "itemsAdded", clientRef: message.clientRef, notes, frames, refused });
+    this.broadcastOrdered(renumbered);
+    send(ws, { type: "itemsAdded", clientRef: message.clientRef, notes, frames, ...(shapes.length > 0 ? { shapes } : {}), refused });
     this.broadcast(
-      { type: "itemsAdded", notes: notes.map(({ note }) => ({ note })), frames: frames.map(({ frame }) => ({ frame })), refused: [] },
+      {
+        type: "itemsAdded",
+        notes: notes.map(({ note }) => ({ note })),
+        frames: frames.map(({ frame }) => ({ frame })),
+        ...(shapes.length > 0 ? { shapes: shapes.map(({ shape }) => ({ shape })) } : {}),
+        refused: [],
+      },
       ws,
     );
+  }
+
+  /** Everything in the stacking space (notes and, since v15, shapes): id and z. */
+  private stackItems(): Stacked[] {
+    return [...this.notes.all(), ...this.notes.allShapes()].map(({ id, z }) => ({ id, z }));
+  }
+
+  /** Tells everyone about renumbered or restacked notes and shapes (if any), as one notesOrdered. */
+  private broadcastOrdered(changed: { notes: readonly Note[]; shapes: readonly Shape[] }): void {
+    const results = [...changed.notes, ...changed.shapes].map((n) => ({ id: n.id, z: n.z, rev: n.rev }));
+    if (results.length > 0) this.broadcast({ type: "notesOrdered", results });
   }
 
   /**
@@ -938,11 +1049,16 @@ export class Room extends DurableObject<Env> {
         const current = this.notes.getFrame(message.id);
         if (!current) return;
         const carried = (message.noteIds ?? []).flatMap((id) => this.notes.get(id) ?? []);
+        const carriedShapes = (message.shapeIds ?? []).flatMap((id) => this.notes.getShape(id) ?? []);
         const target = clampFramePosition(message.x, message.y, current);
-        const { dx, dy } = carried.length > 0 ? groupOffset([current, ...carried], target.x - current.x, target.y - current.y) : { dx: target.x - current.x, dy: target.y - current.y };
+        const { dx, dy } =
+          carried.length + carriedShapes.length > 0
+            ? groupOffset([current, ...carried, ...carriedShapes], target.x - current.x, target.y - current.y)
+            : { dx: target.x - current.x, dy: target.y - current.y };
         const x = current.x + dx;
         const y = current.y + dy;
         const placed = carried.map((note) => ({ note, ...clampNotePosition(note.x + dx, note.y + dy, note) }));
+        const placedShapes = carriedShapes.map((shape) => ({ shape, ...clampShapePosition(shape.x + dx, shape.y + dy, shape) }));
         if (!message.final) {
           this.pendingFrames.set(`move:${current.id}`, {
             from: ws,
@@ -954,6 +1070,7 @@ export class Room extends DurableObject<Env> {
               rev: current.rev,
               final: false,
               ...(placed.length > 0 ? { notes: placed.map(({ note, x: nx, y: ny }) => ({ id: note.id, x: nx, y: ny, rev: note.rev })) } : {}),
+              ...(placedShapes.length > 0 ? { shapes: placedShapes.map(({ shape, x: sx, y: sy }) => ({ id: shape.id, x: sx, y: sy, rev: shape.rev })) } : {}),
             },
           });
           this.scheduleFlush();
@@ -967,8 +1084,15 @@ export class Room extends DurableObject<Env> {
           changed.push(next);
           return next;
         });
-        // The frame and every changed note in one transaction: 1 + N rows at most.
-        this.notes.applyFrameMove(frame, changed);
+        const changedShapes: Shape[] = [];
+        const shapes = placedShapes.map(({ shape, x: sx, y: sy }) => {
+          if (sx === shape.x && sy === shape.y) return shape;
+          const next = { ...shape, x: sx, y: sy, rev: shape.rev + 1 };
+          changedShapes.push(next);
+          return next;
+        });
+        // The frame and every changed note and shape in one transaction: 1 + N + M rows at most.
+        this.notes.applyFrameMove(frame, changed, changedShapes);
         const moved = frame ?? current;
         // Reported even when unchanged, so everyone who saw the drag sees where it ended.
         this.broadcast({
@@ -979,6 +1103,7 @@ export class Room extends DurableObject<Env> {
           rev: moved.rev,
           final: true,
           ...(notes.length > 0 ? { notes: notes.map((n) => ({ id: n.id, x: n.x, y: n.y, rev: n.rev })) } : {}),
+          ...(shapes.length > 0 ? { shapes: shapes.map((n) => ({ id: n.id, x: n.x, y: n.y, rev: n.rev })) } : {}),
         });
         return;
       }
@@ -1029,25 +1154,34 @@ export class Room extends DurableObject<Env> {
         ...(invalidIds.length > 0 ? { noteIds: invalidIds } : {}),
       });
     }
-    const ids = valid.map((v) => v.id).filter((id) => this.notes.get(id));
+    // Notes and shapes share the stacking space (v15); anything else (a frame, a deleted id) is ignored.
+    const ids = valid.map((v) => v.id).filter((id) => this.notes.get(id) ?? this.notes.getShape(id));
     if (ids.length === 0) return;
-    const { changes } = restack(this.notes.all(), ids, message.action);
+    const { changes } = restack(this.stackItems(), ids, message.action);
     const updates = this.restacked(changes);
-    this.notes.applyBatch(updates, []);
-    const reported = new Set([...ids, ...updates.map((n) => n.id)]);
+    this.notes.applyBatch(updates.notes, [], updates.shapes);
+    const reported = new Set([...ids, ...updates.notes.map((n) => n.id), ...updates.shapes.map((n) => n.id)]);
     const results = [...reported].flatMap((id) => {
-      const note = this.notes.get(id);
-      return note ? [{ id, z: note.z, rev: note.rev }] : [];
+      const item = this.notes.get(id) ?? this.notes.getShape(id);
+      return item ? [{ id, z: item.z, rev: item.rev }] : [];
     });
     this.broadcast({ type: "notesOrdered", results });
   }
 
-  /** Notes with their new z (and a rev bump), from stacking changes. */
-  private restacked(changes: readonly Stacked[]): Note[] {
-    return changes.flatMap(({ id, z }) => {
-      const current = this.notes.get(id);
-      return current && current.z !== z ? [{ ...current, z, rev: current.rev + 1 }] : [];
-    });
+  /** Notes and shapes with their new z (and a rev bump), from stacking changes. */
+  private restacked(changes: readonly Stacked[]): { notes: Note[]; shapes: Shape[] } {
+    const notes: Note[] = [];
+    const shapes: Shape[] = [];
+    for (const { id, z } of changes) {
+      const note = this.notes.get(id);
+      if (note) {
+        if (note.z !== z) notes.push({ ...note, z, rev: note.rev + 1 });
+        continue;
+      }
+      const shape = this.notes.getShape(id);
+      if (shape && shape.z !== z) shapes.push({ ...shape, z, rev: shape.rev + 1 });
+    }
+    return { notes, shapes };
   }
 
   /**
@@ -1124,13 +1258,8 @@ export class Room extends DurableObject<Env> {
         }
         const text = cleanNoteText(message.text);
         if (text === null) return send(ws, error("bad_message", "Note text is too long.", refOf(message)));
-        // A new note goes on top. At the bound the others are renumbered first, and everyone hears.
-        const stack = zForNew(this.notes.all());
-        const renumbered = this.restacked(stack.changes);
-        if (renumbered.length > 0) {
-          this.notes.applyBatch(renumbered, []);
-          this.broadcast({ type: "notesOrdered", results: renumbered.map((n) => ({ id: n.id, z: n.z, rev: n.rev })) });
-        }
+        // A new note goes on top of every note and shape. At the bound the others are renumbered first, and everyone hears.
+        const stack = this.newOnTop();
         // The id, z, rev and author are the server's; the author comes from this socket.
         // A new note has the default size and style; noteAdd carries neither.
         const note: Note = {
@@ -1236,6 +1365,160 @@ export class Room extends DurableObject<Env> {
     }
   }
 
+  /** The z for a new note or shape: on top. A renumbering at the bound is written and broadcast first. */
+  private newOnTop(): { z: number } {
+    const stack = zForNew(this.stackItems());
+    const renumbered = this.restacked(stack.changes);
+    if (renumbered.notes.length + renumbered.shapes.length > 0) {
+      this.notes.applyBatch(renumbered.notes, [], renumbered.shapes);
+      this.broadcastOrdered(renumbered);
+    }
+    return { z: stack.z };
+  }
+
+  /**
+   * Shapes (protocol v15): last-write-wins in arrival order, every stored change bumps rev,
+   * unknown or deleted shapes ignored silently, an unchanged edit writes and sends nothing. Live
+   * moves and resizes are relayed to the others, coalesced, never stored. Text is untrusted:
+   * cleaned, never logged. The kind never changes.
+   */
+  private handleShape(ws: WebSocket, you: Participant, message: ShapeMessage): void {
+    switch (message.type) {
+      case "shapeAdd": {
+        if (this.notes.shapeCount >= MAX_SHAPES_PER_ROOM) {
+          return send(ws, error("shapes_full", `This board has the maximum of ${MAX_SHAPES_PER_ROOM} shapes.`, refOf(message)));
+        }
+        const { w, h, ...style } = shapeDefaults(message.kind);
+        const { z } = this.newOnTop();
+        const shape: Shape = { id: randomBase64url(12), kind: message.kind, ...clampShapeRect({ x: message.x, y: message.y, w, h }), text: "", ...style, z, rev: 1, authorId: you.id };
+        this.notes.insertShape(shape);
+        send(ws, { type: "shapeAdded", shape, clientRef: message.clientRef });
+        this.broadcast({ type: "shapeAdded", shape }, ws);
+        return;
+      }
+
+      case "shapeEdit": {
+        const current = this.notes.getShape(message.id);
+        if (!current) return;
+        const text = message.text === undefined ? current.text : cleanShapeText(message.text);
+        if (text === null) return send(ws, error("bad_message", "Shape text is too long.", refOf(message)));
+        const next: Shape = { ...current, text };
+        for (const field of SHAPE_STYLE_FIELDS) {
+          const value = message[field];
+          if (value !== undefined) Object.assign(next, { [field]: value });
+        }
+        if (SHAPE_EDIT_FIELDS.every((field) => next[field] === current[field])) return;
+        const shape: Shape = { ...next, rev: current.rev + 1 };
+        this.notes.updateShape(shape);
+        this.broadcast({ type: "shapeUpdated", shape });
+        return;
+      }
+
+      case "shapeMove": {
+        const current = this.notes.getShape(message.id);
+        if (!current) return;
+        const { x, y } = clampShapePosition(message.x, message.y, current);
+        if (!message.final) {
+          this.pendingShapes.set(`move:${current.id}`, { from: ws, message: { type: "shapeMoved", id: current.id, x, y, rev: current.rev, final: false }, batch: false });
+          this.scheduleFlush();
+          return;
+        }
+        let shape = current;
+        if (x !== current.x || y !== current.y) {
+          shape = { ...current, x, y, rev: current.rev + 1 };
+          this.notes.updateShape(shape);
+        }
+        // Sent even when unchanged, so everyone who saw the drag sees where it ended.
+        this.broadcast({ type: "shapeMoved", id: shape.id, x: shape.x, y: shape.y, rev: shape.rev, final: true });
+        return;
+      }
+
+      case "shapeResize": {
+        const current = this.notes.getShape(message.id);
+        if (!current) return;
+        const rect = clampShapeRect(message);
+        if (!message.final) {
+          this.pendingShapes.set(`resize:${current.id}`, { from: ws, message: { type: "shapeResized", id: current.id, ...rect, rev: current.rev, final: false }, batch: false });
+          this.scheduleFlush();
+          return;
+        }
+        let shape = current;
+        if (rect.x !== current.x || rect.y !== current.y || rect.w !== current.w || rect.h !== current.h) {
+          shape = { ...current, ...rect, rev: current.rev + 1 };
+          this.notes.updateShape(shape);
+        }
+        this.broadcast({ type: "shapeResized", id: shape.id, x: shape.x, y: shape.y, w: shape.w, h: shape.h, rev: shape.rev, final: true });
+        return;
+      }
+
+      case "shapeDelete": {
+        if (!this.notes.getShape(message.id)) return;
+        this.notes.deleteShape(message.id);
+        this.broadcast({ type: "shapeDeleted", id: message.id });
+        return;
+      }
+    }
+  }
+
+  /**
+   * Many shape moves, resizes and deletes, exactly like handleBatch for notes: invalid entries
+   * named back by index (and shape id) while the rest apply; a shape named twice refuses the whole
+   * batch; unknown and deleted shapes ignored. Final: one transaction, one rev bump per changed
+   * shape, one shapesBatchApplied to everyone. Live: relayed to the others, coalesced, never
+   * stored (deletes ignored).
+   */
+  private handleShapeBatch(ws: WebSocket, message: ShapeBatchMessage): void {
+    const { valid, invalid, invalidIds } = checkShapeBatch(message.ops);
+    if (invalid.length > 0) {
+      send(ws, {
+        type: "error",
+        code: "bad_message",
+        message: "Some changes could not be understood.",
+        entries: invalid,
+        ...(invalidIds.length > 0 ? { shapeIds: invalidIds } : {}),
+      });
+    }
+    if (!message.final) {
+      for (const { entry } of valid) {
+        if (entry.op === "delete") continue;
+        const current = this.notes.getShape(entry.id);
+        if (!current) continue;
+        const relayed: PendingShape["message"] =
+          entry.op === "move"
+            ? { type: "shapeMoved", id: current.id, ...clampShapePosition(entry.x, entry.y, current), rev: current.rev, final: false }
+            : { type: "shapeResized", id: current.id, ...clampShapeRect(entry), rev: current.rev, final: false };
+        this.pendingShapes.set(`${entry.op}:${current.id}`, { from: ws, message: relayed, batch: true });
+      }
+      this.scheduleFlush();
+      return;
+    }
+    const updates: Shape[] = [];
+    const deletes: string[] = [];
+    const results: ShapeBatchResult[] = [];
+    for (const { entry } of valid) {
+      const current = this.notes.getShape(entry.id);
+      if (!current) continue;
+      if (entry.op === "delete") {
+        deletes.push(current.id);
+        results.push({ type: "shapeDeleted", id: current.id });
+        continue;
+      }
+      const rect = entry.op === "move" ? { ...clampShapePosition(entry.x, entry.y, current), w: current.w, h: current.h } : clampShapeRect(entry);
+      let shape = current;
+      if (rect.x !== current.x || rect.y !== current.y || rect.w !== current.w || rect.h !== current.h) {
+        shape = { ...current, ...rect, rev: current.rev + 1 };
+        updates.push(shape);
+      }
+      results.push(
+        entry.op === "move"
+          ? { type: "shapeMoved", id: shape.id, x: shape.x, y: shape.y, rev: shape.rev, final: true }
+          : { type: "shapeResized", id: shape.id, x: shape.x, y: shape.y, w: shape.w, h: shape.h, rev: shape.rev, final: true },
+      );
+    }
+    this.notes.applyShapeBatch(updates, deletes);
+    if (results.length > 0) this.broadcast({ type: "shapesBatchApplied", results, final: true });
+  }
+
   /** Drags and resizes that arrive together are coalesced: only the latest per note (and kind) is relayed. */
   private scheduleFlush(): void {
     if (this.flushScheduled) return;
@@ -1250,6 +1533,19 @@ export class Room extends DurableObject<Env> {
       this.pendingFrames.clear();
       // A frame deleted since then is not moved or resized.
       for (const { from, message } of frames) if (this.notes.getFrame(message.id)) this.broadcast(message, from);
+    }
+    if (this.pendingShapes.size > 0) {
+      // A shape deleted since then is not moved or resized.
+      const shapes = [...this.pendingShapes.values()].filter(({ message }) => this.notes.getShape(message.id));
+      this.pendingShapes.clear();
+      for (const { from, message } of shapes.filter((p) => !p.batch)) this.broadcast(message, from);
+      const bySender = new Map<WebSocket, PendingShape["message"][]>();
+      for (const { from, message } of shapes.filter((p) => p.batch)) bySender.set(from, [...(bySender.get(from) ?? []), message]);
+      for (const [from, results] of bySender) {
+        for (let i = 0; i < results.length; i += MAX_BATCH_ENTRIES) {
+          this.broadcast({ type: "shapesBatchApplied", results: results.slice(i, i + MAX_BATCH_ENTRIES), final: false }, from);
+        }
+      }
     }
     if (this.pendingMoves.size === 0) return;
     const pending = [...this.pendingMoves.values()];
@@ -1312,17 +1608,18 @@ export class Room extends DurableObject<Env> {
   }
 }
 
-/** Entries a message spends from BATCH_LIMITS: batch ops, restack ids, the notes a final frame move carries, and added items. */
+/** Entries a message spends from BATCH_LIMITS: batch ops, restack ids, the notes and shapes a final frame move carries, and added items. */
 export function entriesOf(message: ClientMessage): number {
   switch (message.type) {
     case "itemsAdd":
-      return (message.notes?.length ?? 0) + (message.frames?.length ?? 0);
+      return (message.notes?.length ?? 0) + (message.frames?.length ?? 0) + (message.shapes?.length ?? 0);
     case "noteBatch":
+    case "shapeBatch":
       return message.ops.length;
     case "notesOrder":
       return message.ids.length;
     case "frameMove":
-      return message.final ? (message.noteIds?.length ?? 0) : 0;
+      return message.final ? (message.noteIds?.length ?? 0) + (message.shapeIds?.length ?? 0) : 0;
     default:
       return 0;
   }

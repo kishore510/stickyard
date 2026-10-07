@@ -20,7 +20,7 @@
  *   (renameId), so earlier steps still work on the restored items.
  */
 
-export type ItemKind = "note" | "frame";
+export type ItemKind = "note" | "frame" | "shape";
 export type Value = string | number | boolean;
 /** Some of an item's fields (a change's before or after, or everything the relay stored). */
 export type Fields = Readonly<Record<string, Value>>;
@@ -126,7 +126,7 @@ export type Plan =
       label: string;
       changes: ChangeStep[];
       deletes: DeleteStep[];
-      /** Notes in stacking order (bottom first), then frames. */
+      /** Notes and shapes in stacking order (bottom first), then frames. */
       restores: RestoreStep[];
       /** Items left as they are because someone else changed (or deleted) them. */
       skipped: number;
@@ -359,7 +359,8 @@ export class History {
       if (!current || current.rev !== r.rev) skipped++;
       else deletes.push({ kind: r.kind, id: r.id, content: without(current.state, SERVER_FIELDS), z: typeof current.state.z === "number" ? current.state.z : r.z });
     }
-    restores.sort((a, b) => (a.kind === b.kind ? (a.kind === "note" ? a.z - b.z : 0) : a.kind === "note" ? -1 : 1));
+    // Notes and shapes share one stacking space (bottom first), then frames (in their order).
+    restores.sort((a, b) => (a.kind === "frame" || b.kind === "frame" ? (a.kind === b.kind ? 0 : a.kind === "frame" ? 1 : -1) : a.z - b.z));
     return { type: "apply", direction, seq: entry.seq, label: entry.label, changes, deletes, restores, skipped };
   }
 

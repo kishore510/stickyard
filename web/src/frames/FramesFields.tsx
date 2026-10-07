@@ -77,7 +77,7 @@ export function FramesFields({ frames, live, onEdit }: { frames: readonly Frame[
         part="title"
         style={frameTitleStyle(first)}
         live={live}
-        differs={(key) => differs(TITLE_FIELDS[key])}
+        differs={(key) => key in TITLE_FIELDS && differs(TITLE_FIELDS[key as keyof typeof TITLE_FIELDS])}
         swatch={(key) => ({ fill: "", fillStyle: FRAME_INK_SWATCHES[key] })}
         onChange={(change) =>
           onEdit(Object.fromEntries(Object.entries(change).map(([key, value]) => [TITLE_FIELDS[key as keyof PartStyle], value])) as FrameEdit)

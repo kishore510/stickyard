@@ -431,13 +431,17 @@ describe("voteSet", () => {
     const { host, guest, notes } = await votingRoom();
     await start(host, [guest], VOTE_BUDGET_MAX);
     await claim(guest, newKey());
-    // Past the burst of 40, but far below the 20 violations that would close the socket.
-    const sent = 45;
-    for (let i = 0; i < sent; i++) guest.send({ type: "voteSet", noteId: notes[0]!.id, count: i % 2 });
+    // Batches of 10 until one is refused (as in notes.test.ts): independent of how fast this
+    // machine processes them (the bucket refills 30 a second, so a fixed count just past the
+    // burst of 40 can all be accepted on a slow runner), and never near the 20 violations that
+    // would close the socket. Each voteSet gets exactly one answer.
     let refused: ServerMessage | null = null;
-    for (let i = 0; i < sent && !refused; i++) {
-      const m = await guest.next();
-      if (m.type === "error") refused = m;
+    for (let sent = 0; !refused && sent < 1000; ) {
+      for (let i = 0; i < 10; i++, sent++) guest.send({ type: "voteSet", noteId: notes[0]!.id, count: sent % 2 });
+      for (let i = 0; i < 10; i++) {
+        const m = await guest.next();
+        if (m.type === "error" && !refused) refused = m;
+      }
     }
     expect(refused).toMatchObject({ type: "error", code: "rate_limited", noteId: notes[0]!.id });
     closeAll(host, guest);
@@ -630,8 +634,8 @@ describe(`schema migration 7 -> ${SCHEMA_VERSION}`, () => {
       const sql = state.storage.sql;
       loadSchemaV7(sql);
       const store = new NoteStore(sql);
-      expect(SCHEMA_VERSION).toBe(8);
-      expect(version(sql)).toBe(8);
+      expect(SCHEMA_VERSION).toBeGreaterThanOrEqual(8);
+      expect(version(sql)).toBe(SCHEMA_VERSION);
       expect(store.all().map((n) => n.id)).toEqual(V5_NOTES.map((n) => n.id));
       expect(store.allFrames().map((f) => f.id)).toEqual(V6_FRAMES.map((f) => f.id));
       expect(store.getMeta("locked")).toBe(1);

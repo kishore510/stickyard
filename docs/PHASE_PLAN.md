@@ -40,7 +40,7 @@ Draft roadmap. When a slice starts, rewrite its prompt against the real code (se
 | 6 (part) Silent brainstorm with reveal | The server withholds other people's note text until the host reveals it (snapshot and broadcast paths change). Riskiest slice | Not started |
 | 3b Presence: live cursors | Live cursors (throttled, never stored). Protocol v14 | Done (v0.19.0, PR #37; built ahead of export by choice) |
 | Frame multi-select | Frames in the selection with notes: marquee (enclosed frames), Ctrl+A, Shift/Ctrl-click; group move with carry, paced delete, arrange/Grid/Match size on frames, Colour and Title text for several frames, Duplicate of mixed selections. Web only, no protocol change | Done (v0.20.0, PR #38) |
-| 7a Text box and shapes | Text box and basic shapes (rectangle, oval, diamond), reusing 2.7's sizing and colour work | Not started |
+| 7a Text box and shapes | Text labels and basic shapes (rectangle, oval, diamond) with text, fill and border styles; one stacking space with notes; frames carry them; selection, arrange, duplicate, undo. Protocol v15, stored schema 9 | Built (v0.21.0, PR #39, in review) |
 | 7b Arrows | (i) Free endpoints and a line style; (ii) endpoints bound to notes and shapes, re-routed when a bound object moves, with a rule for deleting a bound object | Not started |
 | 7c Structure (remaining) | Group boxes, affinity grouping, Stencils tab and Save as stencil. Frames, templates and export moved to their own slices | Not started |
 | 8 Phone view | Phone participant view, QR join | Not started |
@@ -53,7 +53,7 @@ Draft roadmap. When a slice starts, rewrite its prompt against the real code (se
 - Success criterion for the core: two phones and a laptop editing the same board reliably.
 - Build slice 2 by hand (last-write-wins) before considering Yjs, so the problem Yjs solves is understood.
 - Test on the live deployment; merge and deploy each slice, roll back if needed (single user).
-- Every new object type (frame, timer, text box, group box) needs its own protocol/schema change with a version bump, caps and tests. The palette gets its tile with one registry entry; no placeholder tiles for things that don't exist.
+- Every new object type (frame, timer, shapes, group box, connector) needs its own protocol/schema change with a version bump, caps and tests. The palette gets its tile with one registry entry; no placeholder tiles for things that don't exist.
 - Each protocol or stored-schema change is its own slice and branch (2.7, 2.7.1, 2.7.2, 2.8, z-order, frames, 3b are separate for that reason).
 - Protocol numbers are assigned when each slice starts, not in advance (v14 is the current one, since live cursors in v0.19.0; expiry (v0.14.0), the top-bar move (v0.15.1) and the facilitation UI (v0.16.0) changed no protocol).
 - Order from here (decided 4 October 2026; Reconnect and Presence 3a were built together in one session, v0.13.0; Idle expiry done in v0.14.0; Timer and lock board (a) in v0.15.0 and (b) in v0.16.0; Dot voting (a) in v0.17.0 and (b) in v0.18.0; 3b cursors brought forward to v0.19.0): Export PNG/Markdown, Hardening (trimmed 9), then Silent brainstorm with reveal, then 7a, 7b, 7c (remaining), 8, 10. Slice numbers are kept as names; the table above is in build order.
@@ -241,9 +241,11 @@ Draft roadmap. When a slice starts, rewrite its prompt against the real code (se
 - Known small bug, fixed in v0.13.0 (Reconnect): when a waiting undo entry was dropped after 10 s, the bar buttons didn't refresh.
 - Clear board: in Properties when nothing is selected. One confirm with counts. Notes first in batches of 50, then frames (one `frameDelete` every 50 ms). One history entry, so a single undo restores it, through a paced restore with a visible "Restoring N of M…" status. A full-board restore at the 4 KiB cap is 105 messages (about 10.5 s).
 
-### 7a Text box and basic shapes
-- Text box, and a small fixed set of shapes: rectangle, oval, diamond. Reuses the sizing and colour work from 2.7.
-- Each object type is its own protocol change with a version bump, caps and tests. Its palette tile is one registry entry in a new category; no placeholder tiles before the object exists.
+### 7a Text box and basic shapes (built, v0.21.0)
+- One new object, the shape: `kind` text | rect | oval | diamond (a text label is a shape with no fill and no border). Text up to 500 characters; seven text sizes (heading sizes); bold, italic, underline; horizontal and vertical alignment; fill, border colour, width and style. Keys only, tokens in both themes, every ink 4.5:1 on every fill and the board.
+- Protocol v15, stored schema 9 (a `shapes` table). At most 50 shapes a room; worst-case `shapesSnapshot` 167,686 bytes (192 KiB test cap, 90% tripwire). Notes and shapes share one stacking space (`notesOrder` accepts shape ids); frames carry shapes with notes (one 50-item cap); `itemsAdd` takes shapes with a `rank` so stacking survives duplicate and undo.
+- Web: md and up edits (palette Shapes category, inline text editing, Properties for one or several shapes); phones show shapes read-only. Selection, marquee, group moves, Delete, Duplicate, Order, Arrange and undo/redo cover shapes.
+- Left for later: editing shapes on phones, arrows (7b), group boxes (7c).
 
 ### 7b Arrows
 - Step (i): arrows with free endpoints and a line style.

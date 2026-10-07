@@ -91,7 +91,8 @@ describe("packItems", () => {
     for (const [i, m] of messages.slice(0, -1).entries()) {
       const nextRef = flat(messages.slice(i + 1))[0];
       const next = drafts.find((d) => d.item.ref === nextRef)!;
-      const grown = next.kind === "note" ? { ...m, notes: [...(m.notes ?? []), next.item] } : { ...m, frames: [...(m.frames ?? []), next.item] };
+      const grown =
+        next.kind === "note" ? { ...m, notes: [...(m.notes ?? []), next.item] } : next.kind === "frame" ? { ...m, frames: [...(m.frames ?? []), next.item] } : { ...m, shapes: [...(m.shapes ?? []), next.item] };
       expect(messageBytes(grown) > MAX_MESSAGE_BYTES || (grown.notes?.length ?? 0) + (grown.frames?.length ?? 0) > MAX_BATCH_ENTRIES).toBe(true);
     }
   });
@@ -231,7 +232,7 @@ describe("RoomSession.addItems", () => {
     expect(findNote(board, c)).toBeUndefined();
     expect(findFrame(board, f)).toBeUndefined();
     expect(board.notes).toHaveLength(1);
-    expect(t.view().noteNotice).toBe(NOTICES.itemsNotAdded({ notesFull: 2, framesFull: 1, invalid: 0, tooQuick: 0 }));
+    expect(t.view().noteNotice).toBe(NOTICES.itemsNotAdded({ notesFull: 2, framesFull: 1, shapesFull: 0, invalid: 0, tooQuick: 0 }));
     expect(t.view().noteNotice).toBe(
       "2 notes weren’t added because the board is full (200 notes). 1 frame wasn’t added because the board has the maximum of 30 frames.",
     );

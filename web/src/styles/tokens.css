@@ -101,6 +101,32 @@
   --sy-frame-purple-fill: #8a5cd61c;
   --sy-frame-purple-border: #a88ad8;
   --sy-frame-purple-header: #e5daf7;
+  /* Shapes (protocol v15 keys). Fills are opaque (the frame header shades); "none" shows the
+     board. Text "auto" is --sy-shape-fg; every ink is 4.5:1 on every fill and on the board, in
+     both themes (test/shapes.test.ts). Borders are deeper shades of each hue. */
+  --sy-shape-fg: #1d2327;
+  --sy-shape-text-red: #a3201a;
+  --sy-shape-text-orange: #8a4000;
+  --sy-shape-text-green: #1d6b30;
+  --sy-shape-text-blue: #1d4f9c;
+  --sy-shape-text-purple: #6a2aa8;
+  --sy-shape-text-grey: #4a5257;
+  --sy-shape-neutral-fill: #e8e6df;
+  --sy-shape-yellow-fill: #fbefb0;
+  --sy-shape-pink-fill: #f9d6e2;
+  --sy-shape-blue-fill: #d5e4f8;
+  --sy-shape-green-fill: #d5efd8;
+  --sy-shape-orange-fill: #fbdfc4;
+  --sy-shape-purple-fill: #e5daf7;
+  --sy-shape-neutral-stroke: #5a6368;
+  --sy-shape-yellow-stroke: #8a6d00;
+  --sy-shape-pink-stroke: #b03a66;
+  --sy-shape-blue-stroke: #2f68b0;
+  --sy-shape-green-stroke: #2f7a40;
+  --sy-shape-orange-stroke: #a85a14;
+  --sy-shape-purple-stroke: #7046b8;
+  /* An empty text label: a faint dashed outline and the placeholder word (3:1 on the board). */
+  --sy-shape-placeholder: #6b7378;
 }
 
 /* ── Dark: deep slate ──────────────────────────────────────────────── */
@@ -186,6 +212,28 @@
   --sy-frame-purple-fill: #b89ae81a;
   --sy-frame-purple-border: #6a52a0;
   --sy-frame-purple-header: #36294a;
+  --sy-shape-fg: #ebede6;
+  --sy-shape-text-red: #ffaaa3;
+  --sy-shape-text-orange: #f7bd80;
+  --sy-shape-text-green: #9ddca8;
+  --sy-shape-text-blue: #a8caff;
+  --sy-shape-text-purple: #d2b5ff;
+  --sy-shape-text-grey: #c3cacd;
+  --sy-shape-neutral-fill: #2c3539;
+  --sy-shape-yellow-fill: #463f1e;
+  --sy-shape-pink-fill: #482a36;
+  --sy-shape-blue-fill: #22344c;
+  --sy-shape-green-fill: #223e2a;
+  --sy-shape-orange-fill: #46301f;
+  --sy-shape-purple-fill: #36294a;
+  --sy-shape-neutral-stroke: #9aa7ad;
+  --sy-shape-yellow-stroke: #d9c060;
+  --sy-shape-pink-stroke: #e88aaa;
+  --sy-shape-blue-stroke: #7fa8e0;
+  --sy-shape-green-stroke: #7fcf8f;
+  --sy-shape-orange-stroke: #e8a76a;
+  --sy-shape-purple-stroke: #b89ae8;
+  --sy-shape-placeholder: #8d989d;
 }
 
 /* ── Theme-independent tokens ──────────────────────────────────────── */
@@ -256,6 +304,8 @@
   --sy-welcome-max: 52rem;
   /* The board bar's Arrange panel (opened from the top bar, v0.15.1): wraps its rows within this. */
   --sy-arrange-max: 24rem;
+  /* The emoji picker beside text edited in place (v0.21.0): eight 44px buttons a row, gaps and padding. */
+  --sy-emoji-panel: calc(8 * var(--sy-touch-min) + 7 * var(--sy-space-xs) + 2 * var(--sy-space-xs) + 2 * var(--sy-border-width));
   /* Menu popover, and the label column in About's details. */
   --sy-menu-width: 18rem;
   --sy-menu-max-h: 80dvh;
@@ -288,6 +338,27 @@
   --sy-frame-header-l: 48px;
   --sy-frame-header-xl: 56px;
   --sy-frame-edge: 12px;
+  /* Shapes (protocol v15): must match SHAPE_MIN/MAX_* and SHAPE_FONT_PX in shared/src/protocol.ts
+     (tests check). Border widths by key, the dash for a dashed border, the text's padding, and
+     how far the text area sits inside an oval or diamond (so text stays within the outline). */
+  --sy-shape-min-w: 40px;
+  --sy-shape-min-h: 24px;
+  --sy-shape-max-w: 2400px;
+  --sy-shape-max-h: 1600px;
+  --sy-shape-font-s: 12px;
+  --sy-shape-font-m: 14px;
+  --sy-shape-font-l: 18px;
+  --sy-shape-font-xl: 24px;
+  --sy-shape-font-2xl: 32px;
+  --sy-shape-font-3xl: 40px;
+  --sy-shape-font-4xl: 56px;
+  --sy-shape-stroke-thin: 2px;
+  --sy-shape-stroke-medium: 4px;
+  --sy-shape-stroke-thick: 6px;
+  --sy-shape-dash: 8px;
+  --sy-shape-pad: 8px;
+  --sy-shape-inset-oval: 15%;
+  --sy-shape-inset-diamond: 25%;
   /* Note font sizes, one per protocol key (s, m, l, xl); m is the slice 2 size. */
   --sy-note-font-s: 0.75rem;
   --sy-note-font-m: 0.875rem;
@@ -536,6 +607,7 @@
   --container-content: var(--sy-content-max);
   --container-welcome: var(--sy-welcome-max);
   --container-arrange: var(--sy-arrange-max);
+  --container-emoji: var(--sy-emoji-panel);
   --container-sheet: var(--sy-sheet-width);
 
   --radius-*: initial;

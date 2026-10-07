@@ -157,7 +157,7 @@ describe("arrange, Properties and Duplicate for frames (md and up)", () => {
     await inRoom({ notes: [noteAt(0)], frames: [frameAt(0)] });
     await selectNote(0);
     await clickHeader(0, { shiftKey: true });
-    expect(document.querySelector("[data-arrange-reason]")?.textContent).toBe("Arrange works on notes or on frames, not both. Select only notes, or only frames.");
+    expect(document.querySelector("[data-arrange-reason]")?.textContent).toBe("Arrange works on notes and shapes, or on frames, not both. Select only notes and shapes, or only frames.");
     expect(barButton("Align left edges")?.getAttribute("aria-disabled")).toBe("true");
   });
 

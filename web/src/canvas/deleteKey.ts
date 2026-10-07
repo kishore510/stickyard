@@ -3,8 +3,11 @@
  * (a focused note card handles its own Delete first; see NoteCard). Pure, so it's tested.
  */
 
-/** The selected frame (alone), the selected notes (no frames), a selection with frames (2+ frames, or frames and notes), or nothing. */
-export type DeleteKeyTarget = "frame" | "notes" | "selection" | null;
+/**
+ * The selected frame (alone), the selected shape (alone), the selected notes (no frames or shapes),
+ * a selection of several items with frames or shapes, or nothing.
+ */
+export type DeleteKeyTarget = "frame" | "shape" | "notes" | "selection" | null;
 
 export interface DeleteKeyEvent {
   key: string;
@@ -24,6 +27,8 @@ export interface DeleteKeyState {
   frameSelected: boolean;
   /** Frames selected (v0.20.0; absent counts as one when frameSelected, else none). */
   frames?: number;
+  /** Shapes selected (protocol v15; absent: none). */
+  shapes?: number;
   /** A modal sheet is open. */
   modal: boolean;
   /** The board's element: focus inside it (or on nothing) is the board's. */
@@ -48,11 +53,21 @@ export const onBoard = (target: EventTarget | null, board: Element | null) =>
 /** Focus in the board actions bar (it sits in the top bar since v0.15.1): keys there still act on the board. */
 export const onBoardBar = (target: EventTarget | null) => target instanceof Element && target.closest("[data-board-bar]") !== null;
 
+/**
+ * Focus in a side panel (Palette, Properties; md and up): they're the board's too, so Delete
+ * after dragging a tile onto the board, or after Ctrl+A with a panel control focused, acts on the
+ * selection. Fields inside them stay the field's (inField is checked first).
+ */
+export const onSidePanel = (target: EventTarget | null) => target instanceof Element && target.closest("[data-side-panel]") !== null;
+
 export function deleteKeyTarget(e: DeleteKeyEvent, state: DeleteKeyState): DeleteKeyTarget {
   if (!isDeleteKey(e.key) || e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey) return null;
-  if (inField(e.target) || state.modal || !state.multi || !(onBoard(e.target, state.board) || onBoardBar(e.target))) return null;
+  if (inField(e.target) || state.modal || !state.multi || !(onBoard(e.target, state.board) || onBoardBar(e.target) || onSidePanel(e.target))) return null;
   const frames = state.frames ?? (state.frameSelected ? 1 : 0);
-  if (frames > 1 || (frames > 0 && state.selection > 0)) return "selection";
+  const shapes = state.shapes ?? 0;
+  const total = state.selection + frames + shapes;
+  if ((frames > 0 || shapes > 0) && total > 1) return "selection";
   if (frames === 1) return "frame";
+  if (shapes === 1) return "shape";
   return state.selection > 0 ? "notes" : null;
 }

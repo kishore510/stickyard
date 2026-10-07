@@ -6,10 +6,14 @@ import {
   FRAME_DEFAULT_W,
   MAX_FRAMES_PER_ROOM,
   MAX_NOTES_PER_ROOM,
+  MAX_SHAPES_PER_ROOM,
   clampFramePosition,
+  clampShapePosition,
+  shapeDefaults,
   type Frame,
   type FrameColor,
   type NoteColor,
+  type ShapeKind,
 } from "@stickyard/shared";
 import { ChatDock } from "../chat/ChatDock";
 import { Button } from "../components/ui/button";
@@ -18,6 +22,7 @@ import { useMediaQuery } from "../lib/useMediaQuery";
 import { useWindowWidth } from "../lib/useWindowWidth";
 import { findFrame, isFrameHeld } from "../frames/board";
 import { findNote, isHeld, isLocalId, type Board } from "../notes/board";
+import { findShape, isShapeHeld } from "../shapes/board";
 import type { InlinePart } from "../notes/inlineEdit";
 import { AddDrawer, CompactPalette, PaletteContent, type PaletteHost } from "../palette/Palette";
 import { cornerLifted, panelWidths, type PanelId } from "../panels/layout";
@@ -41,7 +46,7 @@ import { VOTE_TEXT } from "../voting/voting";
 import { openSheet } from "../shell/nav";
 import { createPortal } from "react-dom";
 import type { Placed } from "./arrange";
-import { BoardCanvas, deleteFrameAsking, deleteSelected, deleteSelectionAsking, type BoardRoom } from "./BoardCanvas";
+import { BoardCanvas, deleteFrameAsking, deleteSelected, deleteSelectionAsking, deleteShapeAsking, type BoardRoom } from "./BoardCanvas";
 import { duplicateDisabledReason } from "./duplicate";
 import { BoardBar } from "./SelectionBar";
 import type { BoardCommand } from "./shortcuts";
@@ -50,7 +55,7 @@ import { newNotePosition, type XY } from "./geometry";
 import { Ribbon, ViewBar } from "./ToolBars";
 import { placeTemplate, templateOrigin } from "../templates/place";
 import type { Template } from "../templates/registry";
-import { frameToolReason, noteToolReason, templateToolReason, toolForKey, type ToolContext } from "./tools";
+import { frameToolReason, noteToolReason, shapeToolReason, templateToolReason, toolForKey, type ToolContext } from "./tools";
 import { useBoardUi } from "./uiStore";
 import { useCanvasView } from "./useCanvasView";
 
@@ -243,6 +248,7 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
   const selection = useBoardUi((s) => s.selection);
   const frameSelected = useBoardUi((s) => s.frameSelected);
   const frameSelection = useBoardUi((s) => s.frames);
+  const shapeSelection = useBoardUi((s) => s.shapes);
   const panels = usePanels();
   const zoom = useStore((s) => s.transform[2]);
   const free = useStore((s) => s.width);
@@ -259,6 +265,7 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
   const timerReason = live ? null : TIMER_HINTS.offline;
   const frameCount = view.board.frames.length;
   const frameReason = withLock(frameToolReason({ live, count: frameCount }), lock);
+  const shapeReason = withLock(shapeToolReason({ live, count: view.board.shapes.length }), lock);
   const templateReason = withLock(templateToolReason({ live, applying: view.template?.state === "applying", adding: view.adding }), lock);
   const sizes = panelWidths(windowWidth, panels);
 
@@ -271,6 +278,7 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
     // Also the note being edited in place or asked for in Properties (a resync may remove it).
     useBoardUi.getState().pruneSelected((id) => findNote(view.board, id) !== undefined);
     useBoardUi.getState().pruneFrame((id) => findFrame(view.board, id) !== undefined);
+    useBoardUi.getState().pruneShapes((id) => findShape(view.board, id) !== undefined);
   }, [view.board]);
 
   /**
@@ -323,6 +331,18 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
     [canvas],
   );
 
+  /** Adds a shape of a kind at `at` (a board position) or centred in the view, its text ready to type (md and up). */
+  const addShape = useCallback(
+    (kind: ShapeKind, at?: XY) => {
+      const centre = canvas.centre();
+      const { w, h } = shapeDefaults(kind);
+      const position = at ?? clampShapePosition(centre.x - w / 2, centre.y - h / 2, { w, h });
+      const id = latest.current.room.addShape({ kind, ...position });
+      if (id) useBoardUi.getState().startShapeEdit(id);
+    },
+    [canvas],
+  );
+
   /**
    * Applies a template: centred on `at`'s box (a drop gives its top-left) or on the viewport
    * centre, clamped onto the board. Nothing existing is touched, so there's no confirmation.
@@ -358,7 +378,10 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
       noteReason,
       toggleMinimap: () => setMinimap(!minimap),
       // Fit to notes includes frames.
-      fit: () => canvas.fit([...latest.current.view.board.notes.map((n) => n.note), ...latest.current.view.board.frames.map((f) => f.frame)]),
+      fit: () => {
+        const { board } = latest.current.view;
+        canvas.fit([...board.notes.map((n) => n.note), ...board.frames.map((f) => f.frame), ...board.shapes.map((x) => x.shape)]);
+      },
       zoomIn: canvas.zoomIn,
       zoomOut: canvas.zoomOut,
       resetZoom: canvas.resetZoom,
@@ -376,15 +399,15 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
 
   const paletteHost = useMemo<PaletteHost>(
     () => ({
-      ctx: { noteReason, frameReason, templateReason, timerReason },
+      ctx: { noteReason, frameReason, templateReason, timerReason, shapeReason },
       state: { live, noteCount, isHost },
       activate: (item, at) => {
         useBoardUi.getState().setAddSheetOpen(false);
-        item.create({ addNote, addFrame, applyTemplate, openTimer: () => useBoardUi.getState().setTimerPickerOpen(true) }, at);
+        item.create({ addNote, addFrame, applyTemplate, addShape, openTimer: () => useBoardUi.getState().setTimerPickerOpen(true) }, at);
       },
       dropAt: canvas.dropAt,
     }),
-    [noteReason, frameReason, templateReason, timerReason, live, noteCount, isHost, addNote, addFrame, applyTemplate, canvas],
+    [noteReason, frameReason, templateReason, timerReason, shapeReason, live, noteCount, isHost, addNote, addFrame, applyTemplate, addShape, canvas],
   );
 
   const rejoinRef = useRef(onRejoin);
@@ -443,6 +466,13 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
     moveSelection: room.moveSelection,
     shareCursor: room.shareCursor,
     hideCursor: room.hideCursor,
+    startShapeDrag: room.startShapeDrag,
+    moveShape: room.moveShape,
+    startShapeResize: room.startShapeResize,
+    resizeShape: room.resizeShape,
+    setShapeDraft: room.setShapeDraft,
+    editShape: room.editShape,
+    deleteShape: room.deleteShape,
   };
 
   // The bar: md and up, always there. Notes in selection order (the first is Match size's reference).
@@ -451,30 +481,39 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
   const frameEntry = wide && frameSelected !== null ? findFrame(view.board, frameSelected) : undefined;
   // Every selected frame (v0.20.0); `group` when frames are selected with anything else.
   const selectedFrameEntries = wide ? orderedIds(frameSelection).flatMap((id) => findFrame(view.board, id) ?? []) : [];
-  const group = selectedFrameEntries.length > 0 && selectedFrameEntries.length + selectedEntries.length > 1;
+  // Selected shapes (protocol v15), in selection order.
+  const selectedShapeEntries = wide ? orderedIds(shapeSelection).flatMap((id) => findShape(view.board, id) ?? []) : [];
+  const shapeCount = selectedShapeEntries.length;
+  // Several items with frames or shapes in them move, duplicate and delete as one selection.
+  const group = selectedFrameEntries.length + shapeCount > 0 && selectedFrameEntries.length + selectedEntries.length + shapeCount > 1;
   const framesHeld = selectedFrameEntries.some(isFrameHeld);
   const framesUnsaved = selectedFrameEntries.some((e) => e.confirmed === null);
+  const shapesHeld = selectedShapeEntries.some(isShapeHeld);
+  const shapesUnsaved = selectedShapeEntries.some((e) => e.confirmed === null);
   const duplicateReason = withLock(duplicateDisabledReason({
     notes: selectedEntries.length,
     frame: selectedFrameEntries.length > 0,
     frames: selectedFrameEntries.length,
+    shapes: shapeCount,
     live,
-    held: selectedEntries.some(isHeld) || framesHeld,
-    unsaved: selectedEntries.some((e) => e.confirmed === null) || framesUnsaved,
+    held: selectedEntries.some(isHeld) || framesHeld || shapesHeld,
+    unsaved: selectedEntries.some((e) => e.confirmed === null) || framesUnsaved || shapesUnsaved,
     busy: view.adding,
     freeNotes: Math.max(0, MAX_NOTES_PER_ROOM - noteCount),
     freeFrames: Math.max(0, MAX_FRAMES_PER_ROOM - frameCount),
+    freeShapes: Math.max(0, MAX_SHAPES_PER_ROOM - view.board.shapes.length),
   }), lock);
 
-  /** Duplicates the selection (notes, the frame alone, or frames with notes) and selects the copies. */
+  /** Duplicates the selection (notes, the frame alone, shapes, or a mix) and selects the copies. */
   const duplicate = () => {
     if (duplicateReason !== null) return room.showNotice(duplicateReason);
-    if (group) {
+    if (group || shapeCount > 0) {
       const ids = room.duplicateSelection(
         selectedEntries.map((e) => e.note.id),
         selectedFrameEntries.map((e) => e.frame.id),
+        selectedShapeEntries.map((e) => e.shape.id),
       );
-      if (ids) useBoardUi.getState().setSelections(new Set(ids.notes), new Set(ids.frames));
+      if (ids) useBoardUi.getState().setSelections(new Set(ids.notes), new Set(ids.frames), new Set(ids.shapes));
       return;
     }
     if (frameEntry) {
@@ -488,13 +527,16 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
 
   /** Deletes the selection as the Delete key does (same confirms and report). */
   const removeSelection = () => {
-    if (selectedFrameEntries.length > 0 && selectedFrameEntries.length + selectedEntries.length > 1) {
+    if (group) {
       return deleteSelectionAsking(
         { board: view.board, live, deleteSelection },
         selectedEntries.map((e) => e.note.id),
         selectedFrameEntries.map((e) => e.frame.id),
+        selectedShapeEntries.map((e) => e.shape.id),
       );
     }
+    const onlyShape = selectedShapeEntries[0];
+    if (onlyShape) return deleteShapeAsking({ board: view.board, deleteShape: room.deleteShape }, onlyShape.shape.id);
     if (frameEntry) return deleteFrameAsking({ board: view.board, deleteFrame: room.deleteFrame }, frameEntry.frame.id);
     deleteSelected({ board: view.board, live, deleteNote: room.deleteNote, deleteNotes: room.deleteNotes }, selectedEntries.map((e) => e.note.id));
   };
@@ -564,7 +606,10 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
       redo={() => room.redo()}
       remove={removeSelection}
       apply={(rects) => room.applyRects(rects)}
-      order={(action) => room.orderNotes(selectedNotes.map((n) => n.id), action)}
+      order={(action) => room.orderNotes([...selectedNotes.map((n) => n.id), ...selectedShapeEntries.map((e) => e.shape.id)], action)}
+      shapes={selectedShapeEntries.map((e) => e.shape)}
+      shapesHeld={shapesHeld}
+      shapesUnsaved={shapesUnsaved}
       notice={(text) => room.showNotice(text)}
       lockedReason={live && locked ? LOCK_TEXT.reason : null}
       session={isHost ? { locked: view.locked, pending: view.lockPending, setLock: (on: boolean) => room.setLock(on) } : null}
@@ -679,6 +724,11 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
                 editFrames: room.editFrames,
                 setFrameSize: room.setFrameSize,
                 deleteFrame: room.deleteFrame,
+                setShapeDraft: room.setShapeDraft,
+                editShape: room.editShape,
+                editShapes: room.editShapes,
+                setShapeSize: room.setShapeSize,
+                deleteShape: room.deleteShape,
                 deleteSelection,
                 clearBoard: room.clearBoard,
                 adding: view.adding,

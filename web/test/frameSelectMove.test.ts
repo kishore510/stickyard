@@ -39,10 +39,11 @@ describe("carryPlan (pure)", () => {
     const notes = [rect("n1", 400, 100), rect("n2", 2000, 1000), rect("n3", 10, 10)];
     expect(carryPlan(frames, notes, ["n2", "n3"], true)).toEqual({
       frames: [
-        { id: "A", noteIds: ["n1", "n3"] },
-        { id: "B", noteIds: [] },
+        { id: "A", noteIds: ["n1", "n3"], shapeIds: [] },
+        { id: "B", noteIds: [], shapeIds: [] },
       ],
       loose: ["n2"],
+      looseShapes: [],
       alone: [],
     });
   });
@@ -51,10 +52,11 @@ describe("carryPlan (pure)", () => {
     const notes = [rect("n1", 400, 100), rect("n3", 10, 10)];
     expect(carryPlan(frames, notes, ["n3"], false)).toEqual({
       frames: [
-        { id: "A", noteIds: [] },
-        { id: "B", noteIds: [] },
+        { id: "A", noteIds: [], shapeIds: [] },
+        { id: "B", noteIds: [], shapeIds: [] },
       ],
       loose: ["n3"],
+      looseShapes: [],
       alone: [],
     });
   });
@@ -62,7 +64,7 @@ describe("carryPlan (pure)", () => {
   it("a frame holding more than the cap moves alone (and says so); its notes stay unless selected", () => {
     const notes = Array.from({ length: MAX_BATCH_ENTRIES + 1 }, (_, i) => rect(`m${i}`, 10 + i, 10));
     const plan = carryPlan([rect("A", 0, 0, 640, 400)], notes, ["m0"], true);
-    expect(plan.frames).toEqual([{ id: "A", noteIds: [] }]);
+    expect(plan.frames).toEqual([{ id: "A", noteIds: [], shapeIds: [] }]);
     expect(plan.alone).toEqual(["A"]);
     expect(plan.loose).toEqual(["m0"]);
   });

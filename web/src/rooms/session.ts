@@ -5,6 +5,7 @@ import {
   MAX_FRAMES_PER_ROOM,
   MAX_NOTES_PER_ROOM,
   MAX_SERVER_MESSAGE_BYTES,
+  MAX_SHAPES_PER_ROOM,
   PROTOCOL_VERSION,
   ROOM_ENDED_CLOSE_CODE,
   ROOM_EXPIRED_CLOSE_CODE,
@@ -16,9 +17,11 @@ import {
   clampFramePosition,
   clampFrameRect,
   clampNoteRect,
+  clampShapeRect,
   cleanFrameTitle,
   cleanName,
   cleanNoteText,
+  cleanShapeText,
   cleanText,
   encodeMessage,
   groupOffset,
@@ -38,6 +41,10 @@ import {
   type OrderAction,
   type Participant,
   type ServerMessage,
+  type Shape,
+  type ShapeBatchEntry,
+  type ShapeItem,
+  type ShapeKind,
   type TimerState,
   type VotingState,
 } from "@stickyard/shared";
@@ -111,6 +118,31 @@ import {
   type BoardNote,
   type StylePatch,
 } from "../notes/board";
+import {
+  type BoardShape,
+  addShapeItemLocal,
+  addShapeLocal,
+  applyShapeAdded,
+  applyShapeDeleted,
+  applyShapeMoved,
+  applyShapeResized,
+  applyShapeUpdated,
+  applyShapesSnapshot,
+  deleteShapeLocal,
+  editShapeLocal,
+  findShape,
+  isShapeHeld,
+  moveShapeLocal,
+  rejectShapeAdd,
+  resizeShapeLocal,
+  resyncShapes,
+  rollbackShape,
+  setShapeDraft,
+  setShapeDragging,
+  setShapeResizing,
+  shapeChanges,
+  type ShapeEdit,
+} from "../shapes/board";
 import { carryPlan } from "../canvas/frameSelect";
 import { DUPLICATE_HINTS, duplicateFrameInput, duplicateNoteInputs, duplicateSelectionInputs } from "../canvas/duplicate";
 import { HISTORY_TEXT, History, type Fields, type ItemKind, type Lookup, type Plan } from "../history/history";
@@ -383,13 +415,29 @@ export interface TemplateFramePlan {
   style: Pick<Frame, (typeof FRAME_STYLE_FIELDS)[number]>;
 }
 
-/** Plain data for addItems: a note or a frame with its full content (no id, ref, rev, z or author). */
-export type ItemInput = ({ kind: "note" } & Omit<NoteItem, "ref">) | ({ kind: "frame" } & Omit<FrameItem, "ref">);
+/**
+ * Plain data for addItems: a note, a frame or a shape with its full content (no id, ref, rev, z or
+ * author). A shape's own kind (text, rect, oval, diamond) is `shapeKind`.
+ */
+export type ItemInput =
+  | ({ kind: "note" } & Omit<NoteItem, "ref" | "rank">)
+  | ({ kind: "frame" } & Omit<FrameItem, "ref">)
+  | ({ kind: "shape"; shapeKind: ShapeKind } & Omit<ShapeItem, "ref" | "rank" | "kind">);
+
+/** An item's content (as the history keeps it) as addItems input. */
+function itemInput(kind: ItemKind, content: Fields): ItemInput {
+  if (kind === "shape") {
+    const { kind: shapeKind, ...rest } = content;
+    return { kind: "shape", shapeKind, ...rest } as unknown as ItemInput;
+  }
+  return { kind, ...content } as unknown as ItemInput;
+}
 
 /** Items that weren't added, by why. */
 export interface ItemsRefused {
   notesFull: number;
   framesFull: number;
+  shapesFull: number;
   invalid: number;
   tooQuick: number;
 }
@@ -427,6 +475,7 @@ export const NOTICES = {
   tooQuick: "That change was too quick and wasn’t saved. Try again.",
   refused: "That change wasn’t saved. Try again.",
   deletedWhileEditing: "Someone else deleted the note you were editing.",
+  shapeDeletedWhileEditing: "Someone else deleted the shape you were editing.",
   locked: "The host has locked the board.",
   notHost: "Only the host can do that.",
   overBudget: "You’ve placed all your dots. Take one off another note first.",
@@ -435,6 +484,7 @@ export const NOTICES = {
   votersFull: `This round already has the maximum of ${MAX_VOTERS_PER_ROUND} voters.`,
   voteOffline: "You’re not connected, so your vote wasn’t counted.",
   framesFull: `The board has the maximum of ${MAX_FRAMES_PER_ROOM} frames. Delete a frame to add another.`,
+  shapesFull: `The board has the maximum of ${MAX_SHAPES_PER_ROOM} shapes and text boxes. Delete one to add another.`,
   frameTooFull: `This frame holds more than ${MAX_BATCH_ENTRIES} notes, so it moved on its own.`,
   templatePartial: "The template was only partly added. The frames that were added stay on the board; delete any you don’t want.",
   templateNoRoom: (needs: number, free: number) => `This template needs ${needs} frames, but the board has room for ${free} more.`,
@@ -447,10 +497,11 @@ const notesWord = (n: number) => (n === 1 ? "note" : "notes");
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"} ${n === 1 ? "wasn’t" : "weren’t"} added`;
 
 /** What a notice says about items an addItems couldn't add, by reason. */
-function itemsNotice({ notesFull, framesFull, invalid, tooQuick }: ItemsRefused): string {
+function itemsNotice({ notesFull, framesFull, shapesFull, invalid, tooQuick }: ItemsRefused): string {
   const parts: string[] = [];
   if (notesFull > 0) parts.push(`${plural(notesFull, "note")} because the board is full (${MAX_NOTES_PER_ROOM} notes).`);
   if (framesFull > 0) parts.push(`${plural(framesFull, "frame")} because the board has the maximum of ${MAX_FRAMES_PER_ROOM} frames.`);
+  if (shapesFull > 0) parts.push(`${plural(shapesFull, "shape")} because the board has the maximum of ${MAX_SHAPES_PER_ROOM} shapes.`);
   if (tooQuick > 0) parts.push(`${plural(tooQuick, "item")} because that was too quick. Try again.`);
   if (invalid > 0) parts.push(`${plural(invalid, "item")} because the relay refused ${invalid === 1 ? "it" : "them"}.`);
   return parts.join(" ");
@@ -459,12 +510,13 @@ function itemsNotice({ notesFull, framesFull, invalid, tooQuick }: ItemsRefused)
 /** Items of a run the relay has added. */
 const restoredCount = (run: ItemsRun) => [...run.ids.values()].filter((id) => id !== null).length;
 
-const refusedTotal = (r: ItemsRefused) => r.notesFull + r.framesFull + r.invalid + r.tooQuick;
+const refusedTotal = (r: ItemsRefused) => r.notesFull + r.framesFull + r.shapesFull + r.invalid + r.tooQuick;
 
 /** Which ItemsRefused count a refusal adds to. */
 function refusalKey(reason: ItemRefusalReason | "rate_limited"): keyof ItemsRefused {
   if (reason === "notes_full") return "notesFull";
   if (reason === "frames_full") return "framesFull";
+  if (reason === "shapes_full") return "shapesFull";
   return reason === "rate_limited" ? "tooQuick" : "invalid";
 }
 
@@ -506,6 +558,8 @@ interface ClearRun {
   kind: "clear" | "delete";
   notes: ClearPart;
   frames: ClearPart & { queue: string[] };
+  /** Shapes (protocol v15): deleted in shapeBatch chunks, like notes. */
+  shapes: ClearPart;
 }
 interface ClearPart {
   total: number;
@@ -521,34 +575,41 @@ const word = (n: number, kind: string) => `${n} ${kind}${n === 1 ? "" : "s"}`;
 
 type RemovalPart = { total: number; refused: number; lost: number; tooQuick: boolean };
 
-/** Clear board's outcome, once every note and frame in it is accounted for (or the connection was lost). */
-export function clearReportFor(notes: RemovalPart, frames: RemovalPart): DeleteReport {
-  return removalReportFor("clear", notes, frames);
+/** Clear board's outcome, once every note, frame and shape in it is accounted for (or the connection was lost). */
+export function clearReportFor(notes: RemovalPart, frames: RemovalPart, shapes?: RemovalPart): DeleteReport {
+  return removalReportFor("clear", notes, frames, shapes);
 }
 
-/** The outcome of a clear or of a delete of a selection with frames (only the all-done wording differs). */
-export function removalReportFor(kind: "clear" | "delete", notes: RemovalPart, frames: RemovalPart): DeleteReport {
-  const done = (p: typeof notes) => p.total - p.refused - p.lost;
-  if (notes.refused + notes.lost + frames.refused + frames.lost === 0) {
-    const parts = [notes.total > 0 ? word(notes.total, "note") : null, frames.total > 0 ? word(frames.total, "frame") : null].filter((p) => p !== null);
-    return { text: kind === "clear" ? `Cleared the board: deleted ${parts.join(" and ")}.` : `Deleted ${parts.join(" and ")}.`, partial: false };
+/** "a", "a and b", "a, b and c". */
+const listed = (parts: readonly string[]) => (parts.length < 3 ? parts.join(" and ") : `${parts.slice(0, -1).join(", ")} and ${parts.at(-1)}`);
+const NO_PART: RemovalPart = { total: 0, refused: 0, lost: 0, tooQuick: false };
+
+/** The outcome of a clear or of a delete of a selection with frames or shapes (only the all-done wording differs). */
+export function removalReportFor(kind: "clear" | "delete", notes: RemovalPart, frames: RemovalPart, shapes: RemovalPart = NO_PART): DeleteReport {
+  const kinds: [RemovalPart, string][] = [
+    [notes, "note"],
+    [frames, "frame"],
+    [shapes, "shape"],
+  ];
+  const done = (p: RemovalPart) => p.total - p.refused - p.lost;
+  if (kinds.every(([p]) => p.refused + p.lost === 0)) {
+    const parts = kinds.flatMap(([p, name]) => (p.total > 0 ? [word(p.total, name)] : []));
+    return { text: kind === "clear" ? `Cleared the board: deleted ${listed(parts)}.` : `Deleted ${listed(parts)}.`, partial: false };
   }
-  const of = (p: typeof notes, kind: string) => (p.total > 0 ? `${done(p)} of ${word(p.total, kind)}` : null);
-  const parts = [`Deleted ${[of(notes, "note"), of(frames, "frame")].filter((p) => p !== null).join(" and ")}.`];
-  const refused = (p: typeof notes, kind: string) => {
-    if (p.refused === 0) return;
+  const parts = [`Deleted ${listed(kinds.flatMap(([p, name]) => (p.total > 0 ? [`${done(p)} of ${word(p.total, name)}`] : [])))}.`];
+  for (const [p, name] of kinds) {
+    if (p.refused === 0) continue;
     const one = p.refused === 1;
     const why = p.tooQuick ? "that was too quick" : `the relay refused ${one ? "it" : "them"}`;
-    parts.push(`${word(p.refused, kind)} ${one ? "wasn’t" : "weren’t"} deleted because ${why}; ${one ? "it’s" : "they’re"} back on the board.`);
-  };
-  refused(notes, "note");
-  refused(frames, "frame");
-  const lost = notes.lost + frames.lost;
-  if (lost > 0) {
-    const kind = notes.lost === 0 ? "frame" : frames.lost === 0 ? "note" : "item";
-    parts.push(`The connection was lost before ${word(lost, kind)} ${lost === 1 ? "was" : "were"} deleted, so ${lost === 1 ? "it" : "they"} may still be on the board.`);
+    parts.push(`${word(p.refused, name)} ${one ? "wasn’t" : "weren’t"} deleted because ${why}; ${one ? "it’s" : "they’re"} back on the board.`);
   }
-  if (notes.refused + frames.refused > 0) parts.push("Nothing was retried.");
+  const lostKinds = kinds.filter(([p]) => p.lost > 0);
+  const lost = lostKinds.reduce((sum, [p]) => sum + p.lost, 0);
+  if (lost > 0) {
+    const what = lostKinds.length === 1 ? lostKinds[0]![1] : "item";
+    parts.push(`The connection was lost before ${word(lost, what)} ${lost === 1 ? "was" : "were"} deleted, so ${lost === 1 ? "it" : "they"} may still be on the board.`);
+  }
+  if (kinds.some(([p]) => p.refused > 0)) parts.push("Nothing was retried.");
   return { text: parts.join(" "), partial: true };
 }
 
@@ -559,14 +620,20 @@ const randomRef = (): string => {
 
 /** A selection with frames being dragged: every frame and note it moves, where each started. */
 interface SelectionDrag {
-  /** In selection order, each with the notes it carries. */
-  frames: { id: string; start: NoteRect; noteIds: string[] }[];
+  /** In selection order, each with the notes and shapes it carries. */
+  frames: { id: string; start: NoteRect; noteIds: string[]; shapeIds: string[] }[];
   /** Every note moved (carried or loose) and its start. */
   notes: Map<string, NoteRect>;
+  /** Every shape moved (carried or loose) and its start (protocol v15). */
+  shapes: Map<string, NoteRect>;
   /** Selected notes no frame carries. */
   loose: string[];
+  /** Selected shapes no frame carries. */
+  looseShapes: string[];
   /** The next frame whose live move goes out (they take turns). */
   turn: number;
+  /** Which loose batch (notes or shapes) goes out next when there are both. */
+  batchTurn: number;
 }
 
 interface Throttle {
@@ -585,6 +652,8 @@ export interface SessionOptions {
   onNoteConfirmed?(localId: string, id: string): void;
   /** A frame added here got its server id. */
   onFrameConfirmed?(localId: string, id: string): void;
+  /** A shape added here got its server id (protocol v15). */
+  onShapeConfirmed?(localId: string, id: string): void;
   /** The browser's network and visibility (connection/reconnect.ts); always online and visible if not given. */
   env?: ConnectionEnv;
   /** GET /health, asked when sockets keep failing to open: is the relay there at all? */
@@ -634,6 +703,13 @@ interface FrameDrag {
   start: NoteRect;
   /** Carried notes (confirmed ids only), by id, at their start. Empty: the frame moves alone. */
   notes: Map<string, NoteRect>;
+  /** Carried shapes (protocol v15), likewise. */
+  shapes: Map<string, NoteRect>;
+}
+
+/** A sent itemsAdd's list for one kind (to find a refused item's ref by its index). */
+function itemList(message: ItemsAddMessage, kind: ItemKind): readonly { ref: string }[] | undefined {
+  return kind === "note" ? message.notes : kind === "frame" ? message.frames : message.shapes;
 }
 
 export class RoomSession {
@@ -698,6 +774,11 @@ export class RoomSession {
   /** A reconnect got `joined`: the snapshot makes it live. Then frames replace the old ones. */
   private resyncing = false;
   private framesResync = false;
+  private shapesResync = false;
+  /** Shapes' live moves and resizes (throttled like notes'), and adds deleted here before confirmed. */
+  private readonly shapeMoves = new Map<string, Throttle>();
+  private readonly shapeResizes = new Map<string, Throttle>();
+  private readonly abandonedShapes = new Set<string>();
   /** Each socket's events carry its number; a replaced socket's late events are ignored. */
   private socketGen = 0;
   private joinedName: string | null = null;
@@ -1031,6 +1112,7 @@ export class RoomSession {
     const both = (id: string) => {
       excluded.add(`note:${id}`);
       excluded.add(`frame:${id}`);
+      excluded.add(`shape:${id}`);
     };
     for (const run of [this.template?.run, this.restoreRun]) for (const ref of run?.refs ?? []) if (ref !== null) both(localId(ref));
     const run = this.deleteRun;
@@ -1041,6 +1123,8 @@ export class RoomSession {
     for (const ref of clear?.notes.refs ?? []) excluded.add(`note:${localId(ref)}`);
     for (const id of clear?.frames.ids ?? []) excluded.add(`frame:${id}`);
     for (const ref of clear?.frames.refs ?? []) excluded.add(`frame:${localId(ref)}`);
+    for (const id of clear?.shapes.ids ?? []) excluded.add(`shape:${id}`);
+    for (const ref of clear?.shapes.refs ?? []) excluded.add(`shape:${localId(ref)}`);
     const unsaved = unsavedKeys(this.view.board, this.history.pendingKeys(), excluded).size;
 
     this.deleteRun = null;
@@ -1057,6 +1141,7 @@ export class RoomSession {
     this.clearTimer = undefined;
     this.abandoned.clear();
     this.abandonedFrames.clear();
+    this.abandonedShapes.clear();
     // Ids and revs can't be trusted after this: the history goes.
     this.history.clear();
     const { board, orphans } = discardUnconfirmed(this.view.board);
@@ -1080,6 +1165,7 @@ export class RoomSession {
               clear.kind,
               { ...clear.notes, lost: clear.notes.ids.size + clear.notes.refs.size },
               { ...clear.frames, lost: clear.frames.ids.size + clear.frames.refs.size + clear.frames.queue.length },
+              { ...clear.shapes, lost: clear.shapes.ids.size + clear.shapes.refs.size },
             ),
           }
         : {}),
@@ -1335,26 +1421,45 @@ export class RoomSession {
   }
 
   /**
-   * Arrange (align, distribute, match size): new rects for several notes, shown at once and sent
-   * as final batches. Position-only changes go as moves, size changes as resizes. False if refused.
+   * Arrange (align, distribute, match size, grid): new rects for several notes and shapes (v15),
+   * shown at once and sent as final batches (noteBatch, shapeBatch), one history step.
+   * Position-only changes go as moves, size changes as resizes. False if refused.
    */
   applyRects(rects: readonly (NoteRect & { id: string })[]): boolean {
     if (!this.live) return false;
     let board = this.view.board;
     const ops: NoteBatchEntry[] = [];
+    // Shapes arranged with notes (protocol v15): their rects go out as one shapeBatch.
+    const shapeOps: ShapeBatchEntry[] = [];
     for (const rect of rects) {
+      if (isLocalId(rect.id)) continue;
+      const shape = findShape(board, rect.id)?.shape;
+      if (shape) {
+        board = resizeShapeLocal(board, rect.id, rect);
+        const after = findShape(board, rect.id)?.shape;
+        if (!after || after === shape) continue;
+        const { id, x, y, w, h } = after;
+        shapeOps.push(w === shape.w && h === shape.h ? { op: "move", id, x, y } : { op: "resize", id, x, y, w, h });
+        continue;
+      }
       const before = findNote(board, rect.id)?.note;
-      if (!before || isLocalId(rect.id)) continue;
+      if (!before) continue;
       board = resizeLocal(board, rect.id, rect);
       const after = findNote(board, rect.id)?.note;
       if (!after || after === before) continue;
       const { id, x, y, w, h } = after;
       ops.push(w === before.w && h === before.h ? { op: "move", id, x, y } : { op: "resize", id, x, y, w, h });
     }
-    if (ops.length === 0) return true;
+    if (ops.length + shapeOps.length === 0) return true;
     this.update({ board, noteNotice: null });
-    this.recordRects("Arrange", ["note"], ops.map((o) => o.id), ["x", "y", "w", "h"]);
+    this.recordRects(
+      "Arrange",
+      [...ops.map(() => "note" as const), ...shapeOps.map(() => "shape" as const)],
+      [...ops.map((o) => o.id), ...shapeOps.map((o) => o.id)],
+      ["x", "y", "w", "h"],
+    );
     this.sendBatch(ops, true);
+    this.sendShapeBatch(shapeOps, true);
     return true;
   }
 
@@ -1421,7 +1526,8 @@ export class RoomSession {
    */
   orderNotes(ids: readonly string[], action: OrderAction): boolean {
     if (!this.live) return false;
-    const notes = ids.flatMap((id) => (isLocalId(id) ? [] : (findNote(this.view.board, id)?.note ?? [])));
+    // Notes and shapes share the stacking space (v15).
+    const notes = ids.flatMap((id) => (isLocalId(id) ? [] : (findNote(this.view.board, id)?.note ?? findShape(this.view.board, id)?.shape ?? [])));
     if (notes.length === 0) return true;
     const ordered = stackOrder(notes).map((n) => n.id);
     const board = reorderLocal(this.view.board, ordered, action);
@@ -1494,12 +1600,16 @@ export class RoomSession {
     const entry = findFrame(this.view.board, id);
     if (!this.live || isLocalId(id) || !entry) return false;
     const inside = carry ? framedNotes(entry.frame, this.view.board.notes.map((n) => n.note)).filter((n) => !isLocalId(n.id)) : [];
-    const tooMany = inside.length > MAX_BATCH_ENTRIES;
+    const insideShapes = carry ? framedNotes(entry.frame, this.view.board.shapes.map((x) => x.shape)).filter((x) => !isLocalId(x.id)) : [];
+    // The carry cap is shared by notes and shapes (protocol v15).
+    const tooMany = inside.length + insideShapes.length > MAX_BATCH_ENTRIES;
     const notes = new Map(tooMany ? [] : inside.map((n) => [n.id, { x: n.x, y: n.y, w: n.w, h: n.h }] as const));
+    const shapes = new Map(tooMany ? [] : insideShapes.map((n) => [n.id, { x: n.x, y: n.y, w: n.w, h: n.h }] as const));
     let board = setFrameDragging(this.view.board, id, true);
     for (const noteId of notes.keys()) board = setDragging(board, noteId, true);
+    for (const shapeId of shapes.keys()) board = setShapeDragging(board, shapeId, true);
     const { x, y, w, h } = entry.frame;
-    this.frameDrag = { id, start: { x, y, w, h }, notes };
+    this.frameDrag = { id, start: { x, y, w, h }, notes, shapes };
     this.update({ board, noteNotice: tooMany ? NOTICES.frameTooFull : null });
     return true;
   }
@@ -1512,25 +1622,36 @@ export class RoomSession {
     if (!this.live || isLocalId(id)) return;
     const entry = findFrame(this.view.board, id);
     if (!entry) return this.stopFrameMove(id);
-    const drag = this.frameDrag?.id === id ? this.frameDrag : { id, start: { x: entry.frame.x, y: entry.frame.y, w: entry.frame.w, h: entry.frame.h }, notes: new Map<string, NoteRect>() };
+    const drag =
+      this.frameDrag?.id === id
+        ? this.frameDrag
+        : { id, start: { x: entry.frame.x, y: entry.frame.y, w: entry.frame.w, h: entry.frame.h }, notes: new Map<string, NoteRect>(), shapes: new Map<string, NoteRect>() };
     const target = clampFramePosition(x, y, drag.start);
     const want = { dx: target.x - drag.start.x, dy: target.y - drag.start.y };
-    const { dx, dy } = drag.notes.size > 0 ? groupOffset([drag.start, ...drag.notes.values()], want.dx, want.dy) : want;
+    const { dx, dy } = drag.notes.size + drag.shapes.size > 0 ? groupOffset([drag.start, ...drag.notes.values(), ...drag.shapes.values()], want.dx, want.dy) : want;
     let board = moveFrameLocal(this.view.board, id, drag.start.x + dx, drag.start.y + dy);
     for (const [noteId, r] of drag.notes) board = moveLocal(board, noteId, r.x + dx, r.y + dy);
+    for (const [shapeId, r] of drag.shapes) board = moveShapeLocal(board, shapeId, r.x + dx, r.y + dy);
     const noteIds = [...drag.notes.keys()].filter((n) => findNote(board, n));
+    const shapeIds = [...drag.shapes.keys()].filter((n) => findShape(board, n));
     if (final) {
       board = setFrameDragging(board, id, false);
       for (const n of drag.notes.keys()) board = setDragging(board, n, false);
+      for (const n of drag.shapes.keys()) board = setShapeDragging(board, n, false);
       this.frameDrag = null;
     }
     this.update({ board });
     if (final) {
       this.stopFrameMove(id);
-      this.recordRects("Move frame", ["frame", ...noteIds.map(() => "note" as const)], [id, ...noteIds], ["x", "y"]);
-      return this.sendFrameMove(id, noteIds, true);
+      this.recordRects(
+        "Move frame",
+        ["frame", ...noteIds.map(() => "note" as const), ...shapeIds.map(() => "shape" as const)],
+        [id, ...noteIds, ...shapeIds],
+        ["x", "y"],
+      );
+      return this.sendFrameMove(id, noteIds, true, shapeIds);
     }
-    this.throttle(this.frameMoves, id, MOVE_INTERVAL_MS, () => this.sendFrameMove(id, noteIds, false));
+    this.throttle(this.frameMoves, id, MOVE_INTERVAL_MS, () => this.sendFrameMove(id, noteIds, false, shapeIds));
   }
 
   /**
@@ -1541,7 +1662,7 @@ export class RoomSession {
    * confirmed items that aren't already moving. False if nothing can move, not connected, or a
    * guest on a locked board.
    */
-  startSelectionDrag(frameIds: readonly string[], noteIds: readonly string[], carry: boolean): boolean {
+  startSelectionDrag(frameIds: readonly string[], noteIds: readonly string[], carry: boolean, shapeIds: readonly string[] = []): boolean {
     if (!this.live || lockedOut(this.view)) return false;
     const board0 = this.view.board;
     const frames = frameIds.flatMap((id) => {
@@ -1549,22 +1670,32 @@ export class RoomSession {
       return entry && !isLocalId(id) && !isFrameHeld(entry) ? [entry.frame] : [];
     });
     const movable = board0.notes.filter((n) => !isLocalId(n.note.id) && !isHeld(n)).map((n) => n.note);
-    const plan = carryPlan(frames, movable, noteIds, carry);
-    if (plan.frames.length + plan.loose.length === 0) return false;
+    const movableShapes = board0.shapes.filter((x) => !isLocalId(x.shape.id) && !isShapeHeld(x)).map((x) => x.shape);
+    const plan = carryPlan(frames, movable, noteIds, carry, MAX_BATCH_ENTRIES, movableShapes, shapeIds);
+    if (plan.frames.length + plan.loose.length + plan.looseShapes.length === 0) return false;
     const rectOf = (r: NoteRect): NoteRect => ({ x: r.x, y: r.y, w: r.w, h: r.h });
     const notes = new Map<string, NoteRect>();
     for (const id of [...plan.frames.flatMap((f) => f.noteIds), ...plan.loose]) {
       const note = findNote(board0, id)?.note;
       if (note) notes.set(id, rectOf(note));
     }
+    const shapes = new Map<string, NoteRect>();
+    for (const id of [...plan.frames.flatMap((f) => f.shapeIds), ...plan.looseShapes]) {
+      const shape = findShape(board0, id)?.shape;
+      if (shape) shapes.set(id, rectOf(shape));
+    }
     let board = board0;
     for (const f of frames) board = setFrameDragging(board, f.id, true);
     for (const id of notes.keys()) board = setDragging(board, id, true);
+    for (const id of shapes.keys()) board = setShapeDragging(board, id, true);
     this.selectionDrag = {
-      frames: plan.frames.map((p) => ({ id: p.id, start: rectOf(findFrame(board0, p.id)!.frame), noteIds: p.noteIds })),
+      frames: plan.frames.map((p) => ({ id: p.id, start: rectOf(findFrame(board0, p.id)!.frame), noteIds: p.noteIds, shapeIds: p.shapeIds })),
       notes,
+      shapes,
       loose: plan.loose,
+      looseShapes: plan.looseShapes,
       turn: 0,
+      batchTurn: 0,
     };
     this.update({ board, noteNotice: plan.alone.length > 0 ? NOTICES.frameTooFull : null });
     return true;
@@ -1580,10 +1711,11 @@ export class RoomSession {
   moveSelection(dx: number, dy: number, final: boolean): { dx: number; dy: number } {
     const drag = this.selectionDrag;
     if (!this.live || !drag) return { dx: 0, dy: 0 };
-    const offset = groupOffset([...drag.frames.map((f) => f.start), ...drag.notes.values()], dx, dy);
+    const offset = groupOffset([...drag.frames.map((f) => f.start), ...drag.notes.values(), ...drag.shapes.values()], dx, dy);
     let board = this.view.board;
     for (const f of drag.frames) board = moveFrameLocal(board, f.id, f.start.x + offset.dx, f.start.y + offset.dy);
     for (const [id, r] of drag.notes) board = moveLocal(board, id, r.x + offset.dx, r.y + offset.dy);
+    for (const [id, r] of drag.shapes) board = moveShapeLocal(board, id, r.x + offset.dx, r.y + offset.dy);
     if (!final) {
       this.update({ board });
       this.throttle(this.groupMoves, "selection", SELECTION_MOVE_INTERVAL_MS, () => this.sendSelectionTick());
@@ -1591,20 +1723,23 @@ export class RoomSession {
     }
     for (const f of drag.frames) board = setFrameDragging(board, f.id, false);
     for (const id of drag.notes.keys()) board = setDragging(board, id, false);
+    for (const id of drag.shapes.keys()) board = setShapeDragging(board, id, false);
     this.stopSelectionDrag();
     this.update({ board });
     const frames = drag.frames.filter((f) => findFrame(board, f.id));
     const notes = [...drag.notes.keys()].filter((id) => findNote(board, id));
-    const ids = [...frames.map((f) => f.id), ...notes];
+    const shapes = [...drag.shapes.keys()].filter((id) => findShape(board, id));
+    const ids = [...frames.map((f) => f.id), ...notes, ...shapes];
     this.recordRects(
       "Move",
-      [...frames.map(() => "frame" as const), ...notes.map(() => "note" as const)],
+      [...frames.map(() => "frame" as const), ...notes.map(() => "note" as const), ...shapes.map(() => "shape" as const)],
       ids,
       ["x", "y"],
       `move:${[...ids].sort().join(",")}`,
     );
-    for (const f of frames) this.sendFrameMove(f.id, f.noteIds.filter((id) => findNote(board, id)), true);
+    for (const f of frames) this.sendFrameMove(f.id, f.noteIds.filter((id) => findNote(board, id)), true, f.shapeIds.filter((id) => findShape(board, id)));
     this.sendBatch(this.moveEntries(drag.loose), true);
+    this.sendShapeBatch(this.shapeMoveEntries(drag.looseShapes), true);
     return offset;
   }
 
@@ -1613,15 +1748,28 @@ export class RoomSession {
     const drag = this.selectionDrag;
     if (!drag || !this.live) return;
     let budget = SELECTION_LIVE_MESSAGES;
-    if (drag.loose.length > 0) {
-      this.sendBatch(this.moveEntries(drag.loose.slice(0, MAX_BATCH_ENTRIES)), false);
+    // At most one live batch a tick (notes and shapes take turns when there are both), so the
+    // entries stay at most 50 a tick (500 a second) inside BATCH_LIMITS.
+    const batches = [
+      ...(drag.loose.length > 0 ? [() => this.sendBatch(this.moveEntries(drag.loose.slice(0, MAX_BATCH_ENTRIES)), false)] : []),
+      ...(drag.looseShapes.length > 0 ? [() => this.sendShapeBatch(this.shapeMoveEntries(drag.looseShapes.slice(0, MAX_BATCH_ENTRIES)), false)] : []),
+    ];
+    if (batches.length > 0) {
+      batches[drag.batchTurn++ % batches.length]!();
       budget--;
     }
     const count = Math.min(budget, drag.frames.length);
     for (let i = 0; i < count; i++) {
       const f = drag.frames[drag.turn++ % drag.frames.length]!;
-      this.sendFrameMove(f.id, f.noteIds.filter((id) => findNote(this.view.board, id)), false);
+      this.sendFrameMove(f.id, f.noteIds.filter((id) => findNote(this.view.board, id)), false, f.shapeIds.filter((id) => findShape(this.view.board, id)));
     }
+  }
+
+  private shapeMoveEntries(ids: readonly string[]): ShapeBatchEntry[] {
+    return ids.flatMap((id) => {
+      const shape = findShape(this.view.board, id)?.shape;
+      return shape ? [{ op: "move" as const, id, x: shape.x, y: shape.y }] : [];
+    });
   }
 
   private stopSelectionDrag(): void {
@@ -1647,8 +1795,10 @@ export class RoomSession {
     });
     const moving = usable.filter(({ rect, frame }) => rect.w === frame.w && rect.h === frame.h);
     const movable = board0.notes.filter((n) => !isLocalId(n.note.id) && !isHeld(n)).map((n) => n.note);
-    const plan = carryPlan(moving.map((m) => m.frame), movable, [], true);
+    const movableShapes = board0.shapes.filter((x) => !isLocalId(x.shape.id) && !isShapeHeld(x)).map((x) => x.shape);
+    const plan = carryPlan(moving.map((m) => m.frame), movable, [], true, MAX_BATCH_ENTRIES, movableShapes, []);
     const carried = new Map(plan.frames.map((p) => [p.id, p.noteIds]));
+    const carriedShapes = new Map(plan.frames.map((p) => [p.id, p.shapeIds]));
     let board = board0;
     const sends: ClientMessage[] = [];
     const kinds: ItemKind[] = [];
@@ -1665,14 +1815,24 @@ export class RoomSession {
         continue;
       }
       const notes = noteIds.flatMap((id) => findNote(board, id)?.note ?? []);
+      const shapes = (carriedShapes.get(frame.id) ?? []).flatMap((id) => findShape(board, id)?.shape ?? []);
       const target = clampFramePosition(rect.x, rect.y, frame);
-      const { dx, dy } = groupOffset([frame, ...notes], target.x - frame.x, target.y - frame.y);
+      const { dx, dy } = groupOffset([frame, ...notes, ...shapes], target.x - frame.x, target.y - frame.y);
       if (dx === 0 && dy === 0) continue;
       board = moveFrameLocal(board, frame.id, frame.x + dx, frame.y + dy);
       for (const n of notes) board = moveLocal(board, n.id, n.x + dx, n.y + dy);
-      sends.push({ type: "frameMove", id: frame.id, x: frame.x + dx, y: frame.y + dy, final: true, ...(notes.length > 0 ? { noteIds: notes.map((n) => n.id) } : {}) });
-      kinds.push("frame", ...notes.map(() => "note" as const));
-      ids.push(frame.id, ...notes.map((n) => n.id));
+      for (const x of shapes) board = moveShapeLocal(board, x.id, x.x + dx, x.y + dy);
+      sends.push({
+        type: "frameMove",
+        id: frame.id,
+        x: frame.x + dx,
+        y: frame.y + dy,
+        final: true,
+        ...(notes.length > 0 ? { noteIds: notes.map((n) => n.id) } : {}),
+        ...(shapes.length > 0 ? { shapeIds: shapes.map((x) => x.id) } : {}),
+      });
+      kinds.push("frame", ...notes.map(() => "note" as const), ...shapes.map(() => "shape" as const));
+      ids.push(frame.id, ...notes.map((n) => n.id), ...shapes.map((x) => x.id));
     }
     if (sends.length === 0) return true;
     this.update({ board, noteNotice: plan.alone.length > 0 ? NOTICES.frameTooFull : null });
@@ -1711,7 +1871,38 @@ export class RoomSession {
     return true;
   }
 
-  /** Sends the next queued frameEdit, then waits CLEAR_FRAME_STEP_MS. */
+  /**
+   * Text style, fill and border for several shapes at once (protocol v15, Properties): shown at
+   * once, then one shapeEdit per shape with only what changes for it, paced like editFrames (one
+   * every CLEAR_FRAME_STEP_MS), one history step. Text isn't edited here. Confirmed shapes only.
+   * False if refused (not connected, or a guest on a locked board).
+   */
+  editShapes(ids: readonly string[], change: ShapeEdit): boolean {
+    if (!this.live || lockedOut(this.view)) return false;
+    const { text: _, ...style } = change;
+    let board = this.view.board;
+    const edits: { id: string; edit: ShapeEdit }[] = [];
+    for (const id of ids) {
+      const entry = findShape(board, id);
+      if (!entry || isLocalId(id)) continue;
+      const before = entry.shape;
+      board = editShapeLocal(board, id, style);
+      const edit = shapeChanges(before, findShape(board, id)?.shape ?? before);
+      if (Object.keys(edit).length > 0) edits.push({ id, edit });
+    }
+    if (edits.length === 0) return true;
+    this.update({ board, noteNotice: null });
+    this.record(
+      "Edit shapes",
+      edits.map((e) => ({ kind: "shape" as const, id: e.id, after: e.edit as Fields })),
+    );
+    // The same paced queue as frame edits (it holds any edit message).
+    for (const { id, edit } of edits) this.frameEditQueue.push({ type: "shapeEdit", id, ...edit });
+    this.pumpFrameEdits();
+    return true;
+  }
+
+  /** Sends the next queued frameEdit or shapeEdit, then waits CLEAR_FRAME_STEP_MS. */
   private pumpFrameEdits(): void {
     if (this.frameEditTimer !== undefined || !this.live) return;
     const message = this.frameEditQueue.shift();
@@ -1762,6 +1953,167 @@ export class RoomSession {
     return true;
   }
 
+  /* ── Shapes (protocol v15) ────────────────────────────────────────── */
+
+  /**
+   * Adds a shape of a kind (its default size and style, no text), shown at once on top. Its
+   * temporary id, or null if not connected or the board has its shapes already.
+   */
+  addShape({ kind, x, y }: { kind: ShapeKind; x: number; y: number }): string | null {
+    if (!this.live || !this.view.you) return null;
+    if (this.view.board.shapes.length >= MAX_SHAPES_PER_ROOM) {
+      this.update({ noteNotice: NOTICES.shapesFull });
+      return null;
+    }
+    const clientRef = randomRef();
+    const board = addShapeLocal(this.view.board, { clientRef, kind, x, y, authorId: this.view.you.id });
+    const shape = findShape(board, localId(clientRef))?.shape;
+    if (!shape) return null;
+    this.update({ board, noteNotice: null });
+    this.history.recordAdd("Add shape", [{ kind: "shape", id: shape.id }], Date.now());
+    this.send({ type: "shapeAdd", clientRef, kind, x: shape.x, y: shape.y });
+    return shape.id;
+  }
+
+  /**
+   * Text (cleaned like note text) and/or style, shown at once; only the fields that changed are
+   * sent, as one shapeEdit. A shape not confirmed yet sends them once it is. An unchanged text just
+   * ends the draft. False if refused.
+   */
+  editShape(id: string, change: ShapeEdit): boolean {
+    if (!this.live) return false;
+    const entry = findShape(this.view.board, id);
+    const text = change.text === undefined ? undefined : cleanShapeText(change.text);
+    if (!entry || text === null) return false;
+    const before = entry.shape;
+    const board = editShapeLocal(this.view.board, id, { ...change, ...(text !== undefined ? { text } : {}) });
+    const after = findShape(board, id)?.shape ?? before;
+    this.update({ board, noteNotice: null });
+    if (isLocalId(id)) return true;
+    const edit = shapeChanges(before, after);
+    if (Object.keys(edit).length > 0) {
+      this.record(edit.text !== undefined ? "Edit text" : "Style", [{ kind: "shape", id, after: edit as Fields }]);
+      this.send({ type: "shapeEdit", id, ...edit });
+    }
+    return true;
+  }
+
+  /** Text being typed into a shape; kept even if someone else edits it meanwhile. */
+  setShapeDraft(id: string, draft: string | null): void {
+    if (this.stopped) return;
+    this.update({ board: setShapeDraft(this.view.board, id, draft) });
+  }
+
+  /** Starts dragging a shape. False if it can't move now (not connected, or not confirmed). */
+  startShapeDrag(id: string): boolean {
+    if (!this.live || isLocalId(id) || !findShape(this.view.board, id)) return false;
+    this.update({ board: setShapeDragging(this.view.board, id, true), noteNotice: null });
+    return true;
+  }
+
+  /** Moves a shape here at once; live moves throttled (MOVE_INTERVAL_MS), the final one stored. */
+  moveShape(id: string, x: number, y: number, final: boolean): void {
+    if (!this.live || isLocalId(id)) return;
+    if (!findShape(this.view.board, id)) return this.stopShapeMove(id);
+    let board = moveShapeLocal(this.view.board, id, x, y);
+    if (final) board = setShapeDragging(board, id, false);
+    this.update({ board });
+    if (final) {
+      this.stopShapeMove(id);
+      this.recordRects("Move", ["shape"], [id], ["x", "y"], `move:${id}`);
+      return this.sendShapeMove(id, true);
+    }
+    this.throttle(this.shapeMoves, id, MOVE_INTERVAL_MS, () => this.sendShapeMove(id, false));
+  }
+
+  startShapeResize(id: string): boolean {
+    if (!this.live || isLocalId(id) || !findShape(this.view.board, id)) return false;
+    this.update({ board: setShapeResizing(this.view.board, id, true), noteNotice: null });
+    return true;
+  }
+
+  /** Resizes a shape here at once (clamped to shape sizes); live resizes throttled, the final one stored. */
+  resizeShape(id: string, rect: NoteRect, final: boolean): void {
+    if (!this.live || isLocalId(id)) return;
+    if (!findShape(this.view.board, id)) return this.stopShapeResize(id);
+    let board = resizeShapeLocal(this.view.board, id, rect);
+    if (final) board = setShapeResizing(board, id, false);
+    this.update({ board });
+    if (final) {
+      this.stopShapeResize(id);
+      this.recordRects("Resize", ["shape"], [id], ["x", "y", "w", "h"], `resize:${id}`);
+      return this.sendShapeResize(id, true);
+    }
+    this.throttle(this.shapeResizes, id, RESIZE_INTERVAL_MS, () => this.sendShapeResize(id, false));
+  }
+
+  /** The Width/Height fields: one final resize at the same position. */
+  setShapeSize(id: string, w: number, h: number): boolean {
+    const entry = findShape(this.view.board, id);
+    if (!this.live || isLocalId(id) || !entry) return false;
+    const board = resizeShapeLocal(this.view.board, id, { x: entry.shape.x, y: entry.shape.y, w, h });
+    if (board === this.view.board) return true;
+    this.update({ board, noteNotice: null });
+    this.recordRects("Resize", ["shape"], [id], ["x", "y", "w", "h"]);
+    this.sendShapeResize(id, true);
+    return true;
+  }
+
+  /** Deletes a shape here at once (as a one-entry shapeBatch). */
+  deleteShape(id: string): void {
+    if (!this.live) return;
+    const entry = findShape(this.view.board, id);
+    if (!entry) return;
+    this.stopShapeMove(id);
+    this.stopShapeResize(id);
+    this.update({ board: deleteShapeLocal(this.view.board, id), noteNotice: null });
+    if (entry.clientRef !== null) {
+      this.abandonedShapes.add(entry.clientRef);
+      this.history.refuse("shape", id);
+    } else {
+      this.recordRemoval("Delete shape", [], [], [entry.shape]);
+      this.send({ type: "shapeDelete", id });
+    }
+  }
+
+  private sendShapeMove(id: string, final: boolean): void {
+    const shape = findShape(this.view.board, id)?.shape;
+    if (!shape || !this.live) return;
+    this.send({ type: "shapeMove", id, x: shape.x, y: shape.y, final });
+  }
+
+  private sendShapeResize(id: string, final: boolean): void {
+    const shape = findShape(this.view.board, id)?.shape;
+    if (!shape || !this.live) return;
+    this.send({ type: "shapeResize", id, x: shape.x, y: shape.y, w: shape.w, h: shape.h, final });
+  }
+
+  private stopShapeMove(id: string): void {
+    clearTimeout(this.shapeMoves.get(id)?.timer);
+    this.shapeMoves.delete(id);
+  }
+
+  private stopShapeResize(id: string): void {
+    clearTimeout(this.shapeResizes.get(id)?.timer);
+    this.shapeResizes.delete(id);
+  }
+
+  /** In chunks of MAX_BATCH_ENTRIES. */
+  private sendShapeBatch(ops: readonly ShapeBatchEntry[], final: boolean): void {
+    if (!this.live) return;
+    for (let i = 0; i < ops.length; i += MAX_BATCH_ENTRIES) this.send({ type: "shapeBatch", ops: ops.slice(i, i + MAX_BATCH_ENTRIES), final });
+  }
+
+  /** A shape left the board (deleted, by anyone): runs waiting on it stop waiting. */
+  private shapeGone(id: string): void {
+    this.clearRun?.shapes.ids.delete(id);
+  }
+
+  /** A shape deleted here before its add was confirmed: a run waiting on its ref now waits on its id. */
+  private shapeConfirmedGone(clientRef: string, id: string): void {
+    if (this.clearRun?.shapes.refs.delete(clientRef)) this.clearRun.shapes.ids.add(id);
+  }
+
   /* ── Items with content (protocol v11) ──────────────────────────── */
 
   /**
@@ -1792,7 +2144,7 @@ export class RoomSession {
   ): ItemsRun | null {
     if (!this.live || !this.view.you || inputs.length === 0) return null;
     const authorId = this.view.you.id;
-    const run: ItemsRun = { refs: [], pending: new Set(), ids: new Map(), refused: { notesFull: 0, framesFull: 0, invalid: 0, tooQuick: 0 }, template, restore };
+    const run: ItemsRun = { refs: [], pending: new Set(), ids: new Map(), refused: { notesFull: 0, framesFull: 0, shapesFull: 0, invalid: 0, tooQuick: 0 }, template, restore };
     let board = this.view.board;
     const drafts: ItemDraft[] = [];
     for (const input of inputs) {
@@ -1809,6 +2161,17 @@ export class RoomSession {
         const item: NoteItem = { ref, ...clampNoteRect({ x, y, w, h }), text: clean, ...style };
         board = addItemLocal(board, item, authorId);
         drafts.push({ kind: "note", item });
+      } else if (input.kind === "shape") {
+        const { kind: _, shapeKind, x, y, w, h, text, ...style } = input;
+        const clean = cleanShapeText(text);
+        if (clean === null) {
+          run.refs.push(null);
+          run.refused.invalid++;
+          continue;
+        }
+        const item: ShapeItem = { ref, kind: shapeKind, ...clampShapeRect({ x, y, w, h }), text: clean, ...style };
+        board = addShapeItemLocal(board, item, authorId);
+        drafts.push({ kind: "shape", item });
       } else {
         const { kind: _, x, y, w, h, title, ...style } = input;
         const clean = cleanFrameTitle(title);
@@ -1870,6 +2233,7 @@ export class RoomSession {
     if (!batch || message.clientRef === undefined) {
       for (const { note } of message.notes) board = applyAdded(board, note);
       for (const { frame } of message.frames) board = applyFrameAdded(board, frame);
+      for (const { shape } of message.shapes ?? []) board = applyShapeAdded(board, shape);
       return this.update({ board });
     }
     this.itemBatches.delete(message.clientRef);
@@ -1884,8 +2248,13 @@ export class RoomSession {
       board = this.confirmFrame(board, frame, ref);
       this.itemSettled(run, ref, findFrame(board, frame.id) ? frame.id : null);
     }
+    for (const { ref, shape } of message.shapes ?? []) {
+      if (ref === undefined) continue;
+      board = this.confirmShape(board, shape, ref);
+      this.itemSettled(run, ref, findShape(board, shape.id) ? shape.id : null);
+    }
     for (const r of message.refused) {
-      const ref = (r.kind === "note" ? batch.message.notes : batch.message.frames)?.[r.index]?.ref;
+      const ref = itemList(batch.message, r.kind)?.[r.index]?.ref;
       if (ref !== undefined) board = this.itemRefused(board, run, ref, r.kind, r.reason);
     }
     // Anything the relay didn't account for can't be confirmed any more: rolled back.
@@ -1898,10 +2267,10 @@ export class RoomSession {
     if (message.clientRef !== undefined) this.itemBatches.delete(message.clientRef);
     let board = this.view.board;
     for (const r of message.refused ?? []) {
-      const ref = (r.kind === "note" ? batch.message.notes : batch.message.frames)?.[r.index]?.ref;
+      const ref = itemList(batch.message, r.kind)?.[r.index]?.ref;
       if (ref !== undefined) board = this.itemRefused(board, batch.run, ref, r.kind, r.reason);
     }
-    const reason = message.code === "notes_full" || message.code === "frames_full" || message.code === "rate_limited" ? message.code : "invalid";
+    const reason = message.code === "notes_full" || message.code === "frames_full" || message.code === "shapes_full" || message.code === "rate_limited" ? message.code : "invalid";
     board = this.refuseUnanswered(board, batch, reason);
     this.update({
       ...(message.code === "rate_limited" ? { rateLimited: true } : {}),
@@ -1925,17 +2294,17 @@ export class RoomSession {
   }
 
   /** One item wasn't added: it goes (unless it was deleted here meanwhile, which needs no notice). */
-  private itemRefused(board: Board, run: ItemsRun, ref: string, kind: "note" | "frame", reason: ItemRefusalReason | "rate_limited"): Board {
+  private itemRefused(board: Board, run: ItemsRun, ref: string, kind: ItemKind, reason: ItemRefusalReason | "rate_limited"): Board {
     this.itemSettled(run, ref, null);
     this.history.refuse(kind, localId(ref));
-    const deletedHere = kind === "note" ? this.abandoned.delete(ref) : this.abandonedFrames.delete(ref);
+    const deletedHere = kind === "note" ? this.abandoned.delete(ref) : kind === "frame" ? this.abandonedFrames.delete(ref) : this.abandonedShapes.delete(ref);
     if (deletedHere) {
       this.deleteRun?.refs.delete(ref);
       this.clearRun?.notes.refs.delete(ref);
       this.clearRun?.frames.refs.delete(ref);
     }
     else run.refused[refusalKey(reason)]++;
-    return kind === "note" ? rejectAdd(board, ref) : rejectFrameAdd(board, ref);
+    return kind === "note" ? rejectAdd(board, ref) : kind === "frame" ? rejectFrameAdd(board, ref) : rejectShapeAdd(board, ref);
   }
 
   /**
@@ -1982,6 +2351,11 @@ export class RoomSession {
         this.itemSettled(batch.run, ref, null);
         this.history.refuse("frame", localId(ref));
         board = rejectFrameAdd(board, ref);
+      }
+      for (const { ref } of batch.message.shapes ?? []) {
+        this.itemSettled(batch.run, ref, null);
+        this.history.refuse("shape", localId(ref));
+        board = rejectShapeAdd(board, ref);
       }
     }
     return board;
@@ -2030,12 +2404,19 @@ export class RoomSession {
    * locked board, and when the board hasn't room for every copy (a notice gives the counts). The
    * copies' local ids by kind, or null.
    */
-  duplicateSelection(noteIds: readonly string[], frameIds: readonly string[]): { notes: string[]; frames: string[] } | null {
-    if (!this.live || lockedOut(this.view) || noteIds.length + frameIds.length === 0) return null;
+  duplicateSelection(noteIds: readonly string[], frameIds: readonly string[], shapeIds: readonly string[] = []): { notes: string[]; frames: string[]; shapes: string[] } | null {
+    if (!this.live || lockedOut(this.view) || noteIds.length + frameIds.length + shapeIds.length === 0) return null;
     const notes = noteIds.map((id) => findNote(this.view.board, id));
     const frames = frameIds.map((id) => findFrame(this.view.board, id));
+    const shapes = shapeIds.map((id) => findShape(this.view.board, id));
     if (notes.some((e) => !e || e.confirmed === null || isLocalId(e.note.id) || isHeld(e))) return null;
     if (frames.some((e) => !e || e.confirmed === null || isLocalId(e.frame.id) || isFrameHeld(e))) return null;
+    if (shapes.some((e) => !e || e.confirmed === null || isLocalId(e.shape.id) || isShapeHeld(e))) return null;
+    const freeShapes = Math.max(0, MAX_SHAPES_PER_ROOM - this.view.board.shapes.length);
+    if (shapes.length > freeShapes) {
+      this.update({ noteNotice: DUPLICATE_HINTS.shapesFull(shapes.length, freeShapes) });
+      return null;
+    }
     const freeFrames = Math.max(0, MAX_FRAMES_PER_ROOM - this.view.board.frames.length);
     const freeNotes = Math.max(0, MAX_NOTES_PER_ROOM - this.view.board.notes.length);
     if (frames.length > freeFrames) {
@@ -2050,13 +2431,15 @@ export class RoomSession {
     const inputs = duplicateSelectionInputs(
       notes.flatMap((e) => (e ? [e.note] : [])),
       frames.flatMap((e) => (e ? [e.frame] : [])),
+      undefined,
+      shapes.flatMap((e) => (e ? [e.shape] : [])),
     );
     const ids = this.addItems(inputs, "Duplicate");
     if (!ids) return null;
-    const out = { notes: [] as string[], frames: [] as string[] };
+    const out = { notes: [] as string[], frames: [] as string[], shapes: [] as string[] };
     inputs.forEach((input, i) => {
       const id = ids[i];
-      if (id) (input.kind === "frame" ? out.frames : out.notes).push(id);
+      if (id) (input.kind === "frame" ? out.frames : input.kind === "shape" ? out.shapes : out.notes).push(id);
     });
     return out;
   }
@@ -2073,9 +2456,9 @@ export class RoomSession {
    */
   clearBoard(): boolean {
     if (!this.live || this.clearRun || this.restoreRun || this.template || this.itemBatches.size > 0) return false;
-    const { notes, frames } = this.view.board;
-    if (notes.length + frames.length === 0) return false;
-    this.startRemoval("clear", notes, frames);
+    const { notes, frames, shapes } = this.view.board;
+    if (notes.length + frames.length + shapes.length === 0) return false;
+    this.startRemoval("clear", notes, frames, shapes);
     return true;
   }
 
@@ -2087,7 +2470,7 @@ export class RoomSession {
    * connected: nothing is deleted, and the report says so. Refused (false, nothing sent) for a guest
    * on a locked board, while a clear or another such delete runs, or while an add run is being sent.
    */
-  deleteSelection(noteIds: readonly string[], frameIds: readonly string[]): boolean {
+  deleteSelection(noteIds: readonly string[], frameIds: readonly string[], shapeIds: readonly string[] = []): boolean {
     if (this.stopped) return false;
     if (!this.live) {
       this.update({ deleteReport: DELETE_OFFLINE });
@@ -2096,15 +2479,16 @@ export class RoomSession {
     if (lockedOut(this.view) || this.clearRun || this.restoreRun || this.template || this.itemBatches.size > 0) return false;
     const notes = noteIds.flatMap((id) => findNote(this.view.board, id) ?? []);
     const frames = frameIds.flatMap((id) => findFrame(this.view.board, id) ?? []);
-    if (notes.length + frames.length === 0) return false;
-    this.startRemoval("delete", notes, frames);
+    const shapes = shapeIds.flatMap((id) => findShape(this.view.board, id) ?? []);
+    if (notes.length + frames.length + shapes.length === 0) return false;
+    this.startRemoval("delete", notes, frames, shapes);
     return true;
   }
 
   /** Starts a clear or a selection delete: notes at once (batches), frames queued and paced. */
-  private startRemoval(kind: ClearRun["kind"], notes: readonly BoardNote[], frames: readonly BoardFrame[]): void {
+  private startRemoval(kind: ClearRun["kind"], notes: readonly BoardNote[], frames: readonly BoardFrame[], shapes: readonly BoardShape[] = []): void {
     const part = (): ClearPart => ({ total: 0, ids: new Set(), refs: new Set(), refused: 0, tooQuick: false });
-    const run: ClearRun = { kind, notes: part(), frames: { ...part(), queue: [] } };
+    const run: ClearRun = { kind, notes: part(), frames: { ...part(), queue: [] }, shapes: part() };
     let board = this.view.board;
     const ops: NoteBatchEntry[] = [];
     const removedNotes: Note[] = [];
@@ -2139,11 +2523,31 @@ export class RoomSession {
         removedFrames.push(entry.frame);
       }
     }
+    // Shapes (protocol v15): deleted at once in shapeBatch chunks, like notes.
+    const shapeOps: ShapeBatchEntry[] = [];
+    const removedShapes: Shape[] = [];
+    for (const entry of shapes) {
+      const id = entry.shape.id;
+      this.stopShapeMove(id);
+      this.stopShapeResize(id);
+      board = deleteShapeLocal(board, id);
+      run.shapes.total++;
+      if (entry.clientRef !== null) {
+        this.abandonedShapes.add(entry.clientRef);
+        run.shapes.refs.add(entry.clientRef);
+        this.history.refuse("shape", id);
+      } else {
+        shapeOps.push({ op: "delete", id });
+        run.shapes.ids.add(id);
+        removedShapes.push(entry.shape);
+      }
+    }
     this.clearRun = run;
     this.update({ board, noteNotice: null });
     const label = kind === "clear" ? "Clear board" : "Delete";
-    this.recordRemoval(label, removedNotes, removedFrames);
+    this.recordRemoval(label, removedNotes, removedFrames, removedShapes);
     this.sendBatch(ops, true);
+    this.sendShapeBatch(shapeOps, true);
     this.pumpClear();
   }
 
@@ -2171,10 +2575,10 @@ export class RoomSession {
   private settleClear(): void {
     const run = this.clearRun;
     if (!run) return;
-    const { notes, frames } = run;
-    if (notes.ids.size + notes.refs.size + frames.ids.size + frames.refs.size + frames.queue.length > 0) return;
+    const { notes, frames, shapes } = run;
+    if (notes.ids.size + notes.refs.size + frames.ids.size + frames.refs.size + frames.queue.length + shapes.ids.size + shapes.refs.size > 0) return;
     this.clearRun = null;
-    this.update({ deleteReport: removalReportFor(run.kind, { ...notes, lost: 0 }, { ...frames, lost: 0 }) });
+    this.update({ deleteReport: removalReportFor(run.kind, { ...notes, lost: 0 }, { ...frames, lost: 0 }, { ...shapes, lost: 0 }) });
   }
 
   /* ── Undo and redo (history/history.ts) ─────────────────────────── */
@@ -2206,6 +2610,11 @@ export class RoomSession {
       if (!entry?.confirmed) return null;
       return { rev: entry.confirmed.rev, held: isHeld(entry) || entry.draft !== null, state: entry.confirmed as unknown as Fields };
     }
+    if (kind === "shape") {
+      const entry = findShape(this.view.board, id);
+      if (!entry?.confirmed) return null;
+      return { rev: entry.confirmed.rev, held: isShapeHeld(entry) || entry.draft !== null, state: entry.confirmed as unknown as Fields };
+    }
     const entry = findFrame(this.view.board, id);
     if (!entry?.confirmed) return null;
     return { rev: entry.confirmed.rev, held: isFrameHeld(entry) || entry.draft !== null, state: entry.confirmed as unknown as Fields };
@@ -2231,7 +2640,7 @@ export class RoomSession {
     const newIds = new Map<string, string>();
     let restore: ItemsRun | null = null;
     if (plan.restores.length > 0) {
-      const inputs = plan.restores.map((r) => ({ kind: r.kind, ...r.content }) as unknown as ItemInput);
+      const inputs = plan.restores.map((r) => itemInput(r.kind, r.content));
       restore = this.startItems(inputs, null, { restore: true, defer: true });
       board = this.view.board;
       plan.restores.forEach((r, i) => {
@@ -2242,6 +2651,7 @@ export class RoomSession {
     this.history.applied(plan, newIds, now);
 
     const ops: NoteBatchEntry[] = [];
+    const shapeOps: ShapeBatchEntry[] = [];
     const sends: ClientMessage[] = [];
     for (const { kind, id, values } of plan.changes) {
       const { x, y, w, h, ...fields } = values as Fields & Partial<NoteRect>;
@@ -2259,6 +2669,20 @@ export class RoomSession {
         if (text !== undefined) board = editLocal(board, id, text);
         if (Object.keys(style).length > 0) board = styleLocal(board, id, style as StylePatch);
         if (text !== undefined || Object.keys(style).length > 0) sends.push({ type: "noteEdit", id, ...(fields as Partial<Note>) });
+        continue;
+      }
+      if (kind === "shape") {
+        const before = findShape(board, id)?.shape;
+        if (!before) continue;
+        if (hasRect) {
+          board = resizeShapeLocal(board, id, { x: x ?? before.x, y: y ?? before.y, w: w ?? before.w, h: h ?? before.h });
+          const after = findShape(board, id)?.shape ?? before;
+          shapeOps.push(w === undefined && h === undefined ? { op: "move", id, x: after.x, y: after.y } : { op: "resize", id, x: after.x, y: after.y, w: after.w, h: after.h });
+        }
+        if (Object.keys(fields).length > 0) {
+          board = editShapeLocal(board, id, fields as ShapeEdit);
+          sends.push({ type: "shapeEdit", id, ...(fields as ShapeEdit) });
+        }
         continue;
       }
       const before = findFrame(board, id)?.frame;
@@ -2283,6 +2707,11 @@ export class RoomSession {
         this.stopResize(id);
         board = deleteLocal(board, id);
         ops.push({ op: "delete", id });
+      } else if (kind === "shape") {
+        this.stopShapeMove(id);
+        this.stopShapeResize(id);
+        board = deleteShapeLocal(board, id);
+        shapeOps.push({ op: "delete", id });
       } else {
         this.stopFrameMove(id);
         this.stopFrameResize(id);
@@ -2296,6 +2725,7 @@ export class RoomSession {
       historyReport: plan.skipped > 0 ? { text: HISTORY_TEXT.conflicts(plan.skipped), partial: true } : null,
     });
     this.sendBatch(ops, true);
+    this.sendShapeBatch(shapeOps, true);
     for (const message of sends) this.send(message);
     if (restore) {
       if (restore.pending.size === 0) this.update(this.itemsDone(restore, this.view.board));
@@ -2316,7 +2746,7 @@ export class RoomSession {
   private recordRects(label: string, kinds: readonly ItemKind[], ids: readonly string[], keys: readonly (keyof NoteRect)[], coalesce?: string): void {
     const changes = ids.flatMap((id, i) => {
       const kind = kinds[i] ?? "note";
-      const shown: NoteRect | undefined = kind === "note" ? findNote(this.view.board, id)?.note : findFrame(this.view.board, id)?.frame;
+      const shown: NoteRect | undefined = kind === "note" ? findNote(this.view.board, id)?.note : kind === "shape" ? findShape(this.view.board, id)?.shape : findFrame(this.view.board, id)?.frame;
       return shown ? [{ kind, id, after: Object.fromEntries(keys.map((k) => [k, shown[k]])) }] : [];
     });
     this.record(label, changes, coalesce);
@@ -2324,7 +2754,9 @@ export class RoomSession {
 
   /** What the relay has (or will have, from my changes in flight) for these fields; null for an unconfirmed item. */
   private storedFields(kind: ItemKind, id: string, keys: readonly string[]): Fields | null {
-    const confirmed = (kind === "note" ? findNote(this.view.board, id)?.confirmed : findFrame(this.view.board, id)?.confirmed) as unknown as Fields | null | undefined;
+    const confirmed = (
+      kind === "note" ? findNote(this.view.board, id)?.confirmed : kind === "shape" ? findShape(this.view.board, id)?.confirmed : findFrame(this.view.board, id)?.confirmed
+    ) as unknown as Fields | null | undefined;
     if (!confirmed) return null;
     const pending = this.history.pendingValues(kind, id);
     return Object.fromEntries(keys.flatMap((k) => {
@@ -2334,14 +2766,20 @@ export class RoomSession {
   }
 
   /** Records items I deleted (confirmed only), with their content and z, to add them back on undo. */
-  private recordRemoval(label: string, notes: readonly Note[], frames: readonly Frame[]): void {
+  private recordRemoval(label: string, notes: readonly Note[], frames: readonly Frame[], shapes: readonly Shape[] = []): void {
+    const board = this.view.board;
     const rev = (kind: ItemKind, id: string) =>
-      (kind === "note" ? (findNote(this.view.board, id) ?? this.view.board.removed.find((n) => n.note.id === id))?.confirmed?.rev : (findFrame(this.view.board, id) ?? this.view.board.framesRemoved.find((f) => f.frame.id === id))?.confirmed?.rev) ?? 1;
+      (kind === "note"
+        ? (findNote(board, id) ?? board.removed.find((n) => n.note.id === id))?.confirmed?.rev
+        : kind === "shape"
+          ? (findShape(board, id) ?? board.shapesRemoved.find((s) => s.shape.id === id))?.confirmed?.rev
+          : (findFrame(board, id) ?? board.framesRemoved.find((f) => f.frame.id === id))?.confirmed?.rev) ?? 1;
     this.history.recordRemove(
       label,
       [
         ...notes.filter((n) => !isLocalId(n.id)).map((n) => ({ kind: "note" as const, id: n.id, content: n as unknown as Fields, z: n.z, rev: rev("note", n.id) })),
         ...frames.filter((f) => !isLocalId(f.id)).map((f) => ({ kind: "frame" as const, id: f.id, content: f as unknown as Fields, z: 0, rev: rev("frame", f.id) })),
+        ...shapes.filter((x) => !isLocalId(x.id)).map((x) => ({ kind: "shape" as const, id: x.id, content: x as unknown as Fields, z: x.z, rev: rev("shape", x.id) })),
       ],
       Date.now(),
     );
@@ -2370,6 +2808,15 @@ export class RoomSession {
       this.history.observe("frame", id, prev.rev, confirmed.rev, confirmed as unknown as Fields, false);
     }
     for (const id of framesBefore.keys()) if (!framesAfter.has(id) && !isLocalId(id)) this.history.deleted("frame", id);
+    const shapesBefore = new Map([...before.shapes, ...before.shapesRemoved].map((x) => [x.shape.id, x.confirmed] as const));
+    const shapesAfter = new Map([...after.shapes, ...after.shapesRemoved].map((x) => [x.shape.id, x.confirmed] as const));
+    for (const [id, confirmed] of shapesAfter) {
+      const prev = shapesBefore.get(id);
+      if (!confirmed || !prev || prev === confirmed) continue;
+      const zOnly = (Object.keys(confirmed) as (keyof Shape)[]).every((k) => k === "z" || k === "rev" || confirmed[k] === prev[k]);
+      this.history.observe("shape", id, prev.rev, confirmed.rev, confirmed as unknown as Fields, zOnly);
+    }
+    for (const id of shapesBefore.keys()) if (!shapesAfter.has(id) && !isLocalId(id)) this.history.deleted("shape", id);
     // A change confirmed may make undo or redo possible.
     this.refreshHistory();
   }
@@ -2442,10 +2889,18 @@ export class RoomSession {
     }
   }
 
-  private sendFrameMove(id: string, noteIds: readonly string[], final: boolean): void {
+  private sendFrameMove(id: string, noteIds: readonly string[], final: boolean, shapeIds: readonly string[] = []): void {
     const frame = findFrame(this.view.board, id)?.frame;
     if (!frame || !this.live) return;
-    this.send({ type: "frameMove", id, x: frame.x, y: frame.y, final, ...(noteIds.length > 0 ? { noteIds: [...noteIds] } : {}) });
+    this.send({
+      type: "frameMove",
+      id,
+      x: frame.x,
+      y: frame.y,
+      final,
+      ...(noteIds.length > 0 ? { noteIds: [...noteIds] } : {}),
+      ...(shapeIds.length > 0 ? { shapeIds: [...shapeIds] } : {}),
+    });
   }
 
   private sendFrameResize(id: string, final: boolean): void {
@@ -2527,6 +2982,8 @@ export class RoomSession {
     for (const id of [...this.resizes.keys()]) this.stopResize(id);
     for (const id of [...this.frameMoves.keys()]) this.stopFrameMove(id);
     for (const id of [...this.frameResizes.keys()]) this.stopFrameResize(id);
+    for (const id of [...this.shapeMoves.keys()]) this.stopShapeMove(id);
+    for (const id of [...this.shapeResizes.keys()]) this.stopShapeResize(id);
     this.frameDrag = null;
     this.stopGroup();
     this.stopSelectionDrag();
@@ -2809,6 +3266,7 @@ export class RoomSession {
         clearTimeout(this.timer);
         this.resyncing = false;
         this.framesResync = true;
+        this.shapesResync = true;
         this.stopRetry();
         const { board, orphans } = resyncNotes(this.view.board, message.notes);
         return this.update({ status: "joined", board, synced: true, ...(orphans.length > 0 ? { orphanDraft: orphans.at(-1) ?? null } : {}) });
@@ -2861,6 +3319,57 @@ export class RoomSession {
         }
         return this.update({ board: applyFramesSnapshot(this.view.board, message.frames) });
 
+      case "shapesSnapshot":
+        // Right after the frames snapshot (protocol v15). Shapes slot in; no viewport jump.
+        if (this.shapesResync) {
+          this.shapesResync = false;
+          return this.update({ board: resyncShapes(this.view.board, message.shapes) });
+        }
+        return this.update({ board: applyShapesSnapshot(this.view.board, message.shapes) });
+
+      case "shapeAdded": {
+        const { shape, clientRef } = message;
+        return this.update({ board: this.confirmShape(this.view.board, shape, clientRef), ...(clientRef !== undefined ? { rateLimited: false } : {}) });
+      }
+
+      case "shapeUpdated":
+        return this.update({ board: applyShapeUpdated(this.view.board, message.shape) });
+
+      case "shapeMoved":
+        return this.update({ board: applyShapeMoved(this.view.board, message) });
+
+      case "shapeResized":
+        return this.update({ board: applyShapeResized(this.view.board, message) });
+
+      case "shapeDeleted": {
+        this.stopShapeMove(message.id);
+        this.stopShapeResize(message.id);
+        const editing = findShape(this.view.board, message.id)?.draft != null;
+        this.shapeGone(message.id);
+        return this.update({
+          board: applyShapeDeleted(this.view.board, message.id),
+          ...(editing ? { noteNotice: NOTICES.shapeDeletedWhileEditing } : {}),
+          ...this.deleteSettled(),
+        });
+      }
+
+      case "shapesBatchApplied": {
+        let board = this.view.board;
+        let editingDeleted = false;
+        for (const result of message.results) {
+          if (result.type === "shapeMoved") board = applyShapeMoved(board, result);
+          else if (result.type === "shapeResized") board = applyShapeResized(board, result);
+          else {
+            this.stopShapeMove(result.id);
+            this.stopShapeResize(result.id);
+            editingDeleted ||= findShape(board, result.id)?.draft != null;
+            board = applyShapeDeleted(board, result.id);
+            this.shapeGone(result.id);
+          }
+        }
+        return this.update({ board, ...(editingDeleted ? { noteNotice: NOTICES.shapeDeletedWhileEditing } : {}), ...this.deleteSettled() });
+      }
+
       case "frameAdded": {
         const { frame, clientRef } = message;
         return this.update({ board: this.confirmFrame(this.view.board, frame, clientRef), ...(clientRef !== undefined ? { rateLimited: false } : {}) });
@@ -2873,6 +3382,7 @@ export class RoomSession {
         // The frame and the notes it carried, in one view update.
         let board = applyFrameMoved(this.view.board, message);
         for (const n of message.notes ?? []) board = applyMoved(board, { ...n, final: message.final });
+        for (const x of message.shapes ?? []) board = applyShapeMoved(board, { ...x, final: message.final });
         return this.update({ board });
       }
 
@@ -2908,7 +3418,14 @@ export class RoomSession {
         }
         const batch = message.clientRef === undefined ? undefined : this.itemBatches.get(message.clientRef);
         if (batch) return this.itemsErrored(message, batch);
-        if (message.clientRef !== undefined || message.noteId !== undefined || message.noteIds !== undefined || message.frameId !== undefined) {
+        if (
+          message.clientRef !== undefined ||
+          message.noteId !== undefined ||
+          message.noteIds !== undefined ||
+          message.frameId !== undefined ||
+          message.shapeId !== undefined ||
+          message.shapeIds !== undefined
+        ) {
           return this.noteRefused(message);
         }
         switch (message.code) {
@@ -2928,6 +3445,8 @@ export class RoomSession {
             return this.update({ noteNotice: NOTICES.full });
           case "frames_full":
             return this.update({ noteNotice: NOTICES.framesFull });
+          case "shapes_full":
+            return this.update({ noteNotice: NOTICES.shapesFull });
           case "board_locked":
             return this.update({ noteNotice: NOTICES.locked });
           case "not_host":
@@ -2997,6 +3516,27 @@ export class RoomSession {
     return next;
   }
 
+  /** A shape add confirmed (a shapeAdd's, or an itemsAdd entry's by its ref), likewise. */
+  private confirmShape(board: Board, shape: Shape, clientRef: string | undefined): Board {
+    const temp = clientRef === undefined ? undefined : findShape(board, localId(clientRef));
+    let next = applyShapeAdded(board, shape, clientRef);
+    if (clientRef !== undefined && this.abandonedShapes.delete(clientRef)) {
+      next = deleteShapeLocal(next, shape.id);
+      this.shapeConfirmedGone(clientRef, shape.id);
+      this.send({ type: "shapeBatch", ops: [{ op: "delete", id: shape.id }], final: true });
+    } else if (temp) {
+      this.history.confirmAdd("shape", temp.shape.id, shape.id, shape.rev);
+      // Text or style set while the add was in flight: one edit with all of it.
+      const edit = shapeChanges(shape, temp.shape);
+      if (Object.keys(edit).length > 0) {
+        this.history.expectOwn("shape", shape.id, edit as Fields, Date.now());
+        this.send({ type: "shapeEdit", id: shape.id, ...edit });
+      }
+    }
+    if (temp) this.options.onShapeConfirmed?.(temp.shape.id, shape.id);
+    return next;
+  }
+
   /** The server refused a note or frame change: roll it back and say why. */
   private noteRefused(message: Extract<ServerMessage, { type: "error" }>): void {
     let board = this.view.board;
@@ -3020,7 +3560,7 @@ export class RoomSession {
     const clear = this.clearRun;
     if (clear) {
       let all = true;
-      if (message.clientRef !== undefined && !clear.notes.refs.delete(message.clientRef) && !clear.frames.refs.delete(message.clientRef)) all = false;
+      if (message.clientRef !== undefined && !clear.notes.refs.delete(message.clientRef) && !clear.frames.refs.delete(message.clientRef) && !clear.shapes.refs.delete(message.clientRef)) all = false;
       for (const id of noteIds) {
         if (clear.notes.ids.delete(id)) {
           clear.notes.refused++;
@@ -3033,15 +3573,32 @@ export class RoomSession {
           clear.frames.tooQuick ||= message.code === "rate_limited";
         } else all = false;
       }
-      if (all && (message.clientRef !== undefined || noteIds.length > 0 || message.frameId !== undefined)) ours = true;
+      const refusedShapes = [...(message.shapeId !== undefined ? [message.shapeId] : []), ...(message.shapeIds ?? [])];
+      for (const id of refusedShapes) {
+        if (clear.shapes.ids.delete(id)) {
+          clear.shapes.refused++;
+          clear.shapes.tooQuick ||= message.code === "rate_limited";
+        } else all = false;
+      }
+      if (all && (message.clientRef !== undefined || noteIds.length > 0 || message.frameId !== undefined || refusedShapes.length > 0)) ours = true;
     }
     if (message.clientRef !== undefined) {
       this.history.refuse("note", localId(message.clientRef));
       this.history.refuse("frame", localId(message.clientRef));
-      // A clientRef belongs to one add, a note's or a frame's.
+      this.history.refuse("shape", localId(message.clientRef));
+      // A clientRef belongs to one add, a note's, a frame's or a shape's.
       this.abandoned.delete(message.clientRef);
       this.abandonedFrames.delete(message.clientRef);
-      board = rejectFrameAdd(rejectAdd(board, message.clientRef), message.clientRef);
+      this.abandonedShapes.delete(message.clientRef);
+      board = rejectShapeAdd(rejectFrameAdd(rejectAdd(board, message.clientRef), message.clientRef), message.clientRef);
+    }
+    // One shape, or the shapes a refused batch or carry named (protocol v15).
+    const shapeIds = [...(message.shapeId !== undefined ? [message.shapeId] : []), ...(message.shapeIds ?? [])];
+    for (const id of [...shapeIds].reverse()) {
+      this.history.refuse("shape", id);
+      this.stopShapeMove(id);
+      this.stopShapeResize(id);
+      board = rollbackShape(board, id);
     }
     if (message.frameId !== undefined) {
       this.history.refuse("frame", message.frameId);
@@ -3063,6 +3620,8 @@ export class RoomSession {
         ? NOTICES.full
         : message.code === "frames_full"
           ? NOTICES.framesFull
+          : message.code === "shapes_full"
+            ? NOTICES.shapesFull
           : message.code === "rate_limited"
             ? NOTICES.tooQuick
             : message.code === "board_locked"
@@ -3127,6 +3686,7 @@ export class RoomSession {
     this.template = null;
     this.abandoned.clear();
     this.abandonedFrames.clear();
+    this.abandonedShapes.clear();
     clearTimeout(this.presenceTimer);
     clearTimeout(this.toastTimer);
     this.history.clear();

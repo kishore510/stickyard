@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { cleanFrameTitle, cleanName, cleanNoteText, cleanText, codePointLength } from "./clean";
+import { cleanFrameTitle, cleanName, cleanNoteText, cleanShapeText, cleanText, codePointLength } from "./clean";
 import { NOTE_Z_LIMIT, ORDER_ACTIONS } from "./stack";
 
 /**
@@ -29,8 +29,13 @@ import { NOTE_Z_LIMIT, ORDER_ACTIONS } from "./stack";
  *   voter's own sockets only), votesRevealed (totals, once closed); `joined` carries `voting`.
  * v14 (live cursors): cursor / cursorLeft from a page, cursorMoved / cursorGone (to the others
  *   only, the id from the sender's socket). Relayed live, never stored.
+ * v15 (text and shapes): shapes (text labels, rectangles, ovals, diamonds: shapeAdd/Edit/Move/
+ *   Resize/Delete, shapeBatch and their server messages); joining sends shapesSnapshot right after
+ *   framesSnapshot; shapes share the notes' stacking space (notesOrder may name shapes, and
+ *   notesOrdered may report them); frameMove may carry shapes (shapeIds) and frameMoved reports
+ *   them; itemsAdd may carry shapes, and note and shape items may give a `rank`.
  */
-export const PROTOCOL_VERSION = 14;
+export const PROTOCOL_VERSION = 15;
 
 /**
  * Hard cap on a single client-to-server WebSocket message, in UTF-8 bytes. Checked before JSON.parse.
@@ -274,9 +279,111 @@ export function groupOffset(rects: readonly NoteRect[], dx: number, dy: number):
   return { dx: clamp(dx, -left, BOARD_WIDTH - right), dy: clamp(dy, -top, BOARD_HEIGHT - bottom) };
 }
 
-/** Server-assigned id (participants and notes): 12 random bytes, base64url. */
+/* ── Shapes (v15) ────────────────────────────────────────────────────── */
+
+/**
+ * A shape's kind, fixed when it is made. A text label is a shape with no fill and no border by
+ * default (it can be given either later).
+ */
+export const SHAPE_KINDS = ["text", "rect", "oval", "diamond"] as const;
+export const shapeKindSchema = z.enum(SHAPE_KINDS);
+export type ShapeKind = z.infer<typeof shapeKindSchema>;
+/** Shapes on one board. */
+export const MAX_SHAPES_PER_ROOM = 50;
+/** Shape text length after cleaning, in characters (line breaks kept; may be empty). */
+export const MAX_SHAPE_TEXT = 500;
+/** Resize limits for every kind (the server clamps; mirrored in tokens.css, a test checks). */
+export const SHAPE_MIN_W = 40;
+export const SHAPE_MIN_H = 24;
+export const SHAPE_MAX_W = 2400;
+export const SHAPE_MAX_H = 1600;
+
+/** Fills: none, or neutral plus the six note hues. Keys, never colour values. */
+export const SHAPE_FILLS = ["none", ...FRAME_COLORS] as const;
+export const shapeFillSchema = z.enum(SHAPE_FILLS);
+export type ShapeFill = z.infer<typeof shapeFillSchema>;
+/** Border colours: neutral plus the six note hues (no border = strokeWidth none). */
+export const SHAPE_STROKES = FRAME_COLORS;
+export const shapeStrokeSchema = frameColorSchema;
+export type ShapeStroke = FrameColor;
+export const SHAPE_STROKE_WIDTHS = ["none", "thin", "medium", "thick"] as const;
+export const shapeStrokeWidthSchema = z.enum(SHAPE_STROKE_WIDTHS);
+export type ShapeStrokeWidth = z.infer<typeof shapeStrokeWidthSchema>;
+export const SHAPE_STROKE_STYLES = ["solid", "dashed"] as const;
+export const shapeStrokeStyleSchema = z.enum(SHAPE_STROKE_STYLES);
+export type ShapeStrokeStyle = z.infer<typeof shapeStrokeStyleSchema>;
+/** Seven text sizes, from small to heading sizes (wider than notes). */
+export const SHAPE_FONT_SIZES = ["s", "m", "l", "xl", "2xl", "3xl", "4xl"] as const;
+export const shapeFontSizeSchema = z.enum(SHAPE_FONT_SIZES);
+export type ShapeFontSize = z.infer<typeof shapeFontSizeSchema>;
+/** Each size in CSS pixels; tokens.css mirrors them as --sy-shape-font-<key> (a test checks). */
+export const SHAPE_FONT_PX: Readonly<Record<ShapeFontSize, number>> = { s: 12, m: 14, l: 18, xl: 24, "2xl": 32, "3xl": 40, "4xl": 56 };
+export const SHAPE_VALIGNS = ["top", "middle", "bottom"] as const;
+export const shapeValignSchema = z.enum(SHAPE_VALIGNS);
+export type ShapeValign = z.infer<typeof shapeValignSchema>;
+
+/** The style fields a shape has (every shapeEdit field but text). */
+export const SHAPE_STYLE_FIELDS = ["fill", "stroke", "strokeWidth", "strokeStyle", "fontSize", "bold", "italic", "underline", "textColor", "align", "valign"] as const;
+export type ShapeStyleField = (typeof SHAPE_STYLE_FIELDS)[number];
+/** The fields a shapeEdit may change. Everything but id is optional; at least one must be there. Never the kind. */
+export const SHAPE_EDIT_FIELDS = ["text", ...SHAPE_STYLE_FIELDS] as const;
+export type ShapeEditField = (typeof SHAPE_EDIT_FIELDS)[number];
+
+export interface ShapeStyle {
+  fill: ShapeFill;
+  stroke: ShapeStroke;
+  strokeWidth: ShapeStrokeWidth;
+  strokeStyle: ShapeStrokeStyle;
+  fontSize: ShapeFontSize;
+  bold: boolean;
+  italic: boolean;
+  underline: boolean;
+  textColor: NoteTextColor;
+  align: NoteAlign;
+  valign: ShapeValign;
+}
+
+const BOXED_STYLE: ShapeStyle = {
+  fill: "neutral",
+  stroke: "neutral",
+  strokeWidth: "thin",
+  strokeStyle: "solid",
+  fontSize: "m",
+  bold: false,
+  italic: false,
+  underline: false,
+  textColor: "auto",
+  align: "center",
+  valign: "middle",
+};
+const SHAPE_DEFAULTS: Readonly<Record<ShapeKind, ShapeStyle & { w: number; h: number }>> = {
+  text: { ...BOXED_STYLE, w: 240, h: 48, fill: "none", strokeWidth: "none", fontSize: "l", align: "left", valign: "top" },
+  rect: { ...BOXED_STYLE, w: 200, h: 120 },
+  oval: { ...BOXED_STYLE, w: 200, h: 120 },
+  diamond: { ...BOXED_STYLE, w: 200, h: 160 },
+};
+
+/** A new shape's size and style for its kind (shapeAdd carries neither). Storage fills in the rectangle's for missing columns. */
+export function shapeDefaults(kind: ShapeKind): ShapeStyle & { w: number; h: number } {
+  return { ...SHAPE_DEFAULTS[kind] };
+}
+
+/** Rounds and clamps a position so the whole shape (its size) is on the board. */
+export function clampShapePosition(x: number, y: number, size: { w: number; h: number }): { x: number; y: number } {
+  return clampNotePosition(x, y, size);
+}
+
+/** Size first (whole units, within the shape min/max), then position (the whole shape on the board). */
+export function clampShapeRect(rect: NoteRect): NoteRect {
+  const w = between(whole(rect.w, SHAPE_DEFAULTS.rect.w), SHAPE_MIN_W, SHAPE_MAX_W);
+  const h = between(whole(rect.h, SHAPE_DEFAULTS.rect.h), SHAPE_MIN_H, SHAPE_MAX_H);
+  return { ...clampShapePosition(rect.x, rect.y, { w, h }), w, h };
+}
+
+/** Server-assigned id (participants, notes, frames and shapes): 12 random bytes, base64url. */
 const serverIdSchema = z.string().regex(/^[A-Za-z0-9_-]{16}$/);
 export const noteIdSchema = serverIdSchema;
+export const shapeIdSchema = serverIdSchema;
 /** The sender's temporary id for an add, so it can swap in the server id. Echoed only to the sender. */
 export const clientRefSchema = z.string().regex(/^[A-Za-z0-9_-]{1,32}$/);
 
@@ -439,6 +546,17 @@ const readableId = (op: unknown): string | null => {
 
 /** Checks each entry of a batch. A batch that names any note twice is refused whole. */
 export function checkBatch(ops: readonly unknown[]): BatchCheck {
+  return checkOps(ops, noteBatchEntrySchema);
+}
+
+interface OpsCheck<T> {
+  valid: { index: number; entry: T }[];
+  invalid: number[];
+  invalidIds: string[];
+  duplicate: boolean;
+}
+
+function checkOps<T>(ops: readonly unknown[], schema: z.ZodType<T>): OpsCheck<T> {
   const ids = ops.map(readableId);
   const named = ids.filter((id): id is string => id !== null);
   const duplicate = new Set(named).size !== named.length;
@@ -447,10 +565,10 @@ export function checkBatch(ops: readonly unknown[]): BatchCheck {
     const all = ops.map((_, i) => i);
     return { valid: [], invalid: all, invalidIds: uniqueIds(all), duplicate };
   }
-  const valid: BatchCheck["valid"] = [];
+  const valid: OpsCheck<T>["valid"] = [];
   const invalid: number[] = [];
   ops.forEach((op, index) => {
-    const parsed = noteBatchEntrySchema.safeParse(op);
+    const parsed = schema.safeParse(op);
     if (parsed.success) valid.push({ index, entry: parsed.data });
     else invalid.push(index);
   });
@@ -461,6 +579,7 @@ export function checkBatch(ops: readonly unknown[]): BatchCheck {
 
 /**
  * Brings notes to the front or sends them to the back, keeping their order among themselves.
+ * Since v15 the ids may name shapes too: notes and shapes share one stacking space.
  * The envelope is strict; ids are checked one by one (checkOrder), so bad ones are named by
  * index while the rest apply. A selection with more notes is sent in chunks of
  * MAX_BATCH_ENTRIES, in stacking order (see RoomSession.orderNotes). Send ids as strings.
@@ -539,8 +658,9 @@ export const frameEditSchema = z
 
 /**
  * A frame's new position. `noteIds` names the notes it carries (computed by the sender when the
- * drag starts: notes whose centre is inside the frame): they move by the same delta, clamped once
- * for the whole group. Without it (Alt, or more than MAX_BATCH_ENTRIES inside) the frame moves
+ * drag starts: notes whose centre is inside the frame), and since v15 `shapeIds` the shapes: they
+ * move by the same delta, clamped once for the whole group. Without them (Alt, or more than
+ * MAX_BATCH_ENTRIES inside, notes and shapes together) the frame moves
  * alone. final=false while dragging (relayed, never stored); final=true is stored in one transaction.
  */
 export const frameMoveSchema = z.strictObject({
@@ -554,7 +674,13 @@ export const frameMoveSchema = z.strictObject({
     .max(MAX_BATCH_ENTRIES)
     .refine((ids) => new Set(ids).size === ids.length, { message: "A note is named twice." })
     .optional(),
-});
+  /** Since v15: the shapes it carries (centre inside), like noteIds. Notes and shapes share the cap. */
+  shapeIds: z
+    .array(shapeIdSchema)
+    .max(MAX_BATCH_ENTRIES)
+    .refine((ids) => new Set(ids).size === ids.length, { message: "A shape is named twice." })
+    .optional(),
+}).refine((m) => (m.noteIds?.length ?? 0) + (m.shapeIds?.length ?? 0) <= MAX_BATCH_ENTRIES, { message: "At most 50 carried items." });
 
 export const frameResizeSchema = z.strictObject({
   type: z.literal("frameResize"),
@@ -571,6 +697,106 @@ export const frameDeleteSchema = z.strictObject({
   id: frameIdSchema,
 });
 
+/* ── Shape messages (v15) ───────────────────────────────────────────── */
+
+const shapeW = z.number().int().min(SHAPE_MIN_W).max(SHAPE_MAX_W);
+const shapeH = z.number().int().min(SHAPE_MIN_H).max(SHAPE_MAX_H);
+/** Inbound shape text: at most MAX_SHAPE_TEXT characters (the server still cleans it). */
+const shapeTextIn = z
+  .string()
+  .max(MAX_SHAPE_TEXT * 2)
+  .refine((text) => codePointLength(text) <= MAX_SHAPE_TEXT);
+
+/** Each shape style field's inbound schema: keys only, never CSS. shapeEdit (optional) and itemsAdd (required) use it. */
+const shapeStyleShape = {
+  fill: shapeFillSchema,
+  stroke: shapeStrokeSchema,
+  strokeWidth: shapeStrokeWidthSchema,
+  strokeStyle: shapeStrokeStyleSchema,
+  fontSize: shapeFontSizeSchema,
+  bold: z.boolean(),
+  italic: z.boolean(),
+  underline: z.boolean(),
+  textColor: noteTextColorSchema,
+  align: noteAlignSchema,
+  valign: shapeValignSchema,
+} satisfies Record<ShapeStyleField, z.ZodType>;
+
+/** A new shape of a kind at a position (top-left), with its kind's default size and style and no text. */
+export const shapeAddSchema = z.strictObject({
+  type: z.literal("shapeAdd"),
+  clientRef: clientRefSchema,
+  kind: shapeKindSchema,
+  x: boardX,
+  y: boardY,
+});
+
+export const shapeEditSchema = z
+  .strictObject({
+    type: z.literal("shapeEdit"),
+    id: shapeIdSchema,
+    text: shapeTextIn.optional(),
+    ...z.object(shapeStyleShape).partial().shape,
+  })
+  .refine((edit) => SHAPE_EDIT_FIELDS.some((field) => edit[field] !== undefined), { message: "Nothing to change." });
+
+/** final=false while dragging (relayed, never stored); final=true on drop (stored, bumps rev). */
+export const shapeMoveSchema = z.strictObject({
+  type: z.literal("shapeMove"),
+  id: shapeIdSchema,
+  x: boardX,
+  y: boardY,
+  final: z.boolean(),
+});
+
+export const shapeResizeSchema = z.strictObject({
+  type: z.literal("shapeResize"),
+  id: shapeIdSchema,
+  x: boardX,
+  y: boardY,
+  w: shapeW,
+  h: shapeH,
+  final: z.boolean(),
+});
+
+export const shapeDeleteSchema = z.strictObject({
+  type: z.literal("shapeDelete"),
+  id: shapeIdSchema,
+});
+
+/** One change in a shapeBatch: noteBatch's entries at shape sizes. */
+export const shapeBatchEntrySchema = z.discriminatedUnion("op", [
+  z.strictObject({ op: z.literal("move"), id: shapeIdSchema, x: boardX, y: boardY }),
+  z.strictObject({ op: z.literal("resize"), id: shapeIdSchema, x: boardX, y: boardY, w: shapeW, h: shapeH }),
+  z.strictObject({ op: z.literal("delete"), id: shapeIdSchema }),
+]);
+export type ShapeBatchEntry = z.infer<typeof shapeBatchEntrySchema>;
+
+/**
+ * Many shape moves, resizes or deletes at once, exactly like noteBatch: a strict envelope with
+ * entries checked one by one (checkShapeBatch); final=true stored in one transaction, final=false
+ * a group drag (relayed to the others, coalesced, never stored; deletes ignored).
+ */
+export const shapeBatchSchema = z.strictObject({
+  type: z.literal("shapeBatch"),
+  ops: z.array(z.unknown()).min(1).max(MAX_BATCH_ENTRIES),
+  final: z.boolean(),
+});
+
+export interface ShapeBatchCheck {
+  valid: { index: number; entry: ShapeBatchEntry }[];
+  invalid: number[];
+  /** The shape ids of refused entries that had a readable id. */
+  invalidIds: string[];
+  /** Some shape appears twice: the whole batch is refused. */
+  duplicate: boolean;
+}
+
+/** Checks each entry of a shapeBatch. A batch that names any shape twice is refused whole. */
+export function checkShapeBatch(ops: readonly unknown[]): ShapeBatchCheck {
+  return checkOps(ops, shapeBatchEntrySchema);
+}
+
 
 /* ── Create with content (v11) ──────────────────────────────────────── */
 
@@ -580,9 +806,17 @@ export const frameDeleteSchema = z.strictObject({
  */
 export const itemRefSchema = clientRefSchema;
 
+/**
+ * Since v15: an item's place among the new notes and shapes of its message, bottom first (they
+ * share one stacking space). Items without one go after those with one: notes, then shapes, each
+ * in array order.
+ */
+const itemRank = z.number().int().min(0).max(MAX_BATCH_ENTRIES - 1);
+
 /** A note with its full content. No id, rev, z or author: the server assigns them. Clamped and cleaned by the server. */
 export const noteItemSchema = z.strictObject({
   ref: itemRefSchema,
+  rank: itemRank.optional(),
   x: boardX,
   y: boardY,
   w: noteW,
@@ -605,16 +839,31 @@ export const frameItemSchema = z.strictObject({
 });
 export type FrameItem = z.infer<typeof frameItemSchema>;
 
-export const ITEM_KINDS = ["note", "frame"] as const;
+/** A shape with its full content (since v15). No id, rev, z or author. */
+export const shapeItemSchema = z.strictObject({
+  ref: itemRefSchema,
+  rank: itemRank.optional(),
+  kind: shapeKindSchema,
+  x: boardX,
+  y: boardY,
+  w: shapeW,
+  h: shapeH,
+  text: shapeTextIn,
+  ...shapeStyleShape,
+});
+export type ShapeItem = z.infer<typeof shapeItemSchema>;
+
+export const ITEM_KINDS = ["note", "frame", "shape"] as const;
 export type ItemKind = (typeof ITEM_KINDS)[number];
-/** Why one item was refused: it didn't validate (or clean), or the room has its notes or frames already. */
-export const ITEM_REFUSALS = ["invalid", "notes_full", "frames_full"] as const;
+/** Why one item was refused: it didn't validate (or clean), or the room has its notes, frames or shapes already. */
+export const ITEM_REFUSALS = ["invalid", "notes_full", "frames_full", "shapes_full"] as const;
 export type ItemRefusalReason = (typeof ITEM_REFUSALS)[number];
 
-const itemCount = (m: { notes?: readonly unknown[] | undefined; frames?: readonly unknown[] | undefined }) => (m.notes?.length ?? 0) + (m.frames?.length ?? 0);
+const itemCount = (m: { notes?: readonly unknown[] | undefined; frames?: readonly unknown[] | undefined; shapes?: readonly unknown[] | undefined }) =>
+  (m.notes?.length ?? 0) + (m.frames?.length ?? 0) + (m.shapes?.length ?? 0);
 
 /**
- * Notes and frames with their content, in one message (duplicate, undo and templates). The
+ * Notes, frames and (since v15) shapes with their content, in one message (duplicate, undo and templates). The
  * envelope is strict; entries are checked one by one (checkItems), so the good ones are added and
  * the bad ones named back. 1 to MAX_BATCH_ENTRIES items in total, and the whole message must fit
  * MAX_MESSAGE_BYTES (the web packs by size). Notes' array order is their stacking order (last on
@@ -626,6 +875,7 @@ export const itemsAddSchema = z
     clientRef: clientRefSchema,
     notes: z.array(z.unknown()).max(MAX_BATCH_ENTRIES).optional(),
     frames: z.array(z.unknown()).max(MAX_BATCH_ENTRIES).optional(),
+    shapes: z.array(z.unknown()).max(MAX_BATCH_ENTRIES).optional(),
   })
   .refine((m) => itemCount(m) >= 1 && itemCount(m) <= MAX_BATCH_ENTRIES, { message: "1 to 50 items." });
 
@@ -641,9 +891,10 @@ export type ItemRefusal = z.infer<typeof itemRefusalSchema>;
 export interface ItemsCheck {
   notes: { index: number; entry: NoteItem }[];
   frames: { index: number; entry: FrameItem }[];
-  /** Entries that didn't validate, in order (notes first). */
+  shapes: { index: number; entry: ShapeItem }[];
+  /** Entries that didn't validate, in order (notes, then frames, then shapes). */
   invalid: ItemRefusal[];
-  /** Some ref appears twice (across both lists): the whole message is refused. */
+  /** Some ref appears twice (across all lists): the whole message is refused. */
   duplicate: boolean;
 }
 
@@ -654,9 +905,9 @@ const readableRef = (entry: unknown): string | undefined => {
 };
 
 /** Checks each entry of an itemsAdd. A message that uses any ref twice is refused whole. */
-export function checkItems(notes: readonly unknown[] = [], frames: readonly unknown[] = []): ItemsCheck {
-  const refs = [...notes, ...frames].map(readableRef).filter((r): r is string => r !== undefined);
-  const result: ItemsCheck = { notes: [], frames: [], invalid: [], duplicate: new Set(refs).size !== refs.length };
+export function checkItems(notes: readonly unknown[] = [], frames: readonly unknown[] = [], shapes: readonly unknown[] = []): ItemsCheck {
+  const refs = [...notes, ...frames, ...shapes].map(readableRef).filter((r): r is string => r !== undefined);
+  const result: ItemsCheck = { notes: [], frames: [], shapes: [], invalid: [], duplicate: new Set(refs).size !== refs.length };
   if (result.duplicate) return result;
   const check = <T>(kind: ItemKind, entries: readonly unknown[], schema: z.ZodType<T>, valid: { index: number; entry: T }[]) =>
     entries.forEach((entry, index) => {
@@ -667,6 +918,7 @@ export function checkItems(notes: readonly unknown[] = [], frames: readonly unkn
     });
   check("note", notes, noteItemSchema, result.notes);
   check("frame", frames, frameItemSchema, result.frames);
+  check("shape", shapes, shapeItemSchema, result.shapes);
   return result;
 }
 
@@ -776,6 +1028,12 @@ export const clientMessageSchema = z.discriminatedUnion("type", [
   frameMoveSchema,
   frameResizeSchema,
   frameDeleteSchema,
+  shapeAddSchema,
+  shapeEditSchema,
+  shapeMoveSchema,
+  shapeResizeSchema,
+  shapeDeleteSchema,
+  shapeBatchSchema,
   itemsAddSchema,
   claimHostSchema,
   lockSetSchema,
@@ -814,6 +1072,12 @@ export const BOARD_WRITES: Readonly<Record<ClientMessageType, boolean>> = {
   frameMove: true,
   frameResize: true,
   frameDelete: true,
+  shapeAdd: true,
+  shapeEdit: true,
+  shapeMove: true,
+  shapeResize: true,
+  shapeDelete: true,
+  shapeBatch: true,
   itemsAdd: true,
   claimHost: false,
   lockSet: false,
@@ -845,6 +1109,7 @@ export const errorCodeSchema = z.enum([
   "invalid_name",
   "notes_full",
   "frames_full",
+  "shapes_full",
   "bad_host_token",
   "not_host",
   "board_locked",
@@ -887,6 +1152,10 @@ export const errorMessageSchema = z.object({
   noteIds: z.array(noteIdSchema).max(MAX_BATCH_ENTRIES).optional(),
   /** The frame a refused frame edit, move, resize or delete was about. */
   frameId: frameIdSchema.optional(),
+  /** The shape a refused shape edit, move, resize or delete was about (v15). */
+  shapeId: shapeIdSchema.optional(),
+  /** A refused shapeBatch's shapes, or the shapes a refused frameMove was carrying (v15). */
+  shapeIds: z.array(shapeIdSchema).max(MAX_BATCH_ENTRIES).optional(),
   /** An itemsAdd where nothing was added (its `clientRef` names it): each refused item and why. */
   refused: z.array(itemRefusalSchema).max(MAX_BATCH_ENTRIES).optional(),
 });
@@ -1043,12 +1312,13 @@ export const noteOrderResultSchema = z.object({
 });
 
 /**
- * Notes restacked: every note a notesOrder named (changed or not, so the sender's view matches),
- * plus any others a renumbering at the bound moved. Sent to everyone. Up to every note in a room.
+ * Notes (and since v15 shapes) restacked: every item a notesOrder named (changed or not, so the
+ * sender's view matches), plus any others a renumbering at the bound moved. Sent to everyone. Up
+ * to every note and shape in a room; an id is a note's or a shape's (ids never collide).
  */
 export const notesOrderedSchema = z.object({
   type: z.literal("notesOrdered"),
-  results: z.array(noteOrderResultSchema).min(1).max(MAX_NOTES_PER_ROOM),
+  results: z.array(noteOrderResultSchema).min(1).max(MAX_NOTES_PER_ROOM + MAX_SHAPES_PER_ROOM),
 });
 
 /** A frame as the server stores and sends it. The title is already clean; anything else is rejected. */
@@ -1101,6 +1371,14 @@ export const carriedNoteSchema = z.object({
   rev: noteSchema.shape.rev,
 });
 
+/** A carried shape's new place (v15), like carriedNoteSchema at shape bounds. */
+export const carriedShapeSchema = z.object({
+  id: shapeIdSchema,
+  x: z.number().int().min(0).max(BOARD_WIDTH - SHAPE_MIN_W),
+  y: z.number().int().min(0).max(BOARD_HEIGHT - SHAPE_MIN_H),
+  rev: z.number().int().min(1),
+});
+
 /**
  * A frame moved, with the notes it carried (one message, so pages apply both at once). Live
  * moves go to everyone but the mover at the current revs; final ones go to everyone.
@@ -1113,6 +1391,8 @@ export const frameMovedSchema = z.object({
   rev: z.number().int().min(1),
   final: z.boolean(),
   notes: z.array(carriedNoteSchema).max(MAX_BATCH_ENTRIES).optional(),
+  /** Since v15: the shapes it carried, like notes. */
+  shapes: z.array(carriedShapeSchema).max(MAX_BATCH_ENTRIES).optional(),
 });
 
 export const frameResizedSchema = z
@@ -1133,6 +1413,85 @@ export const frameDeletedSchema = z.object({
   id: frameIdSchema,
 });
 
+/** A shape as the server stores and sends it (v15). Text is already clean; anything else is rejected. */
+export const shapeSchema = z
+  .object({
+    id: shapeIdSchema,
+    kind: shapeKindSchema,
+    x: z.number().int().min(0).max(BOARD_WIDTH - SHAPE_MIN_W),
+    y: z.number().int().min(0).max(BOARD_HEIGHT - SHAPE_MIN_H),
+    w: shapeW,
+    h: shapeH,
+    text: z.string().refine((text) => cleanShapeText(text) === text),
+    ...shapeStyleShape,
+    /** Stacking order, in the notes' space (server-assigned). */
+    z: z.number().int().min(-NOTE_Z_LIMIT).max(NOTE_Z_LIMIT),
+    /** Server-assigned; starts at 1 and goes up by one on every stored change. */
+    rev: z.number().int().min(1),
+    /** The participant who added it, from their socket. */
+    authorId: participantIdSchema,
+  })
+  .refine(onBoard);
+export type Shape = z.infer<typeof shapeSchema>;
+
+/** Every shape on the board, in creation order. Sent right after `framesSnapshot`, in the same step. */
+export const shapesSnapshotSchema = z.strictObject({
+  type: z.literal("shapesSnapshot"),
+  shapes: z.array(shapeSchema).max(MAX_SHAPES_PER_ROOM),
+});
+
+export const shapeAddedSchema = z.object({
+  type: z.literal("shapeAdded"),
+  shape: shapeSchema,
+  /** Only in the copy sent to the shape's sender. */
+  clientRef: clientRefSchema.optional(),
+});
+
+/** Text or style changed. Carries the whole shape. */
+export const shapeUpdatedSchema = z.object({
+  type: z.literal("shapeUpdated"),
+  shape: shapeSchema,
+});
+
+/** Non-final moves go to everyone but the mover at the current rev; final ones bump it. */
+export const shapeMovedSchema = z.object({
+  type: z.literal("shapeMoved"),
+  id: shapeIdSchema,
+  x: shapeSchema.shape.x,
+  y: shapeSchema.shape.y,
+  rev: z.number().int().min(1),
+  final: z.boolean(),
+});
+
+export const shapeResizedSchema = z
+  .object({
+    type: z.literal("shapeResized"),
+    id: shapeIdSchema,
+    x: shapeSchema.shape.x,
+    y: shapeSchema.shape.y,
+    w: shapeW,
+    h: shapeH,
+    rev: z.number().int().min(1),
+    final: z.boolean(),
+  })
+  .refine(onBoard);
+
+export const shapeDeletedSchema = z.object({
+  type: z.literal("shapeDeleted"),
+  id: shapeIdSchema,
+});
+
+/** One shape's result in a shapeBatch: exactly what shapeMoved, shapeResized or shapeDeleted would say. */
+export const shapeBatchResultSchema = z.discriminatedUnion("type", [shapeMovedSchema, shapeResizedSchema, shapeDeletedSchema]);
+export type ShapeBatchResult = z.infer<typeof shapeBatchResultSchema>;
+
+/** A shapeBatch applied: final ones to everyone, live ones to the others. */
+export const shapesBatchAppliedSchema = z.object({
+  type: z.literal("shapesBatchApplied"),
+  results: z.array(shapeBatchResultSchema).min(1).max(MAX_BATCH_ENTRIES),
+  final: z.boolean(),
+});
+
 /**
  * Items added by one itemsAdd, in one message (one view update). Notes in their stacking order
  * (bottom first); any renumbering at the bound was sent before it as notesOrdered. To everyone;
@@ -1145,6 +1504,8 @@ export const itemsAddedSchema = z
     clientRef: clientRefSchema.optional(),
     notes: z.array(z.object({ ref: itemRefSchema.optional(), note: noteSchema })).max(MAX_BATCH_ENTRIES),
     frames: z.array(z.object({ ref: itemRefSchema.optional(), frame: frameSchema })).max(MAX_BATCH_ENTRIES),
+    /** Since v15; left out when no shape was added. */
+    shapes: z.array(z.object({ ref: itemRefSchema.optional(), shape: shapeSchema })).max(MAX_BATCH_ENTRIES).optional(),
     refused: z.array(itemRefusalSchema).max(MAX_BATCH_ENTRIES),
   })
   .refine((m) => itemCount(m) >= 1 && itemCount(m) + m.refused.length <= MAX_BATCH_ENTRIES);
@@ -1248,6 +1609,13 @@ export const serverMessageSchema = z.discriminatedUnion("type", [
   frameResizedSchema,
   frameDeletedSchema,
   itemsAddedSchema,
+  shapesSnapshotSchema,
+  shapeAddedSchema,
+  shapeUpdatedSchema,
+  shapeMovedSchema,
+  shapeResizedSchema,
+  shapeDeletedSchema,
+  shapesBatchAppliedSchema,
   hostGrantedSchema,
   participantUpdatedSchema,
   lockChangedSchema,

@@ -98,13 +98,18 @@ export function AboutPage() {
             Notes are stored by the relay, in that session’s own storage on Cloudflare: each note’s text, colour, text
             style (size, bold, italic, text colour and alignment, for the title and the body separately), size, place on the board, stacking order (which notes are in front), and the random id the relay
             gave the visit that added it (not your name). They stay there until someone in the session deletes them, or until the session
-            expires: a session’s notes and frames are deleted automatically once nobody has been in it for 7 days. After
+            expires: a session’s notes, frames and shapes are deleted automatically once nobody has been in it for 7 days. After
             that the relay keeps only the time it expired, and the session’s link stops working. Moving or resizing a note is passed on to others while you drag,
             and only where it ends up is stored.
           </li>
           <li>
             Frames are stored with the room in the same way: each frame’s position, size, title, colour and title style, and the random
             id the relay gave the visit that added it. Deleting a frame removes only the frame, never its notes.
+          </li>
+          <li>
+            Shapes and text labels are stored the same way: each one’s kind, text, text style, fill, border, size, place on the board,
+            stacking order, and the random id the relay gave the visit that added it. They go with the session’s notes and frames when
+            it expires or ends.
           </li>
           <li>
             While you share your cursor (a mouse or pen over the board, on a wider screen), your pointer’s position on the board is passed on live
@@ -114,7 +119,7 @@ export function AboutPage() {
           </li>
           <li>
             Undo and redo history is kept only in this tab’s memory: it’s never stored or sent anywhere, and it’s gone when you
-            leave or reconnect. Notes and frames that undo brings back are added again as new ones, recorded as added by your visit.
+            leave or reconnect. Notes, frames and shapes that undo brings back are added again as new ones, recorded as added by your visit.
           </li>
           <li>
             The create passcode is sent only to the relay, only when you start a session, and is never stored in your

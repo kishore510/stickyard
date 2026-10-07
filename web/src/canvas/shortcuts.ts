@@ -1,4 +1,4 @@
-import { inField, onBoard, onBoardBar } from "./deleteKey";
+import { inField, onBoard, onBoardBar, onSidePanel } from "./deleteKey";
 
 /*
  * Board commands with Ctrl (Cmd on a Mac) shortcuts, from md up. Pure, so the guards are tested:
@@ -33,7 +33,7 @@ export interface ShortcutState {
  */
 export function boardShortcut(e: ShortcutEvent, state: ShortcutState): BoardCommand | null {
   if (e.defaultPrevented || e.altKey || !(e.ctrlKey || e.metaKey)) return null;
-  if (!state.multi || state.modal || inField(e.target) || !(onBoard(e.target, state.board) || onBoardBar(e.target))) return null;
+  if (!state.multi || state.modal || inField(e.target) || !(onBoard(e.target, state.board) || onBoardBar(e.target) || onSidePanel(e.target))) return null;
   const key = e.key.toLowerCase();
   if (key === "d" && !e.shiftKey) return "duplicate";
   if (key === "z") return e.shiftKey ? "redo" : "undo";

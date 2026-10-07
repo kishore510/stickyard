@@ -22,7 +22,7 @@ const serverOk = (m: unknown) => serverMessageSchema.safeParse(m).success;
 
 describe("protocol v14", () => {
   it("is version 14", () => {
-    expect(PROTOCOL_VERSION).toBe(14);
+    expect(PROTOCOL_VERSION).toBeGreaterThanOrEqual(14);
   });
 
   it("cursor messages never change the board and aren't host-only (a locked board still shows cursors)", () => {
