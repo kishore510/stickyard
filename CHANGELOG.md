@@ -2,6 +2,20 @@
 
 All notable changes to Stickyard, newest first. The format follows Keep a Changelog. Versions are 0.x: a minor bump for each slice and a patch bump for each follow-up fix. This file is shown in the app under **What’s new**, so entries are written for the people using it.
 
+## [0.28.0] - 2026-10-08
+
+### Added
+- **Silent brainstorm.** The host can start a silent round (**Session** in the top bar, choose **Silent brainstorm**; on a phone, **Session** in **Participants**). While it runs, every note people add stays hidden from everyone but the person who wrote it, the host included, until the host chooses **Reveal notes**. Then everyone sees them all at once. It's a way to collect ideas without anyone anchoring on the first one.
+- A strip under the top bar says a round is on, how many notes you've written and how many there are in total, and how many you have left when you're close to the limit of 40.
+- Your hidden notes say **Only you** above them, and **Properties** says "Only you can see this note until the host reveals the notes." With nothing selected, **Properties** counts the notes you can see and the hidden ones.
+- **Start silent round** and **Reveal notes** each ask once first, saying what will happen: only the host's device can reveal, so keep it open; the reveal is for everyone at once and can't be undone.
+- While a round runs, frames can't be moved (their grip says why), and **Clear board**, **Start voting** and **Export** are off. Voting that was already open stays open for the notes everyone can see.
+- After the reveal your view stays where it is; if some new notes are out of view, the board offers **Fit to notes**.
+- A new Help topic, **Silent brainstorm**, and a section in **Running a session**.
+
+### Changed
+- About > Privacy says that silent brainstorm keeps nothing in your browser beyond the same per-session key dot voting uses.
+
 ## [0.27.0] - 2026-10-08
 
 ### Changed

@@ -29,13 +29,16 @@ export function SilentStrip({ silent, mine }: { silent: SilentState; mine: numbe
       {text && (
         <div
           data-silent-strip=""
-          className="pointer-events-auto flex max-w-content flex-wrap items-center gap-x-sm gap-y-2xs rounded-md border border-accent bg-surface px-ms py-xs text-sm text-fg shadow-md"
+          className="pointer-events-auto flex max-w-content items-start gap-sm rounded-md border border-accent bg-surface px-ms py-xs text-sm text-fg shadow-md"
         >
-          <EyeOff aria-hidden="true" className="size-icon-sm shrink-0 text-accent" />
-          <span className="min-w-0 flex-1">{text.lead}</span>
-          <span data-silent-counts="" className="tabular-nums text-fg-muted">
-            {text.counts}
-          </span>
+          <EyeOff aria-hidden="true" className="mt-2xs size-icon-sm shrink-0 text-accent" />
+          {/* Two lines, so a phone's width never squeezes either into a column. */}
+          <div className="flex min-w-0 flex-1 flex-col">
+            <span>{text.lead}</span>
+            <span data-silent-counts="" className="tabular-nums text-fg-muted">
+              {text.counts}
+            </span>
+          </div>
         </div>
       )}
     </>
