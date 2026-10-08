@@ -11,6 +11,8 @@ import { MEDIA } from "../styles/breakpoints";
 import { useTimerControls } from "../timer/controls";
 import { TimerForm } from "../timer/TimerForm";
 import { HostVotingControls } from "../voting/HostVoting";
+import { HostSilentControls } from "../silent/HostSilent";
+import { SILENT_UI } from "../silent/silent";
 import { LOCK_TEXT, confirmEndSession, lockToggle } from "../facilitation/lock";
 import { useCursorPrefs } from "../cursors/prefs";
 import { useCursors } from "../cursors/cursorStore";
@@ -101,6 +103,8 @@ function SessionSection() {
       </div>
       <h4 className="text-sm font-semibold">Dot voting</h4>
       <HostVotingControls />
+      <h4 className="text-sm font-semibold">{SILENT_UI.heading}</h4>
+      <HostSilentControls />
       <h4 className="text-sm font-semibold">End the session</h4>
       <div className="flex flex-col gap-xs">
         <Button

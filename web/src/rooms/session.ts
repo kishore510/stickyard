@@ -300,6 +300,10 @@ export interface RoomView {
   totalNotes: number;
   /** Protocol v17: this page's join carried its key, so it can write during a silent round. */
   writer: boolean;
+  /** The host's Start or Reveal sent, until the relay answers (silentChanged, a refusal, or the connection drops). */
+  silentPending: "start" | "reveal" | null;
+  /** The last reveal seen here: its number in this visit, the count known before it, and the notes it brought that this page didn't have. */
+  lastReveal: { seq: number; count: number; ids: readonly string[] } | null;
 }
 
 /** One note's dots in a closed round's results. */
@@ -353,6 +357,8 @@ export const INITIAL_VIEW: RoomView = {
   mySealed: new Set(),
   totalNotes: 0,
   writer: false,
+  silentPending: null,
+  lastReveal: null,
 };
 
 /** What a dropped connection says about changes it may have lost. */
@@ -750,6 +756,9 @@ export class RoomSession {
   private sealed = new Set<string>();
   /** Protocol v17: the last join carried this page's key (it can write during a silent round). */
   private sentKey = false;
+  /** Reveals seen in this visit, and the notes the current one has brought so far. */
+  private revealSeq = 0;
+  private revealIds: string[] = [];
   private pendingName: string | null = null;
   private timer: ReturnType<typeof setTimeout> | undefined;
   private nextKey = 0;
@@ -3259,8 +3268,13 @@ export class RoomSession {
         return this.update(this.voteView());
       }
 
-      case "silentChanged":
-        return this.update(this.silentFrom({ active: message.active, count: message.count }));
+      case "silentChanged": {
+        const prev = this.view.silent;
+        const reveal =
+          prev.active && !message.active ? { lastReveal: { seq: ++this.revealSeq, count: prev.count, ids: [...this.revealIds] } } : {};
+        if (prev.active !== message.active) this.revealIds = [];
+        return this.update({ ...this.silentFrom({ active: message.active, count: message.count }), silentPending: null, ...reveal });
+      }
 
       case "silentMine":
         // My own sealed notes, at the end of the join step: the relay's word replaces my list.
@@ -3272,7 +3286,11 @@ export class RoomSession {
         // Merged by id: a copy I have already (my own, or from a reconnect's snapshot) is skipped
         // unless newer. Never added to my list; silentChanged ends the round.
         let board = this.view.board;
-        for (const note of message.notes) board = applyUpdated(board, note);
+        for (const note of message.notes) {
+          // New to this page, during the reveal (a late chunk after it brings nothing new to say).
+          if (this.view.silent.active && !findNote(board, note.id)) this.revealIds.push(note.id);
+          board = applyUpdated(board, note);
+        }
         return this.update({ board });
       }
 
@@ -3485,6 +3503,10 @@ export class RoomSession {
       }
 
       case "error": {
+        // The host's Start or Reveal refused (silent_active, not_host, rate_limited...): not waiting any more.
+        if (this.view.silentPending !== null && message.clientRef === undefined && message.noteId === undefined && message.frameId === undefined) {
+          this.update({ silentPending: null });
+        }
         if (message.noteId !== undefined && this.votesPending.has(message.noteId) && (VOTE_REFUSALS.has(message.code) || message.code === "rate_limited")) {
           return this.voteRefused(message.noteId, message.code);
         }
@@ -3797,6 +3819,8 @@ export class RoomSession {
       results: null,
       silent: SILENT_OFF,
       mySealed: new Set(),
+      silentPending: null,
+      lastReveal: null,
       board: EMPTY_BOARD,
       synced: false,
       presenceToast: null,
@@ -3863,6 +3887,7 @@ export class RoomSession {
   /** Host: starts a silent round. False (nothing sent) for a guest, while disconnected, or while one runs. */
   startSilent(): boolean {
     if (!this.canHost() || this.view.silent.active) return false;
+    this.update({ silentPending: "start" });
     this.send({ type: "silentStart" });
     return true;
   }
@@ -3870,6 +3895,7 @@ export class RoomSession {
   /** Host: reveals the round's notes to everyone and ends it. False (nothing sent) for a guest, while disconnected, or with no round. */
   revealSilent(): boolean {
     if (!this.canHost() || !this.view.silent.active) return false;
+    this.update({ silentPending: "reveal" });
     this.send({ type: "silentReveal" });
     return true;
   }
@@ -4105,6 +4131,8 @@ export class RoomSession {
       reconnect: this.retryView(),
       ...(restore ? { historyReport: { text: UNDO_TEXT.restoring(restoredCount(restore), restore.refs.length), partial: false } } : {}),
     };
+    // Not connected: the host's Start or Reveal can't be answered any more.
+    if (this.view.status !== "joined" && this.view.silentPending !== null) this.view = { ...this.view, silentPending: null };
     this.view = { ...this.view, history: this.historyReasons(), totalNotes: totalNotes(this.view.board.notes.length, this.view.silent, this.view.mySealed.size) };
     this.armExpiry();
     this.options.onChange(this.view);

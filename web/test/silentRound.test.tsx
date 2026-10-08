@@ -274,7 +274,7 @@ describe("votes during a round (voting open when it starts)", () => {
 });
 
 describe("the reveal", () => {
-  it("the strip goes, one polite announcement with the count, no repeat for a late chunk; nothing moves the view; no Fit line when everything is in view", async () => {
+  it("the strip goes, one polite announcement with the count, no repeat for a late chunk; nothing moves the view", async () => {
     const socket = await inRoom({ host: true, notes: [mineNote(1)], silent: ACTIVE(3), mine: [mineNote(1).id] });
     const transform = () => document.querySelector<HTMLElement>(".react-flow__viewport")?.style.transform;
     const before = transform();
@@ -288,7 +288,29 @@ describe("the reveal", () => {
     expect(announcer()?.textContent).toBe("3 notes revealed.");
     expect(document.querySelectorAll('[aria-roledescription="note"]')).toHaveLength(3);
     expect(transform()).toBe(before);
-    // happy-dom has no layout, so every note counts as in view: no Fit line.
+  });
+
+  it("a revealed note out of view: one line with Fit to notes, and the view doesn't move by itself", async () => {
+    const socket = await inRoom({ notes: [noteAt(1)], silent: ACTIVE(1), mine: [] });
+    const transform = () => document.querySelector<HTMLElement>(".react-flow__viewport")?.style.transform;
+    const before = transform();
+    const far = noteAt(9, { x: 6000, y: 3700 });
+    await server(socket, { data: { type: "notesRevealed", notes: [far], final: true } });
+    await server(socket, { data: { type: "silentChanged", active: false, count: 0 } });
+    await settle();
+    const line = document.querySelector<HTMLElement>('[data-view-notice="revealed"]');
+    expect(line?.textContent).toContain(SILENT_UI.outside);
+    expect(transform()).toBe(before);
+    await click(button(SILENT_UI.fit, line ?? undefined));
     expect(document.querySelector('[data-view-notice="revealed"]')).toBeNull();
+  });
+
+  it("a reveal that brings nothing new to this page (only my own notes): no Fit line", async () => {
+    const socket = await inRoom({ notes: [mineNote(1)], silent: ACTIVE(1), mine: [mineNote(1).id] });
+    await server(socket, { data: { type: "notesRevealed", notes: [mineNote(1)], final: true } });
+    await server(socket, { data: { type: "silentChanged", active: false, count: 0 } });
+    await settle();
+    expect(document.querySelector('[data-view-notice="revealed"]')).toBeNull();
+    expect(announcer()?.textContent).toBe("1 note revealed.");
   });
 });

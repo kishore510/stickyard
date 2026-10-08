@@ -3,6 +3,7 @@ import { useEffect } from "react";
 import { Button } from "../components/ui/button";
 import { cn } from "../lib/utils";
 import { useBoardUi } from "./uiStore";
+import { SILENT_UI } from "../silent/silent";
 
 /*
  * What the last view change did, in the board's notice stack (v0.24.0): Fit left a far item out
@@ -27,7 +28,11 @@ export function showFitNotice(partial: boolean): void {
 /** How long the jump line stays. */
 export const JUMP_NOTICE_MS = 4000;
 
-export function ViewNotices({ onShowAll }: { onShowAll: () => void }) {
+/**
+ * `onFit` is Fit to notes, for the line after a silent round's reveal (v0.28.0) when some revealed
+ * notes are out of view: the reveal itself never moves the view.
+ */
+export function ViewNotices({ onShowAll, onFit }: { onShowAll: () => void; onFit?: () => void }) {
   const notice = useBoardUi((s) => s.viewNotice);
   // The jump line goes by itself; Fit's stays until it's dealt with.
   useEffect(() => {
@@ -37,7 +42,8 @@ export function ViewNotices({ onShowAll }: { onShowAll: () => void }) {
     }, JUMP_NOTICE_MS);
     return () => clearTimeout(timer);
   }, [notice]);
-  const text = notice === null ? "" : notice.kind === "outside" ? VIEW_TEXT.outside : VIEW_TEXT.jump(notice.name);
+  const text =
+    notice === null ? "" : notice.kind === "outside" ? VIEW_TEXT.outside : notice.kind === "revealed" ? SILENT_UI.outside : VIEW_TEXT.jump(notice.name);
   return (
     <div
       data-view-notice={notice?.kind ?? ""}
@@ -49,10 +55,10 @@ export function ViewNotices({ onShowAll }: { onShowAll: () => void }) {
       <p role="status" aria-live="polite" className="min-w-0 break-words">
         {text}
       </p>
-      {notice?.kind === "outside" && (
+      {(notice?.kind === "outside" || notice?.kind === "revealed") && (
         <>
-          <Button variant="ghost" onClick={onShowAll}>
-            {VIEW_TEXT.showAll}
+          <Button variant="ghost" onClick={notice.kind === "revealed" ? onFit : onShowAll}>
+            {notice.kind === "revealed" ? SILENT_UI.fit : VIEW_TEXT.showAll}
           </Button>
           <Button variant="ghost" size="icon" aria-label="Dismiss" title="Dismiss" onClick={() => useBoardUi.getState().setViewNotice(null)}>
             <X />

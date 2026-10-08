@@ -5,7 +5,7 @@ import { buildTopics, parseFrontMatter, searchTopics } from "../src/help/topics"
 
 describe("help topics", () => {
   it("loads the topics, quick start first", () => {
-    expect(HELP_TOPICS.map((t) => t.id)).toEqual(["quick-start", "sessions", "notes", "text-and-shapes", "participants", "chat", "names", "connection", "touch-and-keyboard", "hosting", "dot-voting"]);
+    expect(HELP_TOPICS.map((t) => t.id)).toEqual(["quick-start", "sessions", "notes", "text-and-shapes", "participants", "chat", "names", "connection", "touch-and-keyboard", "hosting", "dot-voting", "silent-brainstorm"]);
     expect(topicById("sessions")?.title).toBe("Starting and joining a session");
     expect(topicById(QUICK_START_ID)?.title).toBe("Quick start");
   });
@@ -87,8 +87,8 @@ describe("help topics", () => {
   it("help topics only claim what exists: no QR codes yet (the timer since v0.16.0, dot voting since v0.18.0, cursors since v0.19.0)", () => {
     const all = HELP_TOPICS.map((t) => t.text).join("\n");
     expect(all).not.toMatch(/qr code/);
-    // Cursors are covered in Participants only.
-    for (const t of HELP_TOPICS) if (t.id !== "participants" && t.id !== "touch-and-keyboard") expect(t.text, t.id).not.toMatch(/cursor/);
+    // Cursors are covered in Participants (and Silent brainstorm points at its Share switch).
+    for (const t of HELP_TOPICS) if (!["participants", "touch-and-keyboard", "silent-brainstorm"].includes(t.id)) expect(t.text, t.id).not.toMatch(/cursor/);
   });
 
   it("Participants covers live cursors: live only, never stored, the two switches, phones show but don't share", () => {
@@ -96,6 +96,33 @@ describe("help topics", () => {
     for (const claim of ["cursor", "live", "never stored", "show other people's cursors", "share my cursor", "phone", "don't share"]) {
       expect(participants, claim).toContain(claim);
     }
+  });
+
+  it("Silent brainstorm covers what it is, who sees what (the host can't either), the reveal, this browser, the host's device, what's off, and pointers", () => {
+    const silent = HELP_TOPICS.find((t) => t.id === "silent-brainstorm")?.text ?? "";
+    for (const claim of [
+      "start silent round",
+      "reveal notes",
+      "the host can't see them either",
+      "only you",
+      "every note at once",
+      "can't be undone",
+      "this browser on this device",
+      "another device",
+      "site data is cleared",
+      "only the host's device can reveal",
+      "until the session expires",
+      "frames can't be moved",
+      "clear board",
+      "start voting",
+      "export",
+      "share my cursor",
+      "40 notes",
+    ]) {
+      expect(silent, claim).toContain(claim);
+    }
+    const hosting = HELP_TOPICS.find((t) => t.id === "hosting")?.text ?? "";
+    for (const claim of ["start silent round", "reveal notes", "only this device can reveal"]) expect(hosting, claim).toContain(claim);
   });
 
   it("Dot voting covers a round, private dots, anonymity, browser data, the budget, restarting, the lock and the keys", () => {

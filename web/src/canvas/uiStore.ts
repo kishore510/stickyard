@@ -14,7 +14,7 @@ import {
 import type { InlinePart } from "../notes/inlineEdit";
 import type { Mode } from "./tools";
 
-export type ViewNotice = { kind: "outside"; n: number } | { kind: "jump"; name: string; n: number };
+export type ViewNotice = { kind: "outside"; n: number } | { kind: "jump"; name: string; n: number } | { kind: "revealed"; n: number };
 
 /*
  * Board UI state that must outlive any one layout: the panels (md and up) and the phone ribbon
