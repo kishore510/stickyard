@@ -146,7 +146,7 @@ describe("frames carry their title style", () => {
    * the cap needs a decision first. The notes snapshot, its 400 KiB tripwire and 100 KiB headroom
    * rule are separate and unchanged (noteSize.test.ts).
    */
-  it("the largest possible framesSnapshot is 18,306 bytes, under the 20 KiB cap (recorded in docs/LIMITS.md)", () => {
+  it("the largest possible framesSnapshot is 18,366 bytes, under the 20 KiB cap (recorded in docs/LIMITS.md)", () => {
     const big: Frame = {
       id: id(0),
       x: BOARD_WIDTH - FRAME_MAX_W,
@@ -166,7 +166,7 @@ describe("frames carry their title style", () => {
     const raw = encodeMessage({ type: "framesSnapshot", frames: Array.from({ length: MAX_FRAMES_PER_ROOM }, () => big) });
     expect(/^[\x20-\x7e]*$/.test(raw)).toBe(true);
     // docs/LIMITS.md records this figure; update both together.
-    expect(raw.length).toBe(18_306);
+    expect(raw.length).toBe(18_366);
     const CAP = 20 * 1024;
     expect(raw.length).toBeLessThanOrEqual(CAP);
     // The 10% rule: past this, a new per-frame field needs a decision (and this test changes with it).

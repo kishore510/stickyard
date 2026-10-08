@@ -28,6 +28,7 @@ Sections are named after the slice that introduced them. Cross-references in quo
 | Arrange grid (v0.10.3) | canvas.md |
 | Floating bar and Duplicate (v0.12.0, part 1) | canvas.md |
 | Export (v0.22.0) | canvas.md |
+| Board size, protocol v16 (v0.23.0) | canvas.md |
 | Reconnect and presence (v0.13.0) | connection.md |
 | Live cursors, protocol v14 (v0.19.0) | connection.md |
 | Create with content, protocol v11 (slice create with content) | editing.md |
@@ -40,6 +41,7 @@ Sections are named after the slice that introduced them. Cross-references in quo
 | Frame title styling, protocol v10 (slice frame title styling) | frames.md |
 | Templates (slice templates) | frames.md |
 | Frame multi-select (v0.20.0) | frames.md |
+| Board size (v0.23.0) | frames.md, shapes.md |
 | Notes and protocol v3 (slice 2) | notes.md |
 | Note size, colour and text style, protocol v4 (slice 2.7) | notes.md |
 | Title alignment, protocol v5 (slice 2.7.1) | notes.md |

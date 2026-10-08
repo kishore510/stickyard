@@ -113,15 +113,18 @@ describe("grid", () => {
   });
 
   it("doesn't fit the board: returns nothing and a reason", () => {
-    const big = Array.from({ length: 10 }, (_, i) => r(`n${i}`, i * 10, 0, NOTE_MAX_W, NOTE_MAX_H));
-    const wide = grid(big, 10, GRID_GAP);
+    // One more of the largest note than fits across (or down) the board, whatever its size.
+    const across = Math.floor((BOARD_WIDTH + GRID_GAP) / (NOTE_MAX_W + GRID_GAP)) + 1;
+    const down = Math.floor((BOARD_HEIGHT + GRID_GAP) / (NOTE_MAX_H + GRID_GAP)) + 1;
+    const big = (n: number) => Array.from({ length: n }, (_, i) => r(`n${i}`, i * 10, 0, NOTE_MAX_W, NOTE_MAX_H));
+    const wide = grid(big(across), across, GRID_GAP);
     expect(wide.changes.size).toBe(0);
     expect(wide.reason).toBe("wide");
-    const tall = grid(big, 1, GRID_GAP);
+    expect(grid(big(across - 1), across - 1, GRID_GAP).reason).toBeNull();
+    const tall = grid(big(down), 1, GRID_GAP);
     expect(tall.changes.size).toBe(0);
     expect(tall.reason).toBe("tall");
-    const many = Array.from({ length: 60 }, (_, i) => r(`n${i}`, 0, 0, NOTE_MAX_W, NOTE_MAX_H));
-    expect(grid(many, 8, GRID_GAP)).toEqual({ changes: new Map(), reason: "big" });
+    expect(grid(big(across * down), across, GRID_GAP)).toEqual({ changes: new Map(), reason: "big" });
   });
 
   it("fewer than 2 notes: nothing", () => {

@@ -430,7 +430,9 @@ describe(`schema migration 1 -> ${SCHEMA_VERSION}`, () => {
     const { code, stub } = await newRoom();
     await runInDurableObject(stub, (_room, state) => {
       state.storage.sql.exec(
-        "INSERT INTO notes (id, x, y, w, h, text, color, rev, author_id) VALUES ('offBoardNote0001', 3040, 1840, 400, 300, 'x', 'yellow', 1, 'AAAAAAAAAAAAAAAA')",
+        "INSERT INTO notes (id, x, y, w, h, text, color, rev, author_id) VALUES ('offBoardNote0001', ?, ?, 400, 300, 'x', 'yellow', 1, 'AAAAAAAAAAAAAAAA')",
+        BOARD_WIDTH - 160,
+        BOARD_HEIGHT - 160,
       );
     });
     await evictDurableObject(stub, { webSockets: "close" });

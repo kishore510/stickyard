@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
-import { FRAME_DEFAULTS, MAX_NOTES_PER_ROOM, MAX_NOTE_TEXT, PROTOCOL_VERSION, type Frame, type Note, NOTE_DEFAULTS, NOTE_MAX_H, NOTE_MAX_W, type Participant } from "@stickyard/shared";
+import { GRID_GAP } from "../src/canvas/arrange";
+import { BOARD_HEIGHT, BOARD_WIDTH, FRAME_DEFAULTS, MAX_NOTES_PER_ROOM, MAX_NOTE_TEXT, PROTOCOL_VERSION, type Frame, type Note, NOTE_DEFAULTS, NOTE_MAX_H, NOTE_MAX_W, type Participant } from "@stickyard/shared";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -1105,7 +1106,7 @@ describe("the Properties panel (md up)", () => {
     await withNotes(one, two);
     const text = properties()?.textContent ?? "";
     expect(text).toContain(`2 of ${MAX_NOTES_PER_ROOM}`);
-    expect(text).toContain("3200 × 2000");
+    expect(text).toContain(`${BOARD_WIDTH} × ${BOARD_HEIGHT}`);
     expect(propTitle()).toBeNull();
   });
 
@@ -1824,7 +1825,9 @@ describe("multi-select and arrange (slice 2.8, md up)", () => {
 
   it("a grid that doesn't fit the board sends nothing and says why", async () => {
     const big = (n: number): Note => ({ ...one, id: `NNNNNNNNNNNNNNB${n}`, x: 0, y: 0, w: NOTE_MAX_W, h: NOTE_MAX_H });
-    const socket = await withNotes(big(1), big(2), big(3), big(4), big(5));
+    // One more of the largest note than fits down the board in one column.
+    const down = Math.floor((BOARD_HEIGHT + GRID_GAP) / (NOTE_MAX_H + GRID_GAP)) + 1;
+    const socket = await withNotes(...Array.from({ length: down }, (_, i) => big(i + 1)));
     await key("a", document.body, { ctrlKey: true });
     while (stepper("Fewer columns")?.disabled === false) await click(stepper("Fewer columns"));
     await click(gridButton());

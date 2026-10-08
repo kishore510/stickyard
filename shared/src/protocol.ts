@@ -34,8 +34,11 @@ import { NOTE_Z_LIMIT, ORDER_ACTIONS } from "./stack";
  *   framesSnapshot; shapes share the notes' stacking space (notesOrder may name shapes, and
  *   notesOrdered may report them); frameMove may carry shapes (shapeIds) and frameMoved reports
  *   them; itemsAdd may carry shapes, and note and shape items may give a `rank`.
+ * v16 (board size): the board is 6400 x 4000 (was 3200 x 2000). No new message; v15 pages
+ *   would refuse positions past the old edge, so they get version_mismatch. Stored rows are
+ *   unchanged (everything on the old board is on the new one).
  */
-export const PROTOCOL_VERSION = 15;
+export const PROTOCOL_VERSION = 16;
 
 /**
  * Hard cap on a single client-to-server WebSocket message, in UTF-8 bytes. Checked before JSON.parse.
@@ -109,10 +112,12 @@ export const MAX_NOTE_TEXT = 280;
 /**
  * The board is a fixed area measured in board units (1 unit = 1 CSS pixel at the default scale).
  * A note's x, y is its top-left corner and w, h its size; the server clamps so the whole note
- * stays on the board. The web mirrors these in tokens.css (a test checks).
+ * stays on the board. The web mirrors these in tokens.css (a test checks). 6400 x 4000 since
+ * protocol v16 (3200 x 2000 before). Every coordinate stays 4 digits while both are at most
+ * 9,999; past that, worst-case message sizes change (shared/test/boardSize.test.ts fails first).
  */
-export const BOARD_WIDTH = 3200;
-export const BOARD_HEIGHT = 2000;
+export const BOARD_WIDTH = 6400;
+export const BOARD_HEIGHT = 4000;
 /** A new note's size. */
 export const NOTE_DEFAULT_W = 160;
 export const NOTE_DEFAULT_H = 160;

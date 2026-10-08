@@ -2,6 +2,14 @@
 
 All notable changes to Stickyard, newest first. The format follows Keep a Changelog. Versions are 0.x: a minor bump for each slice and a patch bump for each follow-up fix. This file is shown in the app under **What’s new**, so entries are written for the people using it.
 
+## [0.23.0] - 2026-10-08
+
+### Changed
+- **A bigger board.** The board is now 6400 × 4000, twice as wide and twice as tall: four times the room. Everything already on a board stays exactly where it was.
+- New notes, shapes, frames and templates still appear in the middle of what you're looking at. An empty board opens at its middle, at 100%.
+- Zooming right out still stops at 10%, so on a phone or a narrow window you see part of the board at a time rather than all of it; pan, the overview map (on a wider screen) and **Fit to notes** get you around. Note, frame and shape sizes are unchanged.
+- Everyone in a session needs this version: an older open page is asked to reload.
+
 ## [0.22.0] - 2026-10-08
 
 ### Added

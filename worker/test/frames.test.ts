@@ -180,7 +180,8 @@ describe("frameEdit, frameResize, frameDelete", () => {
     expect(await nextOfType(b, "frameResized")).toMatchObject({ w: 900, final: false, rev: 1 });
     expect(await a.quiet()).toBe(true);
     expect((await rowsWritten(stub)) - writes).toBe(0);
-    a.send({ type: "frameResize", id: frameId(0), x: 2800, y: 100, w: 1200, h: FRAME_MAX_H, final: true });
+    // Past the right edge at that width: the final one comes back so the whole frame is on the board.
+    a.send({ type: "frameResize", id: frameId(0), x: BOARD_WIDTH - 400, y: 100, w: 1200, h: FRAME_MAX_H, final: true });
     const done = await nextOfType(b, "frameResized");
     expect(done).toMatchObject({ x: BOARD_WIDTH - 1200, y: 100, w: 1200, h: FRAME_MAX_H, rev: 2, final: true });
     expect((await rowsWritten(stub)) - writes).toBe(1);
@@ -245,7 +246,7 @@ describe("frameMove and the carry rule", () => {
     // The carried note sticks out past the frame's right edge (900 + 160 = 1060 > 860), so the
     // group stops when the note reaches the edge, not the frame: both keep their spacing.
     const { stub, a, b } = await room([[900, 400]], [{ x: 100, y: 100, w: 760, h: 500 }]);
-    a.send({ type: "frameMove", id: frameId(0), x: 3000, y: 100, final: true, noteIds: [noteId(0)] });
+    a.send({ type: "frameMove", id: frameId(0), x: BOARD_WIDTH - 300, y: 100, final: true, noteIds: [noteId(0)] });
     const moved = await nextOfType(b, "frameMoved");
     const dx = BOARD_WIDTH - 1060;
     expect(moved).toMatchObject({ x: 100 + dx, y: 100 });
@@ -374,7 +375,7 @@ describe(`schema migration 5 -> ${SCHEMA_VERSION}`, () => {
       const sql = state.storage.sql;
       loadSchemaV5(sql);
       new NoteStore(sql);
-      sql.exec("INSERT INTO frames (id, x, y, w, h, title, color, rev, author_id) VALUES (?, 3100, 1900, 640, 400, 'Continue', 'blue', 3, 'AAAAAAAAAAAAAAAA')", frameId(1));
+      sql.exec("INSERT INTO frames (id, x, y, w, h, title, color, rev, author_id) VALUES (?, ?, ?, 640, 400, 'Continue', 'blue', 3, 'AAAAAAAAAAAAAAAA')", frameId(1), BOARD_WIDTH - 100, BOARD_HEIGHT - 100);
     });
     await evictDurableObject(stub, { webSockets: "close" });
     const c = await TestClient.open(code);

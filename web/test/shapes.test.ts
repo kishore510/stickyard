@@ -15,6 +15,8 @@ import {
   SHAPE_MIN_H,
   SHAPE_MIN_W,
   SHAPE_STROKES,
+  BOARD_HEIGHT,
+  BOARD_WIDTH,
   shapeDefaults,
   type Shape,
 } from "@stickyard/shared";
@@ -120,8 +122,8 @@ describe("tokens (both themes)", () => {
 describe("the board model", () => {
   it("a local add uses the kind's size and style, empty text, and goes on top of notes and shapes", () => {
     const board = boardWith([shape(1, { z: 7 })]);
-    const next = addShapeLocal(board, { clientRef: "r1", kind: "diamond", x: 3190, y: 10, authorId: alex.id });
-    expect(findShape(next, localId("r1"))?.shape).toMatchObject({ kind: "diamond", ...shapeDefaults("diamond"), x: 3000, y: 10, text: "", z: 8 });
+    const next = addShapeLocal(board, { clientRef: "r1", kind: "diamond", x: BOARD_WIDTH - 10, y: 10, authorId: alex.id });
+    expect(findShape(next, localId("r1"))?.shape).toMatchObject({ kind: "diamond", ...shapeDefaults("diamond"), x: BOARD_WIDTH - shapeDefaults("diamond").w, y: 10, text: "", z: 8 });
     expect(topZ(next)).toBe(9);
   });
 
@@ -147,7 +149,7 @@ describe("the board model", () => {
   it("local moves and resizes are clamped to the board and the shape limits", () => {
     let board = boardWith([shape(1)]);
     board = moveShapeLocal(board, sid(1), 99999, -5);
-    expect(findShape(board, sid(1))?.shape).toMatchObject({ x: 3000, y: 0 });
+    expect(findShape(board, sid(1))?.shape).toMatchObject({ x: BOARD_WIDTH - shapeDefaults("rect").w, y: 0 });
     board = resizeShapeLocal(board, sid(1), { x: 0, y: 0, w: 1, h: 99999 });
     expect(findShape(board, sid(1))?.shape).toMatchObject({ w: SHAPE_MIN_W, h: SHAPE_MAX_H });
   });
@@ -299,7 +301,7 @@ describe("the session (fake relay)", () => {
     expect(t.relay.shapes.get(sid(1))).toMatchObject({ x: 500, y: 600 });
     t.session.startShapeResize(sid(1));
     t.session.resizeShape(sid(1), { x: 500, y: 600, w: 10, h: 99999 }, true);
-    expect(t.sent("shapeResize").at(-1)).toEqual({ type: "shapeResize", id: sid(1), x: 500, y: 400, w: SHAPE_MIN_W, h: SHAPE_MAX_H, final: true });
+    expect(t.sent("shapeResize").at(-1)).toEqual({ type: "shapeResize", id: sid(1), x: 500, y: Math.min(600, BOARD_HEIGHT - SHAPE_MAX_H), w: SHAPE_MIN_W, h: SHAPE_MAX_H, final: true });
     t.session.setShapeSize(sid(1), 300, 200);
     expect(t.relay.shapes.get(sid(1))).toMatchObject({ w: 300, h: 200 });
   });

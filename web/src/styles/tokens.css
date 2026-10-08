@@ -320,8 +320,8 @@
 
   /* Board and notes. Board units are CSS pixels; these must match BOARD_WIDTH, BOARD_HEIGHT,
      NOTE_DEFAULT_W/H, NOTE_MIN_W/H and NOTE_MAX_W/H in shared/src/protocol.ts (tests check). */
-  --sy-board-width: 3200px;
-  --sy-board-height: 2000px;
+  --sy-board-width: 6400px;
+  --sy-board-height: 4000px;
   --sy-note-size: 160px;
   --sy-note-min: 96px;
   --sy-note-max: 480px;

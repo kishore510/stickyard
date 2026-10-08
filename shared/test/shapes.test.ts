@@ -80,8 +80,8 @@ const shapeItem = (ref: string, extra: Partial<ShapeItem> = {}): ShapeItem => {
 };
 
 describe("protocol v15 constants", () => {
-  it("is protocol 15", () => {
-    expect(PROTOCOL_VERSION).toBe(15);
+  it("is protocol 15 or later (v16 makes the board bigger)", () => {
+    expect(PROTOCOL_VERSION).toBeGreaterThanOrEqual(15);
   });
 
   it("four kinds; a text label is a shape with no fill and no border", () => {
@@ -173,7 +173,7 @@ describe("shape text", () => {
 
 describe("clamping", () => {
   it("size first (within the shape limits), then position (the whole shape on the board)", () => {
-    expect(clampShapeRect({ x: 5000, y: -10, w: 10, h: 99999 })).toEqual({ x: BOARD_WIDTH - SHAPE_MIN_W, y: 0, w: SHAPE_MIN_W, h: SHAPE_MAX_H });
+    expect(clampShapeRect({ x: BOARD_WIDTH + 1000, y: -10, w: 10, h: 99999 })).toEqual({ x: BOARD_WIDTH - SHAPE_MIN_W, y: 0, w: SHAPE_MIN_W, h: SHAPE_MAX_H });
     expect(clampShapeRect({ x: 10.4, y: 10.6, w: 200.5, h: 120 })).toEqual({ x: 10, y: 11, w: 201, h: 120 });
     expect(clampShapePosition(BOARD_WIDTH, BOARD_HEIGHT, { w: 200, h: 160 })).toEqual({ x: BOARD_WIDTH - 200, y: BOARD_HEIGHT - 160 });
   });
@@ -380,11 +380,11 @@ describe("message sizes", () => {
    * needs a decision first (the frames rule). It is a separate message from the notes and frames
    * snapshots, whose tripwires are unchanged.
    */
-  it("the largest possible shapesSnapshot is 167,686 bytes, under the 192 KiB cap and its 90% tripwire", () => {
+  it("the largest possible shapesSnapshot is 167,786 bytes, under the 192 KiB cap and its 90% tripwire", () => {
     const raw = encodeMessage({ type: "shapesSnapshot", shapes: Array.from({ length: MAX_SHAPES_PER_ROOM }, (_, i) => worstShape(i)) });
     expect(/^[\x20-\x7e]*$/.test(raw)).toBe(true);
     // docs/LIMITS.md records this figure; update both together.
-    expect(raw.length).toBe(167_686);
+    expect(raw.length).toBe(167_786);
     const CAP = 192 * 1024;
     expect(raw.length).toBeLessThanOrEqual(CAP * 0.9);
     expect(raw.length).toBeLessThan(MAX_SERVER_MESSAGE_BYTES / 2);
