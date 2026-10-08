@@ -55,7 +55,7 @@ function withBoard(...notes: Note[]) {
   };
   sock().handlers.onOpen();
   sock().receive({ type: "welcome", protocolVersion: PROTOCOL_VERSION });
-  sock().receive({ type: "joined", you: alex, participants: [alex, sam], locked: false, timer: null, voting: { state: "off", budget: 5, round: 0 } });
+  sock().receive({ type: "joined", you: alex, participants: [alex, sam], locked: false, timer: null, voting: { state: "off", budget: 5, round: 0 }, silent: { active: false, count: 0 } });
   sock().receive({ type: "snapshot", notes });
   const view = () => {
     const v = views.at(-1);

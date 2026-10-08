@@ -160,7 +160,7 @@ const WORST = { notesSnapshot, framesSnapshot, shapesSnapshot, noteBatch, frameM
 
 describe("protocol v16: the board size", () => {
   it("is 6400 x 4000, four times the area of v15's 3200 x 2000", () => {
-    expect(PROTOCOL_VERSION).toBe(16);
+    expect(PROTOCOL_VERSION).toBeGreaterThanOrEqual(16);
     expect([BOARD_WIDTH, BOARD_HEIGHT]).toEqual([6400, 4000]);
     expect(BOARD_WIDTH * BOARD_HEIGHT).toBe(4 * 3200 * 2000);
   });

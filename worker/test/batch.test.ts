@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { BOARD_WIDTH, MAX_BATCH_ENTRIES, NOTE_MAX_W, PROTOCOL_VERSION, type ServerMessage } from "@stickyard/shared";
 import { BATCH_LIMITS, SOCKET_LIMITS } from "../src/limits";
 import type { Room } from "../src/room";
-import { TestClient, nextOfType, specRoomCode } from "./helpers";
+import { TestClient, emptyEntryBudget, nextOfType, specRoomCode } from "./helpers";
 
 /*
  * Protocol v7 (slice 2.8): noteBatch. Final batches are applied in one SQLite transaction with
@@ -239,10 +239,12 @@ describe("rate budget", () => {
 
   it("entries also feed a per-socket entries budget: too many are dropped with rate_limited naming the notes", async () => {
     expect(BATCH_LIMITS.entriesBurst).toBeLessThan(30 * MAX_BATCH_ENTRIES);
-    const { a, b } = await room(MAX_BATCH_ENTRIES);
+    const { stub, a, b } = await room(MAX_BATCH_ENTRIES);
     const ops = (n: number) => Array.from({ length: MAX_BATCH_ENTRIES }, (_, i) => ({ op: "move", id: id(i), x: 100 + n, y: i }));
-    // Within the message budget (30 < burst), over the entries budget (1500 > burst).
-    for (let n = 0; n < 30; n++) a.send({ type: "noteBatch", final: false, ops: ops(n) });
+    // 30 batches (1,500 entries) are over the burst only if they arrive faster than the bucket refills,
+    // which a busy runner can't promise; so the bucket starts empty and one batch is over it.
+    await emptyEntryBudget(stub, "Alex");
+    a.send({ type: "noteBatch", final: false, ops: ops(0) });
     const error = await nextOfType(a, "error");
     expect(error).toMatchObject({ code: "rate_limited" });
     expect(error.noteIds).toHaveLength(MAX_BATCH_ENTRIES);

@@ -174,14 +174,19 @@ export async function inRoom({
   const socket = lastSocket();
   await server(socket, "open");
   await server(socket, { data: { type: "welcome", protocolVersion: PROTOCOL_VERSION } });
-  await server(socket, { data: { type: "joined", you: alex, participants: [alex, ...others], locked, timer, voting } });
+  await server(socket, { data: { type: "joined", you: alex, participants: [alex, ...others], locked, timer, voting, silent: { active: false, count: 0 } } });
   if (host) await server(socket, { data: { type: "hostGranted" } });
   await server(socket, { data: { type: "snapshot", notes } });
   await server(socket, { data: { type: "framesSnapshot", frames } });
   await server(socket, { data: { type: "shapesSnapshot", shapes } });
+  // The board is lazy-loaded (RoomScreen): load the same module here so a cold import on a busy
+  // runner is waited for, not raced; then wait for it to render, by condition, not a fixed count.
+  await act(async () => {
+    await import("../../src/canvas/RoomBoard");
+  });
   for (
     let i = 0;
-    i < 40 &&
+    i < 500 &&
     (!document.querySelector(".react-flow") ||
       document.querySelectorAll('[aria-roledescription="note"]').length < notes.length ||
       document.querySelectorAll("[data-frame-id]").length < frames.length ||

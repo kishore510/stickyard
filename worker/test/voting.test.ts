@@ -578,7 +578,9 @@ describe("voters cap", () => {
     await start(host, [guest]);
     expect(await claim(host, newKey())).toMatchObject({ remaining: VOTE_BUDGET_DEFAULT });
     closeAll(host, guest);
-  });
+    // 40 sockets opened, joined, voted and closed one after another: deterministic but slow, so its
+    // budget doesn't depend on how fast the runner is (it took 4 to 5 s against the 5 s default).
+  }, 60_000);
 });
 
 describe("burial", () => {

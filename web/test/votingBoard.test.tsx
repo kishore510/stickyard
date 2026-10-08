@@ -413,7 +413,7 @@ describe("reconnecting", () => {
     await server(next, "open");
     await server(next, { data: { type: "welcome", protocolVersion: PROTOCOL_VERSION } });
     const me = { ...alex, id: "CCCCCCCCCCCCCCCC" };
-    await server(next, { data: { type: "joined", you: me, participants: [me, sam], locked: false, timer: null, voting: OPEN } });
+    await server(next, { data: { type: "joined", you: me, participants: [me, sam], locked: false, timer: null, voting: OPEN, silent: { active: false, count: 0 } } });
     await server(next, { data: { type: "snapshot", notes: [noteAt(1), noteAt(2)] } });
     await server(next, { data: { type: "framesSnapshot", frames: [] } });
     expect(next.ofType("claimVoter")).toHaveLength(1);

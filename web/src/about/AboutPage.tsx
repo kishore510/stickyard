@@ -156,6 +156,12 @@ export function AboutPage() {
             or your visit, deletes them with the session, and never reveals who voted for what: everyone sees only the
             totals once the host closes the vote.
           </li>
+          <li>
+            For silent brainstorm (coming in a later release), this browser will also send that same random key to the relay when you
+            join a session. While the host runs a silent round, the relay stores each note you add with a hidden writer id, a scrambled
+            version of the key that is different from the one used for votes, so only your own pages are sent your hidden notes. It is
+            never sent to anyone, and it is removed from every note when the host reveals them; the notes then stay like any other note.
+          </li>
           <li>There are no accounts.</li>
         </ul>
       </section>

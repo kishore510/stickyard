@@ -1,5 +1,5 @@
 import { exports } from "cloudflare:workers";
-import { createExecutionContext, env, waitOnExecutionContext } from "cloudflare:test";
+import { createExecutionContext, env, runInDurableObject, waitOnExecutionContext } from "cloudflare:test";
 import { MAX_SERVER_MESSAGE_BYTES, PROTOCOL_VERSION, parseMessage, serverMessageSchema, type ServerMessage } from "@stickyard/shared";
 import worker from "../src/index";
 import type { WorkerEnv } from "../src/env";
@@ -101,12 +101,20 @@ export class TestClient {
   next(timeoutMs = 2000): Promise<ServerMessage> {
     const queued = this.queue.shift();
     if (queued) return Promise.resolve(queued);
+    // Made here, so a timeout's stack names the test line that waited.
+    const timeout = new Error("no message");
     return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error("no message")), timeoutMs);
-      this.waiters.push((m) => {
+      const waiter = (m: ServerMessage) => {
         clearTimeout(timer);
         resolve(m);
-      });
+      };
+      const timer = setTimeout(() => {
+        // A waiter that timed out must not swallow the next message.
+        const i = this.waiters.indexOf(waiter);
+        if (i !== -1) this.waiters.splice(i, 1);
+        reject(timeout);
+      }, timeoutMs);
+      this.waiters.push(waiter);
     });
   }
 
@@ -115,11 +123,14 @@ export class TestClient {
     return this.next();
   }
 
-  /** Resolves true if nothing arrives within `ms`. */
+  /** Resolves true if nothing arrives within `ms`. A message that does arrive stays queued for next(). */
   async quiet(ms = 150): Promise<boolean> {
     if (this.queue.length > 0) return false;
     return new Promise((resolve) => {
-      const waiter = () => resolve(false);
+      const waiter = (m: ServerMessage) => {
+        this.queue.unshift(m);
+        resolve(false);
+      };
       this.waiters.push(waiter);
       setTimeout(() => {
         const i = this.waiters.indexOf(waiter);
@@ -149,12 +160,13 @@ export class TestClient {
   /**
    * hello + join; returns the `joined` message. The notes snapshot that follows it is kept in
    * `snapshot`, the frames snapshot right after that (protocol v9) in `frames`, and the shapes
-   * snapshot after that (protocol v15) in `shapes`.
+   * snapshot after that (protocol v15) in `shapes`. `key` (protocol v17) names this page's writer.
    */
-  async enter(name: string): Promise<Extract<ServerMessage, { type: "joined" }>> {
+  async enter(name: string, key?: string): Promise<Extract<ServerMessage, { type: "joined" }>> {
     const welcome = await this.request({ type: "hello", protocolVersion: PROTOCOL_VERSION });
     if (welcome.type !== "welcome") throw new Error(`expected welcome, got ${JSON.stringify(welcome)}`);
-    const joined = await this.request({ type: "join", name });
+    // Protocol v17: the room's client key (silent brainstorm's writer) rides on join when given.
+    const joined = await this.request(key === undefined ? { type: "join", name } : { type: "join", name, key });
     if (joined.type !== "joined") throw new Error(`expected joined, got ${JSON.stringify(joined)}`);
     const snapshot = await this.next();
     if (snapshot.type !== "snapshot") throw new Error(`expected snapshot, got ${JSON.stringify(snapshot)}`);
@@ -171,6 +183,20 @@ export class TestClient {
   snapshot: Extract<ServerMessage, { type: "snapshot" }> | null = null;
   frames: Extract<ServerMessage, { type: "framesSnapshot" }> | null = null;
   shapes: Extract<ServerMessage, { type: "shapesSnapshot" }> | null = null;
+}
+
+/**
+ * Empties the batch-entries bucket (BATCH_LIMITS) of the joined socket named `name`, with its refill
+ * clock an hour ahead, so the next message that carries entries is over budget however fast or slow
+ * the runner is. Sending messages faster than the bucket refills can't promise that on a busy runner.
+ */
+export async function emptyEntryBudget(stub: DurableObjectStub, name: string): Promise<void> {
+  await runInDurableObject(stub, (_r: unknown, state: DurableObjectState) => {
+    for (const ws of state.getWebSockets()) {
+      const att = ws.deserializeAttachment() as { participant?: { name?: string } | null; entryTokens: number; entryAt: number };
+      if (att.participant?.name === name) ws.serializeAttachment({ ...att, entryTokens: 0, entryAt: Date.now() + 3_600_000 });
+    }
+  });
 }
 
 /** Waits until `client` gets a message of `type`, skipping others. */

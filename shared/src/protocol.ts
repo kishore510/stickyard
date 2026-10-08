@@ -37,8 +37,12 @@ import { NOTE_Z_LIMIT, ORDER_ACTIONS } from "./stack";
  * v16 (board size): the board is 6400 x 4000 (was 3200 x 2000). No new message; v15 pages
  *   would refuse positions past the old edge, so they get version_mismatch. Stored rows are
  *   unchanged (everything on the old board is on the new one).
+ * v17 (silent brainstorm): silentStart / silentReveal (host only), silentChanged (the round and
+ *   one count of sealed notes) and notesRevealed (the sealed notes, in chunks); `join` may carry
+ *   the room's client key (it names the page's writer); `joined` carries `silent`. Notes added
+ *   while a round is silent reach only their writer's sockets until the reveal.
  */
-export const PROTOCOL_VERSION = 16;
+export const PROTOCOL_VERSION = 17;
 
 /**
  * Hard cap on a single client-to-server WebSocket message, in UTF-8 bytes. Checked before JSON.parse.
@@ -83,6 +87,12 @@ export const VOTE_BUDGET_DEFAULT = 5;
 export const MAX_VOTERS_PER_ROUND = 40;
 export const VOTER_KEY_MIN_LENGTH = 22;
 export const VOTER_KEY_MAX_LENGTH = 64;
+/**
+ * Silent brainstorm (protocol v17). While a round is silent, each writer (a page's client key, see
+ * `join`) may have at most this many sealed notes; the room's MAX_NOTES_PER_ROOM still applies to
+ * every note, sealed or not. Beyond it: sealed_full.
+ */
+export const MAX_SEALED_PER_WRITER = 40;
 /** off: no round (no votes); open: voting (anonymous, no live totals); closed: totals revealed. */
 export const VOTING_STATES = ["off", "open", "closed"] as const;
 export type VotingStateName = (typeof VOTING_STATES)[number];
@@ -405,6 +415,13 @@ const noteTextIn = z
 
 const protocolVersion = z.number().int().nonnegative();
 
+/**
+ * A page's random key for a room (128 random bits from the web, base64url): the voter key since
+ * v13 (claimVoter) and, since v17, sent in `join` too, where it names the page's writer for silent
+ * brainstorm. The relay keeps only HMACs of it (a different domain for each use), never the key.
+ */
+const clientKeySchema = z.string().regex(new RegExp(`^[A-Za-z0-9_-]{${VOTER_KEY_MIN_LENGTH},${VOTER_KEY_MAX_LENGTH}}$`));
+
 // Non-strict on purpose: a future client may add fields to `hello`, and we still
 // want to read its protocolVersion so we can answer `version_mismatch`.
 export const helloSchema = z.object({
@@ -412,10 +429,16 @@ export const helloSchema = z.object({
   protocolVersion,
 });
 
-// Unknown keys (a claimed id, colour or sender) are stripped: the server decides those.
+// Unknown keys (a claimed id, colour, sender or writer) are stripped: the server decides those.
 export const joinSchema = z.object({
   type: z.literal("join"),
   name: z.string().max(RAW_NAME_MAX),
+  /**
+   * Since v17: the page's client key for this room (the voter key). The relay derives the page's
+   * writer from it before the snapshot, so sealed notes reach their writer on every join,
+   * reconnect and second tab. Optional: without it the page can't add notes during a silent round.
+   */
+  key: clientKeySchema.optional(),
 });
 
 export const saySchema = z.object({
@@ -860,8 +883,12 @@ export type ShapeItem = z.infer<typeof shapeItemSchema>;
 
 export const ITEM_KINDS = ["note", "frame", "shape"] as const;
 export type ItemKind = (typeof ITEM_KINDS)[number];
-/** Why one item was refused: it didn't validate (or clean), or the room has its notes, frames or shapes already. */
-export const ITEM_REFUSALS = ["invalid", "notes_full", "frames_full", "shapes_full"] as const;
+/**
+ * Why one item was refused: it didn't validate (or clean), or the room has its notes, frames or
+ * shapes already; since v17, a note while a round is silent from a page with no writer, or past
+ * the writer's MAX_SEALED_PER_WRITER.
+ */
+export const ITEM_REFUSALS = ["invalid", "notes_full", "frames_full", "shapes_full", "no_writer", "sealed_full"] as const;
 export type ItemRefusalReason = (typeof ITEM_REFUSALS)[number];
 
 const itemCount = (m: { notes?: readonly unknown[] | undefined; frames?: readonly unknown[] | undefined; shapes?: readonly unknown[] | undefined }) =>
@@ -959,7 +986,7 @@ export const endSessionSchema = z.strictObject({ type: z.literal("endSession") }
 
 /* ── Dot voting (protocol v13) ──────────────────────────────────────────── */
 
-export const voterKeySchema = z.string().regex(new RegExp(`^[A-Za-z0-9_-]{${VOTER_KEY_MIN_LENGTH},${VOTER_KEY_MAX_LENGTH}}$`));
+export const voterKeySchema = clientKeySchema;
 const voteBudget = z.number().int().min(VOTE_BUDGET_MIN).max(VOTE_BUDGET_MAX);
 /** Dots on one note from one voter (the budget is checked by the relay). */
 const voteCount = z.number().int().min(0).max(VOTE_BUDGET_MAX);
@@ -988,6 +1015,14 @@ export const voteStopSchema = z.strictObject({ type: z.literal("voteStop") });
 
 /** Host only: delete every vote and turn voting off. */
 export const voteClearSchema = z.strictObject({ type: z.literal("voteClear") });
+
+/* ── Silent brainstorm (protocol v17) ───────────────────────────────────── */
+
+/** Host only: start a silent round. Notes added from now on are sealed until the reveal. */
+export const silentStartSchema = z.strictObject({ type: z.literal("silentStart") });
+
+/** Host only: reveal every sealed note to everyone and end the round. One way. */
+export const silentRevealSchema = z.strictObject({ type: z.literal("silentReveal") });
 
 /* ── Live cursors (protocol v14) ────────────────────────────────────────── */
 
@@ -1052,6 +1087,8 @@ export const clientMessageSchema = z.discriminatedUnion("type", [
   voteClearSchema,
   cursorSchema,
   cursorLeftSchema,
+  silentStartSchema,
+  silentRevealSchema,
 ]);
 export type ClientMessage = z.infer<typeof clientMessageSchema>;
 export type ClientMessageType = ClientMessage["type"];
@@ -1098,10 +1135,13 @@ export const BOARD_WRITES: Readonly<Record<ClientMessageType, boolean>> = {
   // Live cursors (v14) are pointers, not edits: a locked board still shows everyone's.
   cursor: false,
   cursorLeft: false,
+  // Silent brainstorm (v17) is the host running the session: a host may start one on a locked board.
+  silentStart: false,
+  silentReveal: false,
 };
 
 /** Host-only messages: anyone else gets not_host. */
-export const HOST_ONLY: readonly ClientMessageType[] = ["lockSet", "timerStart", "timerStop", "endSession", "voteStart", "voteStop", "voteClear"];
+export const HOST_ONLY: readonly ClientMessageType[] = ["lockSet", "timerStart", "timerStop", "endSession", "voteStart", "voteStop", "voteClear", "silentStart", "silentReveal"];
 
 export const errorCodeSchema = z.enum([
   "version_mismatch",
@@ -1122,6 +1162,10 @@ export const errorCodeSchema = z.enum([
   "over_budget",
   "voting_closed",
   "no_voter",
+  // Silent brainstorm (v17): refused while a round runs; a page with no writer; a writer's cap.
+  "silent_active",
+  "no_writer",
+  "sealed_full",
 ]);
 export type ErrorCode = z.infer<typeof errorCodeSchema>;
 
@@ -1220,6 +1264,16 @@ export const votingSchema = z.strictObject({
 export type VotingState = z.infer<typeof votingSchema>;
 
 /**
+ * The silent round (protocol v17): whether one is running, and how many sealed notes there are in
+ * the room (everyone's, one number; never whose).
+ */
+export const silentSchema = z.strictObject({
+  active: z.boolean(),
+  count: z.number().int().min(0).max(MAX_NOTES_PER_ROOM),
+});
+export type SilentState = z.infer<typeof silentSchema>;
+
+/**
  * Sent first after a join. Since v12 it also carries the lock and the timer, so a page knows them
  * before the snapshots (same handler step: nothing can land in between).
  */
@@ -1231,6 +1285,8 @@ export const joinedSchema = z.object({
   timer: timerSchema.nullable(),
   /** Since v13: the voting state (if closed, votesRevealed follows the snapshots). */
   voting: votingSchema,
+  /** Since v17: the silent round. The snapshot after it holds only the notes this page may see. */
+  silent: silentSchema,
 });
 
 export const participantJoinedSchema = z.object({
@@ -1592,6 +1648,28 @@ export const cursorGoneSchema = z.strictObject({
   id: participantIdSchema,
 });
 
+/** The silent round started, a sealed note was added or deleted, or the round was revealed. To everyone; only the count. */
+export const silentChangedSchema = z.strictObject({
+  type: z.literal("silentChanged"),
+  ...silentSchema.shape,
+});
+
+/** Notes in one notesRevealed. A reveal of more goes out in chunks of this many, in creation order. */
+export const REVEAL_CHUNK_NOTES = MAX_BATCH_ENTRIES;
+/** The largest notesRevealed (REVEAL_CHUNK_NOTES notes at their largest) stays under this (a test checks). */
+export const REVEAL_CHUNK_MAX_BYTES = 128 * 1024;
+
+/**
+ * Sealed notes revealed (protocol v17), to everyone, in creation order, then silentChanged. A
+ * writer's own notes come again with the same id and rev (the page keeps one). `final` is true
+ * on the last chunk.
+ */
+export const notesRevealedSchema = z.strictObject({
+  type: z.literal("notesRevealed"),
+  notes: z.array(noteSchema).min(1).max(REVEAL_CHUNK_NOTES),
+  final: z.boolean(),
+});
+
 export const serverMessageSchema = z.discriminatedUnion("type", [
   welcomeSchema,
   errorMessageSchema,
@@ -1632,5 +1710,65 @@ export const serverMessageSchema = z.discriminatedUnion("type", [
   votesRevealedSchema,
   cursorMovedSchema,
   cursorGoneSchema,
+  silentChangedSchema,
+  notesRevealedSchema,
 ]);
 export type ServerMessage = z.infer<typeof serverMessageSchema>;
+export type ServerMessageType = ServerMessage["type"];
+
+/**
+ * Every server message type, and whether it can carry anything about a note (its id, text, place,
+ * size, colour, style, stacking or author), protocol v17. While a round is silent the relay passes
+ * every such message through its filter for the recipient (worker/src/sealed.ts), so a sealed
+ * note reaches only its writer's sockets. `error` only ever echoes ids the sender itself sent,
+ * exactly as for an unknown id. A new message type can't be added without deciding (the compiler
+ * and a test check every type).
+ */
+export const SERVER_MESSAGES = {
+  welcome: { carriesNoteContent: false },
+  error: { carriesNoteContent: true },
+  joined: { carriesNoteContent: false },
+  participant_joined: { carriesNoteContent: false },
+  participant_left: { carriesNoteContent: false },
+  echo: { carriesNoteContent: false },
+  snapshot: { carriesNoteContent: true },
+  noteAdded: { carriesNoteContent: true },
+  noteUpdated: { carriesNoteContent: true },
+  noteMoved: { carriesNoteContent: true },
+  noteResized: { carriesNoteContent: true },
+  noteDeleted: { carriesNoteContent: true },
+  notesBatchApplied: { carriesNoteContent: true },
+  notesOrdered: { carriesNoteContent: true },
+  framesSnapshot: { carriesNoteContent: false },
+  frameAdded: { carriesNoteContent: false },
+  frameUpdated: { carriesNoteContent: false },
+  frameMoved: { carriesNoteContent: true },
+  frameResized: { carriesNoteContent: false },
+  frameDeleted: { carriesNoteContent: false },
+  itemsAdded: { carriesNoteContent: true },
+  shapesSnapshot: { carriesNoteContent: false },
+  shapeAdded: { carriesNoteContent: false },
+  shapeUpdated: { carriesNoteContent: false },
+  shapeMoved: { carriesNoteContent: false },
+  shapeResized: { carriesNoteContent: false },
+  shapeDeleted: { carriesNoteContent: false },
+  shapesBatchApplied: { carriesNoteContent: false },
+  hostGranted: { carriesNoteContent: false },
+  participantUpdated: { carriesNoteContent: false },
+  lockChanged: { carriesNoteContent: false },
+  timerChanged: { carriesNoteContent: false },
+  sessionEnded: { carriesNoteContent: false },
+  voterGranted: { carriesNoteContent: true },
+  votingChanged: { carriesNoteContent: false },
+  voteConfirmed: { carriesNoteContent: true },
+  votesRevealed: { carriesNoteContent: true },
+  cursorMoved: { carriesNoteContent: false },
+  cursorGone: { carriesNoteContent: false },
+  silentChanged: { carriesNoteContent: false },
+  notesRevealed: { carriesNoteContent: true },
+} as const satisfies Record<ServerMessageType, { carriesNoteContent: boolean }>;
+
+/** The server message types that can carry note content (the relay filters each one). */
+export type NoteCarryingType = {
+  [K in ServerMessageType]: (typeof SERVER_MESSAGES)[K]["carriesNoteContent"] extends true ? K : never;
+}[ServerMessageType];

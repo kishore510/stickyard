@@ -18,7 +18,7 @@ Sources:
 | CPU time | 10 ms per HTTP request | Wall-clock time waiting on I/O doesn't count |
 | Memory | 128 MB per isolate | |
 | Subrequests | 50 per request | |
-| Script size | 64 MiB uncompressed (dry-run build today: 771 KiB, 121 KiB gzip) | |
+| Script size | 64 MiB uncompressed (dry-run build at v0.25.0: 927 KiB, 155 KiB gzip) | |
 | Workers per account | 100 | |
 | Env vars | 64 per Worker, 5 KB each | |
 | URL / request headers | 16 KB / 128 KB | |
@@ -211,3 +211,16 @@ One new object, the shape (text label, rectangle, oval, diamond), in its own `sh
 ## Navigation (v0.24.0): what it costs
 
 - No relay cost: Fit, Zoom to selection, the minimap and Go to run in the page. Go to uses the cursor messages the page already receives (keeping each person's last position in memory); nothing new is sent, stored or billed.
+
+## Silent brainstorm (protocol v17, stored schema 10): what sealed notes cost
+
+Part 1 (relay and shared). Numbers measured in `worker/test/silent.test.ts` and `shared/test/silent.test.ts`.
+
+- *Requests:* `silentStart` and `silentReveal` are one inbound message each (22 and 23 bytes), billed 20:1 like any other: **1/20 of a DO request per host message**. A sealed add, edit, move or delete is the same message as before. `join` with a key is the same one message (about 40 bytes more); the writer id is one HMAC in the object (CPU only, no storage call).
+- *Rows written:* `silentStart` **4 rows** the first time in a room (two new meta keys, each a row and its index entry), **2** after that (both keys rewritten); a second start while one runs, or a reveal with none running, writes **0**. A sealed add is **2 rows**, exactly as a note (the row and its primary-key index; `sealed` and `writer` are not indexed); a sealed note's edit, final move or resize **1**, a delete as before. Count broadcasts write nothing. `silentReveal` is **one transaction: 1 row per sealed note plus 1 for the flag**, so at most **201 rows** (200 sealed notes; measured), and its `UPDATE` reads at most the room's 200 note rows.
+- *Storage:* a sealed note's row is 2 bytes plus a 43-character writer id bigger (under 50 bytes a note, under 10 KB for a full room), and the id is dropped at the reveal. Two meta keys. The socket attachment gains the writer id: the largest attachment is about 620 bytes, far under the 16 KiB limit (the test caps it at 1 KiB).
+- *Outgoing (not billed as requests):* every sealed add or delete sends one `silentChanged` to everyone, **50 bytes** at its longest (`count` 200): about 1 KB per change in a room of 20. Edits and moves of a sealed note go only to its writer's sockets, so a silent round sends less than a normal one. The reveal sends every sealed note to everyone in `notesRevealed` chunks of 50: the largest chunk is **101,098 bytes** (50 notes at their largest, lone-surrogate text, maxed revs; the test fails at 128 KiB), so a full board is 4 chunks, about **404 KB per person and about 8.1 MB for 20 people**, once, bandwidth only (no rows, no requests). A writer's own notes come again in it (same id and rev).
+- *Filtering:* while any note is sealed, every note-carrying message is filtered per recipient and encoded once per distinct writer (at most 20 encodings for 20 people, in memory, no storage calls). With no sealed note the filter is skipped and broadcasts encode once, as before.
+- *Caps:* `MAX_SEALED_PER_WRITER` 40 sealed notes per writer (a page's key), inside the 200-note room cap; `notesRevealed` at most 50 notes a message; nothing else new. Rate limits unchanged: the silent messages spend `SOCKET_LIMITS` like any other.
+- *Hibernation:* nothing is scheduled; the round is in meta, the seals in the notes table and each socket's writer in its attachment, so a woken object needs nothing else (tested across an eviction).
+- *Burial:* End session and expiry drop sealed notes, their writer ids and the round's meta keys with everything else (tested: only the tombstone survives).

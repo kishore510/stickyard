@@ -338,7 +338,7 @@ describe("the name sheet", () => {
       { type: "hello", protocolVersion: PROTOCOL_VERSION },
       { type: "join", name: "Alex" },
     ]);
-    await server(socket, { data: { type: "joined", you: alex, participants: [alex], locked: false, timer: null, voting: { state: "off", budget: 5, round: 0 } } });
+    await server(socket, { data: { type: "joined", you: alex, participants: [alex], locked: false, timer: null, voting: { state: "off", budget: 5, round: 0 }, silent: { active: false, count: 0 } } });
     expect(dialog()).toBeNull();
     expect(localStorage.getItem("stickyard:name")).toBe("Alex");
   });
@@ -369,7 +369,7 @@ describe("the name sheet", () => {
 async function inRoom() {
   await mount(`#/room/${CODE}`);
   const socket = await joinAs("Alex");
-  await server(socket, { data: { type: "joined", you: alex, participants: [alex, sam], locked: false, timer: null, voting: { state: "off", budget: 5, round: 0 } } });
+  await server(socket, { data: { type: "joined", you: alex, participants: [alex, sam], locked: false, timer: null, voting: { state: "off", budget: 5, round: 0 }, silent: { active: false, count: 0 } } });
   return socket;
 }
 
@@ -3049,7 +3049,7 @@ describe("reconnecting (UI)", () => {
   async function answer(socket: FakeWebSocket, list: Note[], you: Participant = newMe) {
     await server(socket, "open");
     await server(socket, { data: { type: "welcome", protocolVersion: PROTOCOL_VERSION } });
-    await server(socket, { data: { type: "joined", you, participants: [you, sam], locked: false, timer: null, voting: { state: "off", budget: 5, round: 0 } } });
+    await server(socket, { data: { type: "joined", you, participants: [you, sam], locked: false, timer: null, voting: { state: "off", budget: 5, round: 0 }, silent: { active: false, count: 0 } } });
     await server(socket, { data: { type: "snapshot", notes: list } });
     await server(socket, { data: { type: "framesSnapshot", frames: [] } });
   }
@@ -3174,7 +3174,7 @@ describe("presence (UI)", () => {
     setWide(isWide);
     await mount(`#/room/${CODE}`);
     const socket = await joinAs("Alex");
-    await server(socket, { data: { type: "joined", you: alex, participants: list, locked: false, timer: null, voting: { state: "off", budget: 5, round: 0 } } });
+    await server(socket, { data: { type: "joined", you: alex, participants: list, locked: false, timer: null, voting: { state: "off", budget: 5, round: 0 }, silent: { active: false, count: 0 } } });
     await server(socket, { data: { type: "snapshot", notes: [] } });
     return socket;
   }

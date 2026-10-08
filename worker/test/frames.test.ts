@@ -17,7 +17,7 @@ import { BATCH_LIMITS, SOCKET_LIMITS } from "../src/limits";
 import { NoteStore, SCHEMA_VERSION } from "../src/noteStore";
 import type { Room } from "../src/room";
 import { V5_INSERT, V5_NOTES, V5_UPDATE, loadSchemaV5 } from "./fixtures/schemaV5";
-import { TestClient, nextOfType, specRoomCode } from "./helpers";
+import { TestClient, emptyEntryBudget, nextOfType, specRoomCode } from "./helpers";
 
 /*
  * Protocol v9 (slice frames): frames in their own table (schema 6), frame messages, the carry
@@ -305,9 +305,12 @@ describe("frameMove and the carry rule", () => {
     expect(25 * MAX_BATCH_ENTRIES).toBeGreaterThan(BATCH_LIMITS.entriesBurst);
     expect(25).toBeLessThan(SOCKET_LIMITS.burst);
     const notes = Array.from({ length: MAX_BATCH_ENTRIES }, (_, i) => [200 + i, 200] as [number, number]);
-    const { a, b } = await room(notes, [{ x: 100, y: 100, w: 1000, h: 600 }]);
+    const { stub, a, b } = await room(notes, [{ x: 100, y: 100, w: 1000, h: 600 }]);
     const ids = notes.map((_, i) => noteId(i));
-    for (let n = 0; n < 25; n++) a.send({ type: "frameMove", id: frameId(0), x: 100 + (n % 2), y: 100, final: true, noteIds: ids });
+    // 25 carrying moves (1,250 entries) are over the burst only if they arrive faster than the bucket
+    // refills (600 a second), which a busy runner can't promise; so the bucket starts empty instead.
+    await emptyEntryBudget(stub, "Alex");
+    a.send({ type: "frameMove", id: frameId(0), x: 101, y: 100, final: true, noteIds: ids });
     let error: Extract<ServerMessage, { type: "error" }> | null = null;
     for (;;) {
       const m = await a.next();

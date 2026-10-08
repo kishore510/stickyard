@@ -94,7 +94,7 @@ describe("protocol v13", () => {
       { type: "voteConfirmed", noteId: ID, count: 2, remaining: 3 },
       { type: "votesRevealed", round: 1, totals: [{ noteId: ID, count: 7 }] },
       { type: "votesRevealed", round: 1, totals: [] },
-      { type: "joined", you: me, participants: [me], locked: false, timer: null, voting },
+      { type: "joined", you: me, participants: [me], locked: false, timer: null, voting, silent: { active: false, count: 0 } },
       ...(["voters_full", "over_budget", "voting_closed", "no_voter"] as const).map((code) => ({ type: "error", code, message: "No.", noteId: ID })),
     ]) {
       expect(serverOk(m), JSON.stringify(m)).toBe(true);
@@ -121,6 +121,7 @@ describe("protocol v13", () => {
       locked: true,
       timer: { startedAt: big, durationMs: TIMER_MAX_MS, serverNow: big },
       voting: { state: "closed", budget: VOTE_BUDGET_MAX, round: big },
+      silent: { active: true, count: MAX_NOTES_PER_ROOM },
     });
     expect(serverOk(JSON.parse(raw))).toBe(true);
     expect(utf8Length(raw)).toBeLessThan(8 * 1024);

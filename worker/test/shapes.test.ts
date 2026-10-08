@@ -21,7 +21,7 @@ import { entriesOf, type Room } from "../src/room";
 import { V5_NOTES } from "./fixtures/schemaV5";
 import { V6_FRAMES } from "./fixtures/schemaV6";
 import { V8_FRAME_DELETE, V8_FRAME_INSERT, V8_FRAME_UPDATE, V8_NOTE_DELETE, V8_NOTE_INSERT, V8_NOTE_UPDATE, loadSchemaV8 } from "./fixtures/schemaV8";
-import { TestClient, nextOfType, specHostToken, specRoomCode } from "./helpers";
+import { TestClient, emptyEntryBudget, nextOfType, specHostToken, specRoomCode } from "./helpers";
 
 /*
  * Protocol v15 (slice text and shapes): shapes in their own table (schema 9), shape messages,
@@ -328,9 +328,12 @@ describe("shapeBatch", () => {
     expect(25 * MAX_BATCH_ENTRIES).toBeGreaterThan(BATCH_LIMITS.entriesBurst);
     expect(25).toBeLessThan(SOCKET_LIMITS.burst);
     const shapes = Array.from({ length: MAX_BATCH_ENTRIES }, (_, i) => ({ x: i, y: 0 }));
-    const { a, b } = await room({ shapes });
+    const { stub, a, b } = await room({ shapes });
     const ops = shapes.map((_, i) => ({ op: "move", id: shapeId(i), x: i + 1, y: 1 }));
-    for (let n = 0; n < 25; n++) a.send({ type: "shapeBatch", ops, final: true });
+    // Over the burst only if 25 batches beat the refill, which a busy runner can't promise; so the
+    // bucket starts empty and one batch is over it.
+    await emptyEntryBudget(stub, "Alex");
+    a.send({ type: "shapeBatch", ops, final: true });
     const error = await nextOfType(a, "error");
     expect(error).toMatchObject({ code: "rate_limited" });
     expect(error.shapeIds).toHaveLength(MAX_BATCH_ENTRIES);
@@ -557,8 +560,8 @@ describe(`schema migration 8 -> ${SCHEMA_VERSION}`, () => {
       const sql = state.storage.sql;
       loadSchemaV8(sql);
       const store = new NoteStore(sql);
-      expect(SCHEMA_VERSION).toBe(9);
-      expect(version(sql)).toBe(9);
+      expect(SCHEMA_VERSION).toBeGreaterThanOrEqual(9);
+      expect(version(sql)).toBe(SCHEMA_VERSION);
       expect(store.allShapes()).toEqual([]);
       expect(store.all().map((n) => [n.id, n.x, n.y, n.z, n.rev])).toEqual(V5_NOTES.map((n) => [n.id, n.x, n.y, n.z, n.rev]));
       expect(store.allFrames().map((f) => [f.id, f.title])).toEqual(V6_FRAMES.map((f) => [f.id, f.title]));
