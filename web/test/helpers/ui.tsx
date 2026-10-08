@@ -165,7 +165,23 @@ export async function inRoom({
   frames = [],
   shapes = [],
   voting = { state: "off", budget: 5, round: 0 },
-}: { host?: boolean; isWide?: boolean; locked?: boolean; timer?: unknown; others?: Participant[]; notes?: Note[]; frames?: Frame[]; shapes?: Shape[]; voting?: unknown } = {}) {
+  silent = { active: false, count: 0 },
+  mine,
+}: {
+  host?: boolean;
+  isWide?: boolean;
+  locked?: boolean;
+  timer?: unknown;
+  others?: Participant[];
+  notes?: Note[];
+  frames?: Frame[];
+  shapes?: Shape[];
+  voting?: unknown;
+  /** Protocol v17: the silent round joined reports. */
+  silent?: { active: boolean; count: number };
+  /** Protocol v18: my own sealed note ids, sent after the snapshots (during a round). */
+  mine?: string[];
+} = {}) {
   setWide(isWide);
   if (host) localStorage.setItem(`stickyard:host:${ROOM_ID}`, HOST_TOKEN);
   await mount(`#/room/${CODE}`);
@@ -174,11 +190,12 @@ export async function inRoom({
   const socket = lastSocket();
   await server(socket, "open");
   await server(socket, { data: { type: "welcome", protocolVersion: PROTOCOL_VERSION } });
-  await server(socket, { data: { type: "joined", you: alex, participants: [alex, ...others], locked, timer, voting, silent: { active: false, count: 0 } } });
+  await server(socket, { data: { type: "joined", you: alex, participants: [alex, ...others], locked, timer, voting, silent } });
   if (host) await server(socket, { data: { type: "hostGranted" } });
   await server(socket, { data: { type: "snapshot", notes } });
   await server(socket, { data: { type: "framesSnapshot", frames } });
   await server(socket, { data: { type: "shapesSnapshot", shapes } });
+  if (mine) await server(socket, { data: { type: "silentMine", ids: mine } });
   // The board is lazy-loaded (RoomScreen): load the same module here so a cold import on a busy
   // runner is waited for, not raced; then wait for it to render, by condition, not a fixed count.
   await act(async () => {
