@@ -53,8 +53,15 @@ import {
  *     can't give per-kind ones, and every row we write names every column). Additive: notes,
  *     frames and votes are untouched, and version 8 code never reads it. Shapes share the notes'
  *     z space; a version 8 Worker after a rollback would stack its new notes above them anyway.
+ *  10 (silent brainstorm): notes gains sealed (INTEGER NOT NULL DEFAULT 0) and writer (TEXT,
+ *     DEFAULT NULL). A note added while a silent round runs is stored with sealed = 1 and its
+ *     writer (an HMAC of the page's client key, see writerId.ts); a reveal sets sealed = 0 and
+ *     writer = NULL on every one in one transaction. Existing rows become sealed 0, writer NULL.
+ *     Version 9 code still inserts (sealed 0) and updates (seal kept) without them; after a
+ *     rollback it would show sealed notes to everyone, since it doesn't know the column. The
+ *     round itself lives in meta (silent_active, silent_round; no version needed).
  */
-export const SCHEMA_VERSION = 9;
+export const SCHEMA_VERSION = 10;
 
 const RECT = shapeDefaults("rect");
 /** The shapes table (schema 9). */
@@ -131,6 +138,8 @@ interface NoteRow extends Record<string, SqlStorageValue> {
   z: number;
   rev: number;
   author_id: string;
+  sealed: number;
+  writer: string | null;
 }
 
 interface FrameRow extends Record<string, SqlStorageValue> {
@@ -194,6 +203,17 @@ export class NoteStore {
   private shapeCache: Map<string, Shape> | null = null;
   /** Votes by voter id, then note id (counts 1 to VOTE_BUDGET_MAX). */
   private voteCache: Map<string, Map<string, number>> | null = null;
+  /**
+   * Sealed notes (schema 10) and their writer ids, filled with the notes. Never on a Note: a note
+   * on the wire has no seal or writer. A sealed row without a writer (never written by us) gets
+   * "" so nobody's view matches it until a reveal.
+   */
+  private writers = new Map<string, string>();
+  /**
+   * Sealed notes deleted during the current message, so the room's outbound filter still knows
+   * their noteDeleted is the writer's alone. Cleared by forgetGone before each message.
+   */
+  private goneWriters = new Map<string, string>();
 
   constructor(
     private readonly sql: SqlStorage,
@@ -284,6 +304,11 @@ export class NoteStore {
       );
     }
     if (version < 9) this.sql.exec(SHAPES_TABLE);
+    if (version < 10) {
+      const existing = new Set(this.sql.exec<{ name: string }>("SELECT name FROM pragma_table_info('notes')").toArray().map((c) => c.name));
+      if (!existing.has("sealed")) this.sql.exec("ALTER TABLE notes ADD COLUMN sealed INTEGER NOT NULL DEFAULT 0");
+      if (!existing.has("writer")) this.sql.exec("ALTER TABLE notes ADD COLUMN writer TEXT DEFAULT NULL");
+    }
     this.write("INSERT OR REPLACE INTO meta (key, value) VALUES ('schema_version', ?)", SCHEMA_VERSION);
   }
 
@@ -295,7 +320,8 @@ export class NoteStore {
   private notes(): Map<string, Note> {
     if (this.cache) return this.cache;
     const cache = new Map<string, Note>();
-    for (const row of this.sql.exec<NoteRow>(`SELECT ${COLUMNS} FROM notes ORDER BY rowid`)) {
+    const writers = new Map<string, string>();
+    for (const row of this.sql.exec<NoteRow>(`SELECT ${COLUMNS}, sealed, writer FROM notes ORDER BY rowid`)) {
       const rect = clampNoteRect({ x: row.x, y: row.y, w: row.w, h: row.h });
       const parsed = noteSchema.safeParse({
         id: row.id,
@@ -316,9 +342,12 @@ export class NoteStore {
         rev: row.rev,
         authorId: row.author_id,
       });
-      if (parsed.success) cache.set(parsed.data.id, parsed.data);
+      if (!parsed.success) continue;
+      cache.set(parsed.data.id, parsed.data);
+      if (row.sealed !== 0) writers.set(parsed.data.id, row.writer ?? "");
     }
     this.cache = cache;
+    this.writers = writers;
     return cache;
   }
 
@@ -334,14 +363,74 @@ export class NoteStore {
     return this.notes().size;
   }
 
-  insert(note: Note): void {
-    this.writeInsert(note);
+  /** Saves a new note; with a writer (a silent round, schema 10) it is sealed. */
+  insert(note: Note, writer: string | null = null): void {
+    this.writeInsert(note, writer);
     this.notes().set(note.id, note);
+    if (writer !== null) this.writers.set(note.id, writer);
   }
 
-  private writeInsert(note: Note): void {
-    const row = values(note);
-    this.write(`INSERT INTO notes (${COLUMNS}) VALUES (${row.map(() => "?").join(", ")})`, ...row);
+  private writeInsert(note: Note, writer: string | null): void {
+    const row = [...values(note), writer === null ? 0 : 1, writer];
+    this.write(`INSERT INTO notes (${COLUMNS}, sealed, writer) VALUES (${row.map(() => "?").join(", ")})`, ...row);
+  }
+
+  /* ── Sealed notes (schema 10, protocol v17) ──────────────────────────────────────────── */
+
+  /** A sealed note's writer id ("" if it has none), or null when the note isn't sealed (or isn't here). */
+  writerOf(id: string): string | null {
+    this.notes();
+    return this.writers.get(id) ?? this.goneWriters.get(id) ?? null;
+  }
+
+  /** Sealed notes in the room, everyone's. */
+  get sealedCount(): number {
+    this.notes();
+    return this.writers.size;
+  }
+
+  /** A writer's sealed notes. */
+  sealedBy(writer: string): number {
+    this.notes();
+    let count = 0;
+    for (const w of this.writers.values()) if (w === writer) count++;
+    return count;
+  }
+
+  /** Whether any note is (or, during this message, was) sealed: the room filters outbound messages only then. */
+  get hasSealed(): boolean {
+    this.notes();
+    return this.writers.size > 0 || this.goneWriters.size > 0;
+  }
+
+  /** Forgets the sealed notes deleted during the last message (the room calls it before each one). */
+  forgetGone(): void {
+    this.goneWriters.clear();
+  }
+
+  /**
+   * The reveal: every sealed note becomes a normal one (sealed = 0, writer = NULL, one row each)
+   * and the meta keys given are written, in one transaction. Returns the revealed notes in
+   * creation order (unchanged, so a writer's copies keep their rev).
+   */
+  reveal(meta: Record<string, number | null>): Note[] {
+    const notes = this.notes();
+    const revealed = [...notes.values()].filter((n) => this.writers.has(n.id));
+    this.transact(() => {
+      if (revealed.length > 0) this.write("UPDATE notes SET sealed = 0, writer = NULL WHERE sealed <> 0");
+      this.writeMeta(meta);
+    });
+    this.transactions += 1;
+    this.writers = new Map();
+    return revealed;
+  }
+
+  /** Deleted: remember its writer for the rest of this message (see goneWriters). */
+  private forgetWriter(id: string): void {
+    const writer = this.writers.get(id);
+    if (writer === undefined) return;
+    this.writers.delete(id);
+    this.goneWriters.set(id, writer);
   }
 
   /** Saves a changed note (everything but its id and author). Keeps its place in creation order. */
@@ -370,13 +459,15 @@ export class NoteStore {
     for (const id of deletes) {
       cache.delete(id);
       this.forgetVotesOn(id);
+      this.forgetWriter(id);
     }
   }
 
   /**
    * An itemsAdd: any renumbered notes and shapes (updates), then the new notes, frames and shapes,
    * in one transaction. Each insert writes 2 rows (the row and its primary-key index entry), as
-   * insert, insertFrame and insertShape do. Caches change once it has committed.
+   * insert, insertFrame and insertShape do. Caches change once it has committed. With a writer
+   * (a silent round), the new notes are sealed.
    */
   applyAdds(
     updates: readonly Note[],
@@ -384,18 +475,20 @@ export class NoteStore {
     frames: readonly Frame[],
     shapes: readonly Shape[] = [],
     shapeUpdates: readonly Shape[] = [],
+    writer: string | null = null,
   ): void {
     if (updates.length === 0 && notes.length === 0 && frames.length === 0 && shapes.length === 0 && shapeUpdates.length === 0) return;
     this.transact(() => {
       for (const note of updates) this.writeUpdate(note);
       for (const shape of shapeUpdates) this.writeShapeUpdate(shape);
-      for (const note of notes) this.writeInsert(note);
+      for (const note of notes) this.writeInsert(note, writer);
       for (const frame of frames) this.writeFrameInsert(frame);
       for (const shape of shapes) this.writeShapeInsert(shape);
     });
     this.transactions += 1;
     const cache = this.notes();
     for (const note of [...updates, ...notes]) cache.set(note.id, note);
+    if (writer !== null) for (const note of notes) this.writers.set(note.id, writer);
     const frameCache = this.frames();
     for (const frame of frames) frameCache.set(frame.id, frame);
     const shapeCache = this.shapes();
@@ -417,6 +510,7 @@ export class NoteStore {
     this.transact(() => this.writeNoteDelete(id));
     this.notes().delete(id);
     this.forgetVotesOn(id);
+    this.forgetWriter(id);
   }
 
   private writeNoteDelete(id: string): void {

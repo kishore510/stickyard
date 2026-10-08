@@ -9,7 +9,10 @@ import {
   MAX_FRAMES_PER_ROOM,
   MAX_NOTES_PER_ROOM,
   MAX_PARTICIPANTS,
+  MAX_SEALED_PER_WRITER,
   MAX_SHAPES_PER_ROOM,
+  REVEAL_CHUNK_NOTES,
+  SERVER_MESSAGES,
   SHAPE_EDIT_FIELDS,
   SHAPE_STYLE_FIELDS,
   MAX_VOTERS_PER_ROUND,
@@ -57,6 +60,7 @@ import {
   type ServerMessage,
   type Shape,
   type ShapeBatchResult,
+  type SilentState,
   type Stacked,
   type TimerState,
   type VotingState,
@@ -68,7 +72,9 @@ import { ENDED_REASON, EXPIRED_REASON, clearToTombstone, nextExpiryAlarm, readTo
 import { verifyHostToken } from "./hostToken";
 import { BATCH_LIMITS, CURSOR_LIMITS, SOCKET_LIMITS } from "./limits";
 import { NoteStore } from "./noteStore";
+import { scrubFor } from "./sealed";
 import { voterIdFor } from "./voterId";
+import { writerIdFor } from "./writerId";
 
 /**
  * Per-socket state, kept in the WebSocket attachment so it survives hibernation.
@@ -101,6 +107,12 @@ const socketStateSchema = z.object({
    * claimVoter. Never the key itself, and never sent anywhere.
    */
   voterId: z.string().nullable().default(null),
+  /**
+   * The writer this socket adds and sees sealed notes as (protocol v17): an HMAC of the client key
+   * its join carried (writerId.ts), set before the snapshot. Never the key, and never sent anywhere.
+   * Kept here, so it survives hibernation; null without a key (no notes during a silent round).
+   */
+  writerId: z.string().nullable().default(null),
   /** Batch entries token bucket (BATCH_LIMITS). Defaults keep sockets from before v7 readable. */
   entryTokens: z.number().default(BATCH_LIMITS.entriesBurst),
   entryAt: z.number().default(0),
@@ -187,6 +199,11 @@ type ShapeMessage = Extract<ClientMessage, { type: "shapeAdd" | "shapeEdit" | "s
 type ShapeBatchMessage = Extract<ClientMessage, { type: "shapeBatch" }>;
 type VotingHostMessage = Extract<ClientMessage, { type: "voteStart" | "voteStop" | "voteClear" }>;
 type CursorMessage = Extract<ClientMessage, { type: "cursor" | "cursorLeft" }>;
+type JoinMessage = Extract<ClientMessage, { type: "join" }>;
+type SilentMessage = Extract<ClientMessage, { type: "silentStart" | "silentReveal" }>;
+
+/** The silent round's meta keys (protocol v17): 1 while a round runs, and rounds started. */
+const SILENT_KEYS = { active: "silent_active", round: "silent_round" } as const;
 const isCursor = (message: ClientMessage): message is CursorMessage => message.type === "cursor" || message.type === "cursorLeft";
 
 /** The voting state's meta keys and their stored values (state as its index in VOTING_STATES). */
@@ -254,6 +271,8 @@ export class Room extends DurableObject<Env> {
   private timer: { startedAt: number; durationMs: number } | null = null;
   /** Dot voting (protocol v13), from meta. */
   private voting: VotingState = VOTING_OFF;
+  /** Silent brainstorm (protocol v17), from meta: a round is running, and rounds started. */
+  private silent = { active: false, round: 0 };
   /** Rows written outside the current store: alarm sets, tombstones, and a store dropped at burial. */
   private otherRows = 0;
   /** Non-final moves and resizes waiting to be relayed, latest per note and kind. Never stored. */
@@ -275,6 +294,8 @@ export class Room extends DurableObject<Env> {
       const durationMs = this.store.getMeta("timer_duration_ms");
       this.timer = startedAt !== null && durationMs !== null ? { startedAt, durationMs } : null;
       this.voting = readVoting((key) => this.store?.getMeta(key) ?? null);
+      const round = this.store.getMeta(SILENT_KEYS.round);
+      this.silent = { active: this.store.getMeta(SILENT_KEYS.active) === 1, round: round !== null && Number.isSafeInteger(round) && round >= 0 ? round : 0 };
     }
   }
 
@@ -330,6 +351,7 @@ export class Room extends DurableObject<Env> {
       participant: null,
       roomId: request.headers.get(ROOM_ID_HEADER) ?? "",
       voterId: null,
+      writerId: null,
       tokens: SOCKET_LIMITS.burst,
       at: Date.now(),
       strikes: 0,
@@ -380,7 +402,7 @@ export class Room extends DurableObject<Env> {
 
     if (!parsed.ok) {
       ws.serializeAttachment(state);
-      send(
+      this.send(
         ws,
         parsed.error === "too_large"
           ? error("too_large", "Message is too large.")
@@ -436,7 +458,7 @@ export class Room extends DurableObject<Env> {
     if (message.type === "cursorLeft" && !shown) return;
     const out: ServerMessage = message.type === "cursor" ? { type: "cursorMoved", id: you.id, ...clampCursor(message.x, message.y) } : { type: "cursorGone", id: you.id };
     const raw = encodeMessage(out);
-    for (const other of others) send(other.ws, raw);
+    for (const other of others) sendRaw(other.ws, raw);
   }
 
   /**
@@ -457,7 +479,7 @@ export class Room extends DurableObject<Env> {
       return;
     }
     ws.serializeAttachment(state);
-    if (reply) send(ws, reply);
+    if (reply) this.send(ws, reply);
   }
 
   override async webSocketClose(ws: WebSocket, code: number, _reason: string, _wasClean: boolean): Promise<void> {
@@ -523,6 +545,7 @@ export class Room extends DurableObject<Env> {
     this.locked = false;
     this.timer = null;
     this.voting = VOTING_OFF;
+    this.silent = { active: false, round: 0 };
     this.pendingMoves.clear();
     this.pendingFrames.clear();
     this.pendingShapes.clear();
@@ -539,67 +562,44 @@ export class Room extends DurableObject<Env> {
     // Anything other than a drag or resize in progress relays pending ones first, so everyone
     // sees changes in arrival order.
     if (!isPreview(message)) this.flushMoves();
+    // Sealed notes deleted by the last message are no longer needed by the outbound filter.
+    this.store?.forgetGone();
 
     // A locked board refuses a non-host's changes (protocol v12): nothing written or relayed, and
     // the refusal names what to roll back. BOARD_WRITES classifies every message type.
     if (BOARD_WRITES[message.type] && this.locked && state.participant && !state.participant.host) {
       ws.serializeAttachment(state);
-      return send(ws, error("board_locked", "The host has locked the board.", refOf(message)));
+      return this.send(ws, error("board_locked", "The host has locked the board.", refOf(message)));
     }
+    // A silent round (protocol v17) refuses frame moves for everyone: a frame would carry notes
+    // other people can't see. Nothing written or relayed; the refusal names what to roll back.
+    if (message.type === "frameMove" && this.silent.active && state.participant) {
+      ws.serializeAttachment(state);
+      return this.send(ws, error("silent_active", "Frames can't be moved during a silent round.", refOf(message)));
+    }
+    const viewer = state.writerId;
 
     switch (message.type) {
       case "hello": {
         if (message.protocolVersion !== PROTOCOL_VERSION) {
           ws.serializeAttachment(state);
-          send(ws, error("version_mismatch", `Server speaks protocol v${PROTOCOL_VERSION}. Please reload.`));
+          this.send(ws, error("version_mismatch", `Server speaks protocol v${PROTOCOL_VERSION}. Please reload.`));
           return;
         }
         state.hello = true;
         ws.serializeAttachment(state);
-        send(ws, { type: "welcome", protocolVersion: PROTOCOL_VERSION });
+        this.send(ws, { type: "welcome", protocolVersion: PROTOCOL_VERSION });
         return;
       }
 
-      case "join": {
-        ws.serializeAttachment(state);
-        if (!state.hello) return send(ws, error("bad_message", "Say hello first."));
-        if (state.participant) return send(ws, error("already_joined", "Already joined."));
-        const name = cleanName(message.name);
-        if (name === null) return send(ws, error("invalid_name", "Names need 1 to 24 visible characters."));
-        const others = this.participants();
-        if (others.length >= MAX_PARTICIPANTS) return send(ws, error("room_full", "This room is full."));
-
-        const used = new Set(others.map(({ participant }) => participant.colourIndex));
-        let colourIndex = 0;
-        while (used.has(colourIndex)) colourIndex++;
-        const you: Participant = { id: randomBase64url(12), name, colourIndex, host: false };
-        state.participant = you;
-        ws.serializeAttachment(state);
-
-        // Lock and timer ride on joined, in this same step as the snapshots: nothing can land between them.
-        send(ws, {
-          type: "joined",
-          you,
-          participants: this.participants().map(({ participant }) => participant),
-          locked: this.locked,
-          timer: this.timerView(),
-          voting: this.voting,
-        });
-        // Notes, then frames, then shapes, in this same step: nothing else can be sent to this socket between them.
-        send(ws, { type: "snapshot", notes: this.notes.all() });
-        send(ws, { type: "framesSnapshot", frames: this.notes.allFrames() });
-        send(ws, { type: "shapesSnapshot", shapes: this.notes.allShapes() });
-        // A closed round's totals, so a late joiner sees the results. While open, nothing about anyone's votes.
-        if (this.voting.state === "closed") send(ws, this.revealed());
-        this.broadcast({ type: "participant_joined", participant: you }, ws);
-        return;
-      }
+      case "join":
+        return this.join(ws, state, message);
 
       case "say": {
         ws.serializeAttachment(state);
-        if (!state.participant) return send(ws, error("not_joined", "Join the room first."));
+        if (!state.participant) return this.send(ws, error("not_joined", "Join the room first."));
         const text = cleanText(message.text);
-        if (text === null) return send(ws, error("bad_message", "Messages need 1 to 280 visible characters."));
+        if (text === null) return this.send(ws, error("bad_message", "Messages need 1 to 280 visible characters."));
         // The sender comes from this socket's server-set identity, never from the message.
         this.broadcast({ type: "echo", from: state.participant.id, text });
         return;
@@ -611,22 +611,22 @@ export class Room extends DurableObject<Env> {
       case "noteResize":
       case "noteDelete": {
         ws.serializeAttachment(state);
-        if (!state.participant) return send(ws, error("not_joined", "Join the room first.", refOf(message)));
-        this.handleNote(ws, state.participant, message);
+        if (!state.participant) return this.send(ws, error("not_joined", "Join the room first.", refOf(message)));
+        this.handleNote(ws, state.participant, viewer, message);
         return;
       }
 
       case "noteBatch": {
         ws.serializeAttachment(state);
-        if (!state.participant) return send(ws, error("not_joined", "Join the room first.", refOf(message)));
-        this.handleBatch(ws, message);
+        if (!state.participant) return this.send(ws, error("not_joined", "Join the room first.", refOf(message)));
+        this.handleBatch(ws, viewer, message);
         return;
       }
 
       case "notesOrder": {
         ws.serializeAttachment(state);
-        if (!state.participant) return send(ws, error("not_joined", "Join the room first.", refOf(message)));
-        this.handleOrder(ws, message);
+        if (!state.participant) return this.send(ws, error("not_joined", "Join the room first.", refOf(message)));
+        this.handleOrder(ws, viewer, message);
         return;
       }
 
@@ -636,8 +636,8 @@ export class Room extends DurableObject<Env> {
       case "frameResize":
       case "frameDelete": {
         ws.serializeAttachment(state);
-        if (!state.participant) return send(ws, error("not_joined", "Join the room first.", refOf(message)));
-        this.handleFrame(ws, state.participant, message);
+        if (!state.participant) return this.send(ws, error("not_joined", "Join the room first.", refOf(message)));
+        this.handleFrame(ws, state.participant, viewer, message);
         return;
       }
 
@@ -647,22 +647,22 @@ export class Room extends DurableObject<Env> {
       case "shapeResize":
       case "shapeDelete": {
         ws.serializeAttachment(state);
-        if (!state.participant) return send(ws, error("not_joined", "Join the room first.", refOf(message)));
+        if (!state.participant) return this.send(ws, error("not_joined", "Join the room first.", refOf(message)));
         this.handleShape(ws, state.participant, message);
         return;
       }
 
       case "shapeBatch": {
         ws.serializeAttachment(state);
-        if (!state.participant) return send(ws, error("not_joined", "Join the room first.", refOf(message)));
+        if (!state.participant) return this.send(ws, error("not_joined", "Join the room first.", refOf(message)));
         this.handleShapeBatch(ws, message);
         return;
       }
 
       case "itemsAdd": {
         ws.serializeAttachment(state);
-        if (!state.participant) return send(ws, error("not_joined", "Join the room first.", refOf(message)));
-        this.handleItems(ws, state.participant, message);
+        if (!state.participant) return this.send(ws, error("not_joined", "Join the room first.", refOf(message)));
+        this.handleItems(ws, state.participant, viewer, message);
         return;
       }
 
@@ -674,7 +674,7 @@ export class Room extends DurableObject<Env> {
 
       case "voteSet": {
         ws.serializeAttachment(state);
-        if (!state.participant) return send(ws, error("not_joined", "Join the room first.", refOf(message)));
+        if (!state.participant) return this.send(ws, error("not_joined", "Join the room first.", refOf(message)));
         return this.voteSet(ws, state, message.noteId, message.count);
       }
 
@@ -682,9 +682,19 @@ export class Room extends DurableObject<Env> {
       case "voteStop":
       case "voteClear": {
         ws.serializeAttachment(state);
-        if (!state.participant) return send(ws, error("not_joined", "Join the room first."));
-        if (!state.participant.host) return send(ws, error("not_host", "Only the host can do that."));
+        if (!state.participant) return this.send(ws, error("not_joined", "Join the room first."));
+        if (!state.participant.host) return this.send(ws, error("not_host", "Only the host can do that."));
+        // A vote during a silent round would only count the notes everyone can see (protocol v17).
+        if (message.type === "voteStart" && this.silent.active) return this.send(ws, error("silent_active", "Voting can't start during a silent round."));
         return this.handleVoting(ws, message);
+      }
+
+      case "silentStart":
+      case "silentReveal": {
+        ws.serializeAttachment(state);
+        if (!state.participant) return this.send(ws, error("not_joined", "Join the room first."));
+        if (!state.participant.host) return this.send(ws, error("not_host", "Only the host can do that."));
+        return this.handleSilent(ws, message);
       }
 
       case "lockSet":
@@ -692,11 +702,105 @@ export class Room extends DurableObject<Env> {
       case "timerStop":
       case "endSession": {
         ws.serializeAttachment(state);
-        if (!state.participant) return send(ws, error("not_joined", "Join the room first."));
-        if (!state.participant.host) return send(ws, error("not_host", "Only the host can do that."));
+        if (!state.participant) return this.send(ws, error("not_joined", "Join the room first."));
+        if (!state.participant.host) return this.send(ws, error("not_host", "Only the host can do that."));
         return this.handleHost(ws, message);
       }
     }
+  }
+
+  /**
+   * join: a participant with a server-assigned id and colour, then (in one step, so nothing can land
+   * between them) joined with the room's lock, timer, voting and silent state, and the notes,
+   * frames and shapes snapshots. Since v17 a join may carry the page's client key: its writer id
+   * (writerId.ts) is worked out first, so the snapshot already holds that writer's sealed notes on
+   * every join, reconnect and second tab, and nobody else's. The key is never stored or echoed.
+   */
+  private async join(ws: WebSocket, state: SocketState, message: JoinMessage): Promise<void> {
+    ws.serializeAttachment(state);
+    if (!state.hello) return this.send(ws, error("bad_message", "Say hello first."));
+    if (state.participant) return this.send(ws, error("already_joined", "Already joined."));
+    const name = cleanName(message.name);
+    if (name === null) return this.send(ws, error("invalid_name", "Names need 1 to 24 visible characters."));
+    let latest = state;
+    let writerId: string | null = null;
+    if (message.key !== undefined) {
+      writerId = await writerIdFor(state.roomId, message.key, (this.env as Env & Secrets).ROOM_SIGNING_KEY ?? "");
+      // Other messages from this socket may have been handled while that was worked out: start from its latest state.
+      latest = readState(ws) ?? state;
+      if (this.tombstone !== null) return;
+      if (latest.participant) return this.send(ws, error("already_joined", "Already joined."));
+    }
+    const others = this.participants();
+    if (others.length >= MAX_PARTICIPANTS) return this.send(ws, error("room_full", "This room is full."));
+
+    const used = new Set(others.map(({ participant }) => participant.colourIndex));
+    let colourIndex = 0;
+    while (used.has(colourIndex)) colourIndex++;
+    const you: Participant = { id: randomBase64url(12), name, colourIndex, host: false };
+    latest.participant = you;
+    latest.writerId = writerId;
+    ws.serializeAttachment(latest);
+
+    // Lock, timer, voting and the silent round ride on joined, in this same step as the snapshots: nothing can land between them.
+    this.send(ws, {
+      type: "joined",
+      you,
+      participants: this.participants().map(({ participant }) => participant),
+      locked: this.locked,
+      timer: this.timerView(),
+      voting: this.voting,
+      silent: this.silentView(),
+    });
+    // Notes (only those this socket's writer may see: send filters), then frames, then shapes, in this same step.
+    this.send(ws, { type: "snapshot", notes: this.notes.all() });
+    this.send(ws, { type: "framesSnapshot", frames: this.notes.allFrames() });
+    this.send(ws, { type: "shapesSnapshot", shapes: this.notes.allShapes() });
+    // A closed round's totals, so a late joiner sees the results. While open, nothing about anyone's votes.
+    if (this.voting.state === "closed") this.send(ws, this.revealed());
+    this.broadcast({ type: "participant_joined", participant: you }, ws);
+  }
+
+  /** The silent round as sent: running or not, and one count of everyone's sealed notes. */
+  private silentView(): SilentState {
+    return { active: this.silent.active, count: this.store?.sealedCount ?? 0 };
+  }
+
+  /** Tells everyone the silent round's state and count (one small message, nothing about whose). */
+  private broadcastSilent(): void {
+    this.broadcast({ type: "silentChanged", ...this.silentView() });
+  }
+
+  /**
+   * Host-only silent round messages (protocol v17). silentStart: a new round (meta silent_active 1
+   * and the round + 1, one transaction); one already running is refused (silent_active). silentReveal:
+   * every sealed note becomes a normal one (one row each, writer NULL, and the flag, in one
+   * transaction), then everyone gets them in notesRevealed chunks of REVEAL_CHUNK_NOTES and the
+   * new state last. Revealing with no round running writes nothing and answers only the sender.
+   */
+  private handleSilent(ws: WebSocket, message: SilentMessage): void {
+    if (message.type === "silentStart") {
+      if (this.silent.active) return this.send(ws, error("silent_active", "A silent round is already running."));
+      const round = this.silent.round + 1;
+      this.notes.setMeta({ [SILENT_KEYS.active]: 1, [SILENT_KEYS.round]: round });
+      this.silent = { active: true, round };
+      return this.broadcastSilent();
+    }
+    if (!this.silent.active) return this.send(ws, { type: "silentChanged", ...this.silentView() });
+    const notes = this.notes.reveal({ [SILENT_KEYS.active]: 0 });
+    this.silent = { ...this.silent, active: false };
+    for (let i = 0; i < notes.length; i += REVEAL_CHUNK_NOTES) {
+      this.broadcast({ type: "notesRevealed", notes: notes.slice(i, i + REVEAL_CHUNK_NOTES), final: i + REVEAL_CHUNK_NOTES >= notes.length });
+    }
+    this.broadcastSilent();
+  }
+
+  /** The note, if this writer may see it (protocol v17): someone else's sealed note is an unknown id. */
+  private noteFor(viewer: string | null, id: string): Note | undefined {
+    const note = this.notes.get(id);
+    if (!note) return undefined;
+    const writer = this.notes.writerOf(id);
+    return writer === null || writer === viewer ? note : undefined;
   }
 
   /**
@@ -708,7 +812,7 @@ export class Room extends DurableObject<Env> {
   private async claimHost(ws: WebSocket, state: SocketState, token: string): Promise<void> {
     if (!state.participant) {
       ws.serializeAttachment(state);
-      return send(ws, error("not_joined", "Join the room first."));
+      return this.send(ws, error("not_joined", "Join the room first."));
     }
     const ok = await verifyHostToken(token, state.roomId, (this.env as Env & Secrets).ROOM_SIGNING_KEY ?? "");
     // Other messages from this socket may have been handled while that was checked: start from its latest state.
@@ -719,7 +823,7 @@ export class Room extends DurableObject<Env> {
     const already = participant.host;
     participant.host = true;
     ws.serializeAttachment(latest);
-    send(ws, { type: "hostGranted" });
+    this.send(ws, { type: "hostGranted" });
     if (!already) this.broadcast({ type: "participantUpdated", participant }, ws);
   }
 
@@ -732,21 +836,21 @@ export class Room extends DurableObject<Env> {
   private async claimVoter(ws: WebSocket, state: SocketState, key: string): Promise<void> {
     if (!state.participant) {
       ws.serializeAttachment(state);
-      return send(ws, error("not_joined", "Join the room first."));
+      return this.send(ws, error("not_joined", "Join the room first."));
     }
     ws.serializeAttachment(state);
     const voterId = await voterIdFor(state.roomId, key, (this.env as Env & Secrets).ROOM_SIGNING_KEY ?? "");
     // Other messages from this socket may have been handled while that was worked out: start from its latest state.
     const latest = readState(ws) ?? state;
     if (this.tombstone !== null || !latest.participant) return;
-    if (voterId === null) return send(ws, error("bad_message", "Voting isn't available in this session."));
+    if (voterId === null) return this.send(ws, error("bad_message", "Voting isn't available in this session."));
     const known = this.knownVoters(ws);
     if (!known.has(voterId) && known.size >= MAX_VOTERS_PER_ROUND) {
-      return send(ws, error("voters_full", `This round has the maximum of ${MAX_VOTERS_PER_ROUND} voters.`));
+      return this.send(ws, error("voters_full", `This round has the maximum of ${MAX_VOTERS_PER_ROUND} voters.`));
     }
     latest.voterId = voterId;
     ws.serializeAttachment(latest);
-    send(ws, { type: "voterGranted", remaining: this.remaining(voterId), mine: this.notes.votesOf(voterId) });
+    this.send(ws, { type: "voterGranted", remaining: this.remaining(voterId), mine: this.notes.votesOf(voterId) });
   }
 
   /** Voters this round: those with votes, and those claimed on other open sockets. */
@@ -772,21 +876,22 @@ export class Room extends DurableObject<Env> {
    * else (votes are anonymous and there are no live totals).
    */
   private voteSet(ws: WebSocket, state: SocketState, noteId: string, count: number): void {
-    if (this.voting.state !== "open") return send(ws, error("voting_closed", "Voting isn't open.", { noteId }));
+    if (this.voting.state !== "open") return this.send(ws, error("voting_closed", "Voting isn't open.", { noteId }));
     const voterId = state.voterId;
-    if (!voterId) return send(ws, error("no_voter", "Claim a voter first.", { noteId }));
-    if (!this.notes.get(noteId)) return;
+    if (!voterId) return this.send(ws, error("no_voter", "Claim a voter first.", { noteId }));
+    // Unknown, deleted and (protocol v17) sealed notes, anyone's: ignored. Votes are for notes everyone can see.
+    if (!this.notes.get(noteId) || this.notes.writerOf(noteId) !== null) return;
     const mine = this.notes.votesOf(voterId);
     const others = mine.reduce((sum, v) => sum + (v.noteId === noteId ? 0 : v.count), 0);
-    if (others + count > this.voting.budget) return send(ws, error("over_budget", "That's more dots than you have.", { noteId }));
+    if (others + count > this.voting.budget) return this.send(ws, error("over_budget", "That's more dots than you have.", { noteId }));
     // A voter new to this round's votes (a backstop: claimVoter already counts them).
     if (count > 0 && mine.length === 0 && !this.notes.voterIds().has(voterId) && this.notes.voterIds().size >= MAX_VOTERS_PER_ROUND) {
-      return send(ws, error("voters_full", `This round has the maximum of ${MAX_VOTERS_PER_ROUND} voters.`, { noteId }));
+      return this.send(ws, error("voters_full", `This round has the maximum of ${MAX_VOTERS_PER_ROUND} voters.`, { noteId }));
     }
     this.notes.setVote(voterId, noteId, count);
     const confirmed: ServerMessage = { type: "voteConfirmed", noteId, count, remaining: this.remaining(voterId) };
     for (const socket of this.ctx.getWebSockets()) {
-      if (socket.readyState === WebSocket.OPEN && readState(socket)?.voterId === voterId) send(socket, confirmed);
+      if (socket.readyState === WebSocket.OPEN && readState(socket)?.voterId === voterId) this.send(socket, confirmed);
     }
   }
 
@@ -809,14 +914,14 @@ export class Room extends DurableObject<Env> {
         break;
       case "voteStop":
         if (current.state !== "open") {
-          send(ws, { type: "votingChanged", voting: current });
-          if (current.state === "closed") send(ws, this.revealed());
+          this.send(ws, { type: "votingChanged", voting: current });
+          if (current.state === "closed") this.send(ws, this.revealed());
           return;
         }
         next = { ...current, state: "closed" };
         break;
       case "voteClear":
-        if (current.state === "off" && this.notes.voterIds().size === 0) return send(ws, { type: "votingChanged", voting: current });
+        if (current.state === "off" && this.notes.voterIds().size === 0) return this.send(ws, { type: "votingChanged", voting: current });
         next = { ...current, state: "off" };
         break;
     }
@@ -834,7 +939,7 @@ export class Room extends DurableObject<Env> {
   private async handleHost(ws: WebSocket, message: Extract<ClientMessage, { type: "lockSet" | "timerStart" | "timerStop" | "endSession" }>): Promise<void> {
     switch (message.type) {
       case "lockSet": {
-        if (message.locked === this.locked) return send(ws, { type: "lockChanged", locked: this.locked });
+        if (message.locked === this.locked) return this.send(ws, { type: "lockChanged", locked: this.locked });
         this.notes.setMeta({ locked: message.locked ? 1 : 0 });
         this.locked = message.locked;
         return this.broadcast({ type: "lockChanged", locked: this.locked });
@@ -847,7 +952,7 @@ export class Room extends DurableObject<Env> {
         return this.broadcast({ type: "timerChanged", timer: this.timerView() });
       }
       case "timerStop": {
-        if (!this.timer) return send(ws, { type: "timerChanged", timer: null });
+        if (!this.timer) return this.send(ws, { type: "timerChanged", timer: null });
         this.notes.setMeta({ timer_started_at: null, timer_duration_ms: null });
         this.timer = null;
         return this.broadcast({ type: "timerChanged", timer: null });
@@ -877,9 +982,13 @@ export class Room extends DurableObject<Env> {
    * the sender's copy). Nothing added: no broadcast, only an error to the sender. Content is
    * untrusted text: cleaned, never logged.
    */
-  private handleItems(ws: WebSocket, you: Participant, message: ItemsMessage): void {
+  private handleItems(ws: WebSocket, you: Participant, viewer: string | null, message: ItemsMessage): void {
     const check = checkItems(message.notes, message.frames, message.shapes);
-    if (check.duplicate) return send(ws, error("bad_message", "An item is named twice.", refOf(message)));
+    // A silent round (protocol v17): new notes are sealed with the sender's writer, within its cap.
+    const sealing = this.silent.active;
+    const sealedBefore = this.notes.sealedCount;
+    let sealedSlots = sealing && viewer !== null ? MAX_SEALED_PER_WRITER - this.notes.sealedBy(viewer) : Number.POSITIVE_INFINITY;
+    if (check.duplicate) return this.send(ws, error("bad_message", "An item is named twice.", refOf(message)));
     const refused: ItemRefusal[] = [...check.invalid];
     const refuse = (kind: ItemRefusal["kind"], index: number, ref: string, reason: ItemRefusal["reason"]) => refused.push({ kind, index, ref, reason });
 
@@ -893,11 +1002,20 @@ export class Room extends DurableObject<Env> {
         refuse("note", index, entry.ref, "invalid");
         continue;
       }
+      if (sealing && viewer === null) {
+        refuse("note", index, entry.ref, "no_writer");
+        continue;
+      }
       if (noteSlots <= 0) {
         refuse("note", index, entry.ref, "notes_full");
         continue;
       }
+      if (sealedSlots <= 0) {
+        refuse("note", index, entry.ref, "sealed_full");
+        continue;
+      }
       noteSlots--;
+      sealedSlots--;
       const { ref, rank, x, y, w, h, text: _, ...style } = entry;
       stackable.push({ kind: "note", rank, order: stackable.length, ref, note: { id: randomBase64url(12), ...clampNoteRect({ x, y, w, h }), text, ...style, rev: 1, authorId: you.id } });
     }
@@ -962,8 +1080,8 @@ export class Room extends DurableObject<Env> {
     if (notes.length === 0 && frames.length === 0 && shapes.length === 0) {
       const reasons = new Set(refused.map((r) => r.reason));
       const only = reasons.size === 1 ? [...reasons][0] : undefined;
-      const code: ErrorCode = only === "notes_full" || only === "frames_full" || only === "shapes_full" ? only : "bad_message";
-      return send(ws, { type: "error", code, message: "Nothing was added.", clientRef: message.clientRef, refused });
+      const code: ErrorCode = only !== undefined && only !== "invalid" ? only : "bad_message";
+      return this.send(ws, { type: "error", code, message: "Nothing was added.", clientRef: message.clientRef, refused });
     }
 
     this.notes.applyAdds(
@@ -972,9 +1090,10 @@ export class Room extends DurableObject<Env> {
       frames.map((f) => f.frame),
       shapes.map((x) => x.shape),
       renumbered.shapes,
+      sealing ? viewer : null,
     );
     this.broadcastOrdered(renumbered);
-    send(ws, { type: "itemsAdded", clientRef: message.clientRef, notes, frames, ...(shapes.length > 0 ? { shapes } : {}), refused });
+    this.send(ws, { type: "itemsAdded", clientRef: message.clientRef, notes, frames, ...(shapes.length > 0 ? { shapes } : {}), refused });
     this.broadcast(
       {
         type: "itemsAdded",
@@ -985,6 +1104,7 @@ export class Room extends DurableObject<Env> {
       },
       ws,
     );
+    if (this.notes.sealedCount !== sealedBefore) this.broadcastSilent();
   }
 
   /** Everything in the stacking space (notes and, since v15, shapes): id and z. */
@@ -1005,14 +1125,14 @@ export class Room extends DurableObject<Env> {
    * Live moves and resizes are relayed to the others, coalesced, never stored. Titles are untrusted
    * text: cleaned, never logged.
    */
-  private handleFrame(ws: WebSocket, you: Participant, message: FrameMessage): void {
+  private handleFrame(ws: WebSocket, you: Participant, viewer: string | null, message: FrameMessage): void {
     switch (message.type) {
       case "frameAdd": {
         if (this.notes.frameCount >= MAX_FRAMES_PER_ROOM) {
-          return send(ws, error("frames_full", `This board has the maximum of ${MAX_FRAMES_PER_ROOM} frames.`, refOf(message)));
+          return this.send(ws, error("frames_full", `This board has the maximum of ${MAX_FRAMES_PER_ROOM} frames.`, refOf(message)));
         }
         const title = cleanFrameTitle(message.title);
-        if (title === null) return send(ws, error("bad_message", "Frame title is too long.", refOf(message)));
+        if (title === null) return this.send(ws, error("bad_message", "Frame title is too long.", refOf(message)));
         const frame: Frame = {
           id: randomBase64url(12),
           ...clampFrameRect({ x: message.x, y: message.y, w: FRAME_DEFAULT_W, h: FRAME_DEFAULT_H }),
@@ -1023,7 +1143,7 @@ export class Room extends DurableObject<Env> {
           authorId: you.id,
         };
         this.notes.insertFrame(frame);
-        send(ws, { type: "frameAdded", frame, clientRef: message.clientRef });
+        this.send(ws, { type: "frameAdded", frame, clientRef: message.clientRef });
         this.broadcast({ type: "frameAdded", frame }, ws);
         return;
       }
@@ -1032,7 +1152,7 @@ export class Room extends DurableObject<Env> {
         const current = this.notes.getFrame(message.id);
         if (!current) return;
         const title = message.title === undefined ? current.title : cleanFrameTitle(message.title);
-        if (title === null) return send(ws, error("bad_message", "Frame title is too long.", refOf(message)));
+        if (title === null) return this.send(ws, error("bad_message", "Frame title is too long.", refOf(message)));
         const next: Frame = { ...current, title, color: message.color ?? current.color };
         for (const field of FRAME_STYLE_FIELDS) {
           const value = message[field];
@@ -1048,7 +1168,8 @@ export class Room extends DurableObject<Env> {
       case "frameMove": {
         const current = this.notes.getFrame(message.id);
         if (!current) return;
-        const carried = (message.noteIds ?? []).flatMap((id) => this.notes.get(id) ?? []);
+        // Someone else's sealed note is never carried (a silent round refuses frameMove anyway).
+        const carried = (message.noteIds ?? []).flatMap((id) => this.noteFor(viewer, id) ?? []);
         const carriedShapes = (message.shapeIds ?? []).flatMap((id) => this.notes.getShape(id) ?? []);
         const target = clampFramePosition(message.x, message.y, current);
         const { dx, dy } =
@@ -1143,10 +1264,10 @@ export class Room extends DurableObject<Env> {
    * notes whose z changes are written (one rev bump each, one transaction); everyone gets one
    * notesOrdered with every named note, changed or not, and any note a renumbering moved.
    */
-  private handleOrder(ws: WebSocket, message: OrderMessage): void {
+  private handleOrder(ws: WebSocket, viewer: string | null, message: OrderMessage): void {
     const { valid, invalid, invalidIds } = checkOrder(message.ids);
     if (invalid.length > 0) {
-      send(ws, {
+      this.send(ws, {
         type: "error",
         code: "bad_message",
         message: "Some notes could not be understood.",
@@ -1155,7 +1276,8 @@ export class Room extends DurableObject<Env> {
       });
     }
     // Notes and shapes share the stacking space (v15); anything else (a frame, a deleted id) is ignored.
-    const ids = valid.map((v) => v.id).filter((id) => this.notes.get(id) ?? this.notes.getShape(id));
+    // Someone else's sealed note (protocol v17) is unknown too.
+    const ids = valid.map((v) => v.id).filter((id) => this.noteFor(viewer, id) ?? this.notes.getShape(id));
     if (ids.length === 0) return;
     const { changes } = restack(this.stackItems(), ids, message.action);
     const updates = this.restacked(changes);
@@ -1191,10 +1313,10 @@ export class Room extends DurableObject<Env> {
    * in one transaction (one rev bump per changed note) and sent to everyone as one
    * notesBatchApplied; live ones (a group drag) are relayed to the others, coalesced, never stored.
    */
-  private handleBatch(ws: WebSocket, message: BatchMessage): void {
+  private handleBatch(ws: WebSocket, viewer: string | null, message: BatchMessage): void {
     const { valid, invalid, invalidIds } = checkBatch(message.ops);
     if (invalid.length > 0) {
-      send(ws, {
+      this.send(ws, {
         type: "error",
         code: "bad_message",
         message: "Some changes could not be understood.",
@@ -1206,7 +1328,7 @@ export class Room extends DurableObject<Env> {
       for (const { entry } of valid) {
         // Deletes are never previews; a live batch only moves and resizes.
         if (entry.op === "delete") continue;
-        const current = this.notes.get(entry.id);
+        const current = this.noteFor(viewer, entry.id);
         if (!current) continue;
         const relayed: Pending["message"] =
           entry.op === "move"
@@ -1220,8 +1342,9 @@ export class Room extends DurableObject<Env> {
     const updates: Note[] = [];
     const deletes: string[] = [];
     const results: NoteBatchResult[] = [];
+    const sealedBefore = this.notes.sealedCount;
     for (const { entry } of valid) {
-      const current = this.notes.get(entry.id);
+      const current = this.noteFor(viewer, entry.id);
       if (!current) continue;
       if (entry.op === "delete") {
         deletes.push(current.id);
@@ -1243,6 +1366,7 @@ export class Room extends DurableObject<Env> {
     }
     this.notes.applyBatch(updates, deletes);
     if (results.length > 0) this.broadcast({ type: "notesBatchApplied", results, final: true });
+    if (this.notes.sealedCount !== sealedBefore) this.broadcastSilent();
   }
 
   /**
@@ -1250,14 +1374,20 @@ export class Room extends DurableObject<Env> {
    * Edits, moves and deletes of an unknown (or already deleted) note are ignored silently.
    * Logging hygiene: nothing here logs note text (or anything else).
    */
-  private handleNote(ws: WebSocket, you: Participant, message: NoteMessage): void {
+  private handleNote(ws: WebSocket, you: Participant, viewer: string | null, message: NoteMessage): void {
     switch (message.type) {
       case "noteAdd": {
         if (this.notes.count >= MAX_NOTES_PER_ROOM) {
-          return send(ws, error("notes_full", `This board has the maximum of ${MAX_NOTES_PER_ROOM} notes.`, refOf(message)));
+          return this.send(ws, error("notes_full", `This board has the maximum of ${MAX_NOTES_PER_ROOM} notes.`, refOf(message)));
+        }
+        // A silent round (protocol v17): the note is sealed with the sender's writer, within its cap.
+        const writer = this.silent.active ? viewer : null;
+        if (this.silent.active && viewer === null) return this.send(ws, error("no_writer", "This page can't add notes during a silent round. Reload to join it.", refOf(message)));
+        if (writer !== null && this.notes.sealedBy(writer) >= MAX_SEALED_PER_WRITER) {
+          return this.send(ws, error("sealed_full", `You have the maximum of ${MAX_SEALED_PER_WRITER} notes for this silent round.`, refOf(message)));
         }
         const text = cleanNoteText(message.text);
-        if (text === null) return send(ws, error("bad_message", "Note text is too long.", refOf(message)));
+        if (text === null) return this.send(ws, error("bad_message", "Note text is too long.", refOf(message)));
         // A new note goes on top of every note and shape. At the bound the others are renumbered first, and everyone hears.
         const stack = this.newOnTop();
         // The id, z, rev and author are the server's; the author comes from this socket.
@@ -1272,19 +1402,21 @@ export class Room extends DurableObject<Env> {
           rev: 1,
           authorId: you.id,
         };
-        this.notes.insert(note);
-        send(ws, { type: "noteAdded", note, clientRef: message.clientRef });
+        this.notes.insert(note, writer);
+        this.send(ws, { type: "noteAdded", note, clientRef: message.clientRef });
+        // A sealed note reaches only its writer's other sockets (broadcast filters); everyone gets the count.
         this.broadcast({ type: "noteAdded", note }, ws);
+        if (writer !== null) this.broadcastSilent();
         return;
       }
 
       case "noteEdit": {
-        const current = this.notes.get(message.id);
+        const current = this.noteFor(viewer, message.id);
         if (!current) return;
         let next: Note = current;
         if (message.text !== undefined) {
           const text = cleanNoteText(message.text);
-          if (text === null) return send(ws, error("bad_message", "Note text is too long.", refOf(message)));
+          if (text === null) return this.send(ws, error("bad_message", "Note text is too long.", refOf(message)));
           next = { ...next, text };
         }
         // Keys only (the schema refused anything else); position, size and author never change here.
@@ -1310,7 +1442,7 @@ export class Room extends DurableObject<Env> {
       }
 
       case "noteMove": {
-        const current = this.notes.get(message.id);
+        const current = this.noteFor(viewer, message.id);
         if (!current) return;
         const { x, y } = clampNotePosition(message.x, message.y, current);
         if (!message.final) {
@@ -1334,7 +1466,7 @@ export class Room extends DurableObject<Env> {
       }
 
       case "noteResize": {
-        const current = this.notes.get(message.id);
+        const current = this.noteFor(viewer, message.id);
         if (!current) return;
         // Size first, then position, so the whole note stays on the board.
         const rect = clampNoteRect(message);
@@ -1357,9 +1489,11 @@ export class Room extends DurableObject<Env> {
       }
 
       case "noteDelete": {
-        if (!this.notes.get(message.id)) return;
+        if (!this.noteFor(viewer, message.id)) return;
+        const sealed = this.notes.writerOf(message.id) !== null;
         this.notes.delete(message.id);
         this.broadcast({ type: "noteDeleted", id: message.id });
+        if (sealed) this.broadcastSilent();
         return;
       }
     }
@@ -1386,13 +1520,13 @@ export class Room extends DurableObject<Env> {
     switch (message.type) {
       case "shapeAdd": {
         if (this.notes.shapeCount >= MAX_SHAPES_PER_ROOM) {
-          return send(ws, error("shapes_full", `This board has the maximum of ${MAX_SHAPES_PER_ROOM} shapes.`, refOf(message)));
+          return this.send(ws, error("shapes_full", `This board has the maximum of ${MAX_SHAPES_PER_ROOM} shapes.`, refOf(message)));
         }
         const { w, h, ...style } = shapeDefaults(message.kind);
         const { z } = this.newOnTop();
         const shape: Shape = { id: randomBase64url(12), kind: message.kind, ...clampShapeRect({ x: message.x, y: message.y, w, h }), text: "", ...style, z, rev: 1, authorId: you.id };
         this.notes.insertShape(shape);
-        send(ws, { type: "shapeAdded", shape, clientRef: message.clientRef });
+        this.send(ws, { type: "shapeAdded", shape, clientRef: message.clientRef });
         this.broadcast({ type: "shapeAdded", shape }, ws);
         return;
       }
@@ -1401,7 +1535,7 @@ export class Room extends DurableObject<Env> {
         const current = this.notes.getShape(message.id);
         if (!current) return;
         const text = message.text === undefined ? current.text : cleanShapeText(message.text);
-        if (text === null) return send(ws, error("bad_message", "Shape text is too long.", refOf(message)));
+        if (text === null) return this.send(ws, error("bad_message", "Shape text is too long.", refOf(message)));
         const next: Shape = { ...current, text };
         for (const field of SHAPE_STYLE_FIELDS) {
           const value = message[field];
@@ -1470,7 +1604,7 @@ export class Room extends DurableObject<Env> {
   private handleShapeBatch(ws: WebSocket, message: ShapeBatchMessage): void {
     const { valid, invalid, invalidIds } = checkShapeBatch(message.ops);
     if (invalid.length > 0) {
-      send(ws, {
+      this.send(ws, {
         type: "error",
         code: "bad_message",
         message: "Some changes could not be understood.",
@@ -1563,18 +1697,55 @@ export class Room extends DurableObject<Env> {
     }
   }
 
-  /** Joined participants on open sockets, in connection order. */
-  private participants(): { ws: WebSocket; participant: Participant }[] {
+  /** Joined participants on open sockets, in connection order, with the writer each socket sees as. */
+  private participants(): { ws: WebSocket; participant: Participant; writerId: string | null }[] {
     return this.ctx.getWebSockets().flatMap((ws) => {
       if (ws.readyState !== WebSocket.OPEN) return [];
-      const participant = readState(ws)?.participant;
-      return participant ? [{ ws, participant }] : [];
+      const state = readState(ws);
+      return state?.participant ? [{ ws, participant: state.participant, writerId: state.writerId }] : [];
     });
   }
 
+  /**
+   * Whether this message must be filtered per recipient (protocol v17): it can carry note content
+   * (SERVER_MESSAGES) and some note is sealed (or was, earlier in this message).
+   */
+  private filtered(message: ServerMessage): boolean {
+    return SERVER_MESSAGES[message.type].carriesNoteContent && (this.store?.hasSealed ?? false);
+  }
+
+  /** The message as a socket seeing as `viewer` may get it: someone else's sealed notes left out (sealed.ts). */
+  private forViewer(message: ServerMessage, viewer: string | null): ServerMessage | null {
+    if (!this.filtered(message)) return message;
+    return scrubFor(message, (id) => {
+      const writer = this.store?.writerOf(id) ?? null;
+      return writer === null || writer === viewer;
+    });
+  }
+
+  /** Every message to one socket goes through here, so a sealed note reaches only its writer's sockets. */
+  private send(ws: WebSocket, message: ServerMessage): void {
+    const out = this.filtered(message) ? this.forViewer(message, readState(ws)?.writerId ?? null) : message;
+    if (out) sendRaw(ws, encodeMessage(out));
+  }
+
+  /** To every joined socket but `except`, each getting what its writer may see (encoded once per writer). */
   private broadcast(message: ServerMessage, except?: WebSocket): void {
-    const raw = encodeMessage(message);
-    for (const { ws } of this.participants()) if (ws !== except) send(ws, raw);
+    if (!this.filtered(message)) {
+      const raw = encodeMessage(message);
+      for (const { ws } of this.participants()) if (ws !== except) sendRaw(ws, raw);
+      return;
+    }
+    const byViewer = new Map<string | null, string | null>();
+    for (const { ws, writerId } of this.participants()) {
+      if (ws === except) continue;
+      if (!byViewer.has(writerId)) {
+        const out = this.forViewer(message, writerId);
+        byViewer.set(writerId, out ? encodeMessage(out) : null);
+      }
+      const raw = byViewer.get(writerId);
+      if (raw) sendRaw(ws, raw);
+    }
   }
 
   /**
@@ -1630,9 +1801,10 @@ function readState(ws: WebSocket): SocketState | null {
   return parsed.success ? parsed.data : null;
 }
 
-function send(ws: WebSocket, message: ServerMessage | string): void {
+/** Sends an encoded message as is. Room.send / Room.broadcast decide what each recipient may see first. */
+function sendRaw(ws: WebSocket, raw: string): void {
   try {
-    ws.send(typeof message === "string" ? message : encodeMessage(message));
+    ws.send(raw);
   } catch {
     // Closed or closing: nothing to do.
   }

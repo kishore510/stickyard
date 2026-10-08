@@ -182,7 +182,7 @@ describe("sizes", () => {
     expect(bytes).toBeLessThan(REVEAL_CHUNK_MAX_BYTES);
     expect(bytes).toBeLessThan(MAX_SERVER_MESSAGE_BYTES);
     // Recorded in docs/LIMITS.md.
-    expect(bytes).toBe(101_080);
+    expect(bytes).toBe(101_098);
   });
 
   it("silentChanged is tiny, and the largest joined with the silent state still stays under 8 KiB", () => {

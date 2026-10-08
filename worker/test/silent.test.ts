@@ -114,6 +114,7 @@ async function silentRoom() {
   await host.enter("Hana", keys.host);
   await a.enter("Ari", keys.a);
   await b.enter("Ben", keys.b);
+  await drain(host, a, b);
   expect(await host.request({ type: "claimHost", token: room.token })).toEqual({ type: "hostGranted" });
   await drain(host, a, b);
   return { ...room, keys, host, a, b, raw };
@@ -314,6 +315,7 @@ describe("the canary leak test", () => {
     for (const o of [host, b]) expect(await nextOfType(o, "silentChanged")).toEqual({ type: "silentChanged", active: true, count: 3 });
 
     // 13. frameMove carrying sealed notes (live and final): refused for A, nothing to anyone else.
+    await drain(a, a2);
     for (const final of [false, true]) {
       expect(await a.request({ type: "frameMove", id: frame.frame.id, x: 1500, y: 1500, final, noteIds: [s1.id, old.id] })).toMatchObject({ type: "error", code: "silent_active", frameId: frame.frame.id });
     }
@@ -487,6 +489,7 @@ describe("refusals while silent", () => {
     expect(await a.request({ type: "frameDelete", id })).toMatchObject({ type: "frameDeleted" });
     expect(await a.request({ type: "shapeAdd", clientRef: "s1", kind: "oval", x: 0, y: 0 })).toMatchObject({ type: "shapeAdded" });
     // Stopping or clearing a vote is still allowed.
+    await drain(host);
     expect(await host.request({ type: "voteClear" })).toMatchObject({ type: "votingChanged" });
     closeAll(host, a, b);
   });
@@ -496,12 +499,15 @@ describe("refusals while silent", () => {
     await startSilent(host, [a, b]);
     const a2 = await TestClient.open(code);
     await a2.enter("Ari", keys.a);
+    await drain(host, a, b);
     let made = 0;
     for (const size of [14, 14, 11]) {
       const reply = await a.request({ type: "itemsAdd", clientRef: `i${made}`, notes: Array.from({ length: size }, (_, i) => noteItem(`n${i}`, "")) });
       expect(reply).toMatchObject({ type: "itemsAdded" });
       made += size;
+      await drain(a);
     }
+    await drain(a2);
     expect(made).toBe(MAX_SEALED_PER_WRITER - 1);
     // Two more from A's second socket in one message: one fits, one is refused.
     const two = await a2.request({ type: "itemsAdd", clientRef: "last", notes: [noteItem("x1", ""), noteItem("x2", "")] });
@@ -529,6 +535,7 @@ describe("refusals while silent", () => {
     const a = await TestClient.open(code);
     await host.enter("Hana");
     await a.enter("Ari", keys.a);
+    await drain(host, a);
     await host.request({ type: "claimHost", token });
     await drain(host, a);
     await startSilent(host, [a]);
@@ -624,6 +631,7 @@ describe("reveal", () => {
     const a = await TestClient.open(code);
     await a.enter("Ari", keys[0]);
     expect(a.snapshot?.notes).toHaveLength(MAX_NOTES_PER_ROOM / 5);
+    await drain(host, a);
     expect(await host.request({ type: "claimHost", token })).toEqual({ type: "hostGranted" });
     await drain(host, a);
     const rows = await rowsWritten(stub);
@@ -672,6 +680,7 @@ describe("stacking at the bound", () => {
     await host.enter("Hana");
     await a.enter("Ari", keys.a);
     await b.enter("Ben", keys.b);
+    await drain(host, a, b);
     await host.request({ type: "claimHost", token });
     await drain(host, a, b);
     // B's add needs a renumbering (the sealed note is at the bound): B hears its own and the visible note's new z.

@@ -101,12 +101,20 @@ export class TestClient {
   next(timeoutMs = 2000): Promise<ServerMessage> {
     const queued = this.queue.shift();
     if (queued) return Promise.resolve(queued);
+    // Made here, so a timeout's stack names the test line that waited.
+    const timeout = new Error("no message");
     return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error("no message")), timeoutMs);
-      this.waiters.push((m) => {
+      const waiter = (m: ServerMessage) => {
         clearTimeout(timer);
         resolve(m);
-      });
+      };
+      const timer = setTimeout(() => {
+        // A waiter that timed out must not swallow the next message.
+        const i = this.waiters.indexOf(waiter);
+        if (i !== -1) this.waiters.splice(i, 1);
+        reject(timeout);
+      }, timeoutMs);
+      this.waiters.push(waiter);
     });
   }
 
@@ -115,11 +123,14 @@ export class TestClient {
     return this.next();
   }
 
-  /** Resolves true if nothing arrives within `ms`. */
+  /** Resolves true if nothing arrives within `ms`. A message that does arrive stays queued for next(). */
   async quiet(ms = 150): Promise<boolean> {
     if (this.queue.length > 0) return false;
     return new Promise((resolve) => {
-      const waiter = () => resolve(false);
+      const waiter = (m: ServerMessage) => {
+        this.queue.unshift(m);
+        resolve(false);
+      };
       this.waiters.push(waiter);
       setTimeout(() => {
         const i = this.waiters.indexOf(waiter);

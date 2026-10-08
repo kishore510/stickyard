@@ -41,10 +41,10 @@ describe("protocol v16", () => {
     c.close();
   });
 
-  it("a protocol v16 page joins normally", async () => {
+  it("a page speaking the current protocol joins normally", async () => {
     const { code } = await newRoom();
     const c = await TestClient.open(code);
-    expect(await c.request({ type: "hello", protocolVersion: PROTOCOL_VERSION })).toMatchObject({ type: "welcome", protocolVersion: 16 });
+    expect(await c.request({ type: "hello", protocolVersion: PROTOCOL_VERSION })).toMatchObject({ type: "welcome", protocolVersion: PROTOCOL_VERSION });
     c.send({ type: "join", name: "Priya" });
     expect((await nextOfType(c, "joined")).you.name).toBe("Priya");
     c.close();
