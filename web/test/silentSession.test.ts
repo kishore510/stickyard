@@ -10,6 +10,8 @@ import {
   type Participant,
 } from "@stickyard/shared";
 import type { SocketFactory, SocketHandlers } from "../src/connection/socket";
+import { createDragHandlers } from "../src/canvas/nodes";
+import { findFrame } from "../src/frames/board";
 import { findNote } from "../src/notes/board";
 import { NOTICES, RoomSession, type RoomView, type SessionOptions } from "../src/rooms/session";
 import { SILENT_TEXT, totalNotes } from "../src/silent/silent";
@@ -331,6 +333,28 @@ describe("refused while a round runs, with the reason, nothing sent", () => {
     expect(t.sock().ofType("frameResize")).toHaveLength(1);
     // Notes alone still move as a group.
     expect(t.session.startSelectionDrag([], [nid(1), nid(2)], true)).toBe(true);
+  });
+
+  it("a frame drag on the canvas during a round: refused at drag start with the reason, nothing sent, the frame stays put", () => {
+    const t = joined(board);
+    const sentBefore = t.sock().sent.length;
+    // The canvas's own drag handlers, wired to the session as the board wires them.
+    const drag = createDragHandlers({
+      startDrag: (id) => t.session.startDrag(id),
+      moveNote: (id, x, y, final) => t.session.moveNote(id, x, y, final),
+      startFrameDrag: (id, carry) => t.session.startFrameDrag(id, carry),
+      moveFrame: (id, x, y, final) => t.session.moveFrame(id, x, y, final),
+    });
+    for (const altKey of [false, true]) {
+      drag.onNodeDragStart({ id: fid(1), type: "frame" }, { altKey });
+      expect(t.view().noteNotice).toBe(SILENT_TEXT.on);
+      drag.onNodesChange([{ type: "position", id: fid(1), dragging: true, position: { x: 300, y: 300 } }]);
+      drag.onNodeDragStop({ id: fid(1), position: { x: 400, y: 400 } });
+    }
+    vi.advanceTimersByTime(1_000);
+    expect(t.sock().sent.length).toBe(sentBefore);
+    expect(findFrame(t.view().board, fid(1))?.frame).toMatchObject({ x: 0, y: 0 });
+    expect(findFrame(t.view().board, fid(1))?.dragging).toBe(false);
   });
 
   it("starting a vote (host)", () => {

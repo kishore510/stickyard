@@ -19,7 +19,7 @@ import { writerIdFor } from "../src/writerId";
 import { V5_NOTES } from "./fixtures/schemaV5";
 import { V6_FRAMES } from "./fixtures/schemaV6";
 import { V9_FRAME_INSERT, V9_NOTE_DELETE, V9_NOTE_INSERT, V9_NOTE_UPDATE, V9_SHAPE, loadSchemaV9 } from "./fixtures/schemaV9";
-import { TEST_SIGNING_KEY, TestClient, nextOfType, specHostToken, specRoomCode } from "./helpers";
+import { TEST_SIGNING_KEY, TestClient, fullMessageBudget, nextOfType, specHostToken, specRoomCode } from "./helpers";
 
 /*
  * Silent brainstorm, protocol v17 and stored schema 10 (part 1: relay and shared). While a round
@@ -1155,6 +1155,8 @@ describe(`schema migration 9 -> ${SCHEMA_VERSION}`, () => {
 describe("costs (docs/LIMITS.md)", () => {
   it("rows: silentStart, a sealed add (2, as a note), an edit of one (1), a count broadcast (0); the count is one small message", async () => {
     const { host, a, b, stub, raw } = await silentRoom();
+    // Known state, whatever the runner's speed: every socket's message budget full.
+    await fullMessageBudget(stub);
     let rows = await rowsWritten(stub);
     await startSilent(host, [a, b]);
     const start = (await rowsWritten(stub)) - rows;
@@ -1164,18 +1166,22 @@ describe("costs (docs/LIMITS.md)", () => {
     expect((await rowsWritten(stub)) - rows).toBe(2);
     rows = await rowsWritten(stub);
     a.send({ type: "noteEdit", id: s.id, text: "Better idea" });
-    await nextOfType(a, "noteUpdated");
+    await nextOfType(a, "noteUpdated", 10_000);
     expect((await rowsWritten(stub)) - rows).toBe(1);
     // Edits and moves of a sealed note send the others nothing, not even a count.
     expect(await b.quiet()).toBe(true);
     const count = raw.b.filter((r) => r.includes('"silentChanged"')).at(-1) ?? "";
     expect(new TextEncoder().encode(count).length).toBeLessThan(64);
-    // A second round's start rewrites both keys (1 row each).
+    // A second round's start rewrites both keys (1 row each). The baseline is read only once the
+    // reveal has finished everywhere (its last message, silentChanged off, has reached every
+    // socket): a quiet spell alone can come before a slow runner has even handled the reveal.
     host.send({ type: "silentReveal" });
+    for (const c of [host, a, b]) expect(await nextOfType(c, "silentChanged", 10_000)).toEqual({ type: "silentChanged", active: false, count: 0 });
     await drain(host, a, b);
+    await fullMessageBudget(stub);
     rows = await rowsWritten(stub);
     await startSilent(host, [a, b]);
     expect((await rowsWritten(stub)) - rows).toBe(2);
     closeAll(host, a, b);
-  });
+  }, 60_000);
 });

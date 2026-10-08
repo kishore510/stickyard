@@ -14,8 +14,11 @@ export const SILENT_TEXT = {
   export: "Export is off during a silent round.",
   /** My sealed notes are at MAX_SEALED_PER_WRITER (relay: sealed_full). */
   writerFull: "You’ve written the most notes you can in this round.",
-  /** This page joined without a key, so the relay can't take its notes in a round (relay: no_writer). */
-  noWriter: "This page can’t add notes during the silent round. Reload the page to join in.",
+  /**
+   * This page joined without a key (the browser blocks storage, so none could be kept), so the
+   * relay can't take its notes in a round (relay: no_writer). A reload wouldn't help: no "reload".
+   */
+  noWriter: "This browser is blocking storage, so this page can’t take part in the silent round. You can still watch.",
   /** Votes go on notes everyone can see. */
   sealedVote: "Hidden notes can get votes once they’re revealed.",
 } as const;

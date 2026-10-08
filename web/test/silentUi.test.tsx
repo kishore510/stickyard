@@ -50,6 +50,9 @@ describe("rules (pure)", () => {
     expect(SILENT_TEXT.on).toBe("Silent brainstorm is on.");
     expect(SILENT_TEXT.export).toBe("Export is off during a silent round.");
     expect(SILENT_TEXT.writerFull).toBe("You’ve written the most notes you can in this round.");
+    // No storage: a reload wouldn't help, so it never says to reload; it can still watch.
+    expect(SILENT_TEXT.noWriter).toBe("This browser is blocking storage, so this page can’t take part in the silent round. You can still watch.");
+    expect(SILENT_TEXT.noWriter).not.toMatch(/reload/i);
   });
 });
 
