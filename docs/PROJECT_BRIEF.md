@@ -111,7 +111,7 @@ Keep tsc, tests and build green. Stop for review with a summary of what was buil
 | Live cursors (3b) | Other people's pointers with names, live and never stored; Show / Share switches in Participants; phones receive only | Done (v0.19.0, protocol v14, PR #37) |
 | Frame multi-select | Select, move, delete, arrange, style and duplicate frames with notes | Done (v0.20.0, web only, PR #38) |
 | Text and shapes (7a) | Text labels, rectangles, ovals and diamonds with text and fill/border styles, alongside notes and frames everywhere | Done (v0.21.0, protocol v15, stored schema 9, PR #39, deployed 7 October 2026) |
-| Export | Export PNG and Export Markdown from Properties, made in the browser; nothing uploaded | Done (v0.22.0, web only, merged and deployed 7 October 2026) |
+| Export | Export PNG and Export Markdown from Properties, made in the browser; nothing uploaded | Done (v0.22.0, web only, merged and deployed 8 October 2026) |
 | Board size | The board is 6400 x 4000 (four times the area); everything on it stays where it was | Done (v0.23.0, protocol v16, merged and deployed 8 October 2026) |
 | Next | Panel layout at 768 px, navigation, Follow and Bring to me (protocol v17), silent brainstorm, trimmed hardening, reactions on notes; more built-in templates as filler | Not started; see PHASE_PLAN.md |
 | 3 onwards | See PHASE_PLAN.md | See PHASE_PLAN.md |

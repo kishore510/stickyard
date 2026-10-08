@@ -10,7 +10,7 @@ All notable changes to Stickyard, newest first. The format follows Keep a Change
 - Zooming right out still stops at 10%, so on a phone or a narrow window you see part of the board at a time rather than all of it; pan, the overview map (on a wider screen) and **Fit to notes** get you around. Note, frame and shape sizes are unchanged.
 - Everyone in a session needs this version: an older open page is asked to reload.
 
-## [0.22.0] - 2026-10-07
+## [0.22.0] - 2026-10-08
 
 ### Added
 - **Export.** On a wider screen, with nothing selected, **Properties** has an **Export** section with **Export PNG** and **Export Markdown**. Hosts and guests can both use it, also on a locked board or while disconnected.
