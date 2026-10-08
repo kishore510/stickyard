@@ -662,7 +662,7 @@ describe("reveal", () => {
 });
 
 describe("stacking at the bound", () => {
-  it("a renumbering writes sealed notes but never puts someone else's into notesOrdered", async () => {
+  it("a renumbering (noteAdd, notesOrder, itemsAdd, shapeAdd) writes sealed notes but never puts someone else's into notesOrdered", async () => {
     const { code, id, token, stub } = await newRoom();
     const keys = { a: newKey(), b: newKey() };
     const writerA = await specWriterId(id, keys.a);
@@ -706,6 +706,13 @@ describe("stacking at the bound", () => {
     await evictDurableObject(stub);
     await drain(host, a, b);
     b.send({ type: "itemsAdd", clientRef: "i1", notes: [noteItem("n1", "")] });
+    expect((await nextOfType(b, "notesOrdered")).results.map((r) => r.id)).not.toContain("sealedA000000001");
+    expect((await nextOfType(a, "notesOrdered")).results.map((r) => r.id)).toContain("sealedA000000001");
+    // A shape shares the stacking space: its add renumbers at the bound too.
+    await runInDurableObject(stub, (_room, state) => state.storage.sql.exec("UPDATE notes SET z = ? WHERE id = 'sealedA000000001'", NOTE_Z_LIMIT));
+    await evictDurableObject(stub);
+    await drain(host, a, b);
+    b.send({ type: "shapeAdd", clientRef: "s1", kind: "rect", x: 0, y: 0 });
     expect((await nextOfType(b, "notesOrdered")).results.map((r) => r.id)).not.toContain("sealedA000000001");
     expect((await nextOfType(a, "notesOrdered")).results.map((r) => r.id)).toContain("sealedA000000001");
     await settle();
