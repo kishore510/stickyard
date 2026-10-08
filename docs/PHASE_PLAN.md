@@ -1,6 +1,6 @@
 # Phase plan: Stickyard
 
-Last updated: 7 October 2026
+Last updated: 8 October 2026
 
 Draft roadmap. When a slice starts, rewrite its prompt against the real code (see the skeleton in PROJECT_BRIEF.md). Do not treat these notes as final prompts.
 
@@ -38,7 +38,7 @@ Draft roadmap. When a slice starts, rewrite its prompt against the real code (se
 | 3b Presence: live cursors | Live cursors (throttled, never stored). Protocol v14 | Done (v0.19.0, PR #37; built ahead of export by choice) |
 | Frame multi-select | Frames in the selection with notes: marquee (enclosed frames), Ctrl+A, Shift/Ctrl-click; group move with carry, paced delete, arrange/Grid/Match size on frames, Colour and Title text for several frames, Duplicate of mixed selections. Web only, no protocol change | Done (v0.20.0, PR #38) |
 | 7a Text box and shapes | Text labels and basic shapes (rectangle, oval, diamond) with text, fill and border styles; one stacking space with notes; frames carry them; selection, arrange, duplicate, undo. Protocol v15, stored schema 9 | Done (v0.21.0, PR #39, merged and deployed 7 October 2026) |
-| Export PNG/Markdown | Export PNG (100% zoom, fitted to every item, size-capped) and Export Markdown (frames, notes, labels, revealed results; escaped) from Properties. Web only, no protocol or stored-schema change | Done (v0.22.0, web only, merged and deployed 7 October 2026) |
+| Export PNG/Markdown | Export PNG (100% zoom, fitted to every item, size-capped) and Export Markdown (frames, notes, labels, revealed results; escaped) from Properties. Web only, no protocol or stored-schema change | Done (v0.22.0, web only, merged and deployed 8 October 2026) |
 | Board size | Board grows from 3200 x 2000 to 6400 x 4000 (2x each way). Protocol v16, no stored-schema bump; `MIN_ZOOM` stays 0.1 | Not started |
 | Panel layout at 768 px | At 768 px the two side panels leave only about 280 px of canvas, so the first fit is far out. Web only | Not started |
 | Navigation | Zoom to selection; Jump to a person (from Participants). Web only, no protocol change | Not started |

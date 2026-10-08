@@ -2,7 +2,7 @@
 
 All notable changes to Stickyard, newest first. The format follows Keep a Changelog. Versions are 0.x: a minor bump for each slice and a patch bump for each follow-up fix. This file is shown in the app under **What’s new**, so entries are written for the people using it.
 
-## [0.22.0] - 2026-10-07
+## [0.22.0] - 2026-10-08
 
 ### Added
 - **Export.** On a wider screen, with nothing selected, **Properties** has an **Export** section with **Export PNG** and **Export Markdown**. Hosts and guests can both use it, also on a locked board or while disconnected.
