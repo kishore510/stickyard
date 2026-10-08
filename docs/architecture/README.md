@@ -8,7 +8,7 @@ Detail for each area of Stickyard, one file per area. CLAUDE.md stays short and 
 | [rooms.md](rooms.md) | Room codes, Worker checks, secrets, limits, the room Durable Object, expiry and burial, host token, lock, timer relay |
 | [notes.md](notes.md) | Note protocol and storage, size, colour and text style, inline editing, z-order, sealed notes and the leak inventory |
 | [canvas.md](canvas.md) | React Flow canvas, palette and Properties panels, selection, marquee, arrange and grid, delete keys, Duplicate, Export, panel defaults, navigation (fit, zoom to selection, minimap, jump) |
-| [frames.md](frames.md) | Frames, frame title style, templates, frame multi-select |
+| [frames.md](frames.md) | Frames, frame title style, templates and their palette groups, frame multi-select |
 | [editing.md](editing.md) | `itemsAdd` (create with content), undo/redo history, Clear board |
 | [connection.md](connection.md) | Reconnect, resync, presence (avatars, toasts), live cursors, last known pointers |
 | [facilitation.md](facilitation.md) | Timer and lock UI, End session, dot voting (relay and UI), silent brainstorm |
@@ -47,6 +47,7 @@ Sections are named after the slice that introduced them. Cross-references in quo
 | Frames, protocol v9 (slice frames) | frames.md |
 | Frame title styling, protocol v10 (slice frame title styling) | frames.md |
 | Templates (slice templates) | frames.md |
+| More built-in templates (v0.29.0) | frames.md |
 | Frame multi-select (v0.20.0) | frames.md |
 | Board size (v0.23.0) | frames.md, shapes.md |
 | Notes and protocol v3 (slice 2) | notes.md |

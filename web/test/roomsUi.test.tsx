@@ -5,6 +5,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { voterKeyKey } from "../src/storage";
+import { TEMPLATES } from "../src/templates/registry";
 
 /*
  * Starting, joining and using a room, rendered for real. `fetch` and `WebSocket` are
@@ -967,8 +968,10 @@ describe("the palette (md up)", () => {
       "Frame",
       // Protocol v15: then Shapes (text and three outlines).
       "Text", "Rectangle", "Oval", "Diamond",
-      // Slice templates: then Templates.
-      "Retro", "Start Stop Continue", "2x2 Impact and Effort", "Sprint planning",
+      // Slice templates: then the templates, one heading per group (v0.29.0).
+      "Retro", "Start Stop Continue", "Mad Sad Glad", "4Ls", "Starfish", "Sailboat",
+      "Sprint planning", "2x2 Impact and Effort", "Lean coffee",
+      "SWOT", "TIME", "Migration strategy", "Technology radar", "RAID", "Architecture decision",
     ]);
     expect(tiles()[1]?.querySelector('[data-preview]')?.className).toContain("bg-note-pink");
     expect(tiles()[1]?.textContent).toContain("Pink");
@@ -1010,7 +1013,7 @@ describe("the palette (md up)", () => {
     expect(palette()?.querySelector("h3")).toBeNull();
     expect(palette()?.textContent).toContain("No matches");
     await type(search() as HTMLInputElement, "");
-    expect(tiles()).toHaveLength(15);
+    expect(tiles()).toHaveLength(11 + TEMPLATES.length);
   });
 
   it("collapses to a strip with an expand button and compact tiles (as in Chalkline), from the header or with [, and remembers it", async () => {
@@ -1019,7 +1022,7 @@ describe("the palette (md up)", () => {
     expect(search()).toBeNull();
     expect(palette()?.querySelector("h3")).toBeNull();
     // Collapsing never takes adding away: the strip keeps one compact tile per colour.
-    expect(tiles().map((t) => t.getAttribute("aria-label"))).toEqual(["Yellow note", "Pink note", "Blue note", "Green note", "Orange note", "Purple note", "Frame", "Text", "Rectangle", "Oval", "Diamond", "Retro", "Start Stop Continue", "2x2 Impact and Effort", "Sprint planning"]);
+    expect(tiles().map((t) => t.getAttribute("aria-label"))).toEqual(["Yellow note", "Pink note", "Blue note", "Green note", "Orange note", "Purple note", "Frame", "Text", "Rectangle", "Oval", "Diamond", ...TEMPLATES.map((t) => t.label)]);
     await click(tiles()[2]);
     expect(sentOfType(socket, "noteAdd")[0]).toMatchObject({ color: "blue" });
     expect(palette()?.querySelector('[aria-label="Expand palette"]')?.getAttribute("aria-expanded")).toBe("false");
@@ -1027,7 +1030,7 @@ describe("the palette (md up)", () => {
     await act(async () => (document.activeElement as HTMLElement | null)?.blur());
     await press("[");
     expect(search()).not.toBeNull();
-    expect(tiles()).toHaveLength(15);
+    expect(tiles()).toHaveLength(11 + TEMPLATES.length);
     expect(saved("stickyard:palette-panel")).toEqual({ width: null, collapsed: false });
   });
 
@@ -2594,11 +2597,13 @@ describe("templates (slice templates)", () => {
     await settle();
   }
 
-  it("from md up, the palette has a Templates section with one labelled tile per template, previews drawn from tokens", async () => {
+  it("from md up, the palette has a section per template group with one labelled tile per template, previews drawn from tokens", async () => {
     await withBoard();
     const heading = [...(palette()?.querySelectorAll("h3, h2, [role=heading]") ?? [])].map((h) => h.textContent);
-    expect(heading).toContain("Templates");
-    for (const label of ["Retro", "Start Stop Continue", "2x2 Impact and Effort", "Sprint planning"]) {
+    expect(heading).toEqual(expect.arrayContaining(["Retros", "Planning and facilitation", "Architecture and analysis"]));
+    expect(heading.indexOf("Retros")).toBeLessThan(heading.indexOf("Planning and facilitation"));
+    expect(heading.indexOf("Planning and facilitation")).toBeLessThan(heading.indexOf("Architecture and analysis"));
+    for (const label of TEMPLATES.map((t) => t.label)) {
       const t = tile(label);
       expect(t, label).not.toBeNull();
       expect(t?.textContent).toContain(label === "2x2 Impact and Effort" ? "2x2" : label.split(" ")[0]);
@@ -2606,6 +2611,27 @@ describe("templates (slice templates)", () => {
       expect(parts.length).toBeGreaterThanOrEqual(3);
       for (const p of parts) expect(p.style.backgroundColor).toMatch(/^var\(--sy-frame-[a-z]+-header\)$/);
     }
+  });
+
+  it("each group heading is a real heading naming its section for screen readers, takes no tab stop, and hides when search leaves the group empty", async () => {
+    await withBoard();
+    const groups = ["Retros", "Planning and facilitation", "Architecture and analysis"];
+    const sectionFor = (name: string) =>
+      [...(palette()?.querySelectorAll<HTMLElement>("section[aria-labelledby]") ?? [])].find((s) => document.getElementById(s.getAttribute("aria-labelledby") ?? "")?.textContent === name);
+    for (const name of groups) {
+      const section = sectionFor(name);
+      expect(section, name).toBeDefined();
+      const h = document.getElementById(section?.getAttribute("aria-labelledby") ?? "");
+      expect(h?.tagName).toBe("H3");
+      expect(h?.hasAttribute("tabindex")).toBe(false);
+      // Token classes only (readable in both themes).
+      expect(h?.className).toContain("text-fg-muted");
+    }
+    const search = palette()?.querySelector<HTMLInputElement>('input[type="search"]') as HTMLInputElement;
+    await type(search, "swot");
+    expect(sectionFor("Retros")).toBeUndefined();
+    expect(sectionFor("Planning and facilitation")).toBeUndefined();
+    expect(sectionFor("Architecture and analysis")?.querySelectorAll("[data-palette-item]")).toHaveLength(1);
   });
 
   it("phones have no Templates in the add drawer", async () => {

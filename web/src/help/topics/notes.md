@@ -2,7 +2,7 @@
 title: Notes
 order: 3
 summary: Add notes from the palette, export the board as a picture or a Markdown file, duplicate them, undo and redo your changes, clear the board, edit, colour, style and resize them in Properties, bring them to the front or send them to the back, group them in frames, start from a template, select several notes and frames to move, arrange or delete together; pan, zoom and fit the board, zoom to the selection and use the overview map.
-keywords: export, download, png, picture, image, markdown, save, file, undo, redo, history, duplicate, copy, clear, clear board, empty, restore, ctrl+z, ctrl+y, ctrl+d, tick, outline, template, templates, retro, retrospective, start stop continue, 2x2, matrix, impact, effort, sprint, planning, kanban, frame, frames, area, section, title, carry, front, back, order, stack, overlap, behind, top, bottom, inline, place, double-click, marquee, multi, several, many, group, arrange, align, distribute, grid, columns, rows, tidy, layout, match, right-click, middle, note, notes, sticky, board, add, edit, move, drag, delete, colour, color, text, title, body, size, width, height, bigger, smaller, handle, corner, font, bold, italic, align, alignment, left, centre, center, right, style, palette, tile, properties, panel, select, selection, collapse, resize, pan, hand, zoom, pinch, wheel, fit, overview, map, minimap, zoom to selection, out of view, show all, cluster, navigate, shortcut, full, saved
+keywords: export, download, png, picture, image, markdown, save, file, undo, redo, history, duplicate, copy, clear, clear board, empty, restore, ctrl+z, ctrl+y, ctrl+d, tick, outline, template, templates, retro, retrospective, start stop continue, mad sad glad, 4ls, starfish, sailboat, lean coffee, swot, time, tolerate, invest, migrate, eliminate, rationalisation, migration, rehost, replatform, refactor, repurchase, retire, retain, technology radar, radar, raid, risks, assumptions, issues, dependencies, architecture decision, adr, axes, 2x2, matrix, impact, effort, sprint, planning, kanban, frame, frames, area, section, title, carry, front, back, order, stack, overlap, behind, top, bottom, inline, place, double-click, marquee, multi, several, many, group, arrange, align, distribute, grid, columns, rows, tidy, layout, match, right-click, middle, note, notes, sticky, board, add, edit, move, drag, delete, colour, color, text, title, body, size, width, height, bigger, smaller, handle, corner, font, bold, italic, align, alignment, left, centre, center, right, style, palette, tile, properties, panel, select, selection, collapse, resize, pan, hand, zoom, pinch, wheel, fit, overview, map, minimap, zoom to selection, out of view, show all, cluster, navigate, shortcut, full, saved
 ---
 Every session has one shared **board**. Everyone in the session sees the same notes, and changes show up for everyone as they happen. The board fills the screen; its edge is the outline around the dotted area, and notes always stay inside it.
 
@@ -131,18 +131,48 @@ A frame is a named, coloured area that sits behind the notes, for example Start,
 
 ## Templates
 
-A template adds a ready-made set of frames, with their titles, colours and sizes. There are four:
+A template adds a ready-made set of frames, with their titles, colours and sizes. There are fifteen, in three groups.
+
+**Retros**
 
 - **Retro**: three columns, Went well, Didn't go well and Actions.
 - **Start Stop Continue**: three columns, Start, Stop and Continue.
-- **2x2 Impact and Effort**: four squares, Quick wins, Major projects, Fill-ins and Thankless tasks.
-- **Sprint planning**: a wide Sprint goal frame on top, then Candidates, Committed, and Risks and questions.
+- **Mad Sad Glad**: three columns, Mad, Sad and Glad.
+- **4Ls**: four columns, Liked, Learned, Lacked and Longed for.
+- **Starfish**: Keep, Less of and More of in a row, with Start and Stop below.
+- **Sailboat**: a wide Goal frame on top, then Wind (what helps us), Anchors (what slows us) and Rocks (risks ahead).
 
-- On a wider screen, find them under **Templates** in the palette (search finds them too, for example "retro" or "matrix"). Click a template to place it in the middle of the part of the board you can see, or drag it onto the board to centre it where you let go. It always lands fully on the board.
+**Planning and facilitation**
+
+- **Sprint planning**: a wide Sprint goal frame on top, then Candidates, Committed, and Risks and questions.
+- **2x2 Impact and Effort**: four squares, Quick wins, Major projects, Fill-ins and Thankless tasks.
+- **Lean coffee**: three columns for the topics, To discuss, Discussing and Discussed.
+
+**Architecture and analysis**
+
+- **SWOT**: four squares, Strengths, Weaknesses, Opportunities and Threats.
+- **TIME**: four squares for sorting applications, Invest, Migrate, Tolerate and Eliminate.
+- **Migration strategy**: six frames in two rows, one per way to move a system: Rehost, Replatform, Refactor, Repurchase, Retire and Retain.
+- **Technology radar**: four columns, Adopt, Trial, Assess and Hold.
+- **RAID**: four columns, Risks, Assumptions, Issues and Dependencies.
+- **Architecture decision**: four columns, Context, Options, Decision and Consequences.
+
+### Reading the 2 x 2 templates
+
+Each square's title names it and says where it sits on the two axes.
+
+- **2x2 Impact and Effort**: impact goes up, effort goes to the right. Quick wins (high impact, low effort) are top left, Major projects top right, Fill-ins bottom left and Thankless tasks bottom right.
+- **SWOT**: the top row is internal (about you), the bottom row external (around you); the left column helps, the right column harms. Strengths are top left, Weaknesses top right, Opportunities bottom left and Threats bottom right.
+- **TIME**: business value goes up, technical fit goes to the right. Invest (high value, good fit) is top right, Migrate (high value, poor fit) top left, Tolerate (low value, good fit) bottom right and Eliminate (low value, poor fit) bottom left.
+
+### Adding a template
+
+- On a wider screen, find them in the palette under their group's heading: **Retros**, **Planning and facilitation** and **Architecture and analysis**. Search finds them across all groups (for example "template", "retro", "matrix" or "radar"); a group with nothing matching hides its heading. Click a template to place it in the middle of the part of the board you can see, or drag it onto the board to centre it where you let go. It always lands fully on the board.
 - Nothing already on the board is moved, resized or deleted, so there's nothing to confirm. When it's done, the view fits the new frames and the first one is selected.
-- A template needs one free frame slot per frame (a board holds up to 30 frames). If there aren't enough, nothing is added and the board says how many it needs and how many are free.
+- A template needs one free frame slot per frame (a board holds up to 30 frames; the largest template, Migration strategy, has six). If there aren't enough, nothing is added and the board says how many it needs and how many are free.
 - All of a template's frames appear at once, already at their sizes and with their title styles, for you and everyone else in the room. While a template is being added, the template tiles are off.
 - If the relay refuses part of a template (for example someone else filled the board's last frame slots at the same moment), the frames already added stay, and the board says the template was only partly added. Delete any you don't want.
+- Templates can be added during a silent round: they're only frames, and frames can still be added then.
 - Templates can't be added on a phone.
 
 ## The side panels

@@ -4,7 +4,7 @@ import { SHAPE_KIND_NAMES } from "../shapes/style";
 import type { Size, XY } from "../canvas/geometry";
 import { NOTE_COLOR_NAMES } from "../notes/colours";
 import { templateBounds } from "../templates/place";
-import { TEMPLATES, type Template } from "../templates/registry";
+import { TEMPLATE_GROUPS, TEMPLATES, type Template } from "../templates/registry";
 
 /*
  * The palette: everything you can add to the board, in one registry. The desktop palette
@@ -162,8 +162,8 @@ export const SHAPE_TILES: readonly PaletteItem[] = SHAPE_KINDS.map((kind) => {
   };
 });
 
-/** One tile per template (templates/registry.ts): a drop centres the whole template on the pointer. */
-export const TEMPLATE_TILES: readonly PaletteItem[] = TEMPLATES.map((template) => ({
+/** A template's tile (templates/registry.ts): a drop centres the whole template on the pointer. */
+const templateTile = (template: Template): PaletteItem => ({
   id: `template-${template.id}`,
   label: template.label,
   keywords: ["template", ...template.keywords],
@@ -172,7 +172,7 @@ export const TEMPLATE_TILES: readonly PaletteItem[] = TEMPLATES.map((template) =
   create: (actions, at) => actions.applyTemplate(template, at),
   dropSize: templateBounds(template),
   disabled: (ctx) => ctx.templateReason,
-}));
+});
 
 /** The host's Timer tile: opens the duration picker (the timer is the room's, not a thing on the board). */
 export const TIMER_TILE: PaletteItem = {
@@ -207,8 +207,17 @@ export const PALETTE_CATEGORIES: readonly PaletteCategory[] = [
   { id: "frames", label: "Frames", order: 2, tab: "add", items: FRAME_TILES, surfaces: ["panel"] },
   // Shapes and text (protocol v15): edited from md up only, so not in the phone drawer.
   { id: "shapes", label: "Shapes", order: 2.5, tab: "add", items: SHAPE_TILES, surfaces: ["panel"] },
-  // Templates are frames, so md and up only too.
-  { id: "templates", label: "Templates", order: 3, tab: "add", items: TEMPLATE_TILES, surfaces: ["panel"] },
+  // Templates are frames, so md and up only too: one category per template group, headed by its name (v0.29.0).
+  ...TEMPLATE_GROUPS.map(
+    (group, i): PaletteCategory => ({
+      id: group.categoryId,
+      label: group.label,
+      order: 3 + i / 10,
+      tab: "add",
+      items: TEMPLATES.filter((t) => t.group === group.label).map(templateTile),
+      surfaces: ["panel"],
+    }),
+  ),
   // Host only, md and up (phones: the Participants sheet's Session section).
   { id: "facilitation", label: "Facilitation", order: 4, tab: "add", items: [], fromRoom: facilitationTiles, surfaces: ["panel"] },
 ];

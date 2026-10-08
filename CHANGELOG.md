@@ -2,6 +2,18 @@
 
 All notable changes to Stickyard, newest first. The format follows Keep a Changelog. Versions are 0.x: a minor bump for each slice and a patch bump for each follow-up fix. This file is shown in the app under **What’s new**, so entries are written for the people using it.
 
+## [0.29.0] - 2026-10-08
+
+### Added
+- **Eleven more templates**, all made of frames like the first four:
+  - Retros: **Mad Sad Glad**, **4Ls** (Liked, Learned, Lacked, Longed for), **Starfish** (Keep, Less of, More of, Start, Stop) and **Sailboat** (a wide Goal, then Wind, Anchors and Rocks).
+  - Planning and facilitation: **Lean coffee** (To discuss, Discussing, Discussed).
+  - Architecture and analysis: **SWOT**, **TIME** (Invest, Migrate, Tolerate, Eliminate), **Migration strategy** (Rehost, Replatform, Refactor, Repurchase, Retire, Retain), **Technology radar** (Adopt, Trial, Assess, Hold), **RAID** (Risks, Assumptions, Issues, Dependencies) and **Architecture decision** (Context, Options, Decision, Consequences).
+- The 2 x 2 templates say where each square sits in its title (for example "Invest: high value, good fit"), and Help explains their axes.
+
+### Changed
+- The palette lists templates under three headings, **Retros**, **Planning and facilitation** and **Architecture and analysis**, instead of one Templates heading. Search still finds them all, and a heading with nothing matching is hidden.
+
 ## [0.28.0] - 2026-10-08
 
 ### Added

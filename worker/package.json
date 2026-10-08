@@ -1,6 +1,6 @@
 {
   "name": "@stickyard/worker",
-  "version": "0.28.0",
+  "version": "0.29.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -12,7 +12,7 @@
     "deploy": "wrangler deploy"
   },
   "dependencies": {
-    "@stickyard/shared": "^0.28.0",
+    "@stickyard/shared": "^0.29.0",
     "zod": "^4.6.5"
   },
   "devDependencies": {
