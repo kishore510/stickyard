@@ -3231,7 +3231,8 @@ export class RoomSession {
       }
 
       case "participant_left": {
-        this.options.cursors?.gone(message.id);
+        // Their pointer and its last known position (jump to a person) both go.
+        this.options.cursors?.left(message.id);
         const gone = this.view.participants.find((p) => p.id === message.id);
         if (!gone) return;
         // An old socket of someone who is back already (same name, new id) isn't news.

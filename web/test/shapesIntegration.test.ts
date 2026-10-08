@@ -240,7 +240,7 @@ describe("the session", () => {
 
   it("other people's cursors still go straight to their sink, never a view update", () => {
     const moved = vi.fn();
-    const t = room([], [], { cursors: { moved, gone: vi.fn(), clear: vi.fn() } }, undefined, [shape(1)]);
+    const t = room([], [], { cursors: { moved, gone: vi.fn(), left: vi.fn(), clear: vi.fn() } }, undefined, [shape(1)]);
     const views = t.views.length;
     t.relay.emit({ type: "cursorMoved", id: "BBBBBBBBBBBBBBBB", x: 10, y: 20 });
     expect(moved).toHaveBeenCalledWith("BBBBBBBBBBBBBBBB", 10, 20);

@@ -188,6 +188,34 @@ export function cursorLabel(name: string): string {
 /** Where the session hands other people's pointers (the cursor store, or a test's recorder). */
 export interface CursorSink {
   moved(id: string, x: number, y: number): void;
+  /** Their pointer left the board (cursorGone): the mark goes, the last known position stays (v0.24.0). */
   gone(id: string): void;
+  /** They left the session: the mark and the last known position both go. */
+  left(id: string): void;
+  /** A new visit, a reconnect or a drop: everything goes. */
   clear(): void;
+}
+
+/* ── Last known positions (v0.24.0, jump to a person) ──────────────── */
+
+/**
+ * Each other person's last pointer position, by participant id, for Participants' Go to. Kept
+ * apart from the cursor map: it survives the fade and cursorGone, and goes only when they leave or
+ * on a new visit or reconnect. In memory only, never stored. Tracked whatever the Show switch says.
+ */
+export type LastPositions = ReadonlyMap<string, { x: number; y: number }>;
+
+export function rememberPosition(map: LastPositions, id: string, x: number, y: number): LastPositions {
+  const was = map.get(id);
+  if (was && was.x === x && was.y === y) return map;
+  const next = new Map(map);
+  next.set(id, { x, y });
+  return next;
+}
+
+export function forgetPosition(map: LastPositions, id: string): LastPositions {
+  if (!map.has(id)) return map;
+  const next = new Map(map);
+  next.delete(id);
+  return next;
 }

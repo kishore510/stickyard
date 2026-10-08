@@ -343,6 +343,12 @@
   margin-bottom: var(--sy-above-bar);
 }
 
+/* A view bar wrapped onto two rows (v0.24.0: 768 with both panels open): what sits above it goes up a row. */
+.sy-bar-wrapped {
+  --sy-above-bar: calc(var(--sy-edge-bottom) + var(--sy-bar-h-wrapped) + var(--sy-space-sm));
+  --sy-chat-above-bar-minimap: calc(var(--sy-above-bar) + var(--sy-minimap-height) + var(--sy-space-sm));
+}
+
 /* The welcome mark's cursors drift slowly (src/brand/StickyardMark.tsx); still under reduced motion. */
 .sy-mark-drift {
   transform-box: fill-box;

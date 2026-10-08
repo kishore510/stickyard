@@ -2,6 +2,19 @@
 
 All notable changes to Stickyard, newest first. The format follows Keep a Changelog. Versions are 0.x: a minor bump for each slice and a patch bump for each follow-up fix. This file is shown in the app under **What’s new**, so entries are written for the people using it.
 
+## [0.24.0] - 2026-10-08
+
+### Added
+- **Zoom to selection.** On a wider screen the bar at the bottom has a **Zoom to selection** button (or press **S**): the view fits the notes, frames and shapes you've selected, never closer than 100%. With nothing selected it's off and says why.
+- **Go to someone's pointer.** In **Participants**, **Go to** beside a person's name takes your view to where their pointer was last seen on the board, keeping your zoom (or zooming in to 50% if you're further out), and the board says "Moved to Sam's pointer." It's off, with "No pointer position seen yet.", until their pointer has been over the board since you joined (people on a phone don't share one). It works on a phone, and with other people's cursors switched off. Only the last position is kept, in this page's memory; it's forgotten when they leave or you reconnect.
+- **Click the overview map** to go to that part of the board. Dragging in it still moves around.
+
+### Changed
+- **Fit to notes with something far away.** If fitting everything would make it too small to read (below 25%), **Fit to notes** shows the biggest group of items instead and the board says "Some items are out of view.", with **Show all** to see everything. Otherwise it's exactly as before. A session also opens this way.
+- **More room on a tablet.** On a window narrower than 1024 pixels, the palette and Properties start collapsed, so the board opens much closer (at 768 pixels wide, our sample board opens at 39% instead of 16%). Open them with their buttons or **[** and **]**; once you open or collapse one, this browser remembers your choice, as before.
+- With both panels open on a narrow window, the bar at the bottom takes two rows instead of running under the panels.
+- Fit, zoom, map clicks and **Go to** slide briefly; with reduced motion they're instant.
+
 ## [0.23.0] - 2026-10-08
 
 ### Changed

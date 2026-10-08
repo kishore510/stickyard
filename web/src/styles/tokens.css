@@ -388,6 +388,8 @@
   --sy-chat-max-w: 640px;
   /* A floating bar's height: a touch target plus the bar's padding and border. */
   --sy-bar-h: calc(var(--sy-touch-min) + 2 * var(--sy-space-xs) + 2 * var(--sy-border-width));
+  /* The view bar wrapped onto two rows (a narrow canvas, v0.24.0). */
+  --sy-bar-h-wrapped: calc(2 * var(--sy-touch-min) + var(--sy-toolbar-gap) + 2 * var(--sy-space-xs) + 2 * var(--sy-border-width));
   --sy-edge-bottom: max(var(--sy-gutter), var(--sy-safe-bottom));
   --sy-edge-left: max(var(--sy-gutter), var(--sy-safe-left));
   --sy-edge-right: max(var(--sy-gutter), var(--sy-safe-right));

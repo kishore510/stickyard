@@ -1,4 +1,4 @@
-import { memo, type ReactNode, type Ref } from "react";
+import { memo, useId, useState, type ReactNode, type Ref } from "react";
 import { Button } from "../components/ui/button";
 import { Panel } from "../components/ui/panel";
 import { cn } from "../lib/utils";
@@ -18,8 +18,53 @@ function tooltip(tool: Tool, reason: string | null) {
   return reason ? `${base}: ${reason}` : base;
 }
 
+/**
+ * A tool whose off state is explained (Tool.explain): aria-disabled (still focusable), the press does
+ * nothing, and a tooltip above it (hover or keyboard focus; Escape hides it) gives the reason or the name.
+ */
+function ExplainedToolButton({ tool, ctx, reason }: { tool: Tool; ctx: ToolContext; reason: string | null }) {
+  const tipId = useId();
+  const [open, setOpen] = useState(false);
+  const Icon = tool.icon;
+  const off = reason !== null;
+  return (
+    <span className="relative inline-flex" onMouseEnter={() => setOpen(true)} onMouseLeave={() => setOpen(false)}>
+      <Button
+        variant="ghost"
+        size="icon"
+        data-tool={tool.id}
+        aria-label={tool.label}
+        aria-describedby={tipId}
+        aria-keyshortcuts={tool.shortcut}
+        aria-disabled={off || undefined}
+        onFocus={() => setOpen(true)}
+        onBlur={() => setOpen(false)}
+        onKeyDown={(e) => {
+          if (e.key === "Escape" && open) setOpen(false);
+        }}
+        onClick={(e) => {
+          if (off) return void e.preventDefault();
+          tool.run(ctx);
+        }}
+      >
+        <Icon />
+      </Button>
+      <span
+        role="tooltip"
+        id={tipId}
+        hidden={!open}
+        data-tool-tip={tool.id}
+        className="pointer-events-none absolute bottom-full left-1/2 z-50 mb-xs -translate-x-1/2 rounded-md border border-border bg-surface px-sm py-xs text-xs font-normal whitespace-nowrap text-fg shadow-md"
+      >
+        {tooltip(tool, reason)}
+      </span>
+    </span>
+  );
+}
+
 export function ToolButton({ tool, ctx, className }: { tool: Tool; ctx: ToolContext; className?: string }) {
   const reason = tool.disabled?.(ctx) ?? null;
+  if (tool.explain) return <ExplainedToolButton tool={tool} ctx={ctx} reason={reason} />;
   const text = tool.text?.(ctx);
   const Icon = tool.icon;
   return (
@@ -70,25 +115,28 @@ function items(surface: Surface, ctx: ToolContext): ReactNode[] {
   return out;
 }
 
-function Bar({ surface, ctx, label, barRef }: { surface: Surface; ctx: ToolContext; label: string; barRef?: Ref<HTMLDivElement> | undefined }) {
+function Bar({ surface, ctx, label, barRef, wrapped = false }: { surface: Surface; ctx: ToolContext; label: string; barRef?: Ref<HTMLDivElement> | undefined; wrapped?: boolean | undefined }) {
   return (
     <Panel
       ref={barRef}
       role="toolbar"
       aria-label={label}
       aria-orientation="horizontal"
-      className="pointer-events-auto flex items-center gap-toolbar rounded-full p-xs shadow-lg"
+      data-wrapped={wrapped || undefined}
+      // On a canvas narrower than the bar (768 with both panels open) it wraps onto a second row
+      // rather than running under the panels (v0.24.0).
+      className={cn("pointer-events-auto flex max-w-full flex-wrap items-center justify-center gap-toolbar p-xs shadow-lg", wrapped ? "rounded-lg" : "rounded-full")}
     >
       {items(surface, ctx)}
     </Panel>
   );
 }
 
-/** md and up: the view bar, bottom centre of the free canvas area. */
-export const ViewBar = memo(function ViewBar({ ctx, barRef }: { ctx: ToolContext; barRef?: Ref<HTMLDivElement> | undefined }) {
+/** md and up: the view bar, bottom centre of the free canvas area (two rows when the area is narrow). */
+export const ViewBar = memo(function ViewBar({ ctx, barRef, wrapped }: { ctx: ToolContext; barRef?: Ref<HTMLDivElement> | undefined; wrapped?: boolean | undefined }) {
   return (
-    <div className="pointer-events-none absolute inset-x-0 bottom-edge-b z-20 flex justify-center">
-      <Bar surface="viewbar" ctx={ctx} label="View" barRef={barRef} />
+    <div className="pointer-events-none absolute inset-x-0 bottom-edge-b z-20 flex justify-center px-gutter">
+      <Bar surface="viewbar" ctx={ctx} label="View" barRef={barRef} wrapped={wrapped} />
     </div>
   );
 });

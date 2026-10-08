@@ -1,11 +1,15 @@
 import { create } from "zustand";
 import { STORAGE_KEYS, readKey, writeKey } from "../storage";
-import { PANEL_LIMITS, parsePanelState, serialisePanelState, type PanelId, type PanelState } from "./layout";
+import { MEDIA } from "../styles/breakpoints";
+import { PANEL_LIMITS, initialPanelState, serialisePanelState, type PanelId, type PanelState } from "./layout";
 
 /*
  * The side panels' layout (md and up): each one's width (null: the default) and whether it's
  * collapsed. Loaded from browser storage once and saved on every change, under stickyard:
  * keys. Storage can be missing or blocked: then the defaults are used and nothing is saved.
+ * With no saved choice, a panel starts open from lg up and collapsed below it (v0.24.0); that
+ * default is never written, so only a person's own change is remembered. Decided once, when the
+ * store is made (before the board's first render, so the first fit sees the final canvas size).
  * Lives outside the panels, so crossing the md breakpoint and back restores them as they were.
  */
 
@@ -14,7 +18,8 @@ const KEYS: Record<PanelId, string> = {
   properties: STORAGE_KEYS.propertiesPanel,
 };
 
-const load = (id: PanelId) => parsePanelState(readKey(KEYS[id]), PANEL_LIMITS[id]);
+const desktop = () => Boolean(globalThis.matchMedia?.(MEDIA.desktop).matches);
+const load = (id: PanelId) => initialPanelState(readKey(KEYS[id]), PANEL_LIMITS[id], desktop());
 
 interface Panels extends Record<PanelId, PanelState> {
   setWidth(id: PanelId, width: number | null): void;

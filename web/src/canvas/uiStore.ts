@@ -14,6 +14,8 @@ import {
 import type { InlinePart } from "../notes/inlineEdit";
 import type { Mode } from "./tools";
 
+export type ViewNotice = { kind: "outside"; n: number } | { kind: "jump"; name: string; n: number };
+
 /*
  * Board UI state that must outlive any one layout: the panels (md and up) and the phone ribbon
  * and sheets are swapped at the md breakpoint, so the tool, the last colour added, the
@@ -105,6 +107,15 @@ interface BoardUi {
   revealRequest: { id: string; n: number } | null;
   requestReveal(id: string): void;
   setGridColumns(columns: number | null): void;
+  /** Asks the board to pan to a person's last known pointer (Participants' Go to, v0.24.0). `n` makes each request new. */
+  jumpRequest: { id: string; n: number } | null;
+  requestJump(id: string): void;
+  /**
+   * What the board says about the last view change (v0.24.0): Fit left items out ("Some items are
+   * out of view." with Show all), or a jump to someone's pointer (the name, plain text, truncated).
+   */
+  viewNotice: ViewNotice | null;
+  setViewNotice(notice: ViewNotice | null): void;
   /** Leaving a room: nothing selected or pending. */
   resetRoom(): void;
 }
@@ -137,6 +148,8 @@ export const useBoardUi = create<BoardUi>()((set, get) => ({
   timerPickerOpen: false,
   revealRequest: null,
   gridColumns: null,
+  jumpRequest: null,
+  viewNotice: null,
   setTool: (tool) => set({ tool }),
   setColor: (color) => set({ color }),
   setMinimap: (minimap) => set({ minimap }),
@@ -218,5 +231,7 @@ export const useBoardUi = create<BoardUi>()((set, get) => ({
   requestReveal: (id) =>
     set({ ...all(selectOnly(get().selection, id), EMPTY_SELECTION), inlineEdit: null, revealRequest: { id, n: (get().revealRequest?.n ?? 0) + 1 } }),
   setGridColumns: (gridColumns) => set({ gridColumns }),
-  resetRoom: () => set({ ...all(EMPTY_SELECTION, EMPTY_SELECTION), shapeEdit: null, frameEditRequest: null, editRequest: null, inlineEdit: null, addSheetOpen: false, timerPickerOpen: false, revealRequest: null }),
+  requestJump: (id) => set({ jumpRequest: { id, n: (get().jumpRequest?.n ?? 0) + 1 } }),
+  setViewNotice: (viewNotice) => set({ viewNotice }),
+  resetRoom: () => set({ jumpRequest: null, viewNotice: null,  ...all(EMPTY_SELECTION, EMPTY_SELECTION), shapeEdit: null, frameEditRequest: null, editRequest: null, inlineEdit: null, addSheetOpen: false, timerPickerOpen: false, revealRequest: null }),
 }));

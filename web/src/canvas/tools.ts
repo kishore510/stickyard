@@ -1,4 +1,4 @@
-import { Hand, Map as MapIcon, Maximize, MousePointer2, Plus, Redo2, Undo2, ZoomIn, ZoomOut, type LucideIcon } from "lucide-react";
+import { Focus, Hand, Map as MapIcon, Maximize, MousePointer2, Plus, Redo2, Undo2, ZoomIn, ZoomOut, type LucideIcon } from "lucide-react";
 import { MAX_FRAMES_PER_ROOM, MAX_NOTES_PER_ROOM, MAX_SHAPES_PER_ROOM } from "@stickyard/shared";
 import { MAX_ZOOM, MIN_ZOOM } from "./geometry";
 
@@ -20,6 +20,10 @@ export interface ToolContext {
   /** Phones: opens the add sheet. md up (the N key): adds a note in the last colour used, ready to type. */
   addNote(): void;
   fit(): void;
+  /** Zoom to selection (v0.24.0, md and up): fits the selected notes, frames and shapes. */
+  zoomSelection(): void;
+  /** Why Zoom to selection is off (nothing selected), or null. */
+  selectionReason: string | null;
   zoomIn(): void;
   zoomOut(): void;
   resetZoom(): void;
@@ -55,6 +59,11 @@ export interface Tool {
   primary?: boolean;
   /** Neighbouring tools with the same segment are drawn as one group (e.g. the Select/Hand toggle). */
   segment?: { id: string; label: string };
+  /**
+   * Off is shown, not hidden: the button stays focusable (aria-disabled) and its reason shows in
+   * a tooltip on hover or focus, as in the board bar (v0.24.0, Zoom to selection).
+   */
+  explain?: boolean;
 }
 
 const MODE_SEGMENT = { id: "mode", label: "Tool" };
@@ -154,6 +163,17 @@ export const TOOLS: readonly Tool[] = [
     shortcut: "F",
     slots: { viewbar: 4, ribbon: 4 },
     run: (c) => c.fit(),
+  },
+  {
+    id: "zoom-selection",
+    label: "Zoom to selection",
+    icon: Focus,
+    // Not used elsewhere: + - 0 F V H N M, D (dots), [ ], Delete and the Ctrl combos.
+    shortcut: "S",
+    slots: { viewbar: 4.5 },
+    run: (c) => c.zoomSelection(),
+    disabled: (c) => c.selectionReason,
+    explain: true,
   },
   {
     id: "undo",

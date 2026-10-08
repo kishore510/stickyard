@@ -1,8 +1,8 @@
 ---
 title: Notes
 order: 3
-summary: Add notes from the palette, export the board as a picture or a Markdown file, duplicate them, undo and redo your changes, clear the board, edit, colour, style and resize them in Properties, bring them to the front or send them to the back, group them in frames, start from a template, select several notes and frames to move, arrange or delete together; pan, zoom and fit the board.
-keywords: export, download, png, picture, image, markdown, save, file, undo, redo, history, duplicate, copy, clear, clear board, empty, restore, ctrl+z, ctrl+y, ctrl+d, tick, outline, template, templates, retro, retrospective, start stop continue, 2x2, matrix, impact, effort, sprint, planning, kanban, frame, frames, area, section, title, carry, front, back, order, stack, overlap, behind, top, bottom, inline, place, double-click, marquee, multi, several, many, group, arrange, align, distribute, grid, columns, rows, tidy, layout, match, right-click, middle, note, notes, sticky, board, add, edit, move, drag, delete, colour, color, text, title, body, size, width, height, bigger, smaller, handle, corner, font, bold, italic, align, alignment, left, centre, center, right, style, palette, tile, properties, panel, select, selection, collapse, resize, pan, hand, zoom, pinch, wheel, fit, overview, map, shortcut, full, saved
+summary: Add notes from the palette, export the board as a picture or a Markdown file, duplicate them, undo and redo your changes, clear the board, edit, colour, style and resize them in Properties, bring them to the front or send them to the back, group them in frames, start from a template, select several notes and frames to move, arrange or delete together; pan, zoom and fit the board, zoom to the selection and use the overview map.
+keywords: export, download, png, picture, image, markdown, save, file, undo, redo, history, duplicate, copy, clear, clear board, empty, restore, ctrl+z, ctrl+y, ctrl+d, tick, outline, template, templates, retro, retrospective, start stop continue, 2x2, matrix, impact, effort, sprint, planning, kanban, frame, frames, area, section, title, carry, front, back, order, stack, overlap, behind, top, bottom, inline, place, double-click, marquee, multi, several, many, group, arrange, align, distribute, grid, columns, rows, tidy, layout, match, right-click, middle, note, notes, sticky, board, add, edit, move, drag, delete, colour, color, text, title, body, size, width, height, bigger, smaller, handle, corner, font, bold, italic, align, alignment, left, centre, center, right, style, palette, tile, properties, panel, select, selection, collapse, resize, pan, hand, zoom, pinch, wheel, fit, overview, map, minimap, zoom to selection, out of view, show all, cluster, navigate, shortcut, full, saved
 ---
 Every session has one shared **board**. Everyone in the session sees the same notes, and changes show up for everyone as they happen. The board fills the screen; its edge is the outline around the dotted area, and notes always stay inside it.
 
@@ -164,14 +164,19 @@ A template adds a ready-made set of frames, with their titles, colours and sizes
 - With a mouse, drag with the **right** or **middle** button to move around (dragging with the left button draws a marquee; see above). The board has no right-click menu.
 - With a mouse wheel or trackpad, scrolling moves around the board. Hold **Ctrl** (or pinch on a trackpad) to zoom.
 - **Hand** makes every drag move the board, even on a note or with the left button, so you can look around without moving anything. On a computer, you can also hold **Space** and drag.
-- **Fit to notes** shows all the notes at once (or the middle of the board if it's empty). A session opens fitted like this.
-- On a wider screen, the bar at the bottom has **Zoom out**, the zoom level (choose it to go back to 100%), **Zoom in**, **Fit to notes**, **Select** and **Hand**, and the **Overview map**. The map in the corner shows the whole board and where you are; drag in it to move around.
+- **Fit to notes** shows all the notes, frames and shapes at once (or the middle of the board if it's empty). A session opens fitted like this.
+- If showing everything would make it too small to read (below 25%), **Fit to notes** shows the biggest group of items instead, and the board says "Some items are out of view." Choose **Show all** to see everything however small, or **X** to dismiss the message. Items count as one group when they're less than 600 apart.
+- **Zoom to selection** fits the view to the selected notes, frames and shapes (never past 100%). It's off, and says why, when nothing is selected.
+- On a wider screen, the bar at the bottom has **Zoom out**, the zoom level (choose it to go back to 100%), **Zoom in**, **Fit to notes**, **Zoom to selection**, **Select** and **Hand**, and the **Overview map**. When the board is narrow (both side panels open on a tablet) the bar takes two rows. The map in the corner shows the whole board and where you are: click in it to go there, or drag in it to move around.
+- To go to where someone's pointer is, use **Go to** beside their name in **Participants** (see [Participants](help:participants)).
+- Moving the view (fit, zoom, a map click, **Go to**) is a short slide, or instant if your device is set to reduce motion.
+- On a tablet-sized window (narrower than 1024 pixels) the palette and Properties start collapsed, so the board has room; open them with their buttons or **[** and **]**. Once you open or collapse one yourself, this browser remembers it.
 
 ## Keyboard shortcuts
 
 When you're not typing in a box:
 
-- **+** and **-** zoom in and out, **0** goes back to 100%, and **F** fits the view to the notes.
+- **+** and **-** zoom in and out, **0** goes back to 100%, **F** fits the view to the notes, and **S** zooms to the selection.
 - **V** is Select, **H** is Hand, **N** adds a note (on a wider screen, in the colour you last added), and **M** shows or hides the overview map.
 - **[** collapses or expands the palette, and **]** collapses or expands Properties.
 - **Ctrl+A** (**Cmd+A**) selects every note, frame and shape, **Delete** deletes them all (asking once), and **Esc** clears the selection.

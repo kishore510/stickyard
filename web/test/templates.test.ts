@@ -347,13 +347,16 @@ describe("palette: Templates", () => {
 });
 
 describe("fitting to a new template", () => {
-  it("is animated with the base duration, which reduced motion sets to 0", async () => {
+  it("is animated with the view duration (the base duration's value), 0 with reduced motion", async () => {
     const { readFileSync } = await import("node:fs");
     const tokens = readFileSync(new URL("../src/styles/tokens.css", import.meta.url), "utf8");
     const reduced = tokens.slice(tokens.indexOf("@media (prefers-reduced-motion: reduce)"));
     expect(reduced.slice(0, reduced.indexOf("}\n}"))).toMatch(/--sy-duration-base:\s*0ms;/);
     const view = readFileSync(new URL("../src/canvas/useCanvasView.ts", import.meta.url), "utf8");
-    expect(view).toMatch(/readPxToken\("--sy-duration-base"/);
+    // v0.24.0: every view change uses navigation.ts viewDuration (VIEW_ANIMATION_MS, 0 with reduced motion).
+    expect(view).toMatch(/viewDuration\(Boolean\(globalThis\.matchMedia\?\.\(MEDIA\.reducedMotion\)\.matches\)\)/);
+    const { VIEW_ANIMATION_MS } = await import("../src/canvas/navigation");
+    expect(tokens).toContain(`--sy-duration-base: ${VIEW_ANIMATION_MS}ms;`);
     // The board fits to the new frames with the animated fit (not an instant jump).
     const board = readFileSync(new URL("../src/canvas/RoomBoard.tsx", import.meta.url), "utf8");
     expect(board).toMatch(/const frames = templateFrames\(/);

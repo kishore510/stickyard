@@ -111,6 +111,12 @@ export function notesBounds(notes: Placed[]): Rect | null {
   return { x, y, width: right - x, height: bottom - y };
 }
 
+/** The zoom that fits `bounds` inside `padding` of a `size` canvas, at most FIT_MAX_ZOOM, before the MIN_ZOOM floor. */
+export function fitZoom(bounds: Size, size: Size, padding: number): number {
+  const room = (screen: number) => Math.max(1, screen - 2 * padding);
+  return Math.min(FIT_MAX_ZOOM, room(size.width) / bounds.width, room(size.height) / bounds.height);
+}
+
 /**
  * Fit to notes: every note inside `padding` (screen px) of the edges, zoom at most
  * FIT_MAX_ZOOM. An empty board is centred at zoom 1.
@@ -118,8 +124,7 @@ export function notesBounds(notes: Placed[]): Rect | null {
 export function fitViewport(notes: Placed[], size: Size, padding: number): Viewport {
   const bounds = notesBounds(notes);
   if (!bounds) return clampViewport(centreOn({ x: BOARD_WIDTH / 2, y: BOARD_HEIGHT / 2 }, 1, size), size);
-  const room = (screen: number) => Math.max(1, screen - 2 * padding);
-  const zoom = clampZoom(Math.min(FIT_MAX_ZOOM, room(size.width) / bounds.width, room(size.height) / bounds.height));
+  const zoom = clampZoom(fitZoom(bounds, size, padding));
   const centre = { x: bounds.x + bounds.width / 2, y: bounds.y + bounds.height / 2 };
   return clampViewport(centreOn(centre, zoom, size), size);
 }

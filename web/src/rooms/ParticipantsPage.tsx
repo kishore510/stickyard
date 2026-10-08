@@ -1,4 +1,4 @@
-import { Check, Copy, Lock, LockOpen, LogOut, Power, RotateCcw, Square } from "lucide-react";
+import { Check, Copy, Crosshair, Lock, LockOpen, LogOut, Power, RotateCcw, Square } from "lucide-react";
 import { useState } from "react";
 import { MAX_NAME_LENGTH, MAX_PARTICIPANTS } from "@stickyard/shared";
 import { Button } from "../components/ui/button";
@@ -13,6 +13,11 @@ import { TimerForm } from "../timer/TimerForm";
 import { HostVotingControls } from "../voting/HostVoting";
 import { LOCK_TEXT, confirmEndSession, lockToggle } from "../facilitation/lock";
 import { useCursorPrefs } from "../cursors/prefs";
+import { useCursors } from "../cursors/cursorStore";
+import { useBoardUi } from "../canvas/uiStore";
+import { JUMP_HINT } from "../canvas/navigation";
+import { truncateName } from "../presence/avatars";
+import { closeSheets } from "../shell/nav";
 
 /*
  * The Participants sheet (#/participants): who's in the session now, the unverified-names
@@ -120,6 +125,40 @@ function SessionSection() {
   );
 }
 
+/**
+ * Go to (v0.24.0): pans the board to this person's last known pointer. Off, with the reason shown,
+ * until a pointer from them has been seen (phones never send one). The position lives in memory
+ * only (cursorStore lastSeen), whatever the Show switch says. The sheet closes so the board shows.
+ */
+function GoTo({ id, name }: { id: string; name: string }) {
+  const known = useCursors((s) => s.lastSeen.has(id));
+  const reasonId = `goto-reason-${id}`;
+  return (
+    <span className="flex shrink-0 flex-col items-end py-2xs">
+      <Button
+        variant="ghost"
+        data-goto={id}
+        aria-label={`Go to ${truncateName(name)}’s pointer`}
+        aria-disabled={!known || undefined}
+        aria-describedby={known ? undefined : reasonId}
+        onClick={() => {
+          if (!known) return;
+          closeSheets();
+          useBoardUi.getState().requestJump(id);
+        }}
+      >
+        <Crosshair />
+        Go to
+      </Button>
+      {!known && (
+        <span id={reasonId} className="text-xs text-fg-muted">
+          {JUMP_HINT}
+        </span>
+      )}
+    </span>
+  );
+}
+
 /** One switch: a native checkbox with role=switch, in a full touch-target row. */
 function Switch({ label, hint, checked, onChange }: { label: string; hint: string; checked: boolean; onChange(on: boolean): void }) {
   return (
@@ -169,13 +208,16 @@ export function ParticipantsPage() {
           {people.map((p) => (
             <li key={p.id} className="flex min-h-touch items-center gap-sm rounded-md border border-border bg-surface px-ms">
               <span aria-hidden="true" className={cn("inline-block size-dot shrink-0 rounded-full", participantColourClass(p.colourIndex))} />
-              <span className="min-w-0 break-words">{p.name}</span>
-              {p.id === room.you?.id && <span className="text-fg-muted"> (you)</span>}
+              <span data-person-name="" className="min-w-0 flex-1 break-words">
+                {p.name}
+                {p.id === room.you?.id && <span className="text-fg-muted"> (you)</span>}
+              </span>
               {p.host && (
-                <span data-host-badge="" className="ml-auto shrink-0 rounded-full border border-border bg-surface-muted px-sm text-xs font-semibold">
+                <span data-host-badge="" className="shrink-0 rounded-full border border-border bg-surface-muted px-sm text-xs font-semibold">
                   Host
                 </span>
               )}
+              {p.id !== room.you?.id && <GoTo id={p.id} name={p.name} />}
             </li>
           ))}
         </ul>
