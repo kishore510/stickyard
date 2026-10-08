@@ -25,3 +25,7 @@ Architecture notes, moved out of CLAUDE.md on 7 October 2026 so they load only w
 - `BarGroup.collapsed` turns a group into one disclosure button (`CollapsedGroup`: `aria-expanded`, `aria-controls`; the panel stays mounted while `hidden`, `max-w-arrange` = `--sy-arrange-max`; Escape returns focus to the button; a press outside or a second press closes it). Arrange is collapsed; its commands each say why they're off (`GRID_HINTS.few/offline`, `DISTRIBUTE_HINT`), and Grid is a `CommandButton` too. The Columns stepper keeps native `disabled` (bounds, nothing to explain).
 - Keys: `deleteKey.onBoardBar(target)` (inside `[data-board-bar]`) counts as the board for the Delete key and the Ctrl shortcuts (`deleteKeyTarget`, `boardShortcut`), so Delete or Ctrl+Z after clicking a bar button still acts on the board. Not for `onBoard` itself: Enter on a focused bar button must stay the button's. Other top-bar controls (menu, theme) still don't act on the board.
 - Fits in one row at 768 (icons only; Arrange shows its name from lg), 1024 and 1280 (names from xl), checked in Chromium.
+
+## Silent brainstorm in the shell (v0.28.0)
+- The board's notice stack (the `banner` slot) holds, in order: the lock banner, the voting strip, the silent strip (`SilentStrip`). The bar's Session group gains a "Silent brainstorm" collapsed group beside Voting from xl (below xl, in the Session panel); the 1280 top bar still fits one row (checked in Chromium: no overflow). Help topic `silent-brainstorm` (order 11).
+

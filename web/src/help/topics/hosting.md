@@ -1,8 +1,8 @@
 ---
 title: Running a session
 order: 9
-summary: What the host can do (timer, lock the board, dot voting, end the session) and what everyone else sees.
-keywords: host, hosting, facilitate, facilitator, timer, countdown, time, timebox, lock, locked, unlock, end, end session, delete, crown, badge
+summary: What the host can do (timer, lock the board, dot voting, silent brainstorm, end the session) and what everyone else sees.
+keywords: host, hosting, facilitate, facilitator, timer, countdown, time, timebox, lock, locked, unlock, end, end session, delete, crown, badge, silent, brainstorm, reveal
 ---
 ## Who the host is
 
@@ -32,6 +32,14 @@ keywords: host, hosting, facilitate, facilitator, timer, countdown, time, timebo
 - The host votes like everyone else, and sees only totals too: not who voted, or how many people have voted so far.
 - These controls aren't available while you're not connected, or while something is still being added or the board is being cleared.
 - See [Dot voting](help:dot-voting) for what everyone else sees.
+
+## Silent brainstorm
+
+- The host runs a silent round from **Session** at the right of the board buttons in the top bar (choose **Silent brainstorm**), or on a phone from **Session** in **Participants**.
+- **Start silent round** asks first. It says that notes added from then on stay hidden from everyone but their writer, you included, until you reveal them; that only this device can reveal them, so keep it open (if you lose it, the hidden notes stay hidden until the session expires); and that frames can't be moved and **Clear board** and **Start voting** are off while it runs. On a locked board it also says guests can't add notes until you unlock it; with voting open, that voting stays open but hidden notes can't get votes.
+- **Reveal notes** asks first, with the number of hidden notes: everyone sees them all at once, and it can't be undone.
+- Each button waits for the relay ("Waiting for the relay…") and is off with the reason while you're not connected, while a round already runs (Start) or when none does (Reveal).
+- See [Silent brainstorm](help:silent-brainstorm) for what everyone sees.
 
 ## Ending a session
 

@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState, type FocusEvent, type KeyboardEvent } from "react";
-import { Trash2 } from "lucide-react";
+import { EyeOff, Trash2 } from "lucide-react";
 import { MAX_NOTE_TEXT, codePointLength, type OrderAction } from "@stickyard/shared";
 import { Button } from "../components/ui/button";
 import { FieldError, Label } from "../components/ui/field";
@@ -13,6 +13,8 @@ import { joinTitleBody, splitTitleBody } from "./titleBody";
 import { VotesSection } from "../voting/VoteButtons";
 import { EmojiPicker } from "../emoji/EmojiPicker";
 import { fitsCap } from "./inlineEdit";
+import { useRoomUi } from "../rooms/roomStore";
+import { SILENT_UI } from "../silent/silent";
 
 /**
  * A note's fields: Title (its first line) and Body (the rest), a character count, its colour,
@@ -69,6 +71,8 @@ export function NoteFields({
   const id = useId();
   const titleRef = useRef<HTMLInputElement>(null);
   const bodyRef = useRef<HTMLTextAreaElement>(null);
+  // My sealed note during a silent round (v0.28.0): Properties and the phone editor say so.
+  const sealed = useRoomUi((s) => s.room?.mySealed.has(entry.note.id) ?? false);
   const text = entry.draft ?? entry.note.text;
   const { title, body } = splitTitleBody(text);
   const length = codePointLength(text);
@@ -119,6 +123,12 @@ export function NoteFields({
 
   return (
     <div className="flex flex-col gap-md">
+      {sealed && (
+        <p data-sealed-line="" className="flex items-center gap-xs text-sm text-fg-muted">
+          <EyeOff aria-hidden="true" className="size-icon-sm shrink-0" />
+          <span>{SILENT_UI.sealedLine}</span>
+        </p>
+      )}
       {/* While a round is open (or its results are shown): first, and never turned off by the lock. */}
       <VotesSection noteId={entry.note.id} confirmed={entry.confirmed !== null} />
       <div className="flex flex-col gap-sm" onBlur={onBlur}>

@@ -1,6 +1,6 @@
 import { useId, type ReactNode } from "react";
 import { Eraser, Power, Trash2 } from "lucide-react";
-import { BOARD_HEIGHT, BOARD_WIDTH, MAX_NOTES_PER_ROOM, MAX_SHAPES_PER_ROOM, NOTE_STYLE_FIELDS, type FrameColor, type Note, type OrderAction, type Participant } from "@stickyard/shared";
+import { BOARD_HEIGHT, BOARD_WIDTH, MAX_SHAPES_PER_ROOM, NOTE_STYLE_FIELDS, type FrameColor, type Note, type OrderAction, type Participant, type SilentState } from "@stickyard/shared";
 import { Button } from "../components/ui/button";
 import { cn } from "../lib/utils";
 import { useBoardUi } from "../canvas/uiStore";
@@ -19,6 +19,7 @@ import { ColourSection, PartTextSection, SizeSection, type MixedFields } from ".
 import { clearBoardReason, confirmClearBoard } from "./clearBoard";
 import { ResultsList } from "../voting/Results";
 import { ExportSection } from "../export/ExportSection";
+import { SILENT_OFF, noteCountText } from "../silent/silent";
 import { findShape, type ShapeEdit } from "../shapes/board";
 import { confirmShapeDelete } from "../shapes/label";
 import { ShapeFields, ShapesFields } from "../shapes/ShapeFields";
@@ -87,8 +88,8 @@ export interface PropertiesRoom {
   exportViewport?: () => HTMLElement | null;
   /** A silent round is running (v0.27.0): Clear board and Export are off. */
   silent?: boolean;
-  /** Everyone's notes, sealed ones of others included (absent: the board's). */
-  totalNotes?: number;
+  /** The silent round and my sealed notes in it (absent: none): the count says how many are hidden. */
+  silentRound?: { silent: SilentState; mine: number };
 }
 
 /** The style and size fields whose values differ between these notes. */
@@ -137,8 +138,6 @@ function Summary({ room }: { room: PropertiesRoom }) {
   const notes = room.board.notes.length;
   const frames = room.board.frames.length;
   const shapes = room.board.shapes.length;
-  // During a silent round the count includes the notes others are writing (not shown yet).
-  const total = room.totalNotes ?? notes;
   const reason = withLock(clearBoardReason({ live: room.live, notes, frames, shapes, busy: room.adding, clearing: room.clearing, deleting: room.deleting ?? false, silent: room.silent ?? false }), {
     live: room.live,
     locked: room.locked ?? false,
@@ -149,7 +148,7 @@ function Summary({ room }: { room: PropertiesRoom }) {
     <>
       {room.results && <ResultsList rows={room.results} onPick={(id) => room.onPickResult?.(id)} />}
       <p className="text-sm text-fg-muted tabular-nums">
-        {total} of {MAX_NOTES_PER_ROOM} notes{shapes > 0 ? `, ${shapes} of ${MAX_SHAPES_PER_ROOM} shapes` : ""}. Board size {BOARD_WIDTH} × {BOARD_HEIGHT}.
+        {noteCountText({ shown: notes, silent: room.silentRound?.silent ?? SILENT_OFF, mine: room.silentRound?.mine ?? 0 })}{shapes > 0 ? `, ${shapes} of ${MAX_SHAPES_PER_ROOM} shapes` : ""}. Board size {BOARD_WIDTH} × {BOARD_HEIGHT}.
       </p>
       <p className="text-sm text-fg-muted">Select a note, shape or frame to see and edit it here.</p>
       <div className="flex flex-col gap-xs">

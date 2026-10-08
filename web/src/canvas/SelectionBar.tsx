@@ -25,6 +25,7 @@ import {
   Trash2,
   Undo2,
   Vote,
+  EyeOff,
 } from "lucide-react";
 import { clampFrameRect, type NoteRect, type OrderAction } from "@stickyard/shared";
 import { Button } from "../components/ui/button";
@@ -40,6 +41,8 @@ import { useRoomUi } from "../rooms/roomStore";
 import { MEDIA } from "../styles/breakpoints";
 import { useTimerControls } from "../timer/controls";
 import { HostVotingControls } from "../voting/HostVoting";
+import { HostSilentControls } from "../silent/HostSilent";
+import { SILENT_UI } from "../silent/silent";
 
 /*
  * The board actions bar (md and up). Since v0.15.1 it sits in the top bar, between the mark and
@@ -498,9 +501,15 @@ export function BoardBar({
                   <>
                     {lockedMarker}
                     <CollapsedGroup group={{ label: "Voting", collapsed: { icon: <Vote /> }, commands: [], content: <HostVotingControls className="p-xs" /> }} />
+                    <CollapsedGroup
+                      group={{ label: SILENT_UI.heading, collapsed: { icon: <EyeOff /> }, commands: [], content: <HostSilentControls className="p-xs" /> }}
+                    />
                   </>
                 ) : (
-                  <HostVotingControls className="w-full border-t border-border p-xs pt-sm" />
+                  <>
+                    <HostVotingControls className="w-full border-t border-border p-xs pt-sm" />
+                    <HostSilentControls className="w-full border-t border-border p-xs pt-sm" />
+                  </>
                 ),
               },
             ]

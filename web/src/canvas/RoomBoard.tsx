@@ -41,6 +41,7 @@ import { LOCK_TEXT, lockedOut, withLock } from "../facilitation/lock";
 import { LockNotices } from "../facilitation/LockNotices";
 import { TimerPicker } from "../timer/TimerPicker";
 import { VotingStrip } from "../voting/VotingStrip";
+import { SilentStrip } from "../silent/SilentStrip";
 import { pickResult, useResultRows } from "../voting/Results";
 import { VOTE_TEXT } from "../voting/voting";
 import { openSheet } from "../shell/nav";
@@ -62,7 +63,7 @@ import { zoomSelectionReason } from "./navigation";
 import { ViewNotices, showFitNotice } from "./ViewNotices";
 import { useCursors } from "../cursors/cursorStore";
 import { truncateName } from "../presence/avatars";
-import { SILENT_TEXT, silentNoteReason } from "../silent/silent";
+import { SILENT_TEXT, revealedOutside, silentNoteReason } from "../silent/silent";
 
 /*
  * The room's board with its tools and panels, loaded on demand (React Flow is only needed in a
@@ -609,8 +610,22 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
     useBoardUi.getState().clearSelection();
     if (usePanels.getState().properties.collapsed) usePanels.getState().setCollapsed("properties", false);
   }, []);
+  // After a silent round's reveal (v0.28.0): never a view change; a line with Fit to notes only
+  // when some of the notes it brought are out of view.
+  const revealSeq = view.lastReveal?.seq ?? 0;
+  useEffect(() => {
+    const reveal = latest.current.view.lastReveal;
+    if (!reveal || reveal.seq !== revealSeq) return;
+    const { board } = latest.current.view;
+    const outside = revealedOutside(reveal.ids, (id) => {
+      const note = findNote(board, id)?.note;
+      return note === undefined || canvas.visible(note);
+    });
+    if (outside) useBoardUi.getState().setViewNotice({ kind: "revealed", n: revealSeq });
+  }, [revealSeq, canvas]);
   const closed = view.voting.state === "closed";
-  // The lock's banner first, then the voting strip under it (v0.18.0).
+  // The lock's banner first, then the voting strip under it (v0.18.0), then the silent brainstorm
+  // strip (v0.28.0): both show when a round runs during a vote.
   const lockNotices = useMemo(
     () => (
       <>
@@ -627,9 +642,10 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
             ) : null
           }
         />
+        <SilentStrip silent={view.silent} mine={view.mySealed.size} />
       </>
     ),
-    [view.locked, isHost, view.voting, view.remaining, closed, showResults],
+    [view.locked, isHost, view.voting, view.remaining, closed, showResults, view.silent, view.mySealed],
   );
   const bar = wide ? (
     <BoardBar
@@ -722,7 +738,7 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
           onRestoreDraft={restoreDraft}
           onDismissDraft={dismissDraft}
           banner={lockNotices}
-          viewNotices={<ViewNotices onShowAll={showAll} />}
+          viewNotices={<ViewNotices onShowAll={showAll} onFit={ctx.fit} />}
         />
         {/* The board actions live in the top bar (v0.15.1), between the mark and the menu. */}
         {bar && barSlot && createPortal(bar, barSlot)}
@@ -790,7 +806,7 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
                 onPickResult: pickResult,
                 exportViewport,
                 silent: silentOn,
-                totalNotes: view.totalNotes,
+                silentRound: { silent: view.silent, mine: view.mySealed.size },
               }}
             />
           )}

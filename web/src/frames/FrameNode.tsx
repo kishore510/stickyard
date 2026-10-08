@@ -7,6 +7,8 @@ import { noteClick } from "../canvas/pointer";
 import { useBoardUi } from "../canvas/uiStore";
 import { isLocalId } from "../notes/board";
 import { cn } from "../lib/utils";
+import { useRoomUi } from "../rooms/roomStore";
+import { SILENT_TEXT } from "../silent/silent";
 import { frameHeaderStyle, frameRootStyle, frameTitleClasses } from "./style";
 
 export interface FrameActions {
@@ -85,7 +87,11 @@ export const FrameNode = memo(function FrameNode({ id, data }: NodeProps<FrameFl
     actions?.commitTitle(id);
     e.currentTarget.blur();
   };
-  const handle = editable ? "sy-frame-handle pointer-events-auto cursor-grab" : "";
+  // During a silent round frames can't move (v0.28.0): the grip looks off and says why (on hover,
+  // and to assistive tech through the frame's description). A drag is still refused when it starts.
+  const moveOff = useRoomUi((s) => (s.room?.live ?? false) && (s.room?.silent.active ?? false)) && editable;
+  const handle = editable ? cn("sy-frame-handle pointer-events-auto", moveOff ? "cursor-not-allowed" : "cursor-grab") : "";
+  const moveProps = moveOff ? { "data-move-off": "", title: SILENT_TEXT.on } : {};
 
   return (
     <>
@@ -106,6 +112,7 @@ export const FrameNode = memo(function FrameNode({ id, data }: NodeProps<FrameFl
         aria-label={`Frame: ${frame.title || "untitled"}`}
         data-frame-id={id}
         aria-current={selected || undefined}
+        aria-describedby={moveOff ? `${id}-move-off` : undefined}
         className={cn(
           "relative size-full rounded-lg border-2",
           entry.confirmed === null && "border-dashed opacity-75",
@@ -119,8 +126,14 @@ export const FrameNode = memo(function FrameNode({ id, data }: NodeProps<FrameFl
           style={frameHeaderStyle(frame)}
           onClick={select}
           onDoubleClick={editTitle}
+          {...moveProps}
         >
-          {editable && <GripHorizontal aria-hidden="true" data-export-skip="" className="size-icon-sm shrink-0 opacity-60" />}
+          {moveOff && (
+            <span id={`${id}-move-off`} className="sr-only">
+              {SILENT_TEXT.on} Frames can’t be moved.
+            </span>
+          )}
+          {editable && <GripHorizontal aria-hidden="true" data-export-skip="" className={cn("size-icon-sm shrink-0", moveOff ? "opacity-30" : "opacity-60")} />}
           {editable ? (
             <input
               ref={input}
@@ -153,7 +166,7 @@ export const FrameNode = memo(function FrameNode({ id, data }: NodeProps<FrameFl
             </span>
           )}
         </div>
-        {editable && EDGES.map((edge) => <div key={edge} aria-hidden="true" data-frame-handle="edge" className={cn("absolute", edge, handle)} onClick={select} />)}
+        {editable && EDGES.map((edge) => <div key={edge} aria-hidden="true" data-frame-handle="edge" className={cn("absolute", edge, handle)} onClick={select} {...moveProps} />)}
       </div>
       {selected && several && (
         <span data-select-badge aria-hidden="true" className="sy-select-badge">

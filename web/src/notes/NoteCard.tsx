@@ -2,7 +2,8 @@ import { createContext, memo, useContext, useEffect, useRef, type KeyboardEvent,
 import { useBoardUi } from "../canvas/uiStore";
 import { useRoomUi } from "../rooms/roomStore";
 import { NodeResizer, type NodeProps } from "@xyflow/react";
-import { Check } from "lucide-react";
+import { Check, EyeOff } from "lucide-react";
+import { SILENT_UI } from "../silent/silent";
 import { NOTE_MAX_H, NOTE_MAX_W, NOTE_MIN_H, NOTE_MIN_W, type NoteRect } from "@stickyard/shared";
 import type { NoteFlowNode } from "../canvas/nodes";
 import { noteClick } from "../canvas/pointer";
@@ -263,6 +264,22 @@ export function NoteCard({ entry, editable, selected, voteLabel = "" }: { entry:
   );
 }
 
+/**
+ * On my sealed notes during a silent round (v0.28.0): "Only you" with an icon, where the vote
+ * badges go (a sealed note never has them). Its words are in the note's accessible name already,
+ * so the badge itself is hidden from assistive tech. Not exported (export is off during a round).
+ */
+function SealedMarker() {
+  return (
+    <div aria-hidden="true" data-sealed-marker="" className="sy-vote-badges">
+      <span className="sy-vote-badge" title={SILENT_UI.marker}>
+        <EyeOff />
+        {SILENT_UI.markerShort}
+      </span>
+    </div>
+  );
+}
+
 const rectOf = (p: { x: number; y: number; width: number; height: number }): NoteRect => ({ x: p.x, y: p.y, w: p.width, h: p.height });
 
 /**
@@ -292,8 +309,8 @@ export const NoteNode = memo(function NoteNode({ id, data }: NodeProps<NoteFlowN
         onResize={(_, p) => actions?.resizeNote(id, rectOf(p), false)}
         onResizeEnd={(_, p) => actions?.resizeNote(id, rectOf(p), true)}
       />
-      <NoteCard entry={data.entry} editable={data.editable} selected={data.selected} voteLabel={voteLabel} />
-      {!sealed && <VoteBadges id={id} />}
+      <NoteCard entry={data.entry} editable={data.editable} selected={data.selected} voteLabel={sealed ? `${SILENT_UI.marker}.` : voteLabel} />
+      {sealed ? <SealedMarker /> : <VoteBadges id={id} />}
       {votingOpen && !sealed && data.selected && !several && <VoteControls id={id} confirmed={data.entry.confirmed !== null} />}
       {data.selected && several && (
         <span data-select-badge aria-hidden="true" className="sy-select-badge">

@@ -43,6 +43,7 @@ Sections are named after the slice that introduced them. Cross-references in quo
 | Silent brainstorm, protocol v17 (v0.25.0, part 1 of 3) | facilitation.md |
 | Silent brainstorm: which notes are mine, protocol v18 (v0.26.0) | facilitation.md |
 | Silent brainstorm: web state and plumbing (v0.27.0, part 2 of 3) | facilitation.md, connection.md |
+| Silent brainstorm: the UI (v0.28.0, part 3 of 3) | facilitation.md, notes.md, shell.md |
 | Frames, protocol v9 (slice frames) | frames.md |
 | Frame title styling, protocol v10 (slice frame title styling) | frames.md |
 | Templates (slice templates) | frames.md |

@@ -53,6 +53,8 @@ export interface PublishedRoom {
   mySealed: ReadonlySet<string>;
   totalNotes: number;
   writer: boolean;
+  /** The host's Start or Reveal waiting for the relay (part 3). */
+  silentPending: "start" | "reveal" | null;
   /** Host only (the session refuses them for guests, while disconnected, or in the wrong state). */
   startSilent(): boolean;
   revealSilent(): boolean;
