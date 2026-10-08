@@ -10,6 +10,7 @@ import {
   FRAME_MIN_W,
   MAX_FRAMES_PER_ROOM,
   MAX_FRAME_TITLE,
+  MAX_MESSAGE_BYTES,
   NOTE_ALIGNS,
   NOTE_DEFAULTS,
   NOTE_FONT_SIZES,
@@ -27,7 +28,7 @@ import { findNote } from "../src/notes/board";
 import { PALETTE_CATEGORIES, paletteSections } from "../src/palette/registry";
 import { ITEMS_STEP_MS, NOTICES, RoomSession, type RoomView } from "../src/rooms/session";
 import { clampTemplateOrigin, placeTemplate, templateBounds, templateOrigin } from "../src/templates/place";
-import { TEMPLATES, type Template } from "../src/templates/registry";
+import { TEMPLATE_GROUPS, TEMPLATES, type Template } from "../src/templates/registry";
 
 /* Slice templates (web only): ready-made sets of frames. Generic fixtures. */
 
@@ -57,9 +58,43 @@ const byId = (id: string): Template => {
 };
 
 describe("template registry", () => {
-  it("has the four templates, in order", () => {
-    expect(TEMPLATES.map((t) => t.label)).toEqual(["Retro", "Start Stop Continue", "2x2 Impact and Effort", "Sprint planning"]);
+  it("has the fourteen templates, in group order, with unique ids and names", () => {
+    expect(TEMPLATES.map((t) => t.label)).toEqual([
+      "Retro",
+      "Start Stop Continue",
+      "Mad Sad Glad",
+      "4Ls",
+      "Starfish",
+      "Sailboat",
+      "Sprint planning",
+      "2x2 Impact and Effort",
+      "Lean coffee",
+      "SWOT",
+      "TIME",
+      "Migration strategy",
+      "Technology radar",
+      "RAID",
+      "Architecture decision",
+    ]);
     expect(new Set(TEMPLATES.map((t) => t.id)).size).toBe(TEMPLATES.length);
+    expect(new Set(TEMPLATES.map((t) => t.label.toLowerCase())).size).toBe(TEMPLATES.length);
+  });
+
+  it("every template has a group from the allowed list, and the groups come in the stated order", () => {
+    expect(TEMPLATE_GROUPS.map((g) => g.label)).toEqual(["Retros", "Planning and facilitation", "Architecture and analysis"]);
+    const allowed = TEMPLATE_GROUPS.map((g) => g.label);
+    for (const t of TEMPLATES) {
+      expect(t.group, t.label).toBeDefined();
+      expect(allowed, t.label).toContain(t.group);
+    }
+    // Registry order runs group by group: each group's entries together, groups in the stated order.
+    const order = TEMPLATES.map((t) => allowed.indexOf(t.group));
+    expect(order).toEqual([...order].sort((a, b) => a - b));
+    expect(new Set(order).size).toBe(allowed.length);
+    const members = (group: string) => TEMPLATES.filter((t) => t.group === group).map((t) => t.label);
+    expect(members("Retros")).toEqual(["Retro", "Start Stop Continue", "Mad Sad Glad", "4Ls", "Starfish", "Sailboat"]);
+    expect(members("Planning and facilitation")).toEqual(["Sprint planning", "2x2 Impact and Effort", "Lean coffee"]);
+    expect(members("Architecture and analysis")).toEqual(["SWOT", "TIME", "Migration strategy", "Technology radar", "RAID", "Architecture decision"]);
   });
 
   it.each(TEMPLATES.map((t) => [t.label, t] as const))("%s validates against the shared constants", (_label, t) => {
@@ -110,6 +145,62 @@ describe("template registry", () => {
       "Thankless tasks: low impact, high effort",
     ]);
     expect(byId("sprint-planning").frames.map((f) => f.title)).toEqual(["Sprint goal", "Candidates", "Committed", "Risks and questions"]);
+    expect(byId("mad-sad-glad").frames.map((f) => f.title)).toEqual(["Mad", "Sad", "Glad"]);
+    expect(byId("four-ls").frames.map((f) => f.title)).toEqual(["Liked", "Learned", "Lacked", "Longed for"]);
+    expect(byId("starfish").frames.map((f) => f.title)).toEqual(["Keep", "Less of", "More of", "Start", "Stop"]);
+    expect(byId("sailboat").frames.map((f) => f.title)).toEqual(["Goal", "Wind (helps us)", "Anchors (slow us)", "Rocks (risks)"]);
+    expect(byId("lean-coffee").frames.map((f) => f.title)).toEqual(["To discuss", "Discussing", "Discussed"]);
+    expect(byId("swot").frames.map((f) => f.title)).toEqual([
+      "Strengths: internal, helpful",
+      "Weaknesses: internal, harmful",
+      "Opportunities: external, helpful",
+      "Threats: external, harmful",
+    ]);
+    expect(byId("time").frames.map((f) => f.title)).toEqual([
+      "Migrate: high value, poor fit",
+      "Invest: high value, good fit",
+      "Eliminate: low value, poor fit",
+      "Tolerate: low value, good fit",
+    ]);
+    expect(byId("migration-strategy").frames.map((f) => f.title.split(":")[0])).toEqual(["Rehost", "Replatform", "Refactor", "Repurchase", "Retire", "Retain"]);
+    expect(byId("tech-radar").frames.map((f) => f.title)).toEqual(["Adopt", "Trial", "Assess", "Hold"]);
+    expect(byId("raid").frames.map((f) => f.title)).toEqual(["Risks", "Assumptions", "Issues", "Dependencies"]);
+    expect(byId("architecture-decision").frames.map((f) => f.title)).toEqual(["Context", "Options", "Decision", "Consequences"]);
+  });
+
+  /** A frame's place in a template: its row and column, by distinct top and left edges. */
+  const grid = (t: Template, title: string) => {
+    const f = t.frames.find((x) => x.title.startsWith(title));
+    if (!f) throw new Error(`no frame ${title}`);
+    const ys = [...new Set(t.frames.map((x) => x.y))].sort((a, b) => a - b);
+    const xs = [...new Set(t.frames.map((x) => x.x))].sort((a, b) => a - b);
+    return { row: ys.indexOf(f.y), col: xs.indexOf(f.x), frame: f };
+  };
+
+  it("lays out the shaped templates as asked: 2 x 2, 3 x 2, 3 + 2 and a wide goal over a row", () => {
+    // TIME: business value up, technical fit to the right.
+    const time = byId("time");
+    expect(grid(time, "Migrate")).toMatchObject({ row: 0, col: 0 });
+    expect(grid(time, "Invest")).toMatchObject({ row: 0, col: 1 });
+    expect(grid(time, "Eliminate")).toMatchObject({ row: 1, col: 0 });
+    expect(grid(time, "Tolerate")).toMatchObject({ row: 1, col: 1 });
+    const swot = byId("swot");
+    expect(["Strengths", "Weaknesses", "Opportunities", "Threats"].map((n) => [grid(swot, n).row, grid(swot, n).col])).toEqual([[0, 0], [0, 1], [1, 0], [1, 1]]);
+    const migration = byId("migration-strategy");
+    expect(new Set(migration.frames.map((f) => f.y)).size).toBe(2);
+    expect(new Set(migration.frames.map((f) => f.x)).size).toBe(3);
+    // Starfish: three on top, two below, the two centred under the three.
+    const starfish = byId("starfish");
+    const rows = [...new Set(starfish.frames.map((f) => f.y))].map((y) => starfish.frames.filter((f) => f.y === y).length);
+    expect(rows).toEqual([3, 2]);
+    const { width } = templateBounds(starfish);
+    const bottom = starfish.frames.filter((f) => f.y > 0);
+    expect(Math.min(...bottom.map((f) => f.x)) + Math.max(...bottom.map((f) => f.x + f.w))).toBe(width);
+    // Sailboat: the goal spans the row below it.
+    const sailboat = byId("sailboat");
+    const goal = sailboat.frames[0]!;
+    expect(goal.w).toBe(templateBounds(sailboat).width);
+    expect(sailboat.frames.slice(1).every((f) => f.y > goal.y + goal.h && f.y === sailboat.frames[1]!.y)).toBe(true);
   });
 });
 
@@ -132,6 +223,27 @@ describe("placing a template", () => {
       expect(f.y).toBeGreaterThanOrEqual(0);
       expect(f.x + f.w).toBeLessThanOrEqual(BOARD_WIDTH);
       expect(f.y + f.h).toBeLessThanOrEqual(BOARD_HEIGHT);
+    }
+  });
+
+  it.each(TEMPLATES.map((t) => [t.label, t] as const))("%s: every frame is inside the board after clamping, wherever it's placed", (_label, t) => {
+    const points = [
+      { x: 0, y: 0 },
+      { x: BOARD_WIDTH, y: BOARD_HEIGHT },
+      { x: BOARD_WIDTH, y: 0 },
+      { x: -5000, y: 99999 },
+      { x: BOARD_WIDTH / 2, y: BOARD_HEIGHT / 2 },
+    ];
+    for (const p of points) {
+      for (const placed of [placeTemplate(t, templateOrigin(t, p)), placeTemplate(t, p)]) {
+        for (const f of placed) {
+          expect(f.x).toBeGreaterThanOrEqual(0);
+          expect(f.y).toBeGreaterThanOrEqual(0);
+          expect(f.x + f.w).toBeLessThanOrEqual(BOARD_WIDTH);
+          expect(f.y + f.h).toBeLessThanOrEqual(BOARD_HEIGHT);
+        }
+        for (const [i, a] of placed.entries()) for (const b of placed.slice(i + 1)) expect(overlaps(a, b)).toBe(false);
+      }
     }
   });
 
@@ -162,7 +274,7 @@ class FakeSocket {
   }
 }
 
-function session({ frames = [] as Frame[], notes = [] as Note[] } = {}) {
+function session({ frames = [] as Frame[], notes = [] as Note[], silent = { active: false, count: 0 } } = {}) {
   let socket: FakeSocket | null = null;
   const views: RoomView[] = [];
   const createSocket: SocketFactory = (_url, handlers) => (socket = new FakeSocket(handlers));
@@ -174,9 +286,10 @@ function session({ frames = [] as Frame[], notes = [] as Note[] } = {}) {
   };
   sock().handlers.onOpen();
   sock().receive({ type: "welcome", protocolVersion: PROTOCOL_VERSION });
-  sock().receive({ type: "joined", you: alex, participants: [alex], locked: false, timer: null, voting: { state: "off", budget: 5, round: 0 }, silent: { active: false, count: 0 } });
+  sock().receive({ type: "joined", you: alex, participants: [alex], locked: false, timer: null, voting: { state: "off", budget: 5, round: 0 }, silent });
   sock().receive({ type: "snapshot", notes });
   sock().receive({ type: "framesSnapshot", frames });
+  if (silent.active) sock().receive({ type: "silentMine", ids: [] });
   const view = () => views.at(-1)!;
   const start = sock().sent.length;
   /** Messages the template sent (after joining). */
@@ -222,12 +335,43 @@ describe("session: applying a template", () => {
     for (const [i, f] of plan.entries()) expect(findFrame(t.view().board, frameId(100 + i))?.frame).toMatchObject({ x: f.x, y: f.y, w: f.w, h: f.h, title: f.title, ...f.style });
   });
 
-  it("every template fits in one message", () => {
+  it("every template fits in one message, under the 4 KiB cap, the largest included", () => {
     for (const template of TEMPLATES) {
       const t = session();
-      t.session.applyTemplate(placeTemplate(template, { x: 0, y: 0 }));
+      // The far corner gives every coordinate its most digits.
+      expect(t.session.applyTemplate(placeTemplate(template, { x: BOARD_WIDTH, y: BOARD_HEIGHT })), template.label).toBe(true);
       expect(t.types(), template.label).toEqual(["itemsAdd"]);
+      const bytes = new TextEncoder().encode(JSON.stringify(t.out()[0]!.message)).length;
+      expect(bytes, template.label).toBeLessThanOrEqual(MAX_MESSAGE_BYTES);
+      expect((t.out()[0]!.message.frames as unknown[]).length).toBe(template.frames.length);
     }
+    const largest = Math.max(...TEMPLATES.map((t) => t.frames.length));
+    expect(largest).toBe(6);
+    expect(largest).toBeLessThanOrEqual(MAX_FRAMES_PER_ROOM);
+  });
+
+  it("the largest template passes the free-slots check on an empty board, and is refused with the same message when one slot short", () => {
+    const largest = TEMPLATES.reduce((a, b) => (b.frames.length > a.frames.length ? b : a));
+    const plan6 = placeTemplate(largest, { x: 0, y: 0 });
+    expect(session().session.applyTemplate(plan6)).toBe(true);
+    const fits = session({ frames: Array.from({ length: MAX_FRAMES_PER_ROOM - largest.frames.length }, (_, i) => frame(i)) });
+    expect(fits.session.applyTemplate(plan6)).toBe(true);
+    const short = session({ frames: Array.from({ length: MAX_FRAMES_PER_ROOM - largest.frames.length + 1 }, (_, i) => frame(i)) });
+    expect(short.session.applyTemplate(plan6)).toBe(false);
+    expect(short.view().noteNotice).toBe(NOTICES.templateNoRoom(largest.frames.length, largest.frames.length - 1));
+    expect(short.out()).toEqual([]);
+  });
+
+  it("still applies during a silent round (frames only, so nothing is sealed)", () => {
+    const t = session({ silent: { active: true, count: 2 } });
+    expect(t.view().silent).toEqual({ active: true, count: 2 });
+    const sailboat = placeTemplate(byId("sailboat"), { x: 100, y: 100 });
+    expect(t.session.applyTemplate(sailboat)).toBe(true);
+    expect(t.types()).toEqual(["itemsAdd"]);
+    expect(t.out()[0]!.message.notes).toBeUndefined();
+    t.confirmAdds();
+    expect(t.view().template).toMatchObject({ state: "done" });
+    expect(t.view().board.frames).toHaveLength(sailboat.length);
   });
 
   it("never moves, resizes or deletes existing frames and notes", async () => {
@@ -313,36 +457,57 @@ describe("session: applying a template", () => {
 describe("palette: Templates", () => {
   const state = { live: true, noteCount: 0, isHost: false };
   const ctx = { noteReason: null, frameReason: null, templateReason: null, timerReason: null, shapeReason: null };
+  const groupIds = TEMPLATE_GROUPS.map((g) => g.categoryId);
+  const templateSections = (query: string) => paletteSections(PALETTE_CATEGORIES, "add", state, query, "panel").filter((s) => groupIds.includes(s.category.id));
+  const templateItems = PALETTE_CATEGORIES.filter((c) => groupIds.includes(c.id)).flatMap((c) => c.items);
 
-  it("is a Templates category on the panel (md and up) only, one tile per template", () => {
+  it("is one category per template group on the panel (md and up) only, headed by the group's name, entries in registry order", () => {
     const panel = paletteSections(PALETTE_CATEGORIES, "add", state, "", "panel");
     const drawer = paletteSections(PALETTE_CATEGORIES, "add", state, "", "drawer");
-    expect(panel.map((s) => s.category.label)).toEqual(["Notes", "Frames", "Shapes", "Templates"]);
-    expect(panel.find((s) => s.category.id === "templates")?.items.map((i) => i.label)).toEqual(TEMPLATES.map((t) => t.label));
-    expect(drawer.map((s) => s.category.id)).not.toContain("templates");
+    expect(panel.map((s) => s.category.label)).toEqual(["Notes", "Frames", "Shapes", "Retros", "Planning and facilitation", "Architecture and analysis"]);
+    for (const group of TEMPLATE_GROUPS) {
+      expect(panel.find((s) => s.category.id === group.categoryId)?.items.map((i) => i.label)).toEqual(TEMPLATES.filter((t) => t.group === group.label).map((t) => t.label));
+    }
+    expect(templateItems.map((i) => i.label)).toEqual(TEMPLATES.map((t) => t.label));
+    for (const id of groupIds) expect(drawer.map((s) => s.category.id)).not.toContain(id);
   });
 
   it.each([
-    ["retro", ["Retro", "Start Stop Continue"]],
-    ["kanban", ["Sprint planning"]],
-    ["matrix", ["2x2 Impact and Effort"]],
+    ["template", [["Retros", 6], ["Planning and facilitation", 3], ["Architecture and analysis", 6]]],
+    ["retro", [["Retros", 6]]],
+    ["kanban", [["Planning and facilitation", 2]]],
+    ["matrix", [["Planning and facilitation", 1], ["Architecture and analysis", 2]]],
+    ["swot", [["Architecture and analysis", 1]]],
+    ["zzz-nothing", []],
+  ] as const)("search %s works across groups, and a group with no matches hides its heading", (query, expected) => {
+    expect(templateSections(query).map((s) => [s.category.label, s.items.length])).toEqual(expected);
+  });
+
+  it.each([
+    ["retro", ["Retro", "Start Stop Continue", "Mad Sad Glad", "4Ls", "Starfish", "Sailboat"]],
+    ["kanban", ["Sprint planning", "Lean coffee"]],
     ["impact", ["2x2 Impact and Effort"]],
     ["sprint goal", ["Sprint planning"]],
+    ["rationalisation", ["TIME"]],
+    ["cloud migration", ["Migration strategy"]],
+    ["radar", ["Technology radar"]],
+    ["decision record", ["Architecture decision"]],
   ])("search %s finds %j", (query, labels) => {
-    const found = paletteSections(PALETTE_CATEGORIES, "add", state, query, "panel").find((s) => s.category.id === "templates");
-    expect(found?.items.map((i) => i.label)).toEqual(labels);
+    expect(templateSections(query).flatMap((s) => s.items.map((i) => i.label))).toEqual(labels);
   });
 
   it("each tile applies its template through plain actions, drops at its own size, and is off with the template reason", () => {
-    const items = PALETTE_CATEGORIES.find((c) => c.id === "templates")?.items ?? [];
+    const items = templateItems;
     const applyTemplate = vi.fn();
     items[0]?.create({ addNote: vi.fn(), addFrame: vi.fn(), applyTemplate, openTimer: vi.fn(), addShape: vi.fn() }, { x: 10, y: 20 });
     expect(applyTemplate).toHaveBeenCalledWith(TEMPLATES[0], { x: 10, y: 20 });
     const { width, height } = templateBounds(TEMPLATES[0]!);
     expect(items[0]?.dropSize).toEqual({ width, height });
     expect(items[0]?.preview).toEqual({ kind: "template", template: TEMPLATES[0] });
-    expect(items[0]?.disabled(ctx)).toBeNull();
-    expect(items[0]?.disabled({ ...ctx, templateReason: "Busy", timerReason: null, shapeReason: null })).toBe("Busy");
+    for (const item of items) {
+      expect(item.disabled(ctx)).toBeNull();
+      expect(item.disabled({ ...ctx, templateReason: "Busy" })).toBe("Busy");
+    }
   });
 });
 
