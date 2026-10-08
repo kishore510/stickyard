@@ -1013,7 +1013,7 @@ describe("the palette (md up)", () => {
     expect(palette()?.querySelector("h3")).toBeNull();
     expect(palette()?.textContent).toContain("No matches");
     await type(search() as HTMLInputElement, "");
-    expect(tiles()).toHaveLength(15);
+    expect(tiles()).toHaveLength(11 + TEMPLATES.length);
   });
 
   it("collapses to a strip with an expand button and compact tiles (as in Chalkline), from the header or with [, and remembers it", async () => {
@@ -1022,7 +1022,7 @@ describe("the palette (md up)", () => {
     expect(search()).toBeNull();
     expect(palette()?.querySelector("h3")).toBeNull();
     // Collapsing never takes adding away: the strip keeps one compact tile per colour.
-    expect(tiles().map((t) => t.getAttribute("aria-label"))).toEqual(["Yellow note", "Pink note", "Blue note", "Green note", "Orange note", "Purple note", "Frame", "Text", "Rectangle", "Oval", "Diamond", "Retro", "Start Stop Continue", "2x2 Impact and Effort", "Sprint planning"]);
+    expect(tiles().map((t) => t.getAttribute("aria-label"))).toEqual(["Yellow note", "Pink note", "Blue note", "Green note", "Orange note", "Purple note", "Frame", "Text", "Rectangle", "Oval", "Diamond", ...TEMPLATES.map((t) => t.label)]);
     await click(tiles()[2]);
     expect(sentOfType(socket, "noteAdd")[0]).toMatchObject({ color: "blue" });
     expect(palette()?.querySelector('[aria-label="Expand palette"]')?.getAttribute("aria-expanded")).toBe("false");
@@ -1030,7 +1030,7 @@ describe("the palette (md up)", () => {
     await act(async () => (document.activeElement as HTMLElement | null)?.blur());
     await press("[");
     expect(search()).not.toBeNull();
-    expect(tiles()).toHaveLength(15);
+    expect(tiles()).toHaveLength(11 + TEMPLATES.length);
     expect(saved("stickyard:palette-panel")).toEqual({ width: null, collapsed: false });
   });
 

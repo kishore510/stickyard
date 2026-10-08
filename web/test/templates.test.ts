@@ -58,7 +58,7 @@ const byId = (id: string): Template => {
 };
 
 describe("template registry", () => {
-  it("has the fourteen templates, in group order, with unique ids and names", () => {
+  it("has the fifteen templates, in group order, with unique ids and names", () => {
     expect(TEMPLATES.map((t) => t.label)).toEqual([
       "Retro",
       "Start Stop Continue",
@@ -457,7 +457,7 @@ describe("session: applying a template", () => {
 describe("palette: Templates", () => {
   const state = { live: true, noteCount: 0, isHost: false };
   const ctx = { noteReason: null, frameReason: null, templateReason: null, timerReason: null, shapeReason: null };
-  const groupIds = TEMPLATE_GROUPS.map((g) => g.categoryId);
+  const groupIds: readonly string[] = TEMPLATE_GROUPS.map((g) => g.categoryId);
   const templateSections = (query: string) => paletteSections(PALETTE_CATEGORIES, "add", state, query, "panel").filter((s) => groupIds.includes(s.category.id));
   const templateItems = PALETTE_CATEGORIES.filter((c) => groupIds.includes(c.id)).flatMap((c) => c.items);
 
