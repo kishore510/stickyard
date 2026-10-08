@@ -463,6 +463,36 @@ describe("undo and redo of my own sealed notes during a round", () => {
     expect((t.sock().ofType("noteBatch").at(-1) as { ops: { op: string; id: string }[] }).ops).toEqual([{ op: "delete", id: nid(2) }]);
   });
 
+  it("an undo that would add a note back past 200 in total (hidden notes counted) is refused up front, nothing sent", () => {
+    const shown = Array.from({ length: 150 }, (_, i) => note(i));
+    const t = joined({ silent: { active: true, count: 0 }, notes: [...shown, note(500, { authorId: alex.id })], mine: [] });
+    t.session.deleteNote(nid(500));
+    t.sock().receive({ type: "noteDeleted", id: nid(500) });
+    // Others write 50 hidden notes meanwhile: the board is full.
+    t.sock().receive({ type: "silentChanged", active: true, count: 50 });
+    expect(t.view().totalNotes).toBe(MAX_NOTES_PER_ROOM);
+    t.session.undo();
+    vi.advanceTimersByTime(1_000);
+    expect(t.sock().ofType("itemsAdd")).toEqual([]);
+    expect(t.view().noteNotice).toBe(NOTICES.full);
+  });
+
+  it("an undo that would move a frame is refused during a round with the reason; nothing sent", () => {
+    const t = joined({ notes: [note(1)], frames: [frame(1)] });
+    expect(t.session.startFrameDrag(fid(1), false)).toBe(true);
+    t.session.moveFrame(fid(1), 300, 300, true);
+    t.sock().receive({ type: "frameMoved", id: fid(1), x: 300, y: 300, rev: 2, final: true });
+    t.sock().receive({ type: "silentChanged", active: true, count: 0 });
+    const sent = t.sock().ofType("frameMove").length;
+    t.session.undo();
+    expect(t.sock().ofType("frameMove")).toHaveLength(sent);
+    expect(t.view().noteNotice).toBe(SILENT_TEXT.on);
+    // After the round the same undo works.
+    t.sock().receive({ type: "silentChanged", active: false, count: 0 });
+    t.session.undo();
+    expect(t.sock().ofType("frameMove").at(-1)).toMatchObject({ id: fid(1), x: 0, y: 0 });
+  });
+
   it("undo of my add of a sealed note deletes it", () => {
     const t = joined({ silent: { active: true, count: 0 }, mine: [] });
     addMine(t, 1, 1);

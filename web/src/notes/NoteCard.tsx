@@ -276,6 +276,8 @@ export const NoteNode = memo(function NoteNode({ id, data }: NodeProps<NoteFlowN
   const several = useBoardUi((s) => s.selection.size + s.frames.size > 1);
   const voteLabel = useNoteVoteLabel(id);
   const votingOpen = useRoomUi((s) => s.room?.voting.state === "open");
+  // My sealed notes (silent brainstorm) take no votes until the reveal: no dots, no controls.
+  const sealed = useRoomUi((s) => s.room?.mySealed.has(id) ?? false);
   return (
     <>
       <NodeResizer
@@ -291,8 +293,8 @@ export const NoteNode = memo(function NoteNode({ id, data }: NodeProps<NoteFlowN
         onResizeEnd={(_, p) => actions?.resizeNote(id, rectOf(p), true)}
       />
       <NoteCard entry={data.entry} editable={data.editable} selected={data.selected} voteLabel={voteLabel} />
-      <VoteBadges id={id} />
-      {votingOpen && data.selected && !several && <VoteControls id={id} confirmed={data.entry.confirmed !== null} />}
+      {!sealed && <VoteBadges id={id} />}
+      {votingOpen && !sealed && data.selected && !several && <VoteControls id={id} confirmed={data.entry.confirmed !== null} />}
       {data.selected && several && (
         <span data-select-badge aria-hidden="true" className="sy-select-badge">
           <Check strokeWidth={3} />

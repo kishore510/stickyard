@@ -1,5 +1,6 @@
 import { VOTE_BUDGET_DEFAULT, VOTE_BUDGET_MAX, VOTE_BUDGET_MIN, type VotingState } from "@stickyard/shared";
 import { splitTitleBody } from "../notes/titleBody";
+import { SILENT_TEXT } from "../silent/silent";
 
 /*
  * Dot voting UI (v0.18.0, on the protocol v13 plumbing; web only). Pure rules and texts, so
@@ -143,13 +144,14 @@ export const HOST_VOTE_HINTS = {
  * Why each host voting command is off (null: on). `blocked` is whatever turns End session off
  * (disconnected, a template, restore, duplicate or clear still running): it turns them all off.
  */
-export function hostVoteReasons(s: { blocked: string | null; state: VotingState["state"] }): {
+export function hostVoteReasons(s: { blocked: string | null; state: VotingState["state"]; silent?: boolean }): {
   start: string | null;
   stop: string | null;
   clear: string | null;
 } {
   return {
-    start: s.blocked,
+    // The relay refuses voteStart during a silent round (silent_active).
+    start: s.blocked ?? (s.silent ? SILENT_TEXT.on : null),
     stop: s.blocked ?? (s.state !== "open" ? HOST_VOTE_HINTS.notOpen : null),
     clear: s.blocked ?? (s.state === "off" ? HOST_VOTE_HINTS.nothing : null),
   };

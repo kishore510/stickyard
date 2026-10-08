@@ -5,6 +5,7 @@ import type { Board } from "../notes/board";
 import type { ResultRow } from "../voting/voting";
 import { boardToMarkdown, exportFileName, type ExportBoard } from "./markdown";
 import { EXPORT_NOTICES, downloadBlob, exportBounds, renderPng } from "./png";
+import { SILENT_TEXT } from "../silent/silent";
 
 /*
  * Export (v0.22.0): Properties with nothing selected (md and up), for hosts and guests, on a
@@ -29,12 +30,15 @@ export function ExportSection({
   board,
   results,
   viewport,
+  silent = false,
 }: {
   board: Board;
   /** Revealed totals (voting closed), else null: no vote information is exported. */
   results: readonly ResultRow[] | null;
   /** React Flow's viewport element (the PNG draws it); null when there's no canvas. */
   viewport: () => HTMLElement | null;
+  /** A silent round is running (v0.27.0): nothing is exported until the reveal. */
+  silent?: boolean;
 }) {
   const hintId = useId();
   const [busy, setBusy] = useState<Busy>(null);
@@ -43,10 +47,10 @@ export function ExportSection({
   const running = useRef(false);
   const items = [...board.notes.map((e) => e.note), ...board.frames.map((e) => e.frame), ...board.shapes.map((e) => e.shape)];
   const empty = items.length === 0;
-  const reason = empty ? EXPORT_NOTICES.empty : null;
+  const reason = silent ? SILENT_TEXT.export : empty ? EXPORT_NOTICES.empty : null;
 
   const run = async (kind: "png" | "md") => {
-    if (running.current || empty) return;
+    if (running.current || reason !== null) return;
     running.current = true;
     setBusy(kind);
     setFailed(false);

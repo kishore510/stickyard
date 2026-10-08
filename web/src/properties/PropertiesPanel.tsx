@@ -85,6 +85,10 @@ export interface PropertiesRoom {
   onPickResult?: (noteId: string) => void;
   /** React Flow's viewport element, for Export PNG (v0.22.0); without it there's no Export section. */
   exportViewport?: () => HTMLElement | null;
+  /** A silent round is running (v0.27.0): Clear board and Export are off. */
+  silent?: boolean;
+  /** Everyone's notes, sealed ones of others included (absent: the board's). */
+  totalNotes?: number;
 }
 
 /** The style and size fields whose values differ between these notes. */
@@ -133,7 +137,9 @@ function Summary({ room }: { room: PropertiesRoom }) {
   const notes = room.board.notes.length;
   const frames = room.board.frames.length;
   const shapes = room.board.shapes.length;
-  const reason = withLock(clearBoardReason({ live: room.live, notes, frames, shapes, busy: room.adding, clearing: room.clearing, deleting: room.deleting ?? false }), {
+  // During a silent round the count includes the notes others are writing (not shown yet).
+  const total = room.totalNotes ?? notes;
+  const reason = withLock(clearBoardReason({ live: room.live, notes, frames, shapes, busy: room.adding, clearing: room.clearing, deleting: room.deleting ?? false, silent: room.silent ?? false }), {
     live: room.live,
     locked: room.locked ?? false,
     isHost: room.isHost ?? false,
@@ -143,7 +149,7 @@ function Summary({ room }: { room: PropertiesRoom }) {
     <>
       {room.results && <ResultsList rows={room.results} onPick={(id) => room.onPickResult?.(id)} />}
       <p className="text-sm text-fg-muted tabular-nums">
-        {notes} of {MAX_NOTES_PER_ROOM} notes{shapes > 0 ? `, ${shapes} of ${MAX_SHAPES_PER_ROOM} shapes` : ""}. Board size {BOARD_WIDTH} × {BOARD_HEIGHT}.
+        {total} of {MAX_NOTES_PER_ROOM} notes{shapes > 0 ? `, ${shapes} of ${MAX_SHAPES_PER_ROOM} shapes` : ""}. Board size {BOARD_WIDTH} × {BOARD_HEIGHT}.
       </p>
       <p className="text-sm text-fg-muted">Select a note, shape or frame to see and edit it here.</p>
       <div className="flex flex-col gap-xs">
@@ -165,7 +171,7 @@ function Summary({ room }: { room: PropertiesRoom }) {
           </p>
         )}
       </div>
-      {room.exportViewport && <ExportSection board={room.board} results={room.results ?? null} viewport={room.exportViewport} />}
+      {room.exportViewport && <ExportSection board={room.board} results={room.results ?? null} viewport={room.exportViewport} silent={room.silent ?? false} />}
       {room.isHost && room.endSession && (
         <div className="flex flex-col gap-xs border-t border-border pt-md">
           <p className="text-sm text-fg-muted">You’re the host. Ending the session deletes the board for everyone.</p>

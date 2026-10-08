@@ -4,6 +4,7 @@ import { BOARD_HEIGHT, BOARD_WIDTH, FRAME_DEFAULTS, MAX_NOTES_PER_ROOM, MAX_NOTE
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { voterKeyKey } from "../src/storage";
 
 /*
  * Starting, joining and using a room, rendered for real. `fetch` and `WebSocket` are
@@ -13,6 +14,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 const CODE = `${"a".repeat(22)}.${"B".repeat(22)}`;
+const ROOM_ID = CODE.split(".")[0]!;
 /** A fake host token (43 base64url characters), never a real one. */
 const HOST_TOKEN = "fakeHostToken".padEnd(43, "x");
 const PASSCODE = "test-passcode-in-the-ui";
@@ -336,7 +338,7 @@ describe("the name sheet", () => {
     expect(socket.url).toContain(`/ws?room=${CODE}`);
     expect(socket.sent).toEqual([
       { type: "hello", protocolVersion: PROTOCOL_VERSION },
-      { type: "join", name: "Alex" },
+      { type: "join", name: "Alex", key: localStorage.getItem(voterKeyKey(ROOM_ID)) },
     ]);
     await server(socket, { data: { type: "joined", you: alex, participants: [alex], locked: false, timer: null, voting: { state: "off", budget: 5, round: 0 }, silent: { active: false, count: 0 } } });
     expect(dialog()).toBeNull();
@@ -3079,7 +3081,7 @@ describe("reconnecting (UI)", () => {
     const next = await dropAndRejoin(socket);
     expect(dialog()).toBeNull();
     await answer(next, [one, two]);
-    expect(next.sent).toContainEqual({ type: "join", name: "Alex" });
+    expect(next.sent).toContainEqual({ type: "join", name: "Alex", key: localStorage.getItem(voterKeyKey(ROOM_ID)) });
     expect(statusBar()).toBeNull();
     expect(notes()).toHaveLength(2);
   });

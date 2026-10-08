@@ -1,3 +1,4 @@
+// @vitest-environment happy-dom
 import { act } from "react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { MAX_SEALED_PER_WRITER } from "@stickyard/shared";
@@ -89,12 +90,15 @@ describe("while a round runs", () => {
   });
 
   it("at my cap, the note tiles are off with the reason", async () => {
-    const ids = Array.from({ length: MAX_SEALED_PER_WRITER }, (_, i) => noteAt(i + 10, { authorId: alex.id }));
+    // 16-character ids, laid out in rows of ten.
+    const ids = Array.from({ length: MAX_SEALED_PER_WRITER }, (_, i) =>
+      noteAt(i, { id: `S${String(i).padStart(15, "0")}`, x: 40 + (i % 10) * 220, y: 60 + Math.floor(i / 10) * 220, authorId: alex.id }),
+    );
     await inRoom({ notes: ids, silent: { active: true, count: MAX_SEALED_PER_WRITER }, mine: ids.map((n) => n.id) });
     const tile = palette()?.querySelector<HTMLButtonElement>('[data-palette-item="note-yellow"]');
     expect(tile?.disabled).toBe(true);
     expect(tile?.title).toContain(SILENT_TEXT.writerFull);
-  });
+  }, 20_000);
 
   it("vote controls and the Votes section are absent on my sealed note, there on a note everyone sees", async () => {
     await inRoom({

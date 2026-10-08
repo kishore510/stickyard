@@ -157,10 +157,11 @@ export function AboutPage() {
             totals once the host closes the vote.
           </li>
           <li>
-            For silent brainstorm (coming in a later release), this browser will also send that same random key to the relay when you
-            join a session. While the host runs a silent round, the relay stores each note you add with a hidden writer id, a scrambled
-            version of the key that is different from the one used for votes, so only your own pages are sent your hidden notes. It is
-            never sent to anyone, and it is removed from every note when the host reveals them; the notes then stay like any other note.
+            For silent brainstorm, this browser also sends that same random key to the relay each time you join or reconnect to a
+            session. While the host runs a silent round, the relay stores each note you add with a hidden writer id, a scrambled
+            version of the key that is different from the one used for votes and can’t be matched to it, so only your own pages are
+            sent your hidden notes. It is never sent to anyone, and it is removed from every note when the host reveals them; the notes
+            then stay like any other note.
           </li>
           <li>There are no accounts.</li>
         </ul>

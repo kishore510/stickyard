@@ -1,3 +1,5 @@
+import { SILENT_TEXT } from "../silent/silent";
+
 /*
  * Clear board (Properties, nothing selected, md and up): why it's off, and its one confirmation.
  * Pure, so tested. The session does the deleting (RoomSession.clearBoard).
@@ -23,10 +25,13 @@ export interface ClearState {
   clearing: boolean;
   /** A delete of a selection with frames is still running (v0.20.0). */
   deleting?: boolean;
+  /** A silent round is running (the relay would refuse the deletes of sealed notes it can't see here). */
+  silent?: boolean;
 }
 
 export function clearBoardReason(s: ClearState): string | null {
   if (!s.live) return CLEAR_HINTS.offline;
+  if (s.silent) return SILENT_TEXT.on;
   if (s.clearing) return CLEAR_HINTS.clearing;
   if (s.deleting) return CLEAR_HINTS.deleting;
   if (s.notes + s.frames + (s.shapes ?? 0) === 0) return CLEAR_HINTS.empty;

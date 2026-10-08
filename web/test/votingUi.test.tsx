@@ -5,7 +5,7 @@ import { ROOM_ID, cleanupUi, inRoom, installUi, noteAt, server } from "./helpers
 
 /*
  * Protocol v13 plumbing in the real page (no visible voting UI yet): the room screen makes and
- * keeps this device's voter key for the room, sends it only in claimVoter, publishes the voting
+ * keeps this device's voter key for the room, sends it only in join and claimVoter, publishes the voting
  * state to roomStore, and forgets the key when the session ends.
  */
 
@@ -15,12 +15,13 @@ beforeEach(() => installUi());
 afterEach(() => cleanupUi());
 
 describe("the voter key in the page", () => {
-  it("is made once for the room, kept, and sent only in claimVoter; never shown or in the address", async () => {
+  it("is made once for the room, kept, and sent only in join (since v0.27.0) and claimVoter; never shown or in the address", async () => {
     const socket = await inRoom({ notes: [noteAt(1)] });
     const key = localStorage.getItem(voterKeyKey(ROOM_ID));
     expect(key).toMatch(/^[A-Za-z0-9_-]{22}$/);
     expect(socket.ofType("claimVoter")).toEqual([{ type: "claimVoter", key }]);
-    expect(socket.sent.filter((m) => JSON.stringify(m).includes(key!)).map((m) => m.type)).toEqual(["claimVoter"]);
+    expect(socket.sent.filter((m) => JSON.stringify(m).includes(key!)).map((m) => m.type)).toEqual(["join", "claimVoter"]);
+    expect(socket.ofType("join")[0]).toMatchObject({ key });
     expect(document.body.textContent).not.toContain(key);
     expect(document.body.innerHTML).not.toContain(key);
     expect(window.location.href).not.toContain(key);

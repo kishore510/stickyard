@@ -56,7 +56,7 @@ const reasonOf = (el: Element | null | undefined) =>
     .join(" ");
 
 /** Joined, voter granted (unless `granted` is false), and a round open. */
-async function voting({ granted = true, budget = 5, mine = [] as { noteId: string; count: number }[], ...room }: Parameters<typeof inRoom>[0] & { granted?: boolean; budget?: number; mine?: { noteId: string; count: number }[] } = {}) {
+async function voting({ granted = true, budget = 5, mine = [] as { noteId: string; count: number }[], ...room }: Omit<NonNullable<Parameters<typeof inRoom>[0]>, "mine"> & { granted?: boolean; budget?: number; mine?: { noteId: string; count: number }[] } = {}) {
   const socket = await inRoom({ notes: [noteAt(1), noteAt(2)], ...room });
   await server(socket, { data: { type: "votingChanged", voting: { ...OPEN, budget } } });
   if (granted) await server(socket, { data: { type: "voterGranted", remaining: budget - mine.reduce((s, v) => s + v.count, 0), mine } });
