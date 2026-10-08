@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { MAX_NOTES_PER_ROOM } from "@stickyard/shared";
-import { NOTE_TOOL_REASONS, TOOLS, noteToolReason, toolsFor, type ToolContext } from "../src/canvas/tools";
+import { NOTE_TOOL_REASONS, TOOLS, noteToolReason, toolForKey, toolsFor, type ToolContext } from "../src/canvas/tools";
 import { countUnread } from "../src/chat/unread";
 
 const ctx = (patch: Partial<ToolContext> = {}): ToolContext => ({
@@ -8,6 +8,8 @@ const ctx = (patch: Partial<ToolContext> = {}): ToolContext => ({
   setTool: vi.fn(),
   addNote: vi.fn(),
   fit: vi.fn(),
+  zoomSelection: vi.fn(),
+  selectionReason: null,
   zoomIn: vi.fn(),
   zoomOut: vi.fn(),
   resetZoom: vi.fn(),
@@ -37,8 +39,22 @@ describe("tool registry", () => {
     for (const t of TOOLS) expect(Object.keys(t.slots).every((s) => s === "viewbar" || s === "ribbon"), t.id).toBe(true);
   });
 
-  it("the desktop view bar has zoom out, zoom level, zoom in, fit, the Select/Hand toggle and minimap", () => {
-    expect(toolsFor("viewbar").map((t) => t.id)).toEqual(["zoom-out", "zoom-reset", "zoom-in", "fit", "select", "hand", "minimap"]);
+  it("the desktop view bar has zoom out, zoom level, zoom in, fit, zoom to selection, the Select/Hand toggle and minimap", () => {
+    expect(toolsFor("viewbar").map((t) => t.id)).toEqual(["zoom-out", "zoom-reset", "zoom-in", "fit", "zoom-selection", "select", "hand", "minimap"]);
+  });
+
+  it("S zooms to the selection (v0.24.0): a key no other tool or shortcut uses; off with nothing selected", () => {
+    const shortcuts = TOOLS.flatMap((t) => (t.shortcut ? [t.shortcut] : []));
+    expect(new Set(shortcuts).size).toBe(shortcuts.length);
+    // D is dot voting, [ and ] the panels.
+    expect(shortcuts).not.toContain("D");
+    const tool = toolForKey("s");
+    expect(tool?.id).toBe("zoom-selection");
+    const zoomSelection = vi.fn();
+    expect(tool?.disabled?.(ctx({ selectionReason: "why" }))).toBe("why");
+    tool?.run(ctx({ zoomSelection }));
+    expect(zoomSelection).toHaveBeenCalledOnce();
+    expect(tool?.slots.ribbon).toBeUndefined();
   });
 
   it("the phone ribbon has Add note, fit, the Select/Hand toggle, then Undo and Redo (no zoom buttons)", () => {

@@ -24,6 +24,10 @@ function sink() {
       log.push(`gone ${id}`);
       cursors.delete(id);
     },
+    left: (id) => {
+      log.push(`left ${id}`);
+      cursors.delete(id);
+    },
     clear: () => {
       log.push("clear");
       cursors.clear();

@@ -207,3 +207,7 @@ One new object, the shape (text label, rectangle, oval, diamond), in its own `sh
 - The board is 6400 x 4000 (was 3200 x 2000). Nothing new is sent or stored; rows from the old board load unchanged (no writes). Coordinates stay **4 digits** until a dimension passes 9,999 (`shared/test/boardSize.test.ts` fails first), so most figures are unchanged.
 - *Changed worst cases* (the frames' and shapes' worst-case positions went from 3 to 4 digits, 1 byte per coordinate): frames snapshot **18,366 bytes** (was 18,306; 66 bytes under its 90% tripwire of 18,432, cap 20 KiB unchanged), shapes snapshot **167,786 bytes** (was 167,686; cap 192 KiB and 90% tripwire unchanged), combined reconnect payload **590,381 bytes (576.5 KiB)** (404,229 + 18,366 + 167,786, was 590,221), three messages each under the 512 KiB cap. Reconnect storm (20 people): about 11.8 MB out, up 3.2 KB.
 - *Unchanged:* the notes snapshot (404,229 bytes; its worst-case positions were already 4 digits), `noteBatch`, `frameMove`, `frameMoved`, `itemsAdd` items per message, and every cap and rate limit.
+
+## Navigation (v0.24.0): what it costs
+
+- No relay cost: Fit, Zoom to selection, the minimap and Go to run in the page. Go to uses the cursor messages the page already receives (keeping each person's last position in memory); nothing new is sent, stored or billed.

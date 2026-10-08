@@ -1,8 +1,8 @@
 ---
 title: Participants
 order: 4
-summary: See who's in the session, copy its link, and leave.
-keywords: participants, people, who, list, here, name, colour, color, invite, link, copy, leave, avatar, initials, joined, left, presence, host, session, cursor, pointer, mouse
+summary: See who's in the session, go to someone's pointer, copy its link, and leave.
+keywords: participants, people, who, list, here, name, colour, color, invite, link, copy, leave, avatar, initials, joined, left, presence, host, session, cursor, pointer, mouse, go to, jump, find, where
 ---
 In a session, the **Participants** button at the top opens a panel. It's also in the menu.
 
@@ -19,7 +19,8 @@ In a session, the **Participants** button at the top opens a panel. It's also in
 ## Cursors
 
 - On the board you see other people's pointers as small arrows in their colour, with their name beside them. They move as the person moves their mouse over the board, fade after a few seconds without movement, and disappear when the pointer leaves the board or the person leaves.
-- Pointers are passed on live and never stored: nobody can see where anyone's pointer was earlier.
+- Pointers are passed on live and never stored. Your page keeps only each other person's last pointer position, in memory, for **Go to** (below); it's forgotten when they leave or you reconnect.
 - Yours is shared while your mouse (or a pen hovering over the screen) is over the board, on a wider screen, and only while someone else is in the session.
 - Phones show other people's cursors, but they don't share one. Neither does a touch screen, or a pen pressing.
+- **Go to** beside someone's name takes your view to where their pointer was last seen, keeping your zoom (or zooming in to 50% if you're further out), and the board says "Moved to Sam's pointer." It's off, with "No pointer position seen yet.", until their pointer has been over the board since you joined: people on a phone never share one. It works on a phone too, and with **Show other people's cursors** turned off: the last position is still noted, in this page's memory only.
 - In the **Participants** panel, under **Cursors**: turn off **Show other people's cursors** if you find them distracting, or turn off **Share my cursor** to stop others seeing yours. This browser remembers both.

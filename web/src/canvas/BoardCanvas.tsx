@@ -17,7 +17,7 @@ import { confirmDelete, confirmDeleteNotes } from "../notes/label";
 import { DEFAULT_NOTE_SIZE, noteSize } from "../notes/size";
 import { KEY_STEP, KEY_STEP_BIG, NoteActionsContext, NoteHelpContext, NoteNode, type EditorRequest, type NoteActions } from "../notes/NoteCard";
 import { groupOffset } from "./arrange";
-import { MAX_ZOOM, MIN_ZOOM, WHEEL_BEHAVIOUR, dragThreshold, notesBounds, panExtent } from "./geometry";
+import { MAX_ZOOM, MIN_ZOOM, WHEEL_BEHAVIOUR, dragThreshold, isDrag, notesBounds, panExtent } from "./geometry";
 import { FLOW_STACKING, createDragHandlers, createNoteNodeMapper, type CanvasNode } from "./nodes";
 import { framedNotes } from "../frames/board";
 import { deleteKeyTarget, inField, onBoard } from "./deleteKey";
@@ -31,6 +31,7 @@ import { VOTE_TEXT } from "../voting/voting";
 import type { CanvasView } from "./useCanvasView";
 import { CursorLayer } from "../cursors/CursorLayer";
 import { useCursorSharing } from "../cursors/useCursorSharing";
+import { showFitNotice } from "./ViewNotices";
 
 /** The board's bounded area under the notes: the dot grid, with a visible edge. */
 function BoardSurface() {
@@ -447,11 +448,14 @@ export function BoardCanvas({
   useEffect(() => {
     if (fitted.current || !synced || width === 0 || height === 0) return;
     fitted.current = true;
-    // Notes, and any frames already here (they arrive right after the notes snapshot).
-    view.fit(
+    // Notes, and any frames already here (they arrive right after the notes snapshot). Fit to
+    // notes' rules (v0.24.0): a far outlier is left out, with the notice and Show all. The canvas
+    // size here is final: the panels' first state is decided before the first render (panelStore).
+    const plan = view.fitItems(
       [...latest.current.board.notes.map((n) => n.note), ...latest.current.board.frames.map((f) => f.frame), ...latest.current.board.shapes.map((x) => x.shape)],
       false,
     );
+    showFitNotice(plan.partial);
   }, [synced, width, height, view]);
 
   // A panel opened, closed or was resized (or the window changed): the canvas is a new size.
@@ -588,6 +592,27 @@ export function BoardCanvas({
   });
   // My pointer, shared from md up with a mouse or a hovering pen (phones only receive).
   useCursorSharing(sectionRef, multiSelect, room);
+  // A press on the minimap that moves past the drag threshold is a drag (pannable): its click is ignored.
+  const minimapDrag = useRef(false);
+  useEffect(() => {
+    const el = sectionRef.current;
+    if (!el) return;
+    let start: { x: number; y: number } | null = null;
+    const down = (e: PointerEvent) => {
+      const inside = e.target instanceof Element && e.target.closest(".react-flow__minimap") !== null;
+      start = inside ? { x: e.clientX, y: e.clientY } : null;
+      minimapDrag.current = false;
+    };
+    const move = (e: PointerEvent) => {
+      if (start && isDrag(e.clientX - start.x, e.clientY - start.y, threshold)) minimapDrag.current = true;
+    };
+    el.addEventListener("pointerdown", down, { capture: true });
+    window.addEventListener("pointermove", move);
+    return () => {
+      el.removeEventListener("pointerdown", down, { capture: true });
+      window.removeEventListener("pointermove", move);
+    };
+  }, [threshold]);
   const minimapSize = useMemo(
     () => ({ width: readPxToken("--sy-minimap-width", 200), height: readPxToken("--sy-minimap-height", 125) }),
     [],
@@ -676,6 +701,11 @@ export function BoardCanvas({
                 position="bottom-right"
                 pannable
                 zoomable
+                // A click (not the end of a drag) centres the view there, at the same zoom (v0.24.0).
+                onClick={(_, position) => {
+                  if (minimapDrag.current) return;
+                  view.centreAt(position);
+                }}
                 ariaLabel="Board overview"
                 nodeColor={minimapColour}
                 nodeStrokeWidth={0}

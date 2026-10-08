@@ -403,7 +403,7 @@ describe("the room", () => {
     expect(window.location.hash).toBe("#/participants");
     expect(dialog()?.querySelector("h2")?.textContent).toBe("Participants");
     const people = [...(dialog()?.querySelectorAll('[aria-label="People in this session"] li') ?? [])];
-    expect(people.map((li) => li.textContent?.replace(" (you)", ""))).toEqual(["Alex", "Sam"]);
+    expect(people.map((li) => li.querySelector("[data-person-name]")?.textContent?.replace(" (you)", ""))).toEqual(["Alex", "Sam"]);
     expect(people[0]?.textContent).toContain("(you)");
     expect(people[0]?.querySelector('[aria-hidden="true"]')?.className).toContain("bg-participant-1");
     // colourIndex 9 → 9 % 8 = 1 → the second palette colour.

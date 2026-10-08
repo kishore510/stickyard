@@ -51,13 +51,17 @@ import { duplicateDisabledReason } from "./duplicate";
 import { BoardBar } from "./SelectionBar";
 import type { BoardCommand } from "./shortcuts";
 import { orderedIds } from "./selection";
-import { newNotePosition, type XY } from "./geometry";
+import { newNotePosition, type Placed as ViewItem, type XY } from "./geometry";
 import { Ribbon, ViewBar } from "./ToolBars";
 import { placeTemplate, templateOrigin } from "../templates/place";
 import type { Template } from "../templates/registry";
 import { frameToolReason, noteToolReason, shapeToolReason, templateToolReason, toolForKey, type ToolContext } from "./tools";
 import { useBoardUi } from "./uiStore";
 import { useCanvasView } from "./useCanvasView";
+import { zoomSelectionReason } from "./navigation";
+import { ViewNotices, showFitNotice } from "./ViewNotices";
+import { useCursors } from "../cursors/cursorStore";
+import { truncateName } from "../presence/avatars";
 
 /*
  * The room's board with its tools and panels, loaded on demand (React Flow is only needed in a
@@ -137,6 +141,7 @@ const Notices = memo(function Notices({
   onRestoreDraft,
   onDismissDraft,
   banner,
+  viewNotices,
 }: {
   status: RoomView["status"];
   reconnect: ReconnectView | null;
@@ -155,6 +160,8 @@ const Notices = memo(function Notices({
   onDismissDraft: () => void;
   /** The lock's banner and announcer (facilitation UI), first in the stack. */
   banner?: ReactNode;
+  /** What the last view change left out or where it went (v0.24.0), last in the stack. */
+  viewNotices?: ReactNode;
 }) {
   const live = status === "joined";
   return (
@@ -199,6 +206,7 @@ const Notices = memo(function Notices({
       <div role="status" aria-live="polite" data-presence-toasts="" className="flex flex-col items-center">
         {presenceToast && <p className="sy-fade-in max-w-content rounded-md bg-surface px-ms py-xs text-sm break-words shadow-md">{presenceToast}</p>}
       </div>
+      {viewNotices}
     </div>
   );
 });
@@ -214,20 +222,21 @@ function shortcutAllowed(e: KeyboardEvent): boolean {
 /** Keys that collapse or expand the side panels (md and up). */
 const PANEL_KEYS: Record<string, PanelId> = { "[": "palette", "]": "properties" };
 
-/** The view bar's width, for keeping the bottom-right corner clear of it. */
-function useWidth() {
-  const [width, setWidth] = useState(0);
+/** The view bar's size, for keeping the bottom-right corner clear of it (and seeing when it wrapped). */
+function useBox() {
+  const [box, setBox] = useState({ width: 0, height: 0 });
   const observer = useRef<ResizeObserver | null>(null);
   const ref = useCallback((el: HTMLDivElement | null) => {
     observer.current?.disconnect();
     observer.current = null;
     if (!el) return;
-    setWidth(el.offsetWidth);
+    const measure = () => setBox((b) => (b.width === el.offsetWidth && b.height === el.offsetHeight ? b : { width: el.offsetWidth, height: el.offsetHeight }));
+    measure();
     if (typeof ResizeObserver === "undefined") return;
-    observer.current = new ResizeObserver(() => setWidth(el.offsetWidth));
+    observer.current = new ResizeObserver(measure);
     observer.current.observe(el);
   }, []);
-  return [width, ref] as const;
+  return [box, ref] as const;
 }
 
 /**
@@ -368,6 +377,9 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
     useBoardUi.getState().selectFrame(frames[0]!.id);
   }, [run, canvas]);
 
+  // Zoom to selection (v0.24.0): off, with the reason, while nothing is selected.
+  const selectionReason = zoomSelectionReason(selection.size + frameSelection.size + shapeSelection.size);
+
   // Rebuilt only when what the tools show changes, so remote moves don't re-render the bars.
   const ctx = useMemo<ToolContext>(
     () => ({
@@ -377,11 +389,22 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
       minimap,
       noteReason,
       toggleMinimap: () => setMinimap(!minimap),
-      // Fit to notes includes frames.
+      // Fit to notes includes frames and shapes; a far outlier is left out (with a notice and Show all, v0.24.0).
       fit: () => {
-        const { board } = latest.current.view;
-        canvas.fit([...board.notes.map((n) => n.note), ...board.frames.map((f) => f.frame), ...board.shapes.map((x) => x.shape)]);
+        const plan = canvas.fitItems(boardItems(latest.current.view.board));
+        showFitNotice(plan.partial);
       },
+      zoomSelection: () => {
+        const { board } = latest.current.view;
+        const ui = useBoardUi.getState();
+        const items = [
+          ...[...ui.selection].flatMap((id) => findNote(board, id)?.note ?? []),
+          ...[...ui.frames].flatMap((id) => findFrame(board, id)?.frame ?? []),
+          ...[...ui.shapes].flatMap((id) => findShape(board, id)?.shape ?? []),
+        ];
+        if (canvas.zoomTo(items)) ui.setViewNotice(null);
+      },
+      selectionReason,
       zoomIn: canvas.zoomIn,
       zoomOut: canvas.zoomOut,
       resetZoom: canvas.resetZoom,
@@ -394,7 +417,7 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
       undoReason: view.history.undo,
       redoReason: view.history.redo,
     }),
-    [tool, setTool, zoom, minimap, noteReason, setMinimap, canvas, addNote, view.history.undo, view.history.redo],
+    [tool, setTool, zoom, minimap, noteReason, setMinimap, canvas, addNote, view.history.undo, view.history.redo, selectionReason],
   );
 
   const paletteHost = useMemo<PaletteHost>(
@@ -562,6 +585,20 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
     const entry = findNote(latest.current.view.board, revealRequest.id);
     if (entry) canvas.reveal(entry.note);
   }, [revealRequest, canvas]);
+  // Participants' Go to (v0.24.0): pan to that person's last known pointer and say so (politely).
+  const jumpRequest = useBoardUi((s) => s.jumpRequest);
+  useEffect(() => {
+    if (!jumpRequest) return;
+    const point = useCursors.getState().lastSeen.get(jumpRequest.id);
+    const person = latest.current.view.participants.find((p) => p.id === jumpRequest.id);
+    if (!point || !person) return;
+    canvas.jumpTo(point);
+    useBoardUi.getState().setViewNotice({ kind: "jump", name: truncateName(person.name), n: jumpRequest.n });
+  }, [jumpRequest, canvas]);
+  const showAll = useCallback(() => {
+    canvas.fit(boardItems(latest.current.view.board));
+    useBoardUi.getState().setViewNotice(null);
+  }, [canvas]);
   // Show results: the phone sheet, or (md and up) Properties with nothing selected.
   const showResults = useCallback(() => {
     if (!latest.current.wide) return openSheet({ kind: "results" });
@@ -621,7 +658,10 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
 
   // The minimap and chat button share the free area's bottom-right corner with the centred view
   // bar: when there isn't room for both side by side, they move up above it.
-  const [barWidth, barRef] = useWidth();
+  const [barBox, barRef] = useBox();
+  const barWidth = barBox.width;
+  // Taller than one row of touch targets: the bar wrapped (a narrow canvas), so what sits above it moves up a row.
+  const barWrapped = wide && barBox.height > 1.5 * readPxToken("--sy-touch-min", 44);
   const lifted =
     wide &&
     barWidth > 0 &&
@@ -652,7 +692,7 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
           {(collapse) => <PaletteContent host={paletteHost} width={sizes.palette.width} collapse={collapse} />}
         </SidePanel>
       )}
-      <div className="relative min-w-0 flex-1 overflow-hidden">
+      <div className={cn("relative min-w-0 flex-1 overflow-hidden", barWrapped && "sy-bar-wrapped")}>
         <BoardCanvas
           room={boardRoom}
           editable={live && !locked}
@@ -677,12 +717,13 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
           onRestoreDraft={restoreDraft}
           onDismissDraft={dismissDraft}
           banner={lockNotices}
+          viewNotices={<ViewNotices onShowAll={showAll} />}
         />
         {/* The board actions live in the top bar (v0.15.1), between the mark and the menu. */}
         {bar && barSlot && createPortal(bar, barSlot)}
         {wide ? (
           <>
-            <ViewBar ctx={ctx} barRef={barRef} />
+            <ViewBar ctx={ctx} barRef={barRef} wrapped={barWrapped} />
             <ChatDock bottom={dock} />
           </>
         ) : (
@@ -760,6 +801,11 @@ export default function RoomBoard(props: RoomBoardProps) {
       <BoardArea {...props} />
     </ReactFlowProvider>
   );
+}
+
+/** Everything Fit to notes fits: notes, frames and shapes. */
+function boardItems(board: Board): ViewItem[] {
+  return [...board.notes.map((n) => n.note), ...board.frames.map((f) => f.frame), ...board.shapes.map((x) => x.shape)];
 }
 
 /** A template run's frames that are still on the board, in template order. */

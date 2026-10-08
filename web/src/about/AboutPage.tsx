@@ -115,7 +115,8 @@ export function AboutPage() {
             While you share your cursor (a mouse or pen over the board, on a wider screen), your pointer’s position on the board is passed on live
             to the others in the session, with the relay’s random id for your visit so their page can show your name beside it. It is never stored,
             and nothing is sent while your pointer is still, off the board, in a hidden tab, or when you’re the only one there. Phones never share a
-            pointer. You can stop sharing, or stop showing other people’s, in Participants.
+            pointer. You can stop sharing, or stop showing other people’s, in Participants. Your page keeps only each other person’s last pointer
+            position, in memory, so Participants’ Go to can take you there; it’s forgotten when they leave or you reconnect, and never stored or sent.
           </li>
           <li>
             Undo and redo history is kept only in this tab’s memory: it’s never stored or sent anywhere, and it’s gone when you
