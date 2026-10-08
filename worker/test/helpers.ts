@@ -1,5 +1,5 @@
 import { exports } from "cloudflare:workers";
-import { createExecutionContext, env, waitOnExecutionContext } from "cloudflare:test";
+import { createExecutionContext, env, runInDurableObject, waitOnExecutionContext } from "cloudflare:test";
 import { MAX_SERVER_MESSAGE_BYTES, PROTOCOL_VERSION, parseMessage, serverMessageSchema, type ServerMessage } from "@stickyard/shared";
 import worker from "../src/index";
 import type { WorkerEnv } from "../src/env";
@@ -183,6 +183,20 @@ export class TestClient {
   snapshot: Extract<ServerMessage, { type: "snapshot" }> | null = null;
   frames: Extract<ServerMessage, { type: "framesSnapshot" }> | null = null;
   shapes: Extract<ServerMessage, { type: "shapesSnapshot" }> | null = null;
+}
+
+/**
+ * Empties the batch-entries bucket (BATCH_LIMITS) of the joined socket named `name`, with its refill
+ * clock an hour ahead, so the next message that carries entries is over budget however fast or slow
+ * the runner is. Sending messages faster than the bucket refills can't promise that on a busy runner.
+ */
+export async function emptyEntryBudget(stub: DurableObjectStub, name: string): Promise<void> {
+  await runInDurableObject(stub, (_r: unknown, state: DurableObjectState) => {
+    for (const ws of state.getWebSockets()) {
+      const att = ws.deserializeAttachment() as { participant?: { name?: string } | null; entryTokens: number; entryAt: number };
+      if (att.participant?.name === name) ws.serializeAttachment({ ...att, entryTokens: 0, entryAt: Date.now() + 3_600_000 });
+    }
+  });
 }
 
 /** Waits until `client` gets a message of `type`, skipping others. */

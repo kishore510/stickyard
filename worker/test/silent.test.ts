@@ -1,6 +1,6 @@
 /// <reference types="vite/client" />
 import { env, evictDurableObject, runDurableObjectAlarm, runInDurableObject } from "cloudflare:test";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   MAX_NOTES_PER_ROOM,
   MAX_SEALED_PER_WRITER,
@@ -27,6 +27,10 @@ import { TEST_SIGNING_KEY, TestClient, nextOfType, specHostToken, specRoomCode }
  * at once. These tests drive the real Durable Object over WebSockets and read every raw message
  * each socket receives. Fake keys only (vitest.config.ts); generic text.
  */
+
+// These tests drive many sockets and wait for quiet periods (to prove nothing arrived): slow but
+// deterministic, so their budget mustn't depend on the runner's speed (the probe test takes about 3.5 s).
+vi.setConfig({ testTimeout: 30_000 });
 
 const writerSources = import.meta.glob<string>("../src/writerId.ts", { query: "?raw", import: "default", eager: true });
 

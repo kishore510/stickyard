@@ -339,11 +339,20 @@ describe("rate limiting", () => {
     // Well past the burst, so slow test machines (which refill tokens while sending) still go
     // over, but under the violations that close the socket.
     const sent = SOCKET_LIMITS.burst + SOCKET_LIMITS.maxViolations / 2;
+    const started = Date.now();
     for (let i = 0; i < sent; i++) a.send({ type: "say", text: `m${i}` });
     const replies = [];
     for (let i = 0; i < sent; i++) replies.push(await a.next());
-    expect(replies.filter((r) => r.type === "error" && r.code === "rate_limited").length).toBeGreaterThanOrEqual(2);
-    expect(replies.filter((r) => r.type === "echo").length).toBeLessThan(sent);
+    const elapsed = (Date.now() - started) / 1000;
+    const limited = replies.filter((r) => r.type === "error" && r.code === "rate_limited").length;
+    const echoed = replies.filter((r) => r.type === "echo").length;
+    // Every message is answered: echoed if a token was there, rate_limited if not. The room refills
+    // while a slow runner is still sending, so the echoes are bounded by what could have refilled
+    // in the time that really passed, not by a fixed count.
+    expect(limited + echoed).toBe(sent);
+    const tokens = SOCKET_LIMITS.burst - 2 + Math.ceil(elapsed * SOCKET_LIMITS.refillPerSecond);
+    expect(echoed).toBeLessThanOrEqual(Math.min(sent, tokens));
+    expect(limited).toBeGreaterThanOrEqual(Math.max(0, sent - tokens));
 
     // Tokens come back over time.
     await new Promise((resolve) => setTimeout(resolve, 1100));

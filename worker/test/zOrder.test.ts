@@ -5,7 +5,7 @@ import { BATCH_LIMITS, SOCKET_LIMITS } from "../src/limits";
 import { NoteStore, SCHEMA_VERSION } from "../src/noteStore";
 import type { Room } from "../src/room";
 import { V4_INSERT, V4_NOTES, V4_UPDATE, loadSchemaV4 } from "./fixtures/schemaV4";
-import { TestClient, nextOfType, specRoomCode } from "./helpers";
+import { TestClient, emptyEntryBudget, nextOfType, specRoomCode } from "./helpers";
 
 /*
  * Protocol v8 (slice z-order): notes carry a server-assigned z; notesOrder brings notes to the
@@ -247,9 +247,12 @@ describe("rate budget", () => {
   it("a notesOrder is one message and its ids spend the batch entries budget: too many are dropped with rate_limited naming the notes", async () => {
     expect(30).toBeLessThan(SOCKET_LIMITS.burst);
     expect(30 * MAX_BATCH_ENTRIES).toBeGreaterThan(BATCH_LIMITS.entriesBurst);
-    const { a, b } = await room(Array.from({ length: MAX_BATCH_ENTRIES }, (_, i) => i));
+    const { stub, a, b } = await room(Array.from({ length: MAX_BATCH_ENTRIES }, (_, i) => i));
     const ids = Array.from({ length: MAX_BATCH_ENTRIES }, (_, i) => id(i));
-    for (let n = 0; n < 30; n++) a.send({ type: "notesOrder", ids: n % 2 === 0 ? ids : [...ids].reverse(), action: n % 2 === 0 ? "back" : "front" });
+    // Over the burst only if 30 orders beat the refill, which a busy runner can't promise; so the
+    // bucket starts empty and one order is over it.
+    await emptyEntryBudget(stub, "Alex");
+    a.send({ type: "notesOrder", ids, action: "back" });
     let error: Extract<ServerMessage, { type: "error" }> | null = null;
     for (;;) {
       const m = await a.next();
