@@ -2,6 +2,14 @@
 
 All notable changes to Stickyard, newest first. The format follows Keep a Changelog. Versions are 0.x: a minor bump for each slice and a patch bump for each follow-up fix. This file is shown in the app under **What’s new**, so entries are written for the people using it.
 
+## [0.25.0] - 2026-10-08
+
+### Changed
+- Groundwork for silent brainstorm. Nothing new is visible yet: the buttons come in a later release. In it, the host will start a silent round: everyone adds notes that only they can see, with one count for everybody of how many there are, until the host reveals them all at once.
+- The relay can now be told, when a page joins, the random key this browser already keeps for each session (the one dot voting uses), so a silent round will know which hidden notes are yours, even after a reload or in a second tab. The page starts sending it when the silent brainstorm buttons arrive.
+- About > Privacy now describes what the relay will keep for hidden notes, and that it's removed when they're revealed.
+- After this update, pages opened before it say **please reload** when they try to join, as with earlier updates.
+
 ## [0.24.0] - 2026-10-08
 
 ### Added

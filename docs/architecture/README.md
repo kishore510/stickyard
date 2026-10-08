@@ -6,12 +6,12 @@ Detail for each area of Stickyard, one file per area. CLAUDE.md stays short and 
 |---|---|
 | [shell.md](shell.md) | App shell, tokens, sheets, routes, Help, What's new, About, storage keys, welcome screen, top bar and board bar |
 | [rooms.md](rooms.md) | Room codes, Worker checks, secrets, limits, the room Durable Object, expiry and burial, host token, lock, timer relay |
-| [notes.md](notes.md) | Note protocol and storage, size, colour and text style, inline editing, z-order |
+| [notes.md](notes.md) | Note protocol and storage, size, colour and text style, inline editing, z-order, sealed notes and the leak inventory |
 | [canvas.md](canvas.md) | React Flow canvas, palette and Properties panels, selection, marquee, arrange and grid, delete keys, Duplicate, Export, panel defaults, navigation (fit, zoom to selection, minimap, jump) |
 | [frames.md](frames.md) | Frames, frame title style, templates, frame multi-select |
 | [editing.md](editing.md) | `itemsAdd` (create with content), undo/redo history, Clear board |
 | [connection.md](connection.md) | Reconnect, resync, presence (avatars, toasts), live cursors, last known pointers |
-| [facilitation.md](facilitation.md) | Timer and lock UI, End session, dot voting (relay and UI) |
+| [facilitation.md](facilitation.md) | Timer and lock UI, End session, dot voting (relay and UI), silent brainstorm |
 | [shapes.md](shapes.md) | Text labels and shapes, one stacking space with notes, emoji picker |
 
 ## Where each section lives
@@ -40,6 +40,7 @@ Sections are named after the slice that introduced them. Cross-references in quo
 | Facilitation UI (v0.16.0) | facilitation.md |
 | Dot voting, protocol v13 (v0.17.0) | facilitation.md |
 | Dot voting UI (v0.18.0) | facilitation.md |
+| Silent brainstorm, protocol v17 (v0.25.0, part 1 of 3) | facilitation.md |
 | Frames, protocol v9 (slice frames) | frames.md |
 | Frame title styling, protocol v10 (slice frame title styling) | frames.md |
 | Templates (slice templates) | frames.md |
@@ -51,6 +52,7 @@ Sections are named after the slice that introduced them. Cross-references in quo
 | Title styling, protocol v6 (slice 2.7.2) | notes.md |
 | Inline editing (slice 2.9) | notes.md |
 | Z-order, protocol v8 (slice z-order) | notes.md |
+| Silent brainstorm: sealed notes and the leak inventory, protocol v17 (v0.25.0, part 1) | notes.md |
 | Rooms and protocol v2 (slice 1) | rooms.md |
 | Room expiry (v0.14.0) | rooms.md |
 | Host, lock, timer, protocol v12 (v0.15.0) | rooms.md |
