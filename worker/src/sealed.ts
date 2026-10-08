@@ -11,6 +11,17 @@ import type { NoteCarryingType, ServerMessage } from "@stickyard/shared";
 /** Whether the recipient may see this note. */
 export type Visible = (noteId: string) => boolean;
 
+/**
+ * The one visibility rule: a note with no seal (`writer` null) is everyone's; a sealed note is only
+ * its writer's. A viewer without a writer id (null, undefined or "") never matches, and neither
+ * does a sealed note whose writer is "" (a row we never wrote), so a missing value on either side
+ * can't make two of them equal.
+ */
+export function canSee(writer: string | null, viewer: string | null | undefined): boolean {
+  if (writer === null) return true;
+  return writer !== "" && typeof viewer === "string" && viewer !== "" && writer === viewer;
+}
+
 type Of<K extends NoteCarryingType> = Extract<ServerMessage, { type: K }>;
 type Scrubber<K extends NoteCarryingType> = (message: Of<K>, visible: Visible) => ServerMessage | null;
 

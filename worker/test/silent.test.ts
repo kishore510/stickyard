@@ -14,6 +14,7 @@ import {
 import type { Room } from "../src/room";
 import { NoteStore, SCHEMA_VERSION } from "../src/noteStore";
 import { voterIdFor } from "../src/voterId";
+import { canSee } from "../src/sealed";
 import { writerIdFor } from "../src/writerId";
 import { V5_NOTES } from "./fixtures/schemaV5";
 import { V6_FRAMES } from "./fixtures/schemaV6";
@@ -74,11 +75,25 @@ const settle = (ms = 50) => new Promise((r) => setTimeout(r, ms));
 async function drain(...cs: TestClient[]) {
   for (const c of cs) while (!(await c.quiet(60))) await c.next(1).catch(() => undefined);
 }
-/** Everything a client has been sent until it is quiet. */
-async function collect(c: TestClient): Promise<ServerMessage[]> {
+
+/**
+ * Everything the room answers `c` to `message`, independent of runner speed: a socket's messages
+ * are handled in order, and a hello after joining is answered with welcome to the sender only,
+ * so whatever arrives before that welcome is the reply.
+ */
+async function answers(c: TestClient, message: unknown): Promise<ServerMessage[]> {
+  // Two messages each time: 100 ms between calls refills 3 tokens (SOCKET_LIMITS 30/s), so probes
+  // never run into the rate limit, and a slower runner only leaves more room.
+  await settle(100);
+  c.send(message);
+  c.send({ type: "hello", protocolVersion: PROTOCOL_VERSION });
   const out: ServerMessage[] = [];
-  while (!(await c.quiet(80))) out.push(await c.next());
-  return out;
+  for (;;) {
+    const m = await c.next(10_000);
+    if (m.type === "welcome") return out;
+    if (m.type === "error" && m.code === "rate_limited") throw new Error("the probe ran into the rate limit: pace it");
+    out.push(m);
+  }
 }
 
 /** Every raw message a client receives, from the moment it opens. */
@@ -403,6 +418,164 @@ describe("the canary leak test", () => {
   });
 });
 
+describe("the canary leak test: joins, stale rejections and itemsAdded", () => {
+  it("a: a socket mid-join (writer id not worked out yet) gets no sealed note, even when a sealed add lands during its join", async () => {
+    const { code, host, a, b } = await silentRoom();
+    await startSilent(host, [a, b]);
+    const sealed = new Set<string>([(await sealedAdd(a, [host, a, b], "CANARY-before", 1)).id]);
+    await drain(host, a, b);
+    for (let round = 0; round < 6; round++) {
+      // A guest joining with its own key (the room awaits its HMAC), or without one, while A adds a sealed note.
+      const c = await TestClient.open(code);
+      const raw = recorded(c);
+      expect(await c.request({ type: "hello", protocolVersion: PROTOCOL_VERSION })).toMatchObject({ type: "welcome" });
+      const join = round % 3 === 2 ? { type: "join", name: "Cleo" } : { type: "join", name: "Cleo", key: newKey() };
+      const add = { type: "noteAdd", clientRef: `r${round}`, x: 3000 + round, y: 3000, color: "purple", text: `CANARY-race-${round}` };
+      if (round % 2 === 0) {
+        c.send(join);
+        a.send(add);
+      } else {
+        a.send(add);
+        c.send(join);
+      }
+      sealed.add((await nextOfType(a, "noteAdded")).note.id);
+      await nextOfType(c, "shapesSnapshot");
+      await settle(100);
+      const text = raw.join("\n");
+      expect(text, `round ${round}`).not.toContain("CANARY");
+      expect(text).not.toContain("purple");
+      for (const id of sealed) expect(text, `round ${round}: sealed id`).not.toContain(id);
+      const snapshot = raw.map((r) => JSON.parse(r) as { type: string; notes?: unknown[] }).find((m) => m.type === "snapshot");
+      expect(snapshot?.notes).toEqual([]);
+      c.close();
+      await drain(host, a, b);
+    }
+    // A socket that said hello but never joined gets nothing at all.
+    const lurker = await TestClient.open(code);
+    expect(await lurker.request({ type: "hello", protocolVersion: PROTOCOL_VERSION })).toMatchObject({ type: "welcome" });
+    const rawLurker = recorded(lurker);
+    await sealedAdd(a, [host, a, b], "CANARY-after", sealed.size + 1);
+    await settle(100);
+    expect(rawLurker).toEqual([]);
+    closeAll(host, a, b, lurker);
+  });
+
+  it("a: no writer id never matches a sealed note's writer (null, undefined and empty on either side)", () => {
+    const writer = "w".repeat(43);
+    // Unsealed notes are everyone's.
+    for (const viewer of [null, undefined, "", writer]) expect(canSee(null, viewer)).toBe(true);
+    // A sealed note is only its writer's: a missing viewer id never matches.
+    expect(canSee(writer, writer)).toBe(true);
+    for (const viewer of [null, undefined, "", "v".repeat(43)]) expect(canSee(writer, viewer)).toBe(false);
+    // A sealed row with no writer (NULL in storage, "" in memory) is nobody's, not even a page without a writer.
+    for (const viewer of [null, undefined, ""]) expect(canSee("", viewer)).toBe(false);
+  });
+
+  it("a: a sealed row with a NULL writer stays hidden from a page that joined without a key", async () => {
+    const { code, stub } = await newRoom();
+    await runInDurableObject(stub, (_room, state) => {
+      state.storage.sql.exec("INSERT INTO notes (id, x, y, text, color, rev, author_id, sealed, writer) VALUES ('orphan0000000002', 0, 0, 'CANARY', 'yellow', 1, 'AAAAAAAAAAAAAAAA', 1, NULL)");
+      state.storage.sql.exec("INSERT INTO meta (key, value) VALUES ('silent_active', 1)");
+    });
+    await evictDurableObject(stub, { webSockets: "close" });
+    const c = await TestClient.open(code);
+    const raw = recorded(c);
+    expect((await c.enter("Ari")).silent).toEqual({ active: true, count: 1 });
+    expect(c.snapshot?.notes).toEqual([]);
+    for (const m of [{ type: "noteEdit", id: "orphan0000000002", text: "Mine" }, { type: "noteDelete", id: "orphan0000000002" }]) c.send(m);
+    await settle(150);
+    expect(raw.join("\n")).not.toContain("CANARY");
+    expect((await noteRows(stub))[0]).toMatchObject({ text: "CANARY", rev: 1 });
+    c.close();
+  });
+
+  it("b: stale-rev, current-rev and wrong-id messages about A's sealed note get the never-existed reply, word for word, from a guest and from the host", async () => {
+    const { host, a, b, stub } = await silentRoom();
+    await startSilent(host, [a, b]);
+    const s = await sealedAdd(a, [host, a, b], "CANARY", 1);
+    a.send({ type: "noteEdit", id: s.id, text: "CANARY edited" });
+    const current = (await nextOfType(a, "noteUpdated")).note;
+    expect(current.rev).toBe(2);
+    await drain(host, a, b);
+    const wrongId = `${s.id.slice(0, -1)}${s.id.endsWith("A") ? "B" : "A"}`;
+    /** Each message, with no rev, a stale rev and the current rev (client messages carry none, so those are refused as malformed). */
+    const variants = (id: string): unknown[] => {
+      const base: Record<string, unknown>[] = [
+        { type: "noteEdit", id, text: "Mine now" },
+        { type: "noteMove", id, x: 5, y: 5, final: true },
+        { type: "noteResize", id, x: 5, y: 5, w: 200, h: 200, final: true },
+        { type: "noteDelete", id },
+        { type: "notesOrder", ids: [id], action: "front" },
+        { type: "noteBatch", ops: [{ op: "move", id, x: 5, y: 5 }], final: true },
+      ];
+      return base.flatMap((m) => {
+        const withRev = (rev: number) => (m.type === "noteBatch" ? { ...m, ops: [{ op: "move", id, x: 5, y: 5, rev }] } : { ...m, rev });
+        return [m, withRev(1), withRev(current.rev)];
+      });
+    };
+    const before = await rowsWritten(stub);
+    for (const sender of [b, host]) {
+      for (const target of [s.id, wrongId]) {
+        const probes = variants(target);
+        for (const [i, probe] of probes.entries()) {
+          const never = unknownId();
+          const forTarget = await answers(sender, probe);
+          const forNever = JSON.stringify(await answers(sender, variants(never)[i])).replaceAll(never, target);
+          expect(JSON.stringify(forTarget), JSON.stringify(probe)).toBe(forNever);
+          // No note state: only errors (if anything), and never the note's text, place, size or rev.
+          for (const m of forTarget) {
+            expect(m.type).toBe("error");
+            expect(Object.keys(m).filter((k) => ["note", "notes", "results", "x", "y", "w", "h", "text", "rev", "color"].includes(k))).toEqual([]);
+          }
+          expect(JSON.stringify(forTarget)).not.toContain("CANARY");
+        }
+      }
+    }
+    expect(await rowsWritten(stub)).toBe(before);
+    expect(await a.quiet()).toBe(true);
+    expect((await noteRows(stub)).find((r) => r.id === s.id)).toMatchObject({ text: "CANARY edited", rev: 2, x: 50, y: 50 });
+    closeAll(host, a, b);
+  });
+
+  it("c: itemsAdded: the writer's second socket gets its sealed items in full; others get none of them, and nothing when nothing is left", async () => {
+    const { code, host, a, b, keys, raw } = await silentRoom();
+    const a2 = await TestClient.open(code);
+    await a2.enter("Ari", keys.a);
+    await drain(host, a, b);
+    await startSilent(host, [a, b, a2]);
+    // Notes only: the writer's sockets get them, everyone else only the count.
+    a.send({ type: "itemsAdd", clientRef: "i1", notes: [noteItem("n1", "CANARY-1", { color: "purple", x: 4321 }), noteItem("n2", "CANARY-2", { rank: 0 })] });
+    const mine = await nextOfType(a, "itemsAdded");
+    expect(mine.notes.map((n) => n.ref).sort()).toEqual(["n1", "n2"]);
+    const second = await nextOfType(a2, "itemsAdded");
+    expect(second).toEqual({ type: "itemsAdded", notes: mine.notes.map(({ note }) => ({ note })), frames: [], refused: [] });
+    for (const o of [host, b]) {
+      expect(await o.next(10_000)).toEqual({ type: "silentChanged", active: true, count: 2 });
+      expect(await answers(o, { type: "noteDelete", id: unknownId() })).toEqual([]);
+    }
+    // Notes and a frame: others get the frame alone, the writer's second socket all of it.
+    a.send({ type: "itemsAdd", clientRef: "i2", notes: [noteItem("n3", "CANARY-3")], frames: [{ ref: "f1", x: 0, y: 0, w: 640, h: 400, title: "Ideas", color: "neutral", titleFontSize: "m", titleBold: true, titleItalic: false, titleTextColor: "auto", titleAlign: "left" }] });
+    const mine2 = await nextOfType(a, "itemsAdded");
+    const second2 = await nextOfType(a2, "itemsAdded");
+    expect(second2.notes).toEqual(mine2.notes.map(({ note }) => ({ note })));
+    expect(second2.frames).toEqual(mine2.frames.map(({ frame }) => ({ frame })));
+    for (const o of [host, b]) {
+      const theirs = await nextOfType(o, "itemsAdded");
+      expect(theirs).toEqual({ type: "itemsAdded", notes: [], frames: mine2.frames.map(({ frame }) => ({ frame })), refused: [] });
+      expect(await nextOfType(o, "silentChanged")).toEqual({ type: "silentChanged", active: true, count: 3 });
+    }
+    await settle(100);
+    const ids = [...mine.notes, ...mine2.notes].map(({ note }) => note.id);
+    for (const t of [raw.host, raw.b]) {
+      const text = t.join("\n");
+      expect(text).not.toContain("CANARY");
+      expect(text).not.toContain("purple");
+      for (const id of ids) expect(text).not.toContain(id);
+    }
+    closeAll(host, a, b, a2);
+  });
+});
+
 describe("someone else's sealed note is an unknown id", () => {
   it("every message naming it is answered exactly as for a random unknown id, and writes nothing", async () => {
     const { host, a, b, stub } = await silentRoom();
@@ -433,10 +606,8 @@ describe("someone else's sealed note is an unknown id", () => {
     const before = await rowsWritten(stub);
     for (const [i, probe] of probes(s.id).entries()) {
       const unknown = unknownId();
-      b.send(probe);
-      const forSealed = JSON.stringify(await collect(b));
-      b.send(probes(unknown)[i]);
-      const forUnknown = JSON.stringify(await collect(b)).replaceAll(unknown, s.id);
+      const forSealed = JSON.stringify(await answers(b, probe));
+      const forUnknown = JSON.stringify(await answers(b, probes(unknown)[i])).replaceAll(unknown, s.id);
       expect(forSealed, JSON.stringify(probe)).toBe(forUnknown);
     }
     expect(await rowsWritten(stub)).toBe(before);

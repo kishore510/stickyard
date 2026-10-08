@@ -72,7 +72,7 @@ import { ENDED_REASON, EXPIRED_REASON, clearToTombstone, nextExpiryAlarm, readTo
 import { verifyHostToken } from "./hostToken";
 import { BATCH_LIMITS, CURSOR_LIMITS, SOCKET_LIMITS } from "./limits";
 import { NoteStore } from "./noteStore";
-import { scrubFor } from "./sealed";
+import { canSee, scrubFor } from "./sealed";
 import { voterIdFor } from "./voterId";
 import { writerIdFor } from "./writerId";
 
@@ -799,8 +799,7 @@ export class Room extends DurableObject<Env> {
   private noteFor(viewer: string | null, id: string): Note | undefined {
     const note = this.notes.get(id);
     if (!note) return undefined;
-    const writer = this.notes.writerOf(id);
-    return writer === null || writer === viewer ? note : undefined;
+    return canSee(this.notes.writerOf(id), viewer) ? note : undefined;
   }
 
   /**
@@ -1717,10 +1716,7 @@ export class Room extends DurableObject<Env> {
   /** The message as a socket seeing as `viewer` may get it: someone else's sealed notes left out (sealed.ts). */
   private forViewer(message: ServerMessage, viewer: string | null): ServerMessage | null {
     if (!this.filtered(message)) return message;
-    return scrubFor(message, (id) => {
-      const writer = this.store?.writerOf(id) ?? null;
-      return writer === null || writer === viewer;
-    });
+    return scrubFor(message, (id) => canSee(this.store?.writerOf(id) ?? null, viewer));
   }
 
   /** Every message to one socket goes through here, so a sealed note reaches only its writer's sockets. */

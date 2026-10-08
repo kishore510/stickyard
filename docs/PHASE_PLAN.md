@@ -191,6 +191,8 @@ Draft roadmap. When a slice starts, rewrite its prompt against the real code (se
   - (a) Clear board must be blocked in the web while a round is active (part 2). This is a courtesy: the relay already can't delete anyone else's sealed notes through it (they are unknown ids to everyone but their writer), it would only clear the visible ones and leave the sealed ones behind.
   - (b) Rollback caution: reveal or end the round before rolling back the Worker. A Worker older than v0.25.0 doesn't know the `sealed` column and would send sealed notes to everyone.
   - (c) The stacking-order hint is accepted: notes and shapes share one z space, so while silent a visible note's z can reflect that sealed notes exist (for example a new note lands above them). Never their content, id, place, size, colour or author; the count is public anyway.
+  - Host loss during a round: only the host's device can reveal, so a lost device leaves sealed notes hidden until expiry. Part 3's host UI must warn before starting a round. Host recovery (backlog) is now higher priority.
+  - Accepted side channels (not leaks of note data): live cursors near a writer who is typing show where a hidden note probably is; and in a very small room, the timing of count changes can attribute a hidden note to the one person who was typing. Neither carries content, id, place, size, colour or author.
   - Anonymous notes mode stays in the backlog: after the reveal a note's author is its participant id, as for any note.
   - The host can use Bring to me (a later slice) to take everyone to the reveal.
 - Facilitator-defined note palette (host-only, a small list of { id, colorKey, label } from a fixed set of token colours, caps on entries and label length, labels untrusted plain text): no slot yet; see the backlog.
@@ -354,7 +356,7 @@ Draft roadmap. When a slice starts, rewrite its prompt against the real code (se
 - Facilitator-defined note palette (host-only; from the old slice 6 notes)
 - ~~Faster recovery after a relay restart or deploy~~: done in v0.15.0 (the probe waits for 5 failed opens, about 30 s)
 - Sweep rooms that were idle before v0.14.0 (they only get an expiry alarm at their next last-close)
-- Host recovery: move host powers to another device (today they stay on the device that started the session)
+- Host recovery: move host powers to another device (today they stay on the device that started the session). Higher priority since silent brainstorm: a lost host device leaves a silent round's sealed notes hidden until the room expires.
 - Timer pause and sound (v1 has neither)
 - Add and edit shapes on phones (v0.21.0 shows them read-only)
 - Emoji picker in the frame header's own title field (v0.21.0 has it in Properties only)
