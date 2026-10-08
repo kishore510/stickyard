@@ -154,8 +154,8 @@ async function sealedAdd(c: TestClient, all: TestClient[], text: string, count: 
 }
 
 describe("versions", () => {
-  it("protocol 17 and stored schema 10; a v16 page is asked to reload", async () => {
-    expect(PROTOCOL_VERSION).toBe(17);
+  it("protocol 18 (silentMine) and stored schema 10; a v16 page is asked to reload", async () => {
+    expect(PROTOCOL_VERSION).toBe(18);
     expect(SCHEMA_VERSION).toBe(10);
     const { code } = await newRoom();
     const c = await TestClient.open(code);
@@ -394,7 +394,12 @@ describe("the canary leak test", () => {
     for (const t of [sinceStart(raw.host), sinceStart(raw.b)]) {
       for (const k of kinds(t)) expect(["silentChanged", "participant_joined", "participant_left", "itemsAdded"]).toContain(k);
     }
-    for (const t of [rawC, rawB2]) for (const k of kinds(t)) expect([...joining, "silentChanged", "participant_joined", "participant_left"]).toContain(k);
+    for (const t of [rawC, rawB2]) for (const k of kinds(t)) expect([...joining, "silentMine", "silentChanged", "participant_joined", "participant_left"]).toContain(k);
+    // Protocol v18: their own sealed ids only, none here.
+    for (const t of [rawC, rawB2]) {
+      const mine = t.map((r) => JSON.parse(r) as { type: string; ids?: string[] }).filter((m) => m.type === "silentMine");
+      expect(mine).toEqual([{ type: "silentMine", ids: [] }]);
+    }
     // A got every one of its sealed notes.
     for (const id of sealed) expect(rawA.join("\n")).toContain(id);
     // The host gets nothing extra: exactly what the other passive guest got.
@@ -573,6 +578,119 @@ describe("the canary leak test: joins, stale rejections and itemsAdded", () => {
       for (const id of ids) expect(text).not.toContain(id);
     }
     closeAll(host, a, b, a2);
+  });
+});
+
+describe("silentMine (protocol v18): a page learns which of its notes are sealed", () => {
+  /** The join step's messages, in order, from a raw transcript. */
+  const types = (raw: string[]) => raw.map((r) => (JSON.parse(r) as { type: string }).type);
+  const mineOf = (raw: string[]) => raw.map((r) => JSON.parse(r) as { type: string; ids?: string[] }).filter((m) => m.type === "silentMine");
+
+  it("a v17 page is asked to reload", async () => {
+    const { code } = await newRoom();
+    const c = await TestClient.open(code);
+    expect(await c.request({ type: "hello", protocolVersion: 17 })).toMatchObject({ type: "error", code: "version_mismatch" });
+    c.close();
+  });
+
+  it("joining during a round: right after the snapshots, the writer's own sealed ids in creation order (second tab, reconnect, after a wake); deleted and others' never", async () => {
+    const { code, stub, host, a, b, keys } = await silentRoom();
+    const visible = await noteAdd(b, "Before the round");
+    await drain(host, a, b);
+    await startSilent(host, [a, b]);
+    const all = [host, a, b];
+    const a1 = await sealedAdd(a, all, "A1", 1);
+    const b1 = await sealedAdd(b, all, "B1", 2);
+    const a2 = await sealedAdd(a, all, "A2", 3);
+    const a3 = await sealedAdd(a, all, "A3", 4);
+    a.send({ type: "noteDelete", id: a2.id });
+    await nextOfType(a, "noteDeleted");
+    await drain(host, a, b);
+    for (const step of ["second tab", "reconnect", "wake"] as const) {
+      if (step === "wake") await evictDurableObject(stub);
+      const tab = await TestClient.open(code);
+      const raw = recorded(tab);
+      await tab.enter("Ari", keys.a);
+      await settle(100);
+      const t = types(raw);
+      const at = t.indexOf("shapesSnapshot");
+      expect(t.slice(at - 3, at + 2), step).toEqual(["joined", "snapshot", "framesSnapshot", "shapesSnapshot", "silentMine"]);
+      expect(mineOf(raw), step).toEqual([{ type: "silentMine", ids: [a1.id, a3.id] }]);
+      // Exactly the snapshot's notes that aren't everyone's.
+      expect(tab.snapshot?.notes.map((n) => n.id)).toEqual([visible.id, a1.id, a3.id]);
+      expect(JSON.stringify(raw)).not.toContain(b1.id);
+      tab.close();
+      await drain(host, a, b);
+    }
+    closeAll(host, a, b);
+  });
+
+  it("without a key during a round: an empty list; with no round running: no silentMine at all", async () => {
+    const { code, host, a, b, keys } = await silentRoom();
+    const before = await TestClient.open(code);
+    const rawBefore = recorded(before);
+    await before.enter("Ari", keys.a);
+    await settle(100);
+    expect(mineOf(rawBefore)).toEqual([]);
+    await drain(host, a, b, before);
+    await startSilent(host, [a, b, before]);
+    await sealedAdd(a, [host, a, b, before], "A1", 1);
+    const noKey = await TestClient.open(code);
+    const rawNoKey = recorded(noKey);
+    await noKey.enter("Cleo");
+    await settle(100);
+    expect(mineOf(rawNoKey)).toEqual([{ type: "silentMine", ids: [] }]);
+    // After the reveal, joining sends none again.
+    await drain(host, a, b, before, noKey);
+    host.send({ type: "silentReveal" });
+    await nextOfType(b, "silentChanged");
+    const after = await TestClient.open(code);
+    const rawAfter = recorded(after);
+    await after.enter("Ari", keys.a);
+    await settle(100);
+    expect(mineOf(rawAfter)).toEqual([]);
+    closeAll(host, a, b, before, noKey, after);
+  });
+
+  it("a sealed row without a writer is never anyone's: not in any page's silentMine", async () => {
+    const { code, stub } = await newRoom();
+    await runInDurableObject(stub, (_room, state) => {
+      state.storage.sql.exec("INSERT INTO notes (id, x, y, text, color, rev, author_id, sealed, writer) VALUES ('orphan0000000003', 0, 0, 'Idea', 'yellow', 1, 'AAAAAAAAAAAAAAAA', 1, NULL)");
+      state.storage.sql.exec("INSERT INTO meta (key, value) VALUES ('silent_active', 1)");
+    });
+    await evictDurableObject(stub, { webSockets: "close" });
+    for (const key of [undefined, newKey()]) {
+      const c = await TestClient.open(code);
+      const raw = recorded(c);
+      await c.enter("Ari", key);
+      await settle(100);
+      expect(mineOf(raw)).toEqual([{ type: "silentMine", ids: [] }]);
+      c.close();
+    }
+  });
+
+  it("the largest (40 sealed notes) is one small message, and writes nothing", async () => {
+    const { code, id, stub } = await newRoom();
+    const key = newKey();
+    const writer = await specWriterId(id, key);
+    await runInDurableObject(stub, (_room, state) => {
+      for (let i = 0; i < MAX_SEALED_PER_WRITER; i++) {
+        state.storage.sql.exec("INSERT INTO notes (id, x, y, text, color, rev, author_id, sealed, writer) VALUES (?, 0, 0, '', 'yellow', 1, 'AAAAAAAAAAAAAAAA', 1, ?)", `mine${String(i).padStart(12, "0")}`, writer);
+      }
+      state.storage.sql.exec("INSERT INTO meta (key, value) VALUES ('silent_active', 1)");
+    });
+    await evictDurableObject(stub, { webSockets: "close" });
+    const c = await TestClient.open(code);
+    const raw = recorded(c);
+    await c.enter("Ari", key);
+    await settle(100);
+    const rows = await rowsWritten(stub);
+    const mine = raw.filter((r) => r.includes('"silentMine"'));
+    expect(mine).toHaveLength(1);
+    expect((JSON.parse(mine[0]!) as { ids: string[] }).ids).toHaveLength(MAX_SEALED_PER_WRITER);
+    expect(new TextEncoder().encode(mine[0]).length).toBeLessThan(1024);
+    expect(rows).toBe(0);
+    c.close();
   });
 });
 

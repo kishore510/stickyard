@@ -71,8 +71,8 @@ const worstNote = (i: number): Note => ({
 });
 
 describe("protocol v17", () => {
-  it("is version 17", () => {
-    expect(PROTOCOL_VERSION).toBe(17);
+  it("is version 17 or later (v18 adds silentMine)", () => {
+    expect(PROTOCOL_VERSION).toBeGreaterThanOrEqual(17);
   });
 
   it("silentStart and silentReveal are strict, host-only and don't count as board writes (a locked board can start one)", () => {
@@ -165,6 +165,7 @@ describe("server message registry", () => {
         "voteConfirmed",
         "votesRevealed",
         "notesRevealed",
+        "silentMine",
       ].sort(),
     );
     expect(SERVER_MESSAGES.silentChanged.carriesNoteContent).toBe(false);
@@ -204,5 +205,29 @@ describe("sizes", () => {
 
   it("a join with the longest key is small", () => {
     expect(utf8Length(JSON.stringify({ type: "join", name: "😀".repeat(MAX_NAME_LENGTH), key: "k".repeat(VOTER_KEY_MAX_LENGTH) }))).toBeLessThan(256);
+  });
+});
+
+describe("protocol v18: silentMine", () => {
+  it("is version 18", () => {
+    expect(PROTOCOL_VERSION).toBe(18);
+  });
+
+  it("carries only this page's own sealed note ids (0 to MAX_SEALED_PER_WRITER), strict", () => {
+    const ids = Array.from({ length: MAX_SEALED_PER_WRITER }, (_, i) => pad("note", i));
+    expect(serverOk({ type: "silentMine", ids: [] })).toBe(true);
+    expect(serverOk({ type: "silentMine", ids })).toBe(true);
+    expect(serverOk({ type: "silentMine", ids: [...ids, pad("note", 99)] })).toBe(false);
+    expect(serverOk({ type: "silentMine", ids: ["short"] })).toBe(false);
+    expect(serverOk({ type: "silentMine", ids: [], writer: "x".repeat(43) })).toBe(false);
+    expect(serverOk({ type: "silentMine", ids: [], count: 3 })).toBe(false);
+    expect(SERVER_MESSAGES.silentMine.carriesNoteContent).toBe(true);
+  });
+
+  it("the largest silentMine is small", () => {
+    const raw = encodeMessage({ type: "silentMine", ids: Array.from({ length: MAX_SEALED_PER_WRITER }, (_, i) => pad("note", i)) });
+    expect(utf8Length(raw)).toBeLessThan(1024);
+    // Recorded in docs/LIMITS.md.
+    expect(utf8Length(raw)).toBe(789);
   });
 });
