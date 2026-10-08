@@ -268,6 +268,9 @@
   /* How far Duplicate puts the copies from the originals, right and down, in board units
      (= DUPLICATE_OFFSET in canvas/duplicate.ts, test checks). */
   --sy-duplicate-offset: 24px;
+  /* Space round the items in an exported PNG, in board units (= EXPORT_MARGIN in export/png.ts,
+     test checks); room for the vote badges above a note. */
+  --sy-export-margin: 64px;
   --sy-border-width: 1px;
   /* Downward drag on a phone sheet's header that closes it. Read by src/shell/Sheet.tsx. */
   --sy-swipe-close: 80px;

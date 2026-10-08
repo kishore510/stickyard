@@ -1,8 +1,8 @@
 ---
 title: Notes
 order: 3
-summary: Add notes from the palette, duplicate them, undo and redo your changes, clear the board, edit, colour, style and resize them in Properties, bring them to the front or send them to the back, group them in frames, start from a template, select several notes and frames to move, arrange or delete together; pan, zoom and fit the board.
-keywords: undo, redo, history, duplicate, copy, clear, clear board, empty, restore, ctrl+z, ctrl+y, ctrl+d, tick, outline, template, templates, retro, retrospective, start stop continue, 2x2, matrix, impact, effort, sprint, planning, kanban, frame, frames, area, section, title, carry, front, back, order, stack, overlap, behind, top, bottom, inline, place, double-click, marquee, multi, several, many, group, arrange, align, distribute, grid, columns, rows, tidy, layout, match, right-click, middle, note, notes, sticky, board, add, edit, move, drag, delete, colour, color, text, title, body, size, width, height, bigger, smaller, handle, corner, font, bold, italic, align, alignment, left, centre, center, right, style, palette, tile, properties, panel, select, selection, collapse, resize, pan, hand, zoom, pinch, wheel, fit, overview, map, shortcut, full, saved
+summary: Add notes from the palette, export the board as a picture or a Markdown file, duplicate them, undo and redo your changes, clear the board, edit, colour, style and resize them in Properties, bring them to the front or send them to the back, group them in frames, start from a template, select several notes and frames to move, arrange or delete together; pan, zoom and fit the board.
+keywords: export, download, png, picture, image, markdown, save, file, undo, redo, history, duplicate, copy, clear, clear board, empty, restore, ctrl+z, ctrl+y, ctrl+d, tick, outline, template, templates, retro, retrospective, start stop continue, 2x2, matrix, impact, effort, sprint, planning, kanban, frame, frames, area, section, title, carry, front, back, order, stack, overlap, behind, top, bottom, inline, place, double-click, marquee, multi, several, many, group, arrange, align, distribute, grid, columns, rows, tidy, layout, match, right-click, middle, note, notes, sticky, board, add, edit, move, drag, delete, colour, color, text, title, body, size, width, height, bigger, smaller, handle, corner, font, bold, italic, align, alignment, left, centre, center, right, style, palette, tile, properties, panel, select, selection, collapse, resize, pan, hand, zoom, pinch, wheel, fit, overview, map, shortcut, full, saved
 ---
 Every session has one shared **board**. Everyone in the session sees the same notes, and changes show up for everyone as they happen. The board fills the screen; its edge is the outline around the dotted area, and notes always stay inside it.
 
@@ -186,6 +186,15 @@ Select the note and choose the bin (**Delete note**) at the top of Properties (o
 ## Clearing the board
 
 On a wider screen, with nothing selected, **Properties** has **Clear board**. It deletes every note and frame, for everyone. You're asked once, with how many notes and frames. When it's done, the board says how many were deleted, or how many weren't and why (nothing is tried again). One **Undo** brings the whole board back, until you leave or reconnect. Clear board is off while you're not connected, when the board is empty, and while a template, duplicate or undo is still being added. It isn't on phones.
+
+## Exporting the board
+
+On a wider screen, with nothing selected, **Properties** has an **Export** section:
+
+- **Export PNG** saves a picture of every note, frame and shape at full size, whatever you're zoomed to, in the theme you're using. Revealed vote totals and **Top voted** are in it; other people's pointers, selection outlines, handles and your own dots aren't. A very large board is scaled down so the picture still opens on phones and tablets.
+- **Export Markdown** saves the board as text: a section for each frame with the notes inside it (top to bottom, then left to right), then the notes outside any frame, then the text in labels and shapes. Once the host has revealed the votes, each note shows its dots and a **Results** list comes last. Colours and authors aren't included.
+
+Anyone in the session can export, also on a locked board or while disconnected: it uses the board as your page shows it. Files are named by the date only (for example `stickyard-board-2026-10-07.png`), never the room code or anyone's name. Exports are made in your browser; nothing is uploaded or kept. Export isn't on phones yet, and the buttons are off while the board is empty.
 
 ## When something goes wrong
 

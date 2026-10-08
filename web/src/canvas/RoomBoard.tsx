@@ -1,4 +1,4 @@
-import { ReactFlowProvider, useStore } from "@xyflow/react";
+import { ReactFlowProvider, useStore, useStoreApi } from "@xyflow/react";
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { RotateCcw, SlidersHorizontal, Trophy, WifiOff } from "lucide-react";
 import {
@@ -553,6 +553,9 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
   // Dot voting results (closed rounds): the Properties summary lists them; a row (here or in the
   // phone Results sheet) asks for its note to be selected and shown.
   const resultRows = useResultRows(view.results, view.board);
+  // Export PNG draws React Flow's viewport element (export/png.ts).
+  const flowStore = useStoreApi();
+  const exportViewport = useCallback(() => flowStore.getState().domNode?.querySelector<HTMLElement>(".react-flow__viewport") ?? null, [flowStore]);
   const revealRequest = useBoardUi((s) => s.revealRequest);
   useEffect(() => {
     if (!revealRequest) return;
@@ -739,6 +742,7 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
                 endSession: room.endSession,
                 results: resultRows,
                 onPickResult: pickResult,
+                exportViewport,
               }}
             />
           )}

@@ -7,7 +7,7 @@ Detail for each area of Stickyard, one file per area. CLAUDE.md stays short and 
 | [shell.md](shell.md) | App shell, tokens, sheets, routes, Help, What's new, About, storage keys, welcome screen, top bar and board bar |
 | [rooms.md](rooms.md) | Room codes, Worker checks, secrets, limits, the room Durable Object, expiry and burial, host token, lock, timer relay |
 | [notes.md](notes.md) | Note protocol and storage, size, colour and text style, inline editing, z-order |
-| [canvas.md](canvas.md) | React Flow canvas, palette and Properties panels, selection, marquee, arrange and grid, delete keys, Duplicate |
+| [canvas.md](canvas.md) | React Flow canvas, palette and Properties panels, selection, marquee, arrange and grid, delete keys, Duplicate, Export |
 | [frames.md](frames.md) | Frames, frame title style, templates, frame multi-select |
 | [editing.md](editing.md) | `itemsAdd` (create with content), undo/redo history, Clear board |
 | [connection.md](connection.md) | Reconnect, resync, presence (avatars, toasts), live cursors |
@@ -27,6 +27,7 @@ Sections are named after the slice that introduced them. Cross-references in quo
 | Selection fixes (v0.10.2) | canvas.md |
 | Arrange grid (v0.10.3) | canvas.md |
 | Floating bar and Duplicate (v0.12.0, part 1) | canvas.md |
+| Export (v0.22.0) | canvas.md |
 | Reconnect and presence (v0.13.0) | connection.md |
 | Live cursors, protocol v14 (v0.19.0) | connection.md |
 | Create with content, protocol v11 (slice create with content) | editing.md |

@@ -1,6 +1,6 @@
 # Phase plan: Stickyard
 
-Last updated: 7 October 2026
+Last updated: 8 October 2026
 
 Draft roadmap. When a slice starts, rewrite its prompt against the real code (see the skeleton in PROJECT_BRIEF.md). Do not treat these notes as final prompts.
 
@@ -38,7 +38,7 @@ Draft roadmap. When a slice starts, rewrite its prompt against the real code (se
 | 3b Presence: live cursors | Live cursors (throttled, never stored). Protocol v14 | Done (v0.19.0, PR #37; built ahead of export by choice) |
 | Frame multi-select | Frames in the selection with notes: marquee (enclosed frames), Ctrl+A, Shift/Ctrl-click; group move with carry, paced delete, arrange/Grid/Match size on frames, Colour and Title text for several frames, Duplicate of mixed selections. Web only, no protocol change | Done (v0.20.0, PR #38) |
 | 7a Text box and shapes | Text labels and basic shapes (rectangle, oval, diamond) with text, fill and border styles; one stacking space with notes; frames carry them; selection, arrange, duplicate, undo. Protocol v15, stored schema 9 | Done (v0.21.0, PR #39, merged and deployed 7 October 2026) |
-| Export PNG/Markdown | One session, so a retro leaves something behind | Not started |
+| Export PNG/Markdown | Export PNG (100% zoom, fitted to every item, size-capped) and Export Markdown (frames, notes, labels, revealed results; escaped) from Properties. Web only, no protocol or stored-schema change | Done (v0.22.0, web only, merged and deployed 8 October 2026) |
 | Board size | Board grows from 3200 x 2000 to 6400 x 4000 (2x each way). Protocol v16, no stored-schema bump; `MIN_ZOOM` stays 0.1 | Not started |
 | Panel layout at 768 px | At 768 px the two side panels leave only about 280 px of canvas, so the first fit is far out. Web only | Not started |
 | Navigation | Zoom to selection; Jump to a person (from Participants). Web only, no protocol change | Not started |
@@ -63,7 +63,7 @@ Draft roadmap. When a slice starts, rewrite its prompt against the real code (se
 - Each protocol or stored-schema change is its own slice and branch (2.7, 2.7.1, 2.7.2, 2.8, z-order, frames, 3b are separate for that reason).
 - Protocol numbers are assigned when each slice starts, not in advance (v15 is the current one, since text and shapes in v0.21.0; expiry (v0.14.0), the top-bar move (v0.15.1) and the facilitation UI (v0.16.0) changed no protocol).
 - Earlier order (decided 4 October 2026, replaced by the next line for everything not yet built; Reconnect and Presence 3a were built together in one session, v0.13.0; Idle expiry done in v0.14.0; Timer and lock board (a) in v0.15.0 and (b) in v0.16.0; Dot voting (a) in v0.17.0 and (b) in v0.18.0; 3b cursors brought forward to v0.19.0; Frame multi-select in v0.20.0 and 7a in v0.21.0): Export PNG/Markdown, Hardening (trimmed 9), then Silent brainstorm with reveal, then 7a, 7b, 7c (remaining), 8, 10. Slice numbers are kept as names; the table above is in build order.
-- Order from here (decided 7 October 2026, thread 12): Export PNG/Markdown, Board size (protocol v16), Panel layout at 768 px, Navigation, Follow and Bring to me (protocol v17), Silent brainstorm with reveal, Hardening (trimmed 9, after silent brainstorm so the load test covers its paths), Reactions on notes, then 7b Arrows, 7c Structure (remaining), 8 Phone view (with QR join), 10 AI. More built-in templates has no fixed slot: it is data entries only and fills any gap between slices. The protocol numbers here are the expected ones; each is still confirmed when its slice starts.
+- Order from here (decided 7 October 2026, thread 12; Export done in v0.22.0): Export PNG/Markdown, Board size (protocol v16), Panel layout at 768 px, Navigation, Follow and Bring to me (protocol v17), Silent brainstorm with reveal, Hardening (trimmed 9, after silent brainstorm so the load test covers its paths), Reactions on notes, then 7b Arrows, 7c Structure (remaining), 8 Phone view (with QR join), 10 AI. More built-in templates has no fixed slot: it is data entries only and fills any gap between slices. The protocol numbers here are the expected ones; each is still confirmed when its slice starts.
 - Working setup (7 October 2026): one fresh Claude Code session per part, at most per slice, handing over through the PR description. CLAUDE.md stays short; area detail is in `docs/architecture/`. Stale status docs fail CI (`web/test/docs.test.ts`), and `npm run shots` takes the screenshot set.
 - Estimate to a demo-able retro tool (through trimmed hardening, recomputed 7 October 2026 for the order above): about 8 to 10 more Claude Code sessions, plus about 20% for reruns. One each for Export, Board size, Panel layout, Navigation and Hardening; one or two for Follow and Bring to me (protocol, then UI); two for Silent brainstorm (relay, then UI; more if Anonymous notes mode joins it). The rise from the last estimate is the new slices, not slower work (it was 2 to 4 before thread 12, 3 to 5 before the voting UI, 4 to 6 before the voting groundwork, 5 to 7 before the facilitation UI, 6 to 8 before the host groundwork, 7 to 9 before Idle expiry, 11 to 13 before Reconnect and Presence).
 
@@ -189,8 +189,10 @@ Draft roadmap. When a slice starts, rewrite its prompt against the real code (se
   - The host can use Bring to me (previous slice) to take everyone to the reveal.
 - Facilitator-defined note palette (host-only, a small list of { id, colorKey, label } from a fixed set of token colours, caps on entries and label length, labels untrusted plain text): no slot yet; see the backlog.
 
-### Export PNG/Markdown
-- One session, so a retro leaves something behind. Moved out of 7c. Export on phones and Export selection only are in the backlog.
+### Export PNG/Markdown (done, v0.22.0)
+- One session, so a retro leaves something behind. Moved out of 7c. Web only: no protocol or stored-schema change. Built in two parts on `phase-export`, tests first: Markdown (`export/markdown.ts`, pure, every room string escaped), then PNG (`export/png.ts`, html-to-image 1.11.13 pinned and loaded with a dynamic import). Both from Properties with nothing selected, md and up, for hosts and guests, locked or not, connected or not. Details in `docs/architecture/canvas.md` ("Export").
+- Checked in Chromium (768 and 1280, light and dark, a board with frames, notes, shapes, revealed votes and another person's live cursor): the PNG has the Inter font, no cursor, grip, dot grid or selection marks, and is the same image whatever the zoom.
+- Export on phones and Export selection only are in the backlog.
 
 ### Board size (protocol v16)
 - Decided 7 October 2026: the board grows 2x each way, from 3200 x 2000 to 6400 x 4000 (not 3x). The goal is room to work and easy navigation, not fitting the whole board on screen, so `MIN_ZOOM` stays 0.1 (at 0.1 a 6400-unit board is 640 px wide, so only screens wider than that see all of it).
