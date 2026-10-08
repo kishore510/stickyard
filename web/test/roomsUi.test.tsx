@@ -833,18 +833,21 @@ describe("board layout: palette and Properties panels from md up, ribbon on phon
     await settle();
     expect(ribbon()).toBeNull();
     expect(viewBar()?.querySelector('[data-tool="hand"]')?.getAttribute("aria-pressed")).toBe("true");
+    // The panels' first state was decided while the window was narrow (below lg, nothing stored): collapsed (v0.24.0).
+    expect(propTitle()).toBeNull();
+    await click(properties()?.querySelector<HTMLElement>('[aria-label="Expand Properties"]') ?? undefined);
     // The note focused on the phone is the one selected in Properties.
     expect(propTitle()?.value).toBe("Idea one");
     // The same canvas stays mounted, so the viewport isn't reset.
     expect(document.querySelector(".react-flow")).toBe(flow);
-    await click(palette()?.querySelector<HTMLElement>('[aria-label="Collapse palette"]') ?? undefined);
+    await click(palette()?.querySelector<HTMLElement>('[aria-label="Expand palette"]') ?? undefined);
     await act(async () => setWide(false));
     await settle();
     expect(palette()).toBeNull();
     expect(ribbon()?.querySelector('[data-tool="hand"]')?.getAttribute("aria-pressed")).toBe("true");
     await act(async () => setWide(true));
     await settle();
-    expect(palette()?.querySelector('[aria-label="Expand palette"]')).not.toBeNull();
+    expect(palette()?.querySelector('[aria-label="Collapse palette"]')).not.toBeNull();
     expect(propTitle()?.value).toBe("Idea one");
   });
 

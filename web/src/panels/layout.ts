@@ -118,18 +118,36 @@ export function tileColumns(panelWidth: number): number {
 
 /** The saved layout for one panel. Anything missing, malformed or out of range falls back to the defaults. */
 export function parsePanelState(raw: string | null, limits: PanelLimits): PanelState {
-  if (raw === null) return DEFAULT_PANEL_STATE;
+  return storedPanelState(raw, limits) ?? DEFAULT_PANEL_STATE;
+}
+
+/**
+ * The choice this browser saved for one panel, or null when there is none (nothing stored, or
+ * something malformed). A well-formed entry with an out-of-range width is still a choice: its
+ * collapsed state stands and the width goes back to the default.
+ */
+export function storedPanelState(raw: string | null, limits: PanelLimits): PanelState | null {
+  if (raw === null) return null;
   let value: unknown;
   try {
     value = JSON.parse(raw);
   } catch {
-    return DEFAULT_PANEL_STATE;
+    return null;
   }
-  if (typeof value !== "object" || value === null || Array.isArray(value)) return DEFAULT_PANEL_STATE;
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
   const { width, collapsed } = value as Record<string, unknown>;
-  if (typeof collapsed !== "boolean" || (width !== null && typeof width !== "number")) return DEFAULT_PANEL_STATE;
+  if (typeof collapsed !== "boolean" || (width !== null && typeof width !== "number")) return null;
   const inRange = typeof width === "number" && Number.isFinite(width) && width >= limits.min && width <= limits.max;
   return { width: inRange ? Math.round(width) : null, collapsed };
+}
+
+/**
+ * A panel's first state (v0.24.0): the saved choice when there is one; otherwise open at the lg
+ * breakpoint and up (`desktop`), and collapsed below it, so a 768 px tablet's first fit isn't
+ * squeezed into the third of the window left between two open panels.
+ */
+export function initialPanelState(raw: string | null, limits: PanelLimits, desktop: boolean): PanelState {
+  return storedPanelState(raw, limits) ?? (desktop ? DEFAULT_PANEL_STATE : { width: null, collapsed: true });
 }
 
 export function serialisePanelState(state: PanelState): string {
