@@ -1,4 +1,4 @@
-import type { Participant, VotingState } from "@stickyard/shared";
+import type { Participant, SilentState, VotingState } from "@stickyard/shared";
 import { create } from "zustand";
 import { countUnread } from "../chat/unread";
 import type { EchoEntry, RoomTimer, VoteTotal } from "./session";
@@ -48,6 +48,14 @@ export interface PublishedRoom {
   startVote(budget: number): boolean;
   stopVote(): boolean;
   clearVotes(): boolean;
+  /** Silent brainstorm (protocol v17/v18; web state since v0.27.0, no UI yet): the round, my sealed note ids, everyone's note count, and whether this page can write in a round. */
+  silent: SilentState;
+  mySealed: ReadonlySet<string>;
+  totalNotes: number;
+  writer: boolean;
+  /** Host only (the session refuses them for guests, while disconnected, or in the wrong state). */
+  startSilent(): boolean;
+  revealSilent(): boolean;
   say(text: string): boolean;
   leave(): void;
 }

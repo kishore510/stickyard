@@ -42,6 +42,7 @@ import {
   type Participant,
   type ServerMessage,
   type Shape,
+  type SilentState,
   type ShapeBatchEntry,
   type ShapeItem,
   type ShapeKind,
@@ -62,6 +63,7 @@ import {
   type ProbeResult,
 } from "../connection/reconnect";
 import type { SocketFactory, SocketLike } from "../connection/socket";
+import { SILENT_OFF, SILENT_TEXT, silentNoteReason, totalNotes, writerRoom } from "../silent/silent";
 import {
   addFrameItemLocal,
   addFrameLocal,
@@ -290,6 +292,14 @@ export interface RoomView {
   votersFull: boolean;
   /** The round's totals (non-zero, in note creation order), only while voting is closed. Never who voted. */
   results: readonly VoteTotal[] | null;
+  /** Protocol v17: the silent round (running, and every sealed note in the room, mine too). */
+  silent: SilentState;
+  /** Protocol v18: my own sealed note ids this round (silentMine, then my adds and deletes). Empty outside a round. */
+  mySealed: ReadonlySet<string>;
+  /** Notes on the board, everyone's: the ones shown plus the sealed notes of others this page can't see. */
+  totalNotes: number;
+  /** Protocol v17: this page's join carried its key, so it can write during a silent round. */
+  writer: boolean;
 }
 
 /** One note's dots in a closed round's results. */
@@ -339,6 +349,10 @@ export const INITIAL_VIEW: RoomView = {
   remaining: VOTE_BUDGET_DEFAULT,
   votersFull: false,
   results: null,
+  silent: SILENT_OFF,
+  mySealed: new Set(),
+  totalNotes: 0,
+  writer: false,
 };
 
 /** What a dropped connection says about changes it may have lost. */
@@ -440,6 +454,9 @@ export interface ItemsRefused {
   shapesFull: number;
   invalid: number;
   tooQuick: number;
+  /** Protocol v17: refused during a silent round (no writer, or the writer's cap). */
+  noWriter: number;
+  sealedFull: number;
 }
 
 /** One addItems call: its items by ref, until the relay has answered for each. */
@@ -497,8 +514,10 @@ const notesWord = (n: number) => (n === 1 ? "note" : "notes");
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"} ${n === 1 ? "wasn’t" : "weren’t"} added`;
 
 /** What a notice says about items an addItems couldn't add, by reason. */
-function itemsNotice({ notesFull, framesFull, shapesFull, invalid, tooQuick }: ItemsRefused): string {
+function itemsNotice({ notesFull, framesFull, shapesFull, invalid, tooQuick, noWriter, sealedFull }: ItemsRefused): string {
   const parts: string[] = [];
+  if (noWriter > 0) parts.push(`${SILENT_TEXT.noWriter} ${plural(noWriter, "note")}.`);
+  if (sealedFull > 0) parts.push(`${SILENT_TEXT.writerFull} ${plural(sealedFull, "note")}.`);
   if (notesFull > 0) parts.push(`${plural(notesFull, "note")} because the board is full (${MAX_NOTES_PER_ROOM} notes).`);
   if (framesFull > 0) parts.push(`${plural(framesFull, "frame")} because the board has the maximum of ${MAX_FRAMES_PER_ROOM} frames.`);
   if (shapesFull > 0) parts.push(`${plural(shapesFull, "shape")} because the board has the maximum of ${MAX_SHAPES_PER_ROOM} shapes.`);
@@ -510,13 +529,15 @@ function itemsNotice({ notesFull, framesFull, shapesFull, invalid, tooQuick }: I
 /** Items of a run the relay has added. */
 const restoredCount = (run: ItemsRun) => [...run.ids.values()].filter((id) => id !== null).length;
 
-const refusedTotal = (r: ItemsRefused) => r.notesFull + r.framesFull + r.shapesFull + r.invalid + r.tooQuick;
+const refusedTotal = (r: ItemsRefused) => r.notesFull + r.framesFull + r.shapesFull + r.invalid + r.tooQuick + r.noWriter + r.sealedFull;
 
 /** Which ItemsRefused count a refusal adds to. */
 function refusalKey(reason: ItemRefusalReason | "rate_limited"): keyof ItemsRefused {
   if (reason === "notes_full") return "notesFull";
   if (reason === "frames_full") return "framesFull";
   if (reason === "shapes_full") return "shapesFull";
+  if (reason === "no_writer") return "noWriter";
+  if (reason === "sealed_full") return "sealedFull";
   return reason === "rate_limited" ? "tooQuick" : "invalid";
 }
 
@@ -725,6 +746,10 @@ export class RoomSession {
   private readonly votesPending = new Map<string, number[]>();
   /** The relay refused this visit as a voter (voters_full on claimVoter). */
   private votersFull = false;
+  /** Protocol v17/v18: my sealed note ids this round (the source of view.mySealed). */
+  private sealed = new Set<string>();
+  /** Protocol v17: the last join carried this page's key (it can write during a silent round). */
+  private sentKey = false;
   private pendingName: string | null = null;
   private timer: ReturnType<typeof setTimeout> | undefined;
   private nextKey = 0;
@@ -816,7 +841,7 @@ export class RoomSession {
     this.update({ status: "connecting", nameError: false });
     this.startTimer();
     if (this.socket) {
-      if (this.welcomed) this.send({ type: "join", name: clean });
+      if (this.welcomed) this.sendJoin(clean);
       return;
     }
     this.listen();
@@ -1240,10 +1265,11 @@ export class RoomSession {
   /** Adds an empty note (or one with `text`). Its temporary id, or null if not connected or the board is full. */
   addNote({ x, y, color, text = "" }: { x: number; y: number; color: NoteColor; text?: string }): string | null {
     if (!this.live || !this.view.you) return null;
-    if (this.view.board.notes.length >= MAX_NOTES_PER_ROOM) {
+    if (this.view.totalNotes >= MAX_NOTES_PER_ROOM) {
       this.update({ noteNotice: NOTICES.full });
       return null;
     }
+    if (this.refuseSilentNotes(1)) return null;
     const clean = cleanNoteText(text);
     if (clean === null) return null;
     const clientRef = randomRef();
@@ -1599,6 +1625,7 @@ export class RoomSession {
   startFrameDrag(id: string, carry: boolean): boolean {
     const entry = findFrame(this.view.board, id);
     if (!this.live || isLocalId(id) || !entry) return false;
+    if (this.refuseSilent()) return false;
     const inside = carry ? framedNotes(entry.frame, this.view.board.notes.map((n) => n.note)).filter((n) => !isLocalId(n.id)) : [];
     const insideShapes = carry ? framedNotes(entry.frame, this.view.board.shapes.map((x) => x.shape)).filter((x) => !isLocalId(x.id)) : [];
     // The carry cap is shared by notes and shapes (protocol v15).
@@ -1620,6 +1647,8 @@ export class RoomSession {
    */
   moveFrame(id: string, x: number, y: number, final: boolean): void {
     if (!this.live || isLocalId(id)) return;
+    // During a silent round only a drag that started before it goes on (the relay refuses it; rolled back).
+    if (this.view.silent.active && this.frameDrag?.id !== id) return;
     const entry = findFrame(this.view.board, id);
     if (!entry) return this.stopFrameMove(id);
     const drag =
@@ -1664,6 +1693,7 @@ export class RoomSession {
    */
   startSelectionDrag(frameIds: readonly string[], noteIds: readonly string[], carry: boolean, shapeIds: readonly string[] = []): boolean {
     if (!this.live || lockedOut(this.view)) return false;
+    if (frameIds.length > 0 && this.refuseSilent()) return false;
     const board0 = this.view.board;
     const frames = frameIds.flatMap((id) => {
       const entry = findFrame(board0, id);
@@ -1794,6 +1824,8 @@ export class RoomSession {
       return entry && !isLocalId(r.id) && !isFrameHeld(entry) ? [{ rect: r, frame: entry.frame }] : [];
     });
     const moving = usable.filter(({ rect, frame }) => rect.w === frame.w && rect.h === frame.h);
+    // Frames can't move during a silent round (the relay refuses frameMove); a size change alone can.
+    if (moving.some(({ rect, frame }) => rect.x !== frame.x || rect.y !== frame.y) && this.refuseSilent()) return false;
     const movable = board0.notes.filter((n) => !isLocalId(n.note.id) && !isHeld(n)).map((n) => n.note);
     const movableShapes = board0.shapes.filter((x) => !isLocalId(x.shape.id) && !isShapeHeld(x)).map((x) => x.shape);
     const plan = carryPlan(moving.map((m) => m.frame), movable, [], true, MAX_BATCH_ENTRIES, movableShapes, []);
@@ -2143,8 +2175,9 @@ export class RoomSession {
     { record = null, restore = false, defer = false }: { record?: string | null; restore?: boolean; defer?: boolean } = {},
   ): ItemsRun | null {
     if (!this.live || !this.view.you || inputs.length === 0) return null;
+    if (this.refuseSilentNotes(inputs.filter((i) => i.kind === "note").length)) return null;
     const authorId = this.view.you.id;
-    const run: ItemsRun = { refs: [], pending: new Set(), ids: new Map(), refused: { notesFull: 0, framesFull: 0, shapesFull: 0, invalid: 0, tooQuick: 0 }, template, restore };
+    const run: ItemsRun = { refs: [], pending: new Set(), ids: new Map(), refused: { notesFull: 0, framesFull: 0, shapesFull: 0, invalid: 0, tooQuick: 0, noWriter: 0, sealedFull: 0 }, template, restore };
     let board = this.view.board;
     const drafts: ItemDraft[] = [];
     for (const input of inputs) {
@@ -2234,7 +2267,8 @@ export class RoomSession {
       for (const { note } of message.notes) board = applyAdded(board, note);
       for (const { frame } of message.frames) board = applyFrameAdded(board, frame);
       for (const { shape } of message.shapes ?? []) board = applyShapeAdded(board, shape);
-      return this.update({ board });
+      this.sealedAdd(message.notes.map(({ note }) => note.id));
+      return this.update({ board, ...this.sealedView() });
     }
     this.itemBatches.delete(message.clientRef);
     const { run } = batch;
@@ -2259,7 +2293,8 @@ export class RoomSession {
     }
     // Anything the relay didn't account for can't be confirmed any more: rolled back.
     board = this.refuseUnanswered(board, batch, "invalid");
-    this.update({ rateLimited: false, ...this.itemsDone(run, board) });
+    this.sealedAdd(message.notes.map(({ note }) => note.id));
+    this.update({ rateLimited: false, ...this.itemsDone(run, board), ...this.sealedView() });
   }
 
   /** The relay refused a whole itemsAdd (nothing added, too quick, not joined): roll back each of its items. */
@@ -2270,7 +2305,10 @@ export class RoomSession {
       const ref = itemList(batch.message, r.kind)?.[r.index]?.ref;
       if (ref !== undefined) board = this.itemRefused(board, batch.run, ref, r.kind, r.reason);
     }
-    const reason = message.code === "notes_full" || message.code === "frames_full" || message.code === "shapes_full" || message.code === "rate_limited" ? message.code : "invalid";
+    const reason =
+      message.code === "notes_full" || message.code === "frames_full" || message.code === "shapes_full" || message.code === "no_writer" || message.code === "sealed_full" || message.code === "rate_limited"
+        ? message.code
+        : "invalid";
     board = this.refuseUnanswered(board, batch, reason);
     this.update({
       ...(message.code === "rate_limited" ? { rateLimited: true } : {}),
@@ -2375,11 +2413,12 @@ export class RoomSession {
     const entries = ids.map((id) => findNote(this.view.board, id));
     if (entries.some((e) => !e || e.confirmed === null || isLocalId(e.note.id) || isHeld(e))) return null;
     const notes = entries.flatMap((e) => (e ? [e.note] : []));
-    const free = Math.max(0, MAX_NOTES_PER_ROOM - this.view.board.notes.length);
+    const free = Math.max(0, MAX_NOTES_PER_ROOM - this.view.totalNotes);
     if (notes.length > free) {
       this.update({ noteNotice: NOTICES.duplicateNoRoom("note", notes.length, free) });
       return null;
     }
+    if (this.refuseSilentNotes(notes.length)) return null;
     if (this.itemBatches.size > 0) return null;
     return this.addItems(duplicateNoteInputs(notes), "Duplicate")?.flatMap((id) => (id === null ? [] : [id])) ?? null;
   }
@@ -2418,7 +2457,7 @@ export class RoomSession {
       return null;
     }
     const freeFrames = Math.max(0, MAX_FRAMES_PER_ROOM - this.view.board.frames.length);
-    const freeNotes = Math.max(0, MAX_NOTES_PER_ROOM - this.view.board.notes.length);
+    const freeNotes = Math.max(0, MAX_NOTES_PER_ROOM - this.view.totalNotes);
     if (frames.length > freeFrames) {
       this.update({ noteNotice: frames.length === 1 ? NOTICES.duplicateNoRoom("frame", 1, freeFrames) : DUPLICATE_HINTS.framesFullMany(frames.length, freeFrames) });
       return null;
@@ -2427,6 +2466,7 @@ export class RoomSession {
       this.update({ noteNotice: NOTICES.duplicateNoRoom("note", notes.length, freeNotes) });
       return null;
     }
+    if (this.refuseSilentNotes(notes.length)) return null;
     if (this.itemBatches.size > 0) return null;
     const inputs = duplicateSelectionInputs(
       notes.flatMap((e) => (e ? [e.note] : [])),
@@ -2456,6 +2496,7 @@ export class RoomSession {
    */
   clearBoard(): boolean {
     if (!this.live || this.clearRun || this.restoreRun || this.template || this.itemBatches.size > 0) return false;
+    if (this.refuseSilent()) return false;
     const { notes, frames, shapes } = this.view.board;
     if (notes.length + frames.length + shapes.length === 0) return false;
     this.startRemoval("clear", notes, frames, shapes);
@@ -2635,6 +2676,19 @@ export class RoomSession {
       this.history.applied(plan, new Map(), now);
       return this.update({ noteNotice: null, historyReport: { text: plan.message, partial: false } });
     }
+    if (this.view.silent.active) {
+      // During a silent round: no frame moves (the relay refuses them), and notes added back count
+      // towards the board's cap and mine. Refused as a whole, before the history moves on.
+      const framesMove = plan.changes.some(({ kind, values }) => kind === "frame" && ("x" in values || "y" in values) && !("w" in values || "h" in values));
+      if (framesMove && this.refuseSilent()) return;
+    }
+    // During a round this page can't see every note, so the board's cap is checked here (outside
+    // a round a restore that doesn't fit is added in part, as the relay allows).
+    const restoredNotes = plan.restores.filter((r) => r.kind === "note").length;
+    if (this.view.silent.active && restoredNotes > 0 && restoredNotes > MAX_NOTES_PER_ROOM - this.view.totalNotes) {
+      return this.update({ noteNotice: NOTICES.full });
+    }
+    if (this.refuseSilentNotes(restoredNotes)) return;
     let board = this.view.board;
     // Items to add back: shown at once (local ids); sent once the history knows them.
     const newIds = new Map<string, string>();
@@ -3109,7 +3163,7 @@ export class RoomSession {
       case "welcome":
         if (message.protocolVersion !== PROTOCOL_VERSION) return this.finish("reload");
         this.welcomed = true;
-        if (this.pendingName !== null) this.send({ type: "join", name: this.pendingName });
+        if (this.pendingName !== null) this.sendJoin(this.pendingName);
         return;
 
       case "joined":
@@ -3122,7 +3176,7 @@ export class RoomSession {
         this.joinedName = message.you.name;
         // Protocol v12: the room's lock and timer come with joined; host powers are claimed again
         // on every join and reconnect (a new participant), with the token kept on this device.
-        const roomState = { locked: message.locked, timer: roomTimer(message.timer), isHost: message.you.host, lockPending: null, ...this.votingFrom(message.voting), isVoter: false };
+        const roomState = { locked: message.locked, timer: roomTimer(message.timer), isHost: message.you.host, lockPending: null, ...this.votingFrom(message.voting), isVoter: false, ...this.silentFrom(message.silent) };
         if (this.retry) {
           // A reconnect: live once the snapshot has replaced the board (the join timer runs till then).
           this.resyncing = true;
@@ -3205,6 +3259,23 @@ export class RoomSession {
         return this.update(this.voteView());
       }
 
+      case "silentChanged":
+        return this.update(this.silentFrom({ active: message.active, count: message.count }));
+
+      case "silentMine":
+        // My own sealed notes, at the end of the join step: the relay's word replaces my list.
+        if (!this.view.silent.active) return;
+        this.sealed = new Set(message.ids);
+        return this.update(this.sealedView());
+
+      case "notesRevealed": {
+        // Merged by id: a copy I have already (my own, or from a reconnect's snapshot) is skipped
+        // unless newer. Never added to my list; silentChanged ends the round.
+        let board = this.view.board;
+        for (const note of message.notes) board = applyUpdated(board, note);
+        return this.update({ board });
+      }
+
       case "votesRevealed": {
         const { voting } = this.view;
         if (voting.state !== "closed" || message.round !== voting.round) return;
@@ -3275,7 +3346,9 @@ export class RoomSession {
 
       case "noteAdded": {
         const { note, clientRef } = message;
-        return this.update({ board: this.confirmNote(this.view.board, note, clientRef), ...(clientRef !== undefined ? { rateLimited: false } : {}) });
+        // During a round only my own adds reach me (this page's, or my other tab's).
+        this.sealedAdd([note.id]);
+        return this.update({ board: this.confirmNote(this.view.board, note, clientRef), ...(clientRef !== undefined ? { rateLimited: false } : {}), ...this.sealedView() });
       }
 
       case "itemsAdded":
@@ -3303,9 +3376,10 @@ export class RoomSession {
             editingDeleted ||= findNote(board, result.id)?.draft != null;
             board = applyDeleted(board, result.id);
             this.deleteDone(result.id);
+            this.sealed.delete(result.id);
           }
         }
-        return this.update({ board, ...(editingDeleted ? { noteNotice: NOTICES.deletedWhileEditing } : {}), ...this.deleteSettled() });
+        return this.update({ board, ...(editingDeleted ? { noteNotice: NOTICES.deletedWhileEditing } : {}), ...this.deleteSettled(), ...this.sealedView() });
       }
 
       case "notesOrdered":
@@ -3401,10 +3475,12 @@ export class RoomSession {
         this.stopResize(message.id);
         const editing = findNote(this.view.board, message.id)?.draft != null;
         this.deleteDone(message.id);
+        this.sealed.delete(message.id);
         return this.update({
           board: applyDeleted(this.view.board, message.id),
           ...(editing ? { noteNotice: NOTICES.deletedWhileEditing } : {}),
           ...this.deleteSettled(),
+          ...this.sealedView(),
         });
       }
 
@@ -3450,6 +3526,12 @@ export class RoomSession {
             return this.update({ noteNotice: NOTICES.shapesFull });
           case "board_locked":
             return this.update({ noteNotice: NOTICES.locked });
+          case "silent_active":
+            return this.update({ noteNotice: SILENT_TEXT.on });
+          case "no_writer":
+            return this.update({ noteNotice: SILENT_TEXT.noWriter });
+          case "sealed_full":
+            return this.update({ noteNotice: SILENT_TEXT.writerFull });
           case "not_host":
             return this.update({ noteNotice: NOTICES.notHost, lockPending: null });
           case "bad_host_token":
@@ -3627,7 +3709,13 @@ export class RoomSession {
             ? NOTICES.tooQuick
             : message.code === "board_locked"
               ? NOTICES.locked
-              : NOTICES.refused;
+              : message.code === "silent_active"
+                ? SILENT_TEXT.on
+                : message.code === "no_writer"
+                  ? SILENT_TEXT.noWriter
+                  : message.code === "sealed_full"
+                    ? SILENT_TEXT.writerFull
+                    : NOTICES.refused;
     this.update({
       board,
       ...(ours ? {} : { noteNotice }),
@@ -3671,6 +3759,7 @@ export class RoomSession {
     this.votesPending.clear();
     this.votesLeft = VOTE_BUDGET_DEFAULT;
     this.votersFull = false;
+    this.sealed.clear();
     clearTimeout(this.timer);
     this.stopRetry();
     this.unlisten?.();
@@ -3706,6 +3795,8 @@ export class RoomSession {
       myVotes: new Map(),
       remaining: VOTE_BUDGET_DEFAULT,
       results: null,
+      silent: SILENT_OFF,
+      mySealed: new Set(),
       board: EMPTY_BOARD,
       synced: false,
       presenceToast: null,
@@ -3715,6 +3806,72 @@ export class RoomSession {
       dropReport: null,
       orphanDraft: null,
     });
+  }
+
+  /* ── Silent brainstorm (protocol v17/v18; web state since v0.27.0) ─ */
+
+  /**
+   * Sends join with this page's per-room key (the voter key; it names my writer during a silent
+   * round), on every join and reconnect, so before any snapshot. Never shown or logged. Without
+   * one (no storage) the page joins anyway: it can view, but can't write during a round.
+   */
+  private sendJoin(name: string): void {
+    const key = this.options.voterKey?.() ?? null;
+    this.sentKey = key !== null;
+    this.update({ writer: this.sentKey });
+    this.send({ type: "join", name, ...(key !== null ? { key } : {}) });
+  }
+
+  /** The round from the relay (joined, silentChanged). A round's end, or a new one, empties my list. */
+  private silentFrom(silent: SilentState): Pick<RoomView, "silent" | "mySealed"> {
+    if (!silent.active || !this.view.silent.active) this.sealed.clear();
+    // Set first, so a view update in the same step counts with it.
+    this.view = { ...this.view, silent };
+    return { silent, ...this.sealedView() };
+  }
+
+  /** My adds confirmed during a round are sealed and mine (the relay sends me no one else's). */
+  private sealedAdd(ids: readonly string[]): void {
+    if (this.view.silent.active) for (const id of ids) this.sealed.add(id);
+  }
+
+  private sealedView(): Pick<RoomView, "mySealed"> {
+    return { mySealed: new Set(this.sealed) };
+  }
+
+  /** My notes this round: sealed, and added here but not confirmed yet (all of them mine). */
+  private writerCount(): number {
+    return this.sealed.size + this.view.board.notes.filter((n) => isLocalId(n.note.id)).length;
+  }
+
+  /** During a round: refuses `notes` new notes of mine (no writer, or past my cap) with the reason. */
+  private refuseSilentNotes(notes: number): boolean {
+    if (notes === 0 || !this.view.silent.active) return false;
+    const reason = silentNoteReason({ active: true, writer: this.sentKey, mine: this.writerCount() }) ?? (notes > writerRoom(this.writerCount()) ? SILENT_TEXT.writerFull : null);
+    if (reason === null) return false;
+    this.update({ noteNotice: reason });
+    return true;
+  }
+
+  /** During a round: refuses what the relay would (Clear board, frame moves, Start voting), with the reason. */
+  private refuseSilent(): boolean {
+    if (!this.view.silent.active) return false;
+    this.update({ noteNotice: SILENT_TEXT.on });
+    return true;
+  }
+
+  /** Host: starts a silent round. False (nothing sent) for a guest, while disconnected, or while one runs. */
+  startSilent(): boolean {
+    if (!this.canHost() || this.view.silent.active) return false;
+    this.send({ type: "silentStart" });
+    return true;
+  }
+
+  /** Host: reveals the round's notes to everyone and ends it. False (nothing sent) for a guest, while disconnected, or with no round. */
+  revealSilent(): boolean {
+    if (!this.canHost() || !this.view.silent.active) return false;
+    this.send({ type: "silentReveal" });
+    return true;
   }
 
   /** Host commands (facilitation UI) go out only from a live host; the relay checks again (not_host). */
@@ -3869,6 +4026,11 @@ export class RoomSession {
       this.update({ noteNotice: NOTICES.votingClosed });
       return false;
     }
+    if (this.sealed.has(noteId)) {
+      // The relay ignores votes on sealed notes: say so instead.
+      this.update({ noteNotice: SILENT_TEXT.sealedVote });
+      return false;
+    }
     if (!this.view.isVoter) {
       this.update({ noteNotice: this.votersFull ? NOTICES.votersFull : NOTICES.noVoter });
       return false;
@@ -3890,6 +4052,7 @@ export class RoomSession {
   /** Host: starts a new round (every earlier vote goes). False (nothing sent) for a bad budget, a guest or while disconnected. */
   startVote(budget: number): boolean {
     if (!this.canHost() || this.running() || !Number.isInteger(budget) || budget < VOTE_BUDGET_MIN || budget > VOTE_BUDGET_MAX) return false;
+    if (this.refuseSilent()) return false;
     this.send({ type: "voteStart", budget });
     return true;
   }
@@ -3942,7 +4105,7 @@ export class RoomSession {
       reconnect: this.retryView(),
       ...(restore ? { historyReport: { text: UNDO_TEXT.restoring(restoredCount(restore), restore.refs.length), partial: false } } : {}),
     };
-    this.view = { ...this.view, history: this.historyReasons() };
+    this.view = { ...this.view, history: this.historyReasons(), totalNotes: totalNotes(this.view.board.notes.length, this.view.silent, this.view.mySealed.size) };
     this.armExpiry();
     this.options.onChange(this.view);
   }

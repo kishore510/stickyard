@@ -2,6 +2,11 @@
 
 All notable changes to Stickyard, newest first. The format follows Keep a Changelog. Versions are 0.x: a minor bump for each slice and a patch bump for each follow-up fix. This file is shown in the app under **What’s new**, so entries are written for the people using it.
 
+## [0.27.0] - 2026-10-08
+
+### Changed
+- Groundwork for silent brainstorm. Nothing new is visible yet: the buttons come in a later release. Your page now sends the relay the random key this browser keeps for each session (the one dot voting uses) when you join or reconnect, and keeps track of the hidden notes you've written. While a host's silent round runs (once they can start one), the controls that can't work then are off and say why: Clear board, moving frames, starting a vote, and Export. The board's note count includes everyone's hidden notes, and you can write up to 40 of your own.
+
 ## [0.26.0] - 2026-10-08
 
 ### Changed

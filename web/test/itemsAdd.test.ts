@@ -232,7 +232,7 @@ describe("RoomSession.addItems", () => {
     expect(findNote(board, c)).toBeUndefined();
     expect(findFrame(board, f)).toBeUndefined();
     expect(board.notes).toHaveLength(1);
-    expect(t.view().noteNotice).toBe(NOTICES.itemsNotAdded({ notesFull: 2, framesFull: 1, shapesFull: 0, invalid: 0, tooQuick: 0 }));
+    expect(t.view().noteNotice).toBe(NOTICES.itemsNotAdded({ notesFull: 2, framesFull: 1, shapesFull: 0, invalid: 0, tooQuick: 0, noWriter: 0, sealedFull: 0 }));
     expect(t.view().noteNotice).toBe(
       "2 notes weren’t added because the board is full (200 notes). 1 frame wasn’t added because the board has the maximum of 30 frames.",
     );

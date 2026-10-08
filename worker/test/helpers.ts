@@ -3,6 +3,7 @@ import { createExecutionContext, env, runInDurableObject, waitOnExecutionContext
 import { MAX_SERVER_MESSAGE_BYTES, PROTOCOL_VERSION, parseMessage, serverMessageSchema, type ServerMessage } from "@stickyard/shared";
 import worker from "../src/index";
 import type { WorkerEnv } from "../src/env";
+import { SOCKET_LIMITS } from "../src/limits";
 
 /** Matches ALLOWED_ORIGINS in wrangler.jsonc. */
 export const PAGES_ORIGIN = "https://kishore510.github.io";
@@ -199,13 +200,27 @@ export async function emptyEntryBudget(stub: DurableObjectStub, name: string): P
   });
 }
 
-/** Waits until `client` gets a message of `type`, skipping others. */
+/**
+ * Fills every joined socket's message bucket (SOCKET_LIMITS) with its refill clock at now, so a
+ * test starts from a known budget however fast or slow the runner was before it.
+ */
+export async function fullMessageBudget(stub: DurableObjectStub): Promise<void> {
+  await runInDurableObject(stub, (_r: unknown, state: DurableObjectState) => {
+    for (const ws of state.getWebSockets()) {
+      const att = ws.deserializeAttachment() as { tokens: number; at: number } | null;
+      if (att) ws.serializeAttachment({ ...att, tokens: SOCKET_LIMITS.burst, at: Date.now() });
+    }
+  });
+}
+
+/** Waits until `client` gets a message of `type`, skipping others (each wait up to `timeoutMs`). */
 export async function nextOfType<T extends ServerMessage["type"]>(
   client: TestClient,
   type: T,
+  timeoutMs?: number,
 ): Promise<Extract<ServerMessage, { type: T }>> {
   for (;;) {
-    const m = await client.next();
+    const m = await client.next(timeoutMs);
     if (m.type === type) return m as Extract<ServerMessage, { type: T }>;
   }
 }

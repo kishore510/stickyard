@@ -32,7 +32,7 @@ export function useNoteVotes(noteId: string, confirmed: boolean) {
 /** Voting with the keyboard (D / Shift+D on a focused note): the same rules as the buttons. */
 export function voteFromKey(noteId: string, confirmed: boolean, action: "add" | "remove"): boolean {
   const room = useRoomUi.getState().room;
-  if (!room || room.voting.state !== "open") return false;
+  if (!room || room.voting.state !== "open" || room.mySealed.has(noteId)) return false;
   const mine = room.myVotes.get(noteId) ?? 0;
   const reasons = voteReasons({ voting: room.voting, live: room.live, confirmed, isVoter: room.isVoter, votersFull: room.votersFull, remaining: room.remaining, mine });
   if (reasons[action] === null) room.voteSet(noteId, action === "add" ? mine + 1 : mine - 1);
@@ -89,7 +89,8 @@ export function VoteButtons({ noteId, confirmed, className }: { noteId: string; 
  */
 export function VotesSection({ noteId, confirmed }: { noteId: string; confirmed: boolean }) {
   const room = useRoomUi((s) => s.room);
-  if (!room || room.voting.state === "off") return null;
+  // A sealed note of mine (silent brainstorm) takes votes only once it's revealed.
+  if (!room || room.voting.state === "off" || room.mySealed.has(noteId)) return null;
   const total = room.results?.find((r) => r.noteId === noteId)?.count ?? 0;
   return (
     <div data-votes-section="">

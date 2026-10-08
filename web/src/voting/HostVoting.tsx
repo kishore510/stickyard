@@ -20,7 +20,7 @@ export function HostVotingControls({ className }: { className?: string }) {
   const [budget, setBudget] = useState<number>(BUDGET.default);
   if (!room?.isHost) return null;
   const state = room.voting.state;
-  const reasons = hostVoteReasons({ blocked: room.endReason, state });
+  const reasons = hostVoteReasons({ blocked: room.endReason, state, silent: room.live && room.silent.active });
   const start = () => {
     if (reasons.start !== null || (state !== "off" && !confirmRestartVote())) return;
     room.startVote(budget);

@@ -41,6 +41,8 @@ Sections are named after the slice that introduced them. Cross-references in quo
 | Dot voting, protocol v13 (v0.17.0) | facilitation.md |
 | Dot voting UI (v0.18.0) | facilitation.md |
 | Silent brainstorm, protocol v17 (v0.25.0, part 1 of 3) | facilitation.md |
+| Silent brainstorm: which notes are mine, protocol v18 (v0.26.0) | facilitation.md |
+| Silent brainstorm: web state and plumbing (v0.27.0, part 2 of 3) | facilitation.md, connection.md |
 | Frames, protocol v9 (slice frames) | frames.md |
 | Frame title styling, protocol v10 (slice frame title styling) | frames.md |
 | Templates (slice templates) | frames.md |

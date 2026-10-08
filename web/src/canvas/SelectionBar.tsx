@@ -351,6 +351,8 @@ export interface BoardBarProps {
   notice: (text: string) => void;
   /** A guest on a locked board: every command is off with this reason (null: not locked out). */
   lockedReason?: string | null;
+  /** A silent round is running: frames can't move (Align, Distribute, Grid on frames; Match size still works). */
+  silentReason?: string | null;
   /** The host's Session group (Lock / Unlock); null for guests, who get no dead buttons. */
   session?: { locked: boolean; pending: boolean | null; setLock: (locked: boolean) => boolean } | null;
 }
@@ -385,6 +387,7 @@ export function BoardBar({
   order,
   notice,
   lockedReason = null,
+  silentReason = null,
   session = null,
 }: BoardBarProps) {
   // Arrange works on notes and shapes together (protocol v15; each clamped to its own limits), or
@@ -397,7 +400,9 @@ export function BoardBar({
   const send = (changes: Map<string, NoteRect>) => (onFrames ? applyFrames : apply)([...changes].map(([id, rect]) => ({ id, ...rect })));
   const count = stacked.length;
   const frameReason = onFrames ? arrangeReason({ notes: stacked.length, frames: frames.length, live, locked: lockedReason, held: framesHeld, unsaved: framesUnsaved }) : null;
-  const gridReason = onFrames ? frameReason : (lockedReason ?? gridDisabledReason({ count, live, held: held || shapesHeld, unsaved: unsaved || shapesUnsaved }));
+  // Frames can't move during a silent round (the relay refuses frameMove); their size can change.
+  const frameMoveReason = onFrames && !mixed ? silentReason : null;
+  const gridReason = onFrames ? (frameReason ?? frameMoveReason) : (lockedReason ?? gridDisabledReason({ count, live, held: held || shapesHeld, unsaved: unsaved || shapesUnsaved }));
   const runGrid = (columns: number) => {
     const result = grid(items, columns, GRID_GAP, clamp);
     if (result.reason) notice(GRID_NO_ROOM[result.reason]);
@@ -421,7 +426,8 @@ export function BoardBar({
       {LOCK_TEXT.locked}
     </span>
   ) : null;
-  const distributeReason = arrangeOff ?? (items.length < 3 ? (onFrames ? ARRANGE_HINTS.fewFramesDistribute : DISTRIBUTE_HINT) : null);
+  const moveOff = arrangeOff ?? frameMoveReason;
+  const distributeReason = moveOff ?? (items.length < 3 ? (onFrames ? ARRANGE_HINTS.fewFramesDistribute : DISTRIBUTE_HINT) : null);
   return (
     <FloatingBar
       label="Board actions"
@@ -447,16 +453,16 @@ export function BoardBar({
           commands: [
             // Below xl, Order folds in here so the top bar keeps one row.
             ...(full ? [] : orderCommands),
-            ...ALIGN.map((a) => ({ ...a, ...off(arrangeOff), run: () => send(align(items, a.mode, clamp)) })),
+            ...ALIGN.map((a) => ({ ...a, ...off(moveOff), run: () => send(align(items, a.mode, clamp)) })),
             ...DISTRIBUTE.map((d) => ({ ...d, ...off(distributeReason), run: () => send(distribute(items, d.axis, clamp)) })),
             ...MATCH.map((m) => ({ ...m, ...off(arrangeOff), run: () => send(matchSize(items, m.mode, clamp)) })),
           ],
           content: (
             <>
               {/* A mix of notes and frames: the reason as text in the panel, not only in tooltips. */}
-              {mixed && (
+              {(mixed || (frameMoveReason && arrangeOff === null)) && (
                 <p data-arrange-reason="" className="w-full px-xs pb-xs text-sm text-fg-muted">
-                  {ARRANGE_HINTS.mixed}
+                  {mixed ? ARRANGE_HINTS.mixed : frameMoveReason}
                 </p>
               )}
               <GridControls notes={items} reason={gridReason} onGrid={runGrid} />

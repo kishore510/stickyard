@@ -240,44 +240,7 @@ describe("in the room", () => {
   });
 });
 
-describe("a v17/v18 relay (silent brainstorm groundwork, v0.25.0 and v0.26.0): this page doesn't know the new messages yet", () => {
-  const N1 = "NNNNNNNNNNNNNNN1";
-  const revealed: Note = { id: N1, x: 100, y: 100, ...NOTE_DEFAULTS, text: "Idea", color: "yellow", z: 0, rev: 1, authorId: sam.id };
-  const roomState = { type: "joined", you: alex, participants: [sam, alex], locked: false, timer: null, voting: { state: "off", budget: 5, round: 0 } };
-
-  it.each([
-    ["inactive", { active: false, count: 0 }],
-    ["active", { active: true, count: 7 }],
-  ])("joins a room whose joined carries silent (%s), and sends no key in join", (_label, silent) => {
-    const t = setup();
-    t.session.join("Alex");
-    t.sock().open();
-    t.sock().receive({ type: "welcome", protocolVersion: PROTOCOL_VERSION });
-    expect(t.sock().sent.at(-1)).toEqual({ type: "join", name: "Alex" });
-    t.sock().receive({ ...roomState, silent });
-    t.sock().receive({ type: "snapshot", notes: [] });
-    expect(t.view()).toMatchObject({ status: "joined", you: alex });
-    expect(t.sock().closed).toBe(false);
-  });
-
-  it("silentChanged and notesRevealed don't crash the page or change the board; the socket stays open", () => {
-    const t = joined();
-    t.sock().receive({ type: "snapshot", notes: [] });
-    const before = t.view().board;
-    t.sock().receive({ type: "silentChanged", active: true, count: 0 });
-    t.sock().receive({ type: "silentMine", ids: [] });
-    t.sock().receive({ type: "silentMine", ids: [N1] });
-    t.sock().receive({ type: "silentChanged", active: true, count: 3 });
-    t.sock().receive({ type: "notesRevealed", notes: [revealed], final: true });
-    t.sock().receive({ type: "silentChanged", active: false, count: 0 });
-    expect(t.view().status).toBe("joined");
-    expect(t.view().board).toBe(before);
-    expect(t.sock().closed).toBe(false);
-    // The page still works afterwards.
-    t.sock().receive({ type: "noteAdded", note: revealed });
-    expect(t.view().board.notes.map((n) => n.note.id)).toEqual([N1]);
-  });
-
+describe("server messages this page can't parse", () => {
   it("a server message this page can't parse at all is handled safely: please reload, never a crash (see joining)", () => {
     const t = joined();
     expect(() => t.sock().receive({ type: "somethingFromV18", payload: { x: 1 } })).not.toThrow();

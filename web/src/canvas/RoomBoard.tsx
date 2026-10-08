@@ -62,6 +62,7 @@ import { zoomSelectionReason } from "./navigation";
 import { ViewNotices, showFitNotice } from "./ViewNotices";
 import { useCursors } from "../cursors/cursorStore";
 import { truncateName } from "../presence/avatars";
+import { SILENT_TEXT, silentNoteReason } from "../silent/silent";
 
 /*
  * The room's board with its tools and panels, loaded on demand (React Flow is only needed in a
@@ -263,13 +264,16 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
   const free = useStore((s) => s.width);
   const live = view.status === "joined";
   const minimap = wide && (minimapPref ?? true);
-  const noteCount = view.board.notes.length;
+  // Everyone's notes, the sealed ones of others too (silent brainstorm): the 200 cap counts them.
+  const noteCount = view.totalNotes;
+  const silentOn = live && view.silent.active;
+  const silentNote = live ? silentNoteReason({ active: view.silent.active, writer: view.writer, mine: view.mySealed.size }) : null;
   // Facilitation: a guest on a locked board has every control off with the lock as the reason
   // (courtesy UI; the relay refuses their changes anyway). Hosts keep everything.
   const isHost = view.isHost;
   const lock = { live, locked: view.locked, isHost };
   const locked = lockedOut(lock);
-  const noteReason = withLock(noteToolReason({ live, count: noteCount }), lock);
+  const noteReason = withLock(noteToolReason({ live, count: noteCount }) ?? silentNote, lock);
   // The timer (host only) needs a connection.
   const timerReason = live ? null : TIMER_HINTS.offline;
   const frameCount = view.board.frames.length;
@@ -525,7 +529,7 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
     freeNotes: Math.max(0, MAX_NOTES_PER_ROOM - noteCount),
     freeFrames: Math.max(0, MAX_FRAMES_PER_ROOM - frameCount),
     freeShapes: Math.max(0, MAX_SHAPES_PER_ROOM - view.board.shapes.length),
-  }), lock);
+  }) ?? (selectedEntries.length > 0 ? silentNote : null), lock);
 
   /** Duplicates the selection (notes, the frame alone, shapes, or a mix) and selects the copies. */
   const duplicate = () => {
@@ -652,6 +656,7 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
       shapesUnsaved={shapesUnsaved}
       notice={(text) => room.showNotice(text)}
       lockedReason={live && locked ? LOCK_TEXT.reason : null}
+      silentReason={silentOn ? SILENT_TEXT.on : null}
       session={isHost ? { locked: view.locked, pending: view.lockPending, setLock: (on: boolean) => room.setLock(on) } : null}
     />
   ) : null;
@@ -784,6 +789,8 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
                 results: resultRows,
                 onPickResult: pickResult,
                 exportViewport,
+                silent: silentOn,
+                totalNotes: view.totalNotes,
               }}
             />
           )}

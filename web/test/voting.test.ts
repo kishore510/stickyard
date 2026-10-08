@@ -8,7 +8,7 @@ import { nid, note, room } from "./helpers/fakeRelay";
 
 /*
  * Protocol v13 plumbing (web, no visible voting UI yet): a random voter key per room on this
- * device, sent only in claimVoter after every join and reconnect; the voting state, my votes,
+ * device, sent in join and claimVoter on every join and reconnect; the voting state, my votes,
  * dots left and the results in RoomView; optimistic votes with rollback; host commands.
  */
 
@@ -136,7 +136,7 @@ describe("claiming a voter", () => {
     expect(t.view()).toMatchObject({ isVoter: true, remaining: 2 });
   });
 
-  it("the key leaves the page only in claimVoter", async () => {
+  it("the key leaves the page only in join (it names my writer, v17) and claimVoter", async () => {
     const t = open(5, { env: LIVE_ENV, random: () => 0.5 });
     t.session.voteSet(nid(1), 1);
     t.session.say("hello");
@@ -145,7 +145,7 @@ describe("claiming a voter", () => {
     t.relay.open();
     const carrying = t.relay.received.filter((m) => JSON.stringify(m).includes(KEY));
     expect(carrying.length).toBeGreaterThan(0);
-    expect(carrying.every((m) => m.type === "claimVoter")).toBe(true);
+    expect(carrying.every((m) => m.type === "claimVoter" || m.type === "join")).toBe(true);
     expect(JSON.stringify(t.view())).not.toContain(KEY);
   });
 

@@ -130,6 +130,8 @@ export function useRoom(code: string) {
     startVote: (budget: number) => session.current?.startVote(budget) ?? false,
     stopVote: () => session.current?.stopVote() ?? false,
     clearVotes: () => session.current?.clearVotes() ?? false,
+    startSilent: () => session.current?.startSilent() ?? false,
+    revealSilent: () => session.current?.revealSilent() ?? false,
     shareCursor: (x: number, y: number) => session.current?.shareCursor(x, y) ?? false,
     hideCursor: () => session.current?.hideCursor(),
     leave: () => session.current?.close(),
