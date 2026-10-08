@@ -207,7 +207,7 @@ class TwoPageRelay {
           case "join": {
             page.you = this.people[this.pages.indexOf(page)]!;
             const participants = joinedPages().map((p) => p.you!);
-            this.out(page, { type: "joined", you: page.you, participants, locked: false, timer: null, voting: { state: "off", budget: 5, round: 0 } });
+            this.out(page, { type: "joined", you: page.you, participants, locked: false, timer: null, voting: { state: "off", budget: 5, round: 0 }, silent: { active: false, count: 0 } });
             this.out(page, { type: "snapshot", notes: [] });
             this.out(page, { type: "framesSnapshot", frames: [] });
             for (const p of joinedPages()) if (p !== page) this.out(p, { type: "participant_joined", participant: page.you });

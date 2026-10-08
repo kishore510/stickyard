@@ -67,7 +67,7 @@ function joined() {
   t.session.join("Alex");
   t.sock().open();
   t.sock().receive({ type: "welcome", protocolVersion: PROTOCOL_VERSION });
-  t.sock().receive({ type: "joined", you: alex, participants: [sam, alex], locked: false, timer: null, voting: { state: "off", budget: 5, round: 0 } });
+  t.sock().receive({ type: "joined", you: alex, participants: [sam, alex], locked: false, timer: null, voting: { state: "off", budget: 5, round: 0 }, silent: { active: false, count: 0 } });
   return t;
 }
 

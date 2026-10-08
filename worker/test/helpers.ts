@@ -149,12 +149,13 @@ export class TestClient {
   /**
    * hello + join; returns the `joined` message. The notes snapshot that follows it is kept in
    * `snapshot`, the frames snapshot right after that (protocol v9) in `frames`, and the shapes
-   * snapshot after that (protocol v15) in `shapes`.
+   * snapshot after that (protocol v15) in `shapes`. `key` (protocol v17) names this page's writer.
    */
-  async enter(name: string): Promise<Extract<ServerMessage, { type: "joined" }>> {
+  async enter(name: string, key?: string): Promise<Extract<ServerMessage, { type: "joined" }>> {
     const welcome = await this.request({ type: "hello", protocolVersion: PROTOCOL_VERSION });
     if (welcome.type !== "welcome") throw new Error(`expected welcome, got ${JSON.stringify(welcome)}`);
-    const joined = await this.request({ type: "join", name });
+    // Protocol v17: the room's client key (silent brainstorm's writer) rides on join when given.
+    const joined = await this.request(key === undefined ? { type: "join", name } : { type: "join", name, key });
     if (joined.type !== "joined") throw new Error(`expected joined, got ${JSON.stringify(joined)}`);
     const snapshot = await this.next();
     if (snapshot.type !== "snapshot") throw new Error(`expected snapshot, got ${JSON.stringify(snapshot)}`);

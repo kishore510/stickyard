@@ -68,7 +68,7 @@ describe("protocol v12", () => {
       { type: "error", code: "board_locked", message: "Locked.", noteIds: ["NNNNNNNNNNNNNNN1"] },
       { type: "error", code: "not_host", message: "Host only." },
       { type: "error", code: "bad_host_token", message: "No." },
-      { type: "joined", you: me, participants: [me], locked: true, timer: { startedAt: 1, durationMs: 1000, serverNow: 2 }, voting: { state: "off", budget: 5, round: 0 } },
+      { type: "joined", you: me, participants: [me], locked: true, timer: { startedAt: 1, durationMs: 1000, serverNow: 2 }, voting: { state: "off", budget: 5, round: 0 }, silent: { active: false, count: 0 } },
     ]) {
       expect(serverMessageSchema.safeParse(m).success, JSON.stringify(m)).toBe(true);
     }
@@ -87,7 +87,7 @@ describe("protocol v12", () => {
   it("the largest joined (20 hosts with 24-emoji names, a timer at its widest) stays under 8 KiB", () => {
     const people = Array.from({ length: MAX_PARTICIPANTS }, (_, i) => ({ id: ID, name: "😀".repeat(MAX_NAME_LENGTH), colourIndex: i, host: true }));
     const big = Number.MAX_SAFE_INTEGER;
-    const raw = encodeMessage({ type: "joined", you: people[0]!, participants: people, locked: true, timer: { startedAt: big, durationMs: TIMER_MAX_MS, serverNow: big }, voting: { state: "closed", budget: 20, round: big } });
+    const raw = encodeMessage({ type: "joined", you: people[0]!, participants: people, locked: true, timer: { startedAt: big, durationMs: TIMER_MAX_MS, serverNow: big }, voting: { state: "closed", budget: 20, round: big }, silent: { active: false, count: 0 } });
     expect(serverMessageSchema.safeParse(JSON.parse(raw)).success).toBe(true);
     expect(utf8Length(raw)).toBeLessThan(8 * 1024);
   });

@@ -247,7 +247,7 @@ export class Relay {
       case "join": {
         if (this.joinError) return this.out({ type: "error", code: this.joinError, message: "No." });
         const you = { ...this.you, name: m.name as string };
-        this.out({ type: "joined", you, participants: [you, ...this.others], locked: this.locked, timer: this.timer, voting: this.voting });
+        this.out({ type: "joined", you, participants: [you, ...this.others], locked: this.locked, timer: this.timer, voting: this.voting, silent: { active: false, count: 0 } });
         this.out({ type: "snapshot", notes: [...this.notes.values()] });
         if (this.holdFrames) return;
         this.out({ type: "framesSnapshot", frames: [...this.frames.values()] });

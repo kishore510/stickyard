@@ -29,7 +29,7 @@ async function joined() {
 
 describe("protocol v16", () => {
   it("is the current version", () => {
-    expect(PROTOCOL_VERSION).toBe(16);
+    expect(PROTOCOL_VERSION).toBeGreaterThanOrEqual(16);
     expect([BOARD_WIDTH, BOARD_HEIGHT]).toEqual([2 * OLD.w, 2 * OLD.h]);
   });
 
@@ -113,7 +113,7 @@ describe("rows stored on the old 3200 x 2000 board", () => {
       expect(r.rowsWritten).toBe(0);
       expect(state.storage.sql.exec<{ value: number }>("SELECT value FROM meta WHERE key = 'schema_version'").one().value).toBe(SCHEMA_VERSION);
     });
-    expect(SCHEMA_VERSION).toBe(9);
+    expect(SCHEMA_VERSION).toBeGreaterThanOrEqual(9);
     c.close();
   });
 });

@@ -54,7 +54,7 @@ function withBoard(...notes: Note[]) {
   };
   sock().handlers.onOpen();
   sock().receive({ type: "welcome", protocolVersion: PROTOCOL_VERSION });
-  sock().receive({ type: "joined", you: alex, participants: [sam, alex], locked: false, timer: null, voting: { state: "off", budget: 5, round: 0 } });
+  sock().receive({ type: "joined", you: alex, participants: [sam, alex], locked: false, timer: null, voting: { state: "off", budget: 5, round: 0 }, silent: { active: false, count: 0 } });
   sock().receive({ type: "snapshot", notes });
   const view = () => views.at(-1)!;
   const shown = (i: number) => findNote(view().board, id(i))?.note;

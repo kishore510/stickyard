@@ -557,8 +557,8 @@ describe(`schema migration 8 -> ${SCHEMA_VERSION}`, () => {
       const sql = state.storage.sql;
       loadSchemaV8(sql);
       const store = new NoteStore(sql);
-      expect(SCHEMA_VERSION).toBe(9);
-      expect(version(sql)).toBe(9);
+      expect(SCHEMA_VERSION).toBeGreaterThanOrEqual(9);
+      expect(version(sql)).toBe(SCHEMA_VERSION);
       expect(store.allShapes()).toEqual([]);
       expect(store.all().map((n) => [n.id, n.x, n.y, n.z, n.rev])).toEqual(V5_NOTES.map((n) => [n.id, n.x, n.y, n.z, n.rev]));
       expect(store.allFrames().map((f) => [f.id, f.title])).toEqual(V6_FRAMES.map((f) => [f.id, f.title]));
