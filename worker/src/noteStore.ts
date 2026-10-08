@@ -397,6 +397,12 @@ export class NoteStore {
     return count;
   }
 
+  /** A writer's sealed note ids, in creation order (protocol v18 silentMine). Never a writerless row's. */
+  sealedIdsOf(writer: string): string[] {
+    if (writer === "") return [];
+    return [...this.notes().keys()].filter((id) => this.writers.get(id) === writer);
+  }
+
   /** Whether any note is (or, during this message, was) sealed: the room filters outbound messages only then. */
   get hasSealed(): boolean {
     this.notes();

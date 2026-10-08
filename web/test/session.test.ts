@@ -240,7 +240,7 @@ describe("in the room", () => {
   });
 });
 
-describe("a v17 relay (silent brainstorm groundwork, v0.25.0): this page doesn't know the new messages yet", () => {
+describe("a v17/v18 relay (silent brainstorm groundwork, v0.25.0 and v0.26.0): this page doesn't know the new messages yet", () => {
   const N1 = "NNNNNNNNNNNNNNN1";
   const revealed: Note = { id: N1, x: 100, y: 100, ...NOTE_DEFAULTS, text: "Idea", color: "yellow", z: 0, rev: 1, authorId: sam.id };
   const roomState = { type: "joined", you: alex, participants: [sam, alex], locked: false, timer: null, voting: { state: "off", budget: 5, round: 0 } };
@@ -265,6 +265,8 @@ describe("a v17 relay (silent brainstorm groundwork, v0.25.0): this page doesn't
     t.sock().receive({ type: "snapshot", notes: [] });
     const before = t.view().board;
     t.sock().receive({ type: "silentChanged", active: true, count: 0 });
+    t.sock().receive({ type: "silentMine", ids: [] });
+    t.sock().receive({ type: "silentMine", ids: [N1] });
     t.sock().receive({ type: "silentChanged", active: true, count: 3 });
     t.sock().receive({ type: "notesRevealed", notes: [revealed], final: true });
     t.sock().receive({ type: "silentChanged", active: false, count: 0 });

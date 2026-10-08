@@ -756,6 +756,8 @@ export class Room extends DurableObject<Env> {
     this.send(ws, { type: "snapshot", notes: this.notes.all() });
     this.send(ws, { type: "framesSnapshot", frames: this.notes.allFrames() });
     this.send(ws, { type: "shapesSnapshot", shapes: this.notes.allShapes() });
+    // Protocol v18: during a round, which of the snapshot's notes are this socket's own sealed ones.
+    if (this.silent.active) this.send(ws, { type: "silentMine", ids: writerId === null ? [] : this.notes.sealedIdsOf(writerId) });
     // A closed round's totals, so a late joiner sees the results. While open, nothing about anyone's votes.
     if (this.voting.state === "closed") this.send(ws, this.revealed());
     this.broadcast({ type: "participant_joined", participant: you }, ws);

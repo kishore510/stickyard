@@ -74,6 +74,7 @@ const SAMPLES: Record<string, { both: ServerMessage; hiddenOnly: ServerMessage |
   voterGranted: { both: { type: "voterGranted", remaining: 3, mine: [{ noteId: HIDDEN, count: 1 }, { noteId: SHOWN, count: 1 }] }, hiddenOnly: null },
   voteConfirmed: { both: { type: "voteConfirmed", noteId: SHOWN, count: 1, remaining: 4 }, hiddenOnly: { type: "voteConfirmed", noteId: HIDDEN, count: 1, remaining: 4 } },
   votesRevealed: { both: { type: "votesRevealed", round: 1, totals: [{ noteId: HIDDEN, count: 3 }, { noteId: SHOWN, count: 2 }] }, hiddenOnly: null },
+  silentMine: { both: { type: "silentMine", ids: [HIDDEN, SHOWN] }, hiddenOnly: null },
   notesRevealed: { both: { type: "notesRevealed", notes: [note(HIDDEN), note(SHOWN)], final: true }, hiddenOnly: { type: "notesRevealed", notes: [note(HIDDEN)], final: true } },
 };
 

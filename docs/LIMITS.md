@@ -224,3 +224,4 @@ Part 1 (relay and shared). Numbers measured in `worker/test/silent.test.ts` and 
 - *Caps:* `MAX_SEALED_PER_WRITER` 40 sealed notes per writer (a page's key), inside the 200-note room cap; `notesRevealed` at most 50 notes a message; nothing else new. Rate limits unchanged: the silent messages spend `SOCKET_LIMITS` like any other.
 - *Hibernation:* nothing is scheduled; the round is in meta, the seals in the notes table and each socket's writer in its attachment, so a woken object needs nothing else (tested across an eviction).
 - *Burial:* End session and expiry drop sealed notes, their writer ids and the round's meta keys with everything else (tested: only the tombstone survives).
+- *Which notes are mine (protocol v18):* one `silentMine` per join during a round, to the joining socket only, at most **789 bytes** (40 ids); 0 rows, no storage call beyond the notes already in memory, nothing on adds or deletes.
