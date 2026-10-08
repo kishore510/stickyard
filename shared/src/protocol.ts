@@ -41,8 +41,12 @@ import { NOTE_Z_LIMIT, ORDER_ACTIONS } from "./stack";
  *   one count of sealed notes) and notesRevealed (the sealed notes, in chunks); `join` may carry
  *   the room's client key (it names the page's writer); `joined` carries `silent`. Notes added
  *   while a round is silent reach only their writer's sockets until the reveal.
+ * v18 (silent brainstorm, which notes are mine): while a round is silent, the join step ends with
+ *   silentMine { ids } to the joining socket only: its writer's own sealed note ids. A note on the
+ *   wire still never says it is sealed; v17 pages couldn't tell their sealed notes from the rest
+ *   after a reload, a late join or a new tab, so they get version_mismatch.
  */
-export const PROTOCOL_VERSION = 17;
+export const PROTOCOL_VERSION = 18;
 
 /**
  * Hard cap on a single client-to-server WebSocket message, in UTF-8 bytes. Checked before JSON.parse.
@@ -1670,6 +1674,18 @@ export const notesRevealedSchema = z.strictObject({
   final: z.boolean(),
 });
 
+/**
+ * Protocol v18: which notes in the snapshot are this page's own sealed ones (its writer's, from the
+ * key in join), in creation order. Sent only to the joining socket, right after shapesSnapshot in
+ * the join step, and only while a round is silent ([] without a key or sealed notes). From then
+ * on the page keeps it itself: while a round runs, every note add it hears about is its own and
+ * sealed (nobody else's sealed adds are ever sent); deletes take ids out; the reveal empties it.
+ */
+export const silentMineSchema = z.strictObject({
+  type: z.literal("silentMine"),
+  ids: z.array(noteIdSchema).max(MAX_SEALED_PER_WRITER),
+});
+
 export const serverMessageSchema = z.discriminatedUnion("type", [
   welcomeSchema,
   errorMessageSchema,
@@ -1712,6 +1728,7 @@ export const serverMessageSchema = z.discriminatedUnion("type", [
   cursorGoneSchema,
   silentChangedSchema,
   notesRevealedSchema,
+  silentMineSchema,
 ]);
 export type ServerMessage = z.infer<typeof serverMessageSchema>;
 export type ServerMessageType = ServerMessage["type"];
@@ -1766,6 +1783,7 @@ export const SERVER_MESSAGES = {
   cursorGone: { carriesNoteContent: false },
   silentChanged: { carriesNoteContent: false },
   notesRevealed: { carriesNoteContent: true },
+  silentMine: { carriesNoteContent: true },
 } as const satisfies Record<ServerMessageType, { carriesNoteContent: boolean }>;
 
 /** The server message types that can carry note content (the relay filters each one). */

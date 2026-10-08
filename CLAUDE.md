@@ -7,7 +7,7 @@ Source of truth: `docs/PROJECT_BRIEF.md` (decisions, rules) and `docs/PHASE_PLAN
 Read the matching file in `docs/architecture/` first (index: `docs/architecture/README.md`): shell, rooms, notes, canvas, frames, editing, connection, facilitation, shapes. Update it in the same change. Keep this file short (a test caps it at 6 KB): area detail goes in those files, not here.
 
 ## Current versions
-`PROTOCOL_VERSION = 17` (`shared/src/protocol.ts`), stored `SCHEMA_VERSION = 10` (`worker/src/noteStore.ts`). A test checks these lines against the code.
+`PROTOCOL_VERSION = 18` (`shared/src/protocol.ts`), stored `SCHEMA_VERSION = 10` (`worker/src/noteStore.ts`). A test checks these lines against the code.
 
 ## Stack
 - `web/`: Vite, React, TypeScript strict, Zustand, Tailwind, Vitest. Deployed to GitHub Pages via Actions. Hash routes (`#/...`).

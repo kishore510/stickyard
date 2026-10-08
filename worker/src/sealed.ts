@@ -61,6 +61,8 @@ const SCRUB: { [K in NoteCarryingType]: Scrubber<K> } = {
   voterGranted: (m, visible) => ({ ...m, mine: m.mine.filter((v) => visible(v.noteId)) }),
   voteConfirmed: (m, visible) => (visible(m.noteId) ? m : null),
   votesRevealed: (m, visible) => ({ ...m, totals: m.totals.filter((v) => visible(v.noteId)) }),
+  // Only ever the recipient's own ids; filtered all the same.
+  silentMine: (m, visible) => ({ ...m, ids: m.ids.filter(visible) }),
   notesRevealed: (m, visible) => {
     const notes = m.notes.filter((n) => visible(n.id));
     return notes.length > 0 ? { ...m, notes } : null;

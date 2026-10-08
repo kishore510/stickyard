@@ -743,7 +743,7 @@ describe("refusals while silent", () => {
     await startSilent(host, [a, b]);
     const c = await TestClient.open(code);
     await c.enter("Cleo");
-    await drain(host, a, b);
+    await drain(host, a, b, c);
     const before = await rowsWritten(stub);
     expect(await c.request({ type: "noteAdd", clientRef: "r1", x: 0, y: 0, color: "yellow", text: "Idea" })).toMatchObject({ type: "error", code: "no_writer", clientRef: "r1" });
     expect(await c.request({ type: "itemsAdd", clientRef: "i1", notes: [noteItem("n1", "Idea")] })).toMatchObject({

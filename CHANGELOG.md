@@ -2,6 +2,12 @@
 
 All notable changes to Stickyard, newest first. The format follows Keep a Changelog. Versions are 0.x: a minor bump for each slice and a patch bump for each follow-up fix. This file is shown in the app under **What’s new**, so entries are written for the people using it.
 
+## [0.26.0] - 2026-10-08
+
+### Changed
+- Groundwork for silent brainstorm. Nothing new is visible yet: the buttons come in a later release. When you join or come back to a session during a silent round, the relay now tells your page which of the hidden notes are yours, so a reload or a second tab keeps track of them.
+- After this update, pages opened before it say **please reload** when they try to join, as with earlier updates.
+
 ## [0.25.0] - 2026-10-08
 
 ### Changed
