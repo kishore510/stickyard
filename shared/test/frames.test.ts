@@ -75,7 +75,7 @@ describe("frame titles", () => {
 
 describe("frame geometry", () => {
   it("clampFrameRect: size within min/max first, then the whole frame on the board", () => {
-    expect(clampFrameRect({ x: 3000, y: 1900, w: 10, h: 99999 })).toEqual({ x: BOARD_WIDTH - FRAME_MIN_W, y: BOARD_HEIGHT - FRAME_MAX_H, w: FRAME_MIN_W, h: FRAME_MAX_H });
+    expect(clampFrameRect({ x: BOARD_WIDTH - 200, y: BOARD_HEIGHT - 100, w: 10, h: 99999 })).toEqual({ x: BOARD_WIDTH - FRAME_MIN_W, y: BOARD_HEIGHT - FRAME_MAX_H, w: FRAME_MIN_W, h: FRAME_MAX_H });
     expect(clampFrameRect({ x: -50, y: 10.6, w: 700.4, h: 500 })).toEqual({ x: 0, y: 11, w: 700, h: 500 });
   });
 
@@ -88,7 +88,7 @@ describe("frame geometry", () => {
       { x: 100, y: 100, w: 600, h: 400 },
       { x: 600, y: 400, w: 160, h: 160 },
     ];
-    expect(groupOffset(rects, 5000, -5000)).toEqual({ dx: BOARD_WIDTH - 760, dy: -100 });
+    expect(groupOffset(rects, BOARD_WIDTH * 2, -BOARD_HEIGHT * 2)).toEqual({ dx: BOARD_WIDTH - 760, dy: -100 });
     expect(groupOffset(rects, 10.4, -3.6)).toEqual({ dx: 10, dy: -4 });
     expect(groupOffset([], 10, 10)).toEqual({ dx: 0, dy: 0 });
   });

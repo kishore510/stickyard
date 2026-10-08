@@ -63,8 +63,11 @@ describe("zoom", () => {
     expect(clampZoom(Number.NaN)).toBe(1);
   });
 
-  it("the minimum zoom fits the whole board on a 360px phone", () => {
-    expect(MIN_ZOOM * (BOARD_WIDTH + 2 * PAN_MARGIN)).toBeLessThanOrEqual(phone.width);
+  it("the minimum zoom shows the whole board's width only on screens wider than BOARD_WIDTH x MIN_ZOOM (v16: 640 px, by decision)", () => {
+    // Decided with the 6400 x 4000 board (protocol v16): MIN_ZOOM stays 0.1. The goal is room to
+    // work, not the whole board on screen, so a phone sees part of the board even zoomed right out.
+    expect(MIN_ZOOM * BOARD_WIDTH).toBeGreaterThan(phone.width);
+    expect(MIN_ZOOM * (BOARD_WIDTH + 2 * PAN_MARGIN)).toBeLessThanOrEqual(desk.width);
   });
 
   it("steps in and out, clamped", () => {
@@ -104,12 +107,21 @@ describe("fit to notes", () => {
 
   it("zooms out so far-apart notes all fit inside the padding", () => {
     const notes = [at(0, 0), at(BOARD_WIDTH - NOTE_SIZE, BOARD_HEIGHT - NOTE_SIZE)];
-    const v = fitViewport(notes, phone, 16);
+    const v = fitViewport(notes, desk, 16);
     expect(v.zoom).toBeLessThan(1);
     expect(v.zoom).toBeGreaterThanOrEqual(MIN_ZOOM);
     // Left and right board edges land inside the screen.
     expect(v.x).toBeGreaterThanOrEqual(0);
-    expect(v.x + BOARD_WIDTH * v.zoom).toBeLessThanOrEqual(phone.width);
+    expect(v.x + BOARD_WIDTH * v.zoom).toBeLessThanOrEqual(desk.width);
+  });
+
+  it("notes in opposite corners on a phone: fit stops at MIN_ZOOM, centred between them (they can't both show)", () => {
+    const notes = [at(0, 0), at(BOARD_WIDTH - NOTE_SIZE, BOARD_HEIGHT - NOTE_SIZE)];
+    const v = fitViewport(notes, phone, 16);
+    expect(v.zoom).toBe(MIN_ZOOM);
+    const c = viewportCentre(v, phone);
+    expect(c.x).toBeCloseTo(BOARD_WIDTH / 2);
+    expect(c.y).toBeCloseTo(BOARD_HEIGHT / 2);
   });
 
   it("an empty board is centred on the board, never top-left", () => {

@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { MAX_BATCH_ENTRIES, MAX_SHAPES_PER_ROOM, shapeDefaults } from "@stickyard/shared";
+import { BOARD_WIDTH, MAX_BATCH_ENTRIES, MAX_SHAPES_PER_ROOM, shapeDefaults } from "@stickyard/shared";
 import { carryPlan, confirmDeleteSelection, deleteCounts, itemsInWords, selectionLabel } from "../src/canvas/frameSelect";
 import { deleteKeyTarget } from "../src/canvas/deleteKey";
 import { DUPLICATE_HINTS, duplicateDisabledReason, duplicateSelectionInputs } from "../src/canvas/duplicate";
@@ -107,7 +107,9 @@ describe("the session", () => {
   });
 
   it("a selection of notes and shapes moves by one clamped delta: live one batch a tick, final a noteBatch and a shapeBatch, one undo step", () => {
-    const t = room([note(1, { x: 0, y: 0 })], [], {}, undefined, [shape(1, { x: 3000, y: 100 })]);
+    // The shape sits against the right edge (its default width from it).
+    const EDGE_X = BOARD_WIDTH - shapeDefaults("rect").w;
+    const t = room([note(1, { x: 0, y: 0 })], [], {}, undefined, [shape(1, { x: EDGE_X, y: 100 })]);
     expect(t.session.startSelectionDrag([], [nid(1)], true, [sid(1)])).toBe(true);
     // Asked to move 500 right: the shape at the edge stops the whole group at 0.
     expect(t.session.moveSelection(500, 50, false)).toEqual({ dx: 0, dy: 50 });
@@ -117,10 +119,10 @@ describe("the session", () => {
     // Asked to move 50 left: the note at the left edge stops the group there too.
     t.session.moveSelection(-50, 50, true);
     expect(t.sent("noteBatch").at(-1)).toEqual({ type: "noteBatch", ops: [{ op: "move", id: nid(1), x: 0, y: 50 }], final: true });
-    expect(t.sent("shapeBatch").at(-1)).toEqual({ type: "shapeBatch", ops: [{ op: "move", id: sid(1), x: 3000, y: 150 }], final: true });
+    expect(t.sent("shapeBatch").at(-1)).toEqual({ type: "shapeBatch", ops: [{ op: "move", id: sid(1), x: EDGE_X, y: 150 }], final: true });
     t.session.undo();
     expect(t.relay.notes.get(nid(1))).toMatchObject({ x: 0, y: 0 });
-    expect(t.relay.shapes.get(sid(1))).toMatchObject({ x: 3000, y: 100 });
+    expect(t.relay.shapes.get(sid(1))).toMatchObject({ x: EDGE_X, y: 100 });
   });
 
   it("a selected shape inside a selected frame moves once, with the frame", () => {

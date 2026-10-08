@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { BOARD_WIDTH, MAX_BATCH_ENTRIES, MAX_FRAMES_PER_ROOM, MAX_NOTES_PER_ROOM, clampFrameRect, type Note } from "@stickyard/shared";
+import { BOARD_WIDTH, FRAME_MAX_H, FRAME_MAX_W, MAX_BATCH_ENTRIES, MAX_FRAMES_PER_ROOM, MAX_NOTES_PER_ROOM, clampFrameRect, type Note } from "@stickyard/shared";
 import { GRID_GAP, align, distribute, grid, matchSize } from "../src/canvas/arrange";
 import { DUPLICATE_HINTS, DUPLICATE_OFFSET, duplicateDisabledReason, duplicateSelectionInputs } from "../src/canvas/duplicate";
 import { ARRANGE_HINTS, arrangeReason } from "../src/canvas/frameSelect";
@@ -44,8 +44,11 @@ describe("arrange on frames (pure): frame limits, not note limits", () => {
     const out = grid(frames, 3, GRID_GAP, clampFrameRect);
     expect(out.reason).toBeNull();
     expect(out.changes.get("B")).toEqual({ x: 100 + 640 + GRID_GAP, y: 50, w: 800, h: 500 });
-    const big = [placed("A", 0, 0, 2400, 1600), placed("B", 0, 0, 2400, 1600)];
-    expect(grid(big, 2, GRID_GAP, clampFrameRect).reason).toBe("wide");
+    // One more of the largest frame than fits across the board.
+    const across = Math.floor((BOARD_WIDTH + GRID_GAP) / (FRAME_MAX_W + GRID_GAP)) + 1;
+    const big = Array.from({ length: across }, (_, i) => placed(`F${i}`, 0, 0, FRAME_MAX_W, FRAME_MAX_H));
+    expect(grid(big, across, GRID_GAP, clampFrameRect).reason).toBe("wide");
+    expect(grid(big.slice(1), across - 1, GRID_GAP, clampFrameRect).reason).toBeNull();
   });
 });
 

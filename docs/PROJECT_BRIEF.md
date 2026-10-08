@@ -1,6 +1,6 @@
 # Project Brief: Stickyard
 
-Last updated: 7 October 2026 (thread 13). Update the status table and session log at the end of every thread, then re-upload.
+Last updated: 8 October 2026 (thread 14). Update the status table and session log at the end of every thread, then re-upload.
 
 ## 1. Purpose
 
@@ -112,7 +112,8 @@ Keep tsc, tests and build green. Stop for review with a summary of what was buil
 | Frame multi-select | Select, move, delete, arrange, style and duplicate frames with notes | Done (v0.20.0, web only, PR #38) |
 | Text and shapes (7a) | Text labels, rectangles, ovals and diamonds with text and fill/border styles, alongside notes and frames everywhere | Done (v0.21.0, protocol v15, stored schema 9, PR #39, deployed 7 October 2026) |
 | Export | Export PNG and Export Markdown from Properties, made in the browser; nothing uploaded | Done (v0.22.0, web only, merged and deployed 7 October 2026) |
-| Next | Board size (6400 x 4000, protocol v16), panel layout at 768 px, navigation, Follow and Bring to me (protocol v17), silent brainstorm, trimmed hardening, reactions on notes; more built-in templates as filler | Not started; see PHASE_PLAN.md |
+| Board size | The board is 6400 x 4000 (four times the area); everything on it stays where it was | Done (v0.23.0, protocol v16, merged and deployed 8 October 2026) |
+| Next | Panel layout at 768 px, navigation, Follow and Bring to me (protocol v17), silent brainstorm, trimmed hardening, reactions on notes; more built-in templates as filler | Not started; see PHASE_PLAN.md |
 | 3 onwards | See PHASE_PLAN.md | See PHASE_PLAN.md |
 
 ## 7. Open decisions
@@ -159,6 +160,7 @@ Start a thread with the slice and what I want (for example "Slice 1, write the C
 - Thread 11 (7 October 2026): cheaper sessions, no app change (no version bump, no CHANGELOG entry). CLAUDE.md cut from 94 KB to 5 KB; the per-slice sections moved verbatim into `docs/architecture/` (shell, rooms, notes, canvas, frames, editing, connection, facilitation, shapes, with an index). A docs test fails CI on stale status rows, "in review" after release, or old "Last updated" dates, and caps CLAUDE.md at 6 KB. `npm run shots` takes the 360/768/1280 light/dark screenshots against a local relay in one command. Merged and deployed. Next: export.
 - Thread 12 (7 October 2026): roadmap additions only, no app change (no code, no version bump, no CHANGELOG entry). New planned slices, in build order after Export: Board size (3200 x 2000 -> 6400 x 4000, protocol v16, no stored-schema bump; decided 2x not 3x, `MIN_ZOOM` stays 0.1), Panel layout at 768 px (from the backlog), Navigation (Zoom to selection, Jump to a person), Follow and Bring to me (protocol v17), then Silent brainstorm (decide Anonymous notes mode at its start), Hardening (moved after silent brainstorm), Reactions on notes (from the backlog; comments stay there), with More built-in templates as filler. Backlog gains Export on phones and Export selection only. Merged (docs only, nothing to deploy). Next: export.
 - Thread 13 (7 October 2026): Export PNG and Markdown (v0.22.0, web only, no protocol or stored-schema change), two parts on `phase-export`, tests first. Markdown: a pure `boardToMarkdown` (a section per frame by the centre rule, unframed notes, labels and shapes, revealed results only; every room string cleaned and escaped so it can't become Markdown or HTML). PNG: html-to-image 1.11.13, dynamically imported (13 KB, 5 KB gzip, fetched on first export), the board items at 100% zoom fitted to every item plus a 64-unit margin, scale 2 capped at 8,192 px a side and under 16 MP, UI-only parts filtered out. File names carry the date only. Checked in Chromium at 768 and 1280, light and dark. Merged and deployed. Next: board size.
+- Thread 14 (8 October 2026): Board size (v0.23.0, protocol v16, no stored-schema bump), one branch, tests first: 3200 x 2000 -> 6400 x 4000, v15 pages asked to reload, old rows load unchanged. Item size limits and zoom limits unchanged by decision. Worst cases: frames 18,366, shapes 167,786, combined 590,381 bytes; notes snapshot unchanged; a test fails if a worst-case coordinate reaches 5 digits. Chromium: empty board opens at its middle at 100%; far-corner drag and minimap work; zooming out at 1280 stops near 19% (the pan extent), and fit to a far-corner note is about 12%, both noted for Navigation. Export (v0.22.0) merged first. Merged and deployed. Next: panel layout at 768 px.
 
 ## 10. One-time manual setup
 

@@ -1,6 +1,6 @@
 import { ViewportPortal, useStore } from "@xyflow/react";
+import { BOARD_HEIGHT, BOARD_WIDTH } from "@stickyard/shared";
 import { memo, useMemo } from "react";
-import { readPxToken } from "../lib/cssVar";
 import { cn } from "../lib/utils";
 import { participantColourClass, participantColourVar } from "../rooms/colours";
 import { useRoomUi } from "../rooms/roomStore";
@@ -52,7 +52,7 @@ function Marks({ compact }: { compact: boolean }) {
   const width = useStore((s) => s.width);
   const height = useStore((s) => s.height);
   const view = useMemo<VisibleArea>(
-    () => ({ x: -tx / zoom, y: -ty / zoom, width: (width || readPxToken("--sy-board-width", 3200)) / zoom, height: (height || readPxToken("--sy-board-height", 2000)) / zoom }),
+    () => ({ x: -tx / zoom, y: -ty / zoom, width: (width || BOARD_WIDTH) / zoom, height: (height || BOARD_HEIGHT) / zoom }),
     [tx, ty, zoom, width, height],
   );
   const people = useMemo(() => new Map((participants ?? []).map((p) => [p.id, p])), [participants]);

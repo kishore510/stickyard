@@ -35,3 +35,6 @@ Architecture notes, moved out of CLAUDE.md on 7 October 2026 so they load only w
 - Frame edits: `RoomSession.editFrames(ids, change)` (no title): local at once, one `frameEdit` per changed frame queued and paced (`frameEditQueue`, `CLEAR_FRAME_STEP_MS`; dropped on disconnect), one history step "Edit frames".
 - Duplicate: `duplicateSelectionInputs(notes, frames)` (one `groupOffset` for all; frames alone first, then notes in stacking order); `RoomSession.duplicateSelection(noteIds, frameIds)` returns local ids by kind (the copies become the selection); `duplicateDisabledReason` takes `frames` (`DUPLICATE_HINTS.framesFullMany`). Order acts on selected notes; frames only = `ORDER_HINTS.frame`.
 - All new session commands refuse (nothing sent) while disconnected and for a guest on a locked board (`lockedOut`); the UI shows the lock's reason. Tests: `test/frameSelect.test.ts`, `test/frameSelectUi.test.tsx`, `test/frameSelectMove.test.ts`, `test/frameSelectArrange.test.ts`; `inRoom` takes `frames`, `frameAt` makes one.
+
+## Board size (v0.23.0)
+- Frames on the 6400 x 4000 board (protocol v16, see canvas.md "Board size, protocol v16"): limits unchanged (240 x 160 to 2400 x 1600, 30 a room). The worst-case framesSnapshot is 18,366 bytes (positions now 4 digits), 66 bytes under its 90% tripwire: a new per-frame field needs a decision first.

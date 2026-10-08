@@ -105,7 +105,7 @@ describe("version and join", () => {
   it("a protocol v14 page is refused with version_mismatch (please reload)", async () => {
     const { code } = await newRoom();
     const c = await TestClient.open(code);
-    expect(PROTOCOL_VERSION).toBe(15);
+    expect(PROTOCOL_VERSION).toBeGreaterThanOrEqual(15);
     expect(await c.request({ type: "hello", protocolVersion: 14 })).toMatchObject({ type: "error", code: "version_mismatch" });
     expect(await c.request({ type: "join", name: "Priya" })).toMatchObject({ type: "error", code: "bad_message" });
     c.close();
@@ -231,9 +231,9 @@ describe("shapeMove and shapeResize", () => {
   });
 
   it("resizes clamp to the shape limits (not note or frame limits); live ones write nothing", async () => {
-    const { stub, a, b } = await room({ shapes: [{ x: 3000, y: 100 }] });
+    const { stub, a, b } = await room({ shapes: [{ x: BOARD_WIDTH - 200, y: 100 }] });
     const writes = await rowsWritten(stub);
-    a.send({ type: "shapeResize", id: shapeId(0), x: 3000, y: 100, w: 400, h: 50, final: false });
+    a.send({ type: "shapeResize", id: shapeId(0), x: BOARD_WIDTH - 200, y: 100, w: 400, h: 50, final: false });
     expect(await nextOfType(b, "shapeResized")).toMatchObject({ x: BOARD_WIDTH - 400, w: 400, h: 50, final: false, rev: 1 });
     expect((await rowsWritten(stub)) - writes).toBe(0);
     a.send({ type: "shapeResize", id: shapeId(0), x: 0, y: 100, w: SHAPE_MIN_W, h: SHAPE_MAX_H, final: true });
@@ -348,7 +348,7 @@ describe("frames carry shapes", () => {
     const writes = await rowsWritten(stub);
     const txs = await transactions(stub);
     // The second shape sticks out past the frame's right edge (900 + 400 = 1300 > 1100): the group stops when it reaches the board edge.
-    a.send({ type: "frameMove", id: frameId(0), x: 3000, y: 200, final: true, noteIds: [noteId(0)], shapeIds: [shapeId(0), shapeId(1), "unknown000000000"] });
+    a.send({ type: "frameMove", id: frameId(0), x: BOARD_WIDTH - 300, y: 200, final: true, noteIds: [noteId(0)], shapeIds: [shapeId(0), shapeId(1), "unknown000000000"] });
     const moved = await nextOfType(b, "frameMoved");
     expect(await nextOfType(a, "frameMoved")).toEqual(moved);
     const dx = BOARD_WIDTH - 1300;
@@ -595,7 +595,7 @@ describe(`schema migration 8 -> ${SCHEMA_VERSION}`, () => {
       const sql = state.storage.sql;
       loadSchemaV8(sql);
       new NoteStore(sql);
-      sql.exec("INSERT INTO shapes (id, kind, x, y, w, h, text, z, rev, author_id) VALUES (?, 'oval', 3100, 1950, 200, 120, 'Step 1', 3, 4, ?)", shapeId(1), AUTHOR);
+      sql.exec("INSERT INTO shapes (id, kind, x, y, w, h, text, z, rev, author_id) VALUES (?, 'oval', ?, ?, 200, 120, 'Step 1', 3, 4, ?)", shapeId(1), BOARD_WIDTH - 100, BOARD_HEIGHT - 50, AUTHOR);
       sql.exec("INSERT INTO shapes (id, kind, x, y, w, h, text, z, rev, author_id) VALUES (?, 'star', 0, 0, 200, 120, '', 0, 1, ?)", shapeId(2), AUTHOR);
     });
     await evictDurableObject(stub, { webSockets: "close" });
