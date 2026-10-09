@@ -35,6 +35,11 @@ const goThere = () => q<HTMLButtonElement>("[data-brought-go]");
 const dismiss = () => q<HTMLButtonElement>("[data-brought-dismiss]");
 const bring = () => q<HTMLButtonElement>("[data-bring-to-me]");
 
+/** React Flow treats a canvas with no size (happy-dom) as 500 x 500: half of it. */
+const HALF = 250;
+/** The transform that centres the board point (x, y) at this zoom. */
+const centredOn = (x: number, y: number, zoom: number) => [HALF - x * zoom, HALF - y * zoom, zoom];
+
 /** React Flow's viewport transform: [x, y, zoom]. */
 function transform(): [number, number, number] {
   const style = q(".react-flow__viewport")?.style.transform ?? "";
@@ -111,13 +116,12 @@ describe("while following", () => {
     const socket = await following();
     await update(socket, 1000, 800, 1);
     await settle();
-    // Centred on (1000, 800) at zoom 1 (the canvas has no size here, so the offset is minus the point).
-    expect(transform()).toEqual([-1000, -800, 1]);
+    expect(transform()).toEqual(centredOn(1000, 800, 1));
     expect(chip()?.textContent).toContain("Following Sam");
     expect(chip()?.textContent).not.toContain("Waiting");
     await update(socket, 1200, 900, 0.5);
     await settle();
-    expect(transform()).toEqual([-600, -450, 0.5]);
+    expect(transform()).toEqual(centredOn(1200, 900, 0.5));
     expect(socket.ofType("followStop")).toEqual([]);
     expect(chip()).not.toBeNull();
   });
@@ -134,7 +138,7 @@ describe("while following", () => {
     const socket = await following();
     const stop = stopButton();
     expect(stop?.textContent).toContain("Stop");
-    expect(stop?.className).toContain("min-h-touch");
+    expect(stop?.className).toContain("h-touch");
     await press(stop);
     expect(socket.ofType("followStop")).toHaveLength(1);
     expect(chip()).toBeNull();
@@ -354,7 +358,7 @@ describe("the Bring to me banner", () => {
     expect(bannerText()?.getAttribute("aria-live")).toBe("polite");
     expect(transform()).toEqual(before);
     expect(document.activeElement).toBe(focused);
-    expect(goThere()?.className).toContain("min-h-touch");
+    expect(goThere()?.className).toContain("h-touch");
   });
 
   it("Go there moves to the sent view and dismisses", async () => {
@@ -363,7 +367,7 @@ describe("the Bring to me banner", () => {
     await brought(socket, 1500, 1000, 0.5);
     await press(goThere());
     await settle();
-    expect(transform()).toEqual([-750, -500, 0.5]);
+    expect(transform()).toEqual(centredOn(1500, 1000, 0.5));
     expect(banner()).toBeNull();
   });
 
@@ -385,7 +389,7 @@ describe("the Bring to me banner", () => {
     await brought(socket, 1500, 1000, 0.5);
     expect(document.querySelectorAll("[data-brought-banner]")).toHaveLength(1);
     await press(goThere());
-    expect(transform()).toEqual([-750, -500, 0.5]);
+    expect(transform()).toEqual(centredOn(1500, 1000, 0.5));
   });
 
   it("goes by itself after a minute", async () => {
@@ -422,7 +426,7 @@ describe("the Bring to me banner", () => {
     await brought(socket, 1500, 1000, 0.5);
     expect(banner()).not.toBeNull();
     await press(goThere());
-    expect(transform()).toEqual([-750, -500, 0.5]);
+    expect(transform()).toEqual(centredOn(1500, 1000, 0.5));
   });
 });
 
@@ -463,17 +467,19 @@ describe("resets", () => {
 });
 
 describe("untrusted names", () => {
-  const evil: Participant = { id: "EEEEEEEEEEEEEEEE", name: "<img src=x onerror=alert(1)>", colourIndex: 3, host: true };
+  // "<img src=x onerror=alert(1)>" is 28 characters, over the 24-character name limit (the relay
+  // would never send it); the same payload within the limit.
+  const evil: Participant = { id: "EEEEEEEEEEEEEEEE", name: "<img src=x onerror=a()>", colourIndex: 3, host: true };
 
   it("render as text in the button, the chip, the notices and the banner", async () => {
     const socket = await following({ others: [evil, jo] }, evil);
-    expect(chip()?.textContent).toContain("<img src=x onerr…");
+    expect(chip()?.textContent).toContain("<img src=x oner…");
     await server(socket, { data: { type: "broughtToMe", from: evil.id, x: 1, y: 1, zoom: 1 } });
-    expect(bannerText()?.textContent).toBe("<img src=x onerr… asked everyone to come to their view");
+    expect(bannerText()?.textContent).toBe("<img src=x oner… asked everyone to come to their view");
     await server(socket, { data: { type: "followEnded", reason: "target_left" } });
-    expect(notice()?.textContent).toBe("<img src=x onerr… left.");
+    expect(notice()?.textContent).toBe("<img src=x oner… left.");
     await openParticipants();
-    expect(followButton(evil.id)?.getAttribute("aria-label")).toBe("Follow <img src=x onerr…");
+    expect(followButton(evil.id)?.getAttribute("aria-label")).toBe("Follow <img src=x oner…");
     expect(document.querySelector("img")).toBeNull();
   });
 });

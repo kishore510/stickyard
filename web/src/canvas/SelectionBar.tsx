@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import {
   AlignCenterHorizontal,
+  Megaphone,
   Copy,
   AlignCenterVertical,
   AlignEndHorizontal,
@@ -42,6 +43,8 @@ import { MEDIA } from "../styles/breakpoints";
 import { useTimerControls } from "../timer/controls";
 import { HostVotingControls } from "../voting/HostVoting";
 import { HostSilentControls } from "../silent/HostSilent";
+import { BringToMeControl, useBringToMe } from "../follow/BringToMe";
+import { BRING_TEXT } from "../follow/followUi";
 import { SILENT_UI } from "../silent/silent";
 
 /*
@@ -66,6 +69,8 @@ export interface BarCommand {
   label?: boolean;
   /** Marks the host's lock toggle (data-lock-toggle). */
   lockToggle?: boolean;
+  /** Marks the host's Bring to me (data-bring-to-me). */
+  bringToMe?: boolean;
   run: () => void;
 }
 
@@ -98,6 +103,7 @@ export function CommandButton({ command, className }: { command: BarCommand; cla
         aria-describedby={tipId}
         aria-disabled={off || undefined}
         data-lock-toggle={command.lockToggle ? "" : undefined}
+        data-bring-to-me={command.bringToMe ? "" : undefined}
         onFocus={() => setOpen(true)}
         onBlur={() => setOpen(false)}
         onKeyDown={(e) => {
@@ -423,6 +429,16 @@ export function BoardBar({
   const full = useMediaQuery(MEDIA.wideDesktop);
   const timer = useTimerControls();
   const timerRunning = useRoomUi((s) => s.room?.timer !== null && s.room?.timer !== undefined);
+  // Bring to me (v0.31.0): from xl a button in the Session group (its tooltip says what it did and
+  // why it's off while it waits); below xl, in the Session panel under the other controls.
+  const bring = useBringToMe();
+  const bringCommand: BarCommand = {
+    title: BRING_TEXT.button,
+    icon: <Megaphone />,
+    bringToMe: true,
+    ...off(bring.reason === null ? null : bring.sent ? `${BRING_TEXT.sent} ${bring.reason}` : bring.reason),
+    run: bring.run,
+  };
   const orderCommands: BarCommand[] = ORDER_COMMANDS.map((c) => ({ title: c.label, icon: c.icon, ...off(orderReason), run: () => order(c.action) }));
   const lockedMarker = session?.locked ? (
     <span data-locked-indicator="" className="ml-xs rounded-full border border-border bg-surface-muted px-sm text-xs font-semibold">
@@ -504,11 +520,13 @@ export function BoardBar({
                     <CollapsedGroup
                       group={{ label: SILENT_UI.heading, collapsed: { icon: <EyeOff /> }, commands: [], content: <HostSilentControls className="p-xs" /> }}
                     />
+                    <CommandButton command={bringCommand} />
                   </>
                 ) : (
                   <>
                     <HostVotingControls className="w-full border-t border-border p-xs pt-sm" />
                     <HostSilentControls className="w-full border-t border-border p-xs pt-sm" />
+                    <BringToMeControl className="w-full border-t border-border p-xs pt-sm" />
                   </>
                 ),
               },

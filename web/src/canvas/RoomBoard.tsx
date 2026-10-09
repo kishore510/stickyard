@@ -64,6 +64,10 @@ import { ViewNotices, showFitNotice } from "./ViewNotices";
 import { useCursors } from "../cursors/cursorStore";
 import { truncateName } from "../presence/avatars";
 import { SILENT_TEXT, revealedOutside, silentNoteReason } from "../silent/silent";
+import { FollowNotices } from "../follow/FollowNotices";
+import { useFollow } from "../follow/followStore";
+import { setViewSource, stopFollowing } from "../follow/actions";
+import type { View } from "../follow/follow";
 
 /*
  * The room's board with its tools and panels, loaded on demand (React Flow is only needed in a
@@ -250,7 +254,8 @@ function useBox() {
 function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
   const wide = useMediaQuery(MEDIA.tablet);
   const windowWidth = useWindowWidth();
-  const canvas = useCanvasView();
+  // Follow (v0.31.0): my own pan, zoom or view command stops following (and says so once).
+  const canvas = useCanvasView({ onUserMove: () => void stopFollowing(latest.current.room.stopOnUserMove) });
   const tool = useBoardUi((s) => s.tool);
   const setTool = useBoardUi((s) => s.setTool);
   const minimapPref = useBoardUi((s) => s.minimap);
@@ -285,6 +290,29 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
 
   const latest = useRef({ view, room, wide });
   latest.current = { view, room, wide };
+
+  // Follow (v0.31.0): the view goes where the person I follow looks, as their updates arrive
+  // (programmatic moves: they never count as mine). Controls outside the canvas read my view here.
+  useEffect(
+    () =>
+      useFollow.subscribe((s, prev) => {
+        if (s.leader && s.leader !== prev.leader && s.following === s.leader.id) canvas.follow(s.leader);
+      }),
+    [canvas],
+  );
+  useEffect(() => {
+    setViewSource(canvas.view);
+    return () => setViewSource(null);
+  }, [canvas]);
+  const stopFollow = useCallback(() => void stopFollowing(latest.current.room.stopFollow), []);
+  // Go there (Bring to me): stop following first (said once), then go, as the page's own move.
+  const goThere = useCallback(
+    (to: View) => {
+      stopFollowing(latest.current.room.stopFollow);
+      canvas.showView(to);
+    },
+    [canvas],
+  );
 
   // Notes deleted (here or by someone else) leave the selection; after a rejoin, only notes that
   // are still on the board stay selected.
@@ -494,6 +522,7 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
     moveSelection: room.moveSelection,
     shareCursor: room.shareCursor,
     hideCursor: room.hideCursor,
+    shareViewport: room.shareViewport,
     startShapeDrag: room.startShapeDrag,
     moveShape: room.moveShape,
     startShapeResize: room.startShapeResize,
@@ -643,9 +672,11 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
           }
         />
         <SilentStrip silent={view.silent} mine={view.mySealed.size} />
+        {/* Follow and Bring to me (v0.31.0): under the strips, so they stack and never overlap. */}
+        <FollowNotices wide={wide} onStop={stopFollow} onGo={goThere} />
       </>
     ),
-    [view.locked, isHost, view.voting, view.remaining, closed, showResults, view.silent, view.mySealed],
+    [view.locked, isHost, view.voting, view.remaining, closed, showResults, view.silent, view.mySealed, wide, stopFollow, goThere],
   );
   const bar = wide ? (
     <BoardBar

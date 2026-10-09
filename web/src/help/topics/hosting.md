@@ -1,8 +1,8 @@
 ---
 title: Running a session
 order: 9
-summary: What the host can do (timer, lock the board, dot voting, silent brainstorm, end the session) and what everyone else sees.
-keywords: host, hosting, facilitate, facilitator, timer, countdown, time, timebox, lock, locked, unlock, end, end session, delete, crown, badge, silent, brainstorm, reveal
+summary: What the host can do (timer, lock the board, dot voting, silent brainstorm, bring everyone to your view, end the session) and what everyone else sees.
+keywords: host, hosting, facilitate, facilitator, timer, countdown, time, timebox, lock, locked, unlock, end, end session, delete, crown, badge, silent, brainstorm, reveal, bring to me, gather, follow
 ---
 ## Who the host is
 
@@ -40,6 +40,12 @@ keywords: host, hosting, facilitate, facilitator, timer, countdown, time, timebo
 - **Reveal notes** asks first, with the number of hidden notes: everyone sees them all at once, and it can't be undone.
 - Each button waits for the relay ("Waiting for the relay…") and is off with the reason while you're not connected, while a round already runs (Start) or when none does (Reveal).
 - See [Silent brainstorm](help:silent-brainstorm) for what everyone sees.
+
+## Bring to me
+
+- **Bring to me** asks everyone else to come to your view: **Session** in the top bar (on a wide screen it's the megaphone button at the end of the group), or on a phone **Session** in **Participants**. There's no confirm, because it never moves anyone: each person gets a banner with **Go there** and **Dismiss**.
+- After you use it, it's off for five seconds ("Wait a few seconds."); it's also off while you're not connected. It works on a locked board and during a silent round, and sends only where you're looking.
+- People can also follow you from **Participants**; on a wider screen you see how many, never who. See [Follow and Bring to me](help:follow).
 
 ## Ending a session
 

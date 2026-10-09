@@ -2,6 +2,19 @@
 
 All notable changes to Stickyard, newest first. The format follows Keep a Changelog. Versions are 0.x: a minor bump for each slice and a patch bump for each follow-up fix. This file is shown in the app under **What’s new**, so entries are written for the people using it.
 
+## [0.31.0] - 2026-10-09
+
+### Added
+- **Follow.** In **Participants**, **Follow** beside someone's name makes your view go where they look, as they move around the board. A strip under the top bar says "Following Sam" with **Stop**. Until their view arrives it says "Waiting for Sam's view." (phones and hidden tabs don't share a view, so following someone on a phone shows nothing).
+- Following stops when you pan or zoom yourself (dragging, the wheel, pinching, the zoom keys, **Fit to notes**, **Zoom to selection**, **Go to**, the overview map) or press **Stop**, and the board says "Stopped following Sam." If they leave, it says "Sam left." Following someone else replaces it. Up to 10 people can follow one person; past that it says so and you follow nobody.
+- **N following you**: on a wider screen, a small count shows while anyone follows you. It never says who.
+- **Bring to me** (host only): in **Session** in the top bar (on a phone, **Session** in **Participants**). Everyone else gets a banner, "Sam asked everyone to come to their view", with **Go there** and **Dismiss**. Nobody is moved until they choose **Go there**; if they were following someone, **Go there** stops that and the banner says so. The banner goes after a minute, and a newer one replaces it. After you bring everyone, the button is off for five seconds ("Wait a few seconds."). It works on a locked board and during a silent round.
+- Screen readers hear when following starts, stops or ends and when someone asks everyone to come to their view, never every move. Moves are brief, and instant with reduced motion.
+- A new Help topic, **Follow and Bring to me**, and updates to **Running a session** and **Touch and keyboard tips**.
+
+### Changed
+- In **Participants** on a narrow screen, **Follow** and **Go to** move under a person's name when they don't fit beside it.
+
 ## [0.30.0] - 2026-10-09
 
 ### Changed

@@ -1,4 +1,4 @@
-import { Check, Copy, Crosshair, Lock, LockOpen, LogOut, Power, RotateCcw, Square } from "lucide-react";
+import { Check, CircleStop, Copy, Crosshair, Lock, LockOpen, LogOut, Power, RotateCcw, ScanEye, Square } from "lucide-react";
 import { useState } from "react";
 import { MAX_NAME_LENGTH, MAX_PARTICIPANTS } from "@stickyard/shared";
 import { Button } from "../components/ui/button";
@@ -20,6 +20,10 @@ import { useBoardUi } from "../canvas/uiStore";
 import { JUMP_HINT } from "../canvas/navigation";
 import { truncateName } from "../presence/avatars";
 import { closeSheets } from "../shell/nav";
+import { BringToMeControl } from "../follow/BringToMe";
+import { useFollow } from "../follow/followStore";
+import { followPerson, stopFollowing } from "../follow/actions";
+import { BRING_TEXT, FOLLOW_TEXT, followReason } from "../follow/followUi";
 
 /*
  * The Participants sheet (#/participants): who's in the session now, the unverified-names
@@ -105,6 +109,8 @@ function SessionSection() {
       <HostVotingControls />
       <h4 className="text-sm font-semibold">{SILENT_UI.heading}</h4>
       <HostSilentControls />
+      <h4 className="text-sm font-semibold">{BRING_TEXT.heading}</h4>
+      <BringToMeControl />
       <h4 className="text-sm font-semibold">End the session</h4>
       <div className="flex flex-col gap-xs">
         <Button
@@ -163,6 +169,45 @@ function GoTo({ id, name }: { id: string; name: string }) {
   );
 }
 
+/**
+ * Follow (v0.31.0): my view goes where this person looks until I stop, pan or zoom. Following
+ * someone else replaces it. A press closes the sheet so the board shows; Stop following doesn't.
+ * The page can't tell who is on a phone (phones never send a view), so it's never off for that:
+ * the chip says "Waiting for <name>'s view." until a view arrives.
+ */
+function Follow({ id, name }: { id: string; name: string }) {
+  const room = useRoomUi((s) => s.room);
+  const mine = useFollow((s) => s.following === id);
+  const reason = followReason({ live: room?.live ?? false });
+  const reasonId = `follow-reason-${id}`;
+  const shown = truncateName(name);
+  return (
+    <span className="flex shrink-0 flex-col items-end py-2xs">
+      <Button
+        variant="ghost"
+        data-follow={id}
+        aria-label={mine ? FOLLOW_TEXT.stopLabel(shown) : FOLLOW_TEXT.followLabel(shown)}
+        aria-disabled={reason !== null || undefined}
+        aria-describedby={reason ? reasonId : undefined}
+        onClick={() => {
+          const r = useRoomUi.getState().room;
+          if (reason !== null || !r) return;
+          if (mine) return void stopFollowing(r.stopFollow);
+          if (followPerson(r.startFollow, id, name)) closeSheets();
+        }}
+      >
+        {mine ? <CircleStop /> : <ScanEye />}
+        {mine ? FOLLOW_TEXT.stopFollowing : FOLLOW_TEXT.follow}
+      </Button>
+      {reason && (
+        <span id={reasonId} className="text-xs text-fg-muted">
+          {reason}
+        </span>
+      )}
+    </span>
+  );
+}
+
 /** One switch: a native checkbox with role=switch, in a full touch-target row. */
 function Switch({ label, hint, checked, onChange }: { label: string; hint: string; checked: boolean; onChange(on: boolean): void }) {
   return (
@@ -210,9 +255,10 @@ export function ParticipantsPage() {
         {!room.live && <p className="text-sm text-fg-muted">Reconnect to see who’s here.</p>}
         <ul aria-label="People in this session" className="flex flex-col gap-xs">
           {people.map((p) => (
-            <li key={p.id} className="flex min-h-touch items-center gap-sm rounded-md border border-border bg-surface px-ms">
+            <li key={p.id} className="flex min-h-touch flex-wrap items-center gap-x-sm rounded-md border border-border bg-surface px-ms">
               <span aria-hidden="true" className={cn("inline-block size-dot shrink-0 rounded-full", participantColourClass(p.colourIndex))} />
-              <span data-person-name="" className="min-w-0 flex-1 break-words">
+              {/* flex-auto: a name keeps its width and the buttons wrap under it on a narrow sheet. */}
+              <span data-person-name="" className="min-w-0 flex-auto break-words">
                 {p.name}
                 {p.id === room.you?.id && <span className="text-fg-muted"> (you)</span>}
               </span>
@@ -221,7 +267,12 @@ export function ParticipantsPage() {
                   Host
                 </span>
               )}
-              {p.id !== room.you?.id && <GoTo id={p.id} name={p.name} />}
+              {p.id !== room.you?.id && (
+                <span className="ml-auto flex shrink-0 items-start justify-end">
+                  <Follow id={p.id} name={p.name} />
+                  <GoTo id={p.id} name={p.name} />
+                </span>
+              )}
             </li>
           ))}
         </ul>

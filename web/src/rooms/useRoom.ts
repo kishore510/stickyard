@@ -8,6 +8,8 @@ import { useBoardUi } from "../canvas/uiStore";
 import { STORAGE_KEYS, hostTokenKey, readKey, removeKey, writeKey } from "../storage";
 import { forgetVoterKey, voterKeyFor } from "../voting/voterKey";
 import { cursorSink } from "../cursors/cursorStore";
+import { followSink } from "../follow/followStore";
+import type { View } from "../follow/follow";
 import { browserFetch, checkRoom } from "./api";
 import type { FrameEdit } from "../frames/board";
 import type { StylePatch } from "../notes/board";
@@ -54,6 +56,8 @@ export function useRoom(code: string) {
       env: browserConnectionEnv,
       // Protocol v14: other people's pointers go to their own store, never the view.
       cursors: cursorSink,
+      // Protocol v19: following and Bring to me go to their own store, never the view.
+      follow: followSink,
       onChange: setView,
       onNoteConfirmed: (from, to) => useBoardUi.getState().renameSelected(from, to),
       onFrameConfirmed: (from, to) => useBoardUi.getState().renameFrame(from, to),
@@ -134,6 +138,11 @@ export function useRoom(code: string) {
     revealSilent: () => session.current?.revealSilent() ?? false,
     shareCursor: (x: number, y: number) => session.current?.shareCursor(x, y) ?? false,
     hideCursor: () => session.current?.hideCursor(),
+    startFollow: (id: string) => session.current?.startFollow(id) ?? false,
+    stopFollow: () => session.current?.stopFollow() ?? false,
+    stopOnUserMove: () => session.current?.stopOnUserMove() ?? false,
+    shareViewport: (view: View, compact: boolean) => session.current?.shareViewport(view, compact) ?? false,
+    bringToMe: (view: View) => session.current?.bringToMe(view) ?? false,
     leave: () => session.current?.close(),
   };
 }

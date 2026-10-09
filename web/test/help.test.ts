@@ -5,7 +5,7 @@ import { buildTopics, parseFrontMatter, searchTopics } from "../src/help/topics"
 
 describe("help topics", () => {
   it("loads the topics, quick start first", () => {
-    expect(HELP_TOPICS.map((t) => t.id)).toEqual(["quick-start", "sessions", "notes", "text-and-shapes", "participants", "chat", "names", "connection", "touch-and-keyboard", "hosting", "dot-voting", "silent-brainstorm"]);
+    expect(HELP_TOPICS.map((t) => t.id)).toEqual(["quick-start", "sessions", "notes", "text-and-shapes", "participants", "chat", "names", "connection", "touch-and-keyboard", "hosting", "dot-voting", "silent-brainstorm", "follow"]);
     expect(topicById("sessions")?.title).toBe("Starting and joining a session");
     expect(topicById(QUICK_START_ID)?.title).toBe("Quick start");
   });
@@ -123,6 +123,38 @@ describe("help topics", () => {
     }
     const hosting = HELP_TOPICS.find((t) => t.id === "hosting")?.text ?? "";
     for (const claim of ["start silent round", "reveal notes", "only this device can reveal"]) expect(hosting, claim).toContain(claim);
+  });
+
+  it("Follow and Bring to me covers following, stopping, the limits, the count, Bring to me and its banner, privacy and motion (v0.31.0)", () => {
+    const follow = HELP_TOPICS.find((t) => t.id === "follow")?.text ?? "";
+    for (const claim of [
+      "follow",
+      "stop",
+      "waiting for sam's view",
+      "phones and hidden tabs don't share a view",
+      "stopped following sam",
+      "sam left",
+      "10 people",
+      "following you",
+      "never says who",
+      "bring to me",
+      "go there",
+      "dismiss",
+      "esc",
+      "after a minute",
+      "wait a few seconds",
+      "locked board",
+      "silent brainstorm",
+      "none of it is stored",
+      "reduced motion",
+      "screen readers",
+    ]) {
+      expect(follow, claim).toContain(claim);
+    }
+    const hosting = HELP_TOPICS.find((t) => t.id === "hosting")?.text ?? "";
+    for (const claim of ["bring to me", "wait a few seconds", "follow and bring to me"]) expect(hosting, claim).toContain(claim);
+    const keys = HELP_TOPICS.find((t) => t.id === "touch-and-keyboard")?.text ?? "";
+    for (const claim of ["follow", "stop", "go there", "dismiss"]) expect(keys, claim).toContain(claim);
   });
 
   it("Dot voting covers a round, private dots, anonymity, browser data, the budget, restarting, the lock and the keys", () => {

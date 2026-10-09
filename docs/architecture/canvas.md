@@ -69,3 +69,6 @@ Architecture notes, moved out of CLAUDE.md on 7 October 2026 so they load only w
 - Minimap: already `pannable`/`zoomable` (drag pans, wheel zooms); `onClick` centres the view at the clicked point (same zoom), unless the press moved past the drag threshold (a capture `pointerdown` on the board section plus a window `pointermove`, `minimapDrag`). The marquee ignores `.react-flow__minimap` (unchanged). Its world is still the whole board (React Flow's bounds include the board node): backlog.
 - `RoomBoard` handles `jumpRequest`: reads `useCursors.lastSeen` and the participant, `canvas.jumpTo`, then the jump notice with `truncateName` (16). See connection.md "Navigation: last known pointers". UI tests: `test/navigationUi.test.tsx`.
 
+## Follow: programmatic moves versus mine (v0.31.0)
+- `useCanvasView({ onUserMove })`: my own view commands call `onUserMove` (following stops); `follow` and `showView` are programmatic (inside `MoveGuard`); `moved(event)` from React Flow `onMove` and `userGesture()` from the overview map. `fitItems(items, animate, user)`: the first fit passes `user` false. `view()` is my view on the wire (`viewFromCentre`). Details in connection.md "Follow and Bring to me: the UI".
+
