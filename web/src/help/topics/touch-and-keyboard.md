@@ -2,7 +2,7 @@
 title: Touch and keyboard tips
 order: 8
 summary: Taps, swipes, keys and links that make Stickyard quicker to use.
-keywords: shape, zoom to selection, go to, overview map, minimap, touch, tap, swipe, keyboard, tab, escape, esc, arrow, alt, resize, shortcut, screen reader, theme, dark, light, back, link
+keywords: shape, follow, stop following, bring to me, go there, zoom to selection, go to, overview map, minimap, touch, tap, swipe, keyboard, tab, escape, esc, arrow, alt, resize, shortcut, screen reader, theme, dark, light, back, link
 ---
 ## Touch
 
@@ -13,13 +13,15 @@ keywords: shape, zoom to selection, go to, overview map, minimap, touch, tap, sw
 - On the board, drag a note to move it, tap it to edit it, and swipe an empty part of the board to move around. Pinch to zoom. **Select** and **Hand**, **+** (**Add note**) and **Fit to notes** sit in the bar at the bottom. In the add drawer, tap a tile to add it, or press and hold one and drag it onto the board.
 - On a tablet, drag a palette tile sideways onto the board to drop a note there; a panel's edge is easy to grab with a finger to resize it. On a tablet-sized screen the palette and Properties start collapsed (until you open one, which is remembered).
 - In the overview map (wider screens), tap or click to go to that part of the board, or drag to move around.
-- In **Participants**, **Go to** beside someone's name takes the view to their pointer. It works on a phone too.
+- In **Participants**, **Go to** beside someone's name takes the view to their pointer, and **Follow** keeps your view with theirs until you swipe or pinch the board yourself. Both work on a phone too; on a narrow screen they sit under the name. See [Follow and Bring to me](help:follow).
+- **Stop**, **Go there** and **Dismiss** under the top bar are full-size buttons, easy to tap.
 
 ## Keyboard
 
 - **Tab** moves between buttons and links. **Enter** or **Space** chooses one. The first Tab on a page offers **Skip to content**.
 - In the menu, the **arrow keys** move between items and **Esc** closes it.
 - **Esc** closes a sheet, and focus returns to where you were.
+- While you follow someone, any zoom or view key (**+**, **-**, **0**, **F**, **S**) or a wheel turn stops following. **Tab** reaches the **Stop** button under the top bar. **Esc** dismisses a "come to their view" banner (outside a text field); its **Go there** never takes focus by itself.
 - On the board, **Tab** moves between notes and selects the one you reach. **Enter** edits it, the **arrow keys** move it, **Alt+arrow keys** resize it (**Shift** for bigger steps with either), **Delete** deletes it (or every selected note, asking once) and **Esc** clears the selection. With a frame selected, **Enter** edits its title and **Delete** deletes the frame (never its notes). With frames selected (alone or with notes), the **arrow keys** move the selection, frames bringing the notes inside them, and **Delete** deletes the selected notes and frames, asking once. During a [silent brainstorm](help:silent-brainstorm) frames can't be moved, by keys or by dragging. Shapes work like notes: **Enter** or a double-click types in one, the **arrow keys** move it (or the whole selection), **Alt+arrow keys** resize it and **Delete** deletes it.
 - A selected note's corners can be dragged with a finger to resize it; the grab area is a full fingertip wide.
 - A side panel's edge is focusable: the **arrow keys** resize it (**Shift** for bigger steps), **Home** and **End** go to the narrowest and widest.

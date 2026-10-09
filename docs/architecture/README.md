@@ -35,6 +35,8 @@ Sections are named after the slice that introduced them. Cross-references in quo
 | Live cursors, protocol v14 (v0.19.0) | connection.md |
 | Navigation: last known pointers (v0.24.0) | connection.md |
 | Follow and Bring to me, protocol v19 (v0.30.0, part 1 of 2) | connection.md |
+| Follow and Bring to me: the UI (v0.31.0, part 2 of 2) | connection.md |
+| Follow: programmatic moves versus mine (v0.31.0) | canvas.md |
 | Create with content, protocol v11 (slice create with content) | editing.md |
 | Undo and redo (v0.12.0, part 2) | editing.md |
 | Clear board (v0.12.0, part 3) | editing.md |
@@ -46,6 +48,7 @@ Sections are named after the slice that introduced them. Cross-references in quo
 | Silent brainstorm: web state and plumbing (v0.27.0, part 2 of 3) | facilitation.md, connection.md |
 | Silent brainstorm: the UI (v0.28.0, part 3 of 3) | facilitation.md, notes.md, shell.md |
 | Bring to me, protocol v19 (v0.30.0, part 1 of 2) | facilitation.md |
+| Bring to me: the UI (v0.31.0, part 2 of 2) | facilitation.md, shell.md |
 | Frames, protocol v9 (slice frames) | frames.md |
 | Frame title styling, protocol v10 (slice frame title styling) | frames.md |
 | Templates (slice templates) | frames.md |
@@ -66,3 +69,5 @@ Sections are named after the slice that introduced them. Cross-references in quo
 | App shell conventions (slice 0.5) | shell.md |
 | Welcome screen (v0.8.1) | shell.md |
 | Board bar in the top bar (v0.15.1) | shell.md |
+| Silent brainstorm in the shell (v0.28.0) | shell.md |
+| Follow and Bring to me in the shell (v0.31.0) | shell.md |

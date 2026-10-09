@@ -32,6 +32,7 @@ import type { CanvasView } from "./useCanvasView";
 import { CursorLayer } from "../cursors/CursorLayer";
 import { useCursorSharing } from "../cursors/useCursorSharing";
 import { showFitNotice } from "./ViewNotices";
+import { viewFromCentre, type View } from "../follow/follow";
 
 /** The board's bounded area under the notes: the dot grid, with a visible edge. */
 function BoardSurface() {
@@ -95,6 +96,8 @@ export interface BoardRoom {
   /** Live cursors (protocol v14): share my pointer (false: not sent), and say it left. */
   shareCursor(x: number, y: number): boolean;
   hideCursor(): void;
+  /** Follow (v0.31.0): my view, offered on every change; the session sends it only while followed and never from a phone. */
+  shareViewport?(view: View, compact: boolean): boolean;
   /** Shapes (protocol v15). */
   startShapeDrag(id: string): boolean;
   moveShape(id: string, x: number, y: number, final: boolean): void;
@@ -454,6 +457,7 @@ export function BoardCanvas({
     const plan = view.fitItems(
       [...latest.current.board.notes.map((n) => n.note), ...latest.current.board.frames.map((f) => f.frame), ...latest.current.board.shapes.map((x) => x.shape)],
       false,
+      false,
     );
     showFitNotice(plan.partial);
   }, [synced, width, height, view]);
@@ -598,21 +602,30 @@ export function BoardCanvas({
     const el = sectionRef.current;
     if (!el) return;
     let start: { x: number; y: number } | null = null;
+    const onMinimap = (e: Event) => e.target instanceof Element && e.target.closest(".react-flow__minimap") !== null;
     const down = (e: PointerEvent) => {
-      const inside = e.target instanceof Element && e.target.closest(".react-flow__minimap") !== null;
+      const inside = onMinimap(e);
       start = inside ? { x: e.clientX, y: e.clientY } : null;
       minimapDrag.current = false;
+      // Follow (v0.31.0): the map's drag and wheel move the view with no input event React Flow
+      // passes on, so a press or wheel there is my own move (following stops).
+      if (inside) view.userGesture();
+    };
+    const wheel = (e: WheelEvent) => {
+      if (onMinimap(e)) view.userGesture();
     };
     const move = (e: PointerEvent) => {
       if (start && isDrag(e.clientX - start.x, e.clientY - start.y, threshold)) minimapDrag.current = true;
     };
     el.addEventListener("pointerdown", down, { capture: true });
+    el.addEventListener("wheel", wheel, { capture: true, passive: true });
     window.addEventListener("pointermove", move);
     return () => {
       el.removeEventListener("pointerdown", down, { capture: true });
+      el.removeEventListener("wheel", wheel, { capture: true });
       window.removeEventListener("pointermove", move);
     };
-  }, [threshold]);
+  }, [threshold, view]);
   const minimapSize = useMemo(
     () => ({ width: readPxToken("--sy-minimap-width", 200), height: readPxToken("--sy-minimap-height", 125) }),
     [],
@@ -644,6 +657,12 @@ export function BoardCanvas({
             onNodeDragStop={(_, node) => drag.onNodeDragStop(node)}
             // A click on empty space (the board or around it) clears the selection. A mouse press
             // there was already handled by the marquee (useMarquee); taps come through here.
+            // Follow (v0.31.0): every view change is offered to the session (sent only while someone
+            // follows me, never from a phone), and my own pan or zoom gesture stops my following.
+            onMove={(event, viewport) => {
+              view.moved(event);
+              latest.current.shareViewport?.(viewFromCentre(viewport, view.size()), !multi.current);
+            }}
             onPaneClick={() => {
               if (marquee.handledClick.current) {
                 marquee.handledClick.current = false;

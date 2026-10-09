@@ -29,3 +29,6 @@ Architecture notes, moved out of CLAUDE.md on 7 October 2026 so they load only w
 ## Silent brainstorm in the shell (v0.28.0)
 - The board's notice stack (the `banner` slot) holds, in order: the lock banner, the voting strip, the silent strip (`SilentStrip`). The bar's Session group gains a "Silent brainstorm" collapsed group beside Voting from xl (below xl, in the Session panel); the 1280 top bar still fits one row (checked in Chromium: no overflow). Help topic `silent-brainstorm` (order 11).
 
+## Follow and Bring to me in the shell (v0.31.0)
+- The board's notice stack gains, after the silent strip: the follow chip, "N following you" (md up), the follow notice and the Bring to me banner (`follow/FollowNotices.tsx`; connection.md and facilitation.md). They stack in one centred column under the top bar, so they never overlap each other, the strips, the view bar (wrapped or not), the minimap, the chat button or the phone ribbon (checked in Chromium at 360/768/1280, light and dark, with the voting and silent strips, the chip and the banner all showing). The Session group gains Bring to me (facilitation.md). Help topic `follow` (order 12).
+

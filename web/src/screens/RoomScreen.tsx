@@ -75,6 +75,9 @@ function PublishRoom({ code, view, room }: { code: string; view: RoomView; room:
       silentPending,
       startSilent: () => latest.current.startSilent(),
       revealSilent: () => latest.current.revealSilent(),
+      startFollow: (id) => latest.current.startFollow(id),
+      stopFollow: () => latest.current.stopFollow(),
+      bringToMe: (v) => latest.current.bringToMe(v),
       say: (text) => latest.current.say(text),
       leave: () => latest.current.leave(),
     });

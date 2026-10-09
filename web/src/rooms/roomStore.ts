@@ -3,6 +3,7 @@ import { create } from "zustand";
 import { countUnread } from "../chat/unread";
 import type { EchoEntry, RoomTimer, VoteTotal } from "./session";
 import type { ResultRow } from "../voting/voting";
+import type { View } from "../follow/follow";
 
 /*
  * The room the page is in, published by RoomScreen for things outside it: the top bar
@@ -58,6 +59,11 @@ export interface PublishedRoom {
   /** Host only (the session refuses them for guests, while disconnected, or in the wrong state). */
   startSilent(): boolean;
   revealSilent(): boolean;
+  /** Follow (v0.31.0): starts or stops following someone here (false: nothing sent). */
+  startFollow(id: string): boolean;
+  stopFollow(): boolean;
+  /** Host only: brings everyone else to this view (false: nothing sent). */
+  bringToMe(view: View): boolean;
   say(text: string): boolean;
   leave(): void;
 }
