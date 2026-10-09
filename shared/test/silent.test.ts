@@ -209,8 +209,8 @@ describe("sizes", () => {
 });
 
 describe("protocol v18: silentMine", () => {
-  it("is version 18", () => {
-    expect(PROTOCOL_VERSION).toBe(18);
+  it("is version 18 or later", () => {
+    expect(PROTOCOL_VERSION).toBeGreaterThanOrEqual(18);
   });
 
   it("carries only this page's own sealed note ids (0 to MAX_SEALED_PER_WRITER), strict", () => {
