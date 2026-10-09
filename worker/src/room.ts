@@ -8,6 +8,7 @@ import {
   MAX_BATCH_ENTRIES,
   MAX_FRAMES_PER_ROOM,
   MAX_NOTES_PER_ROOM,
+  MAX_FOLLOWERS,
   MAX_PARTICIPANTS,
   MAX_SEALED_PER_WRITER,
   MAX_SHAPES_PER_ROOM,
@@ -27,6 +28,7 @@ import {
   VOTE_BUDGET_MIN,
   VOTING_STATES,
   clampCursor,
+  clampViewportView,
   clampFramePosition,
   clampFrameRect,
   clampNotePosition,
@@ -70,7 +72,7 @@ import { randomBase64url } from "./crypto";
 import type { Secrets } from "./env";
 import { ENDED_REASON, EXPIRED_REASON, clearToTombstone, nextExpiryAlarm, readTombstone, writeTombstone, type Tombstone, type TombstoneKind } from "./expiry";
 import { verifyHostToken } from "./hostToken";
-import { BATCH_LIMITS, CURSOR_LIMITS, SOCKET_LIMITS } from "./limits";
+import { BATCH_LIMITS, BRING_LIMITS, CURSOR_LIMITS, SOCKET_LIMITS, VIEWPORT_LIMITS } from "./limits";
 import { NoteStore } from "./noteStore";
 import { canSee, scrubFor } from "./sealed";
 import { voterIdFor } from "./voterId";
@@ -123,6 +125,17 @@ const socketStateSchema = z.object({
   cursorDropAt: z.number().default(0),
   /** The others have been sent this socket's cursor and not told it has gone (so cursorGone is owed). */
   cursorShown: z.boolean().default(false),
+  /**
+   * Follow (protocol v19): the participant id (the server's) this socket follows, or null. Who
+   * follows whom lives only here, so it survives hibernation; follower counts are worked out
+   * from the open sockets' attachments, never stored.
+   */
+  following: z.string().nullable().default(null),
+  /** Viewport token bucket (VIEWPORT_LIMITS) and Bring to me bucket (BRING_LIMITS), protocol v19. */
+  viewTokens: z.number().default(VIEWPORT_LIMITS.burst),
+  viewAt: z.number().default(0),
+  bringTokens: z.number().default(BRING_LIMITS.burst),
+  bringAt: z.number().default(0),
 });
 type SocketState = z.infer<typeof socketStateSchema>;
 
@@ -201,10 +214,12 @@ type VotingHostMessage = Extract<ClientMessage, { type: "voteStart" | "voteStop"
 type CursorMessage = Extract<ClientMessage, { type: "cursor" | "cursorLeft" }>;
 type JoinMessage = Extract<ClientMessage, { type: "join" }>;
 type SilentMessage = Extract<ClientMessage, { type: "silentStart" | "silentReveal" }>;
+type ViewMessage = Extract<ClientMessage, { type: "viewport" | "bringToMe" }>;
 
 /** The silent round's meta keys (protocol v17): 1 while a round runs, and rounds started. */
 const SILENT_KEYS = { active: "silent_active", round: "silent_round" } as const;
 const isCursor = (message: ClientMessage): message is CursorMessage => message.type === "cursor" || message.type === "cursorLeft";
+const isView = (message: ClientMessage): message is ViewMessage => message.type === "viewport" || message.type === "bringToMe";
 
 /** The voting state's meta keys and their stored values (state as its index in VOTING_STATES). */
 const VOTING_KEYS = { state: "voting_state", budget: "voting_budget", round: "voting_round" } as const;
@@ -363,6 +378,11 @@ export class Room extends DurableObject<Env> {
       cursorDrops: 0,
       cursorDropAt: 0,
       cursorShown: false,
+      following: null,
+      viewTokens: VIEWPORT_LIMITS.burst,
+      viewAt: Date.now(),
+      bringTokens: BRING_LIMITS.burst,
+      bringAt: Date.now(),
     };
     pair[1].serializeAttachment(state);
     return new Response(null, { status: 101, webSocket: pair[0] });
@@ -391,6 +411,8 @@ export class Room extends DurableObject<Env> {
     const now = Date.now();
     const parsed = parseMessage(message, clientMessageSchema);
     if (parsed.ok && isCursor(parsed.value)) return this.cursor(ws, state, now, parsed.value);
+    // Viewports and Bring to me (protocol v19) spend their own buckets too.
+    if (parsed.ok && isView(parsed.value)) return this.view(ws, state, now, parsed.value);
     state.tokens = Math.min(SOCKET_LIMITS.burst, state.tokens + ((now - state.at) / 1000) * SOCKET_LIMITS.refillPerSecond);
     state.at = now;
     if (state.tokens < 1) {
@@ -459,6 +481,79 @@ export class Room extends DurableObject<Env> {
     const out: ServerMessage = message.type === "cursor" ? { type: "cursorMoved", id: you.id, ...clampCursor(message.x, message.y) } : { type: "cursorGone", id: you.id };
     const raw = encodeMessage(out);
     for (const other of others) sendRaw(other.ws, raw);
+  }
+
+  /**
+   * Protocol v19. `viewport`: forwarded at once as viewportUpdate (this socket's participant id,
+   * rounded) to the sockets following this participant, and to nobody else; with no followers it
+   * is dropped: zero fan-out, nothing stored, nothing scheduled. `bringToMe`: host only (not_host
+   * otherwise, during a lock or a silent round too), broughtToMe to every other joined socket, not
+   * stored and not held back for late joiners. Each spends its own bucket (VIEWPORT_LIMITS,
+   * BRING_LIMITS), never SOCKET_LIMITS; over budget it is dropped as a violation (a viewport with
+   * no reply, Bring to me with rate_limited). Before joining a viewport is dropped silently.
+   */
+  private async view(ws: WebSocket, state: SocketState, now: number, message: ViewMessage): Promise<void> {
+    if (message.type === "viewport") {
+      state.viewTokens = Math.min(VIEWPORT_LIMITS.burst, state.viewTokens + ((now - state.viewAt) / 1000) * VIEWPORT_LIMITS.refillPerSecond);
+      state.viewAt = now;
+      if (state.viewTokens < 1) return this.violation(ws, state, now, null);
+      state.viewTokens -= 1;
+      ws.serializeAttachment(state);
+      const you = state.participant;
+      if (!you) return;
+      const followers = this.followersOf(you.id);
+      if (followers.length === 0) return;
+      const out: ServerMessage = { type: "viewportUpdate", id: you.id, ...clampViewportView(message.x, message.y, message.zoom) };
+      for (const follower of followers) this.send(follower, out);
+      return;
+    }
+    state.bringTokens = Math.min(BRING_LIMITS.burst, state.bringTokens + ((now - state.bringAt) / 1000) * BRING_LIMITS.refillPerSecond);
+    state.bringAt = now;
+    if (state.bringTokens < 1) return this.overLimit(ws, state, now, {});
+    state.bringTokens -= 1;
+    ws.serializeAttachment(state);
+    if (!state.participant) return this.send(ws, error("not_joined", "Join the room first."));
+    if (!state.participant.host) return this.send(ws, error("not_host", "Only the host can do that."));
+    this.broadcast({ type: "broughtToMe", from: state.participant.id, ...clampViewportView(message.x, message.y, message.zoom) }, ws);
+  }
+
+  /** The open sockets following this participant (protocol v19), from their attachments. */
+  private followersOf(id: string): WebSocket[] {
+    return this.participants().flatMap((p) => (p.following === id ? [p.ws] : []));
+  }
+
+  /** Tells a participant's sockets how many follow them now (a count only). */
+  private sendFollowers(id: string): void {
+    const target = this.participants().find((p) => p.participant.id === id);
+    if (target) this.send(target.ws, { type: "followersChanged", count: this.followersOf(id).length });
+  }
+
+  /**
+   * followStart / followStop (protocol v19). A socket follows at most one participant: any
+   * followStart first ends the current follow (the old target hears its new count). Then: yourself
+   * = followEnded self; nobody joined with that id = followEnded not_found; MAX_FOLLOWERS already =
+   * followers_full; otherwise the attachment names the target and the target hears its count. The
+   * same target again changes nothing. The target is a server id; nothing client-made is kept.
+   */
+  private follow(ws: WebSocket, state: SocketState, message: Extract<ClientMessage, { type: "followStart" | "followStop" }>): void {
+    const you = state.participant;
+    if (!you) {
+      ws.serializeAttachment(state);
+      return this.send(ws, error("not_joined", "Join the room first."));
+    }
+    const target = message.type === "followStart" ? message.target : null;
+    if (target !== null && target === state.following) return ws.serializeAttachment(state);
+    const old = state.following;
+    state.following = null;
+    ws.serializeAttachment(state);
+    if (old !== null) this.sendFollowers(old);
+    if (target === null) return;
+    if (target === you.id) return this.send(ws, { type: "followEnded", reason: "self" });
+    if (!this.participants().some((p) => p.participant.id === target)) return this.send(ws, { type: "followEnded", reason: "not_found" });
+    if (this.followersOf(target).length >= MAX_FOLLOWERS) return this.send(ws, error("followers_full", "Too many people are following them already."));
+    state.following = target;
+    ws.serializeAttachment(state);
+    this.sendFollowers(target);
   }
 
   /**
@@ -668,6 +763,15 @@ export class Room extends DurableObject<Env> {
 
       case "claimHost":
         return this.claimHost(ws, state, message.token);
+
+      case "followStart":
+      case "followStop":
+        return this.follow(ws, state, message);
+
+      // Handled before any rate budget in webSocketMessage (their own buckets); never reach here.
+      case "viewport":
+      case "bringToMe":
+        return;
 
       case "claimVoter":
         return this.claimVoter(ws, state, message.key);
@@ -963,6 +1067,8 @@ export class Room extends DurableObject<Env> {
         // after it), every socket is closed with 4411, then the rest of the storage goes. Shown
         // cursors go first, so no page is left drawing one.
         for (const { ws: socket } of this.participants()) this.hideCursor(socket);
+        // Followers (protocol v19) hear their follow has ended, before sessionEnded, like cursors.
+        for (const { ws: socket, following } of this.participants()) if (following !== null) this.send(socket, { type: "followEnded", reason: "target_left" });
         this.broadcast({ type: "sessionEnded" });
         const tombstone = this.buryNow("ended");
         for (const socket of this.ctx.getWebSockets()) safeClose(socket, ROOM_ENDED_CLOSE_CODE, ENDED_REASON);
@@ -1699,11 +1805,11 @@ export class Room extends DurableObject<Env> {
   }
 
   /** Joined participants on open sockets, in connection order, with the writer each socket sees as. */
-  private participants(): { ws: WebSocket; participant: Participant; writerId: string | null }[] {
+  private participants(): { ws: WebSocket; participant: Participant; writerId: string | null; following: string | null }[] {
     return this.ctx.getWebSockets().flatMap((ws) => {
       if (ws.readyState !== WebSocket.OPEN) return [];
       const state = readState(ws);
-      return state?.participant ? [{ ws, participant: state.participant, writerId: state.writerId }] : [];
+      return state?.participant ? [{ ws, participant: state.participant, writerId: state.writerId, following: state.following }] : [];
     });
   }
 
@@ -1762,16 +1868,30 @@ export class Room extends DurableObject<Env> {
     this.broadcast({ type: "cursorGone", id: state.participant.id }, ws);
   }
 
-  /** Forget the socket's participant and tell everyone else (its cursor first). Safe to call twice. */
+  /**
+   * Forget the socket's participant and tell everyone else (its cursor first). Following ends both
+   * ways (protocol v19): the person it followed hears the lower count, and its own followers get
+   * followEnded target_left (their follow cleared), both before participant_left. Safe to call twice.
+   */
   private leave(ws: WebSocket, state: SocketState): void {
     const left = state.participant;
     if (!left) return;
     this.hideCursor(ws, state);
+    const followed = state.following;
     state.participant = null;
+    state.following = null;
     try {
       ws.serializeAttachment(state);
     } catch {
       // The socket is already gone; it no longer counts as open either way.
+    }
+    if (followed !== null) this.sendFollowers(followed);
+    for (const follower of this.followersOf(left.id)) {
+      const theirs = readState(follower);
+      if (!theirs) continue;
+      theirs.following = null;
+      follower.serializeAttachment(theirs);
+      this.send(follower, { type: "followEnded", reason: "target_left" });
     }
     this.broadcast({ type: "participant_left", id: left.id }, ws);
   }

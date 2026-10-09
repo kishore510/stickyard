@@ -223,7 +223,7 @@ describe("clearing", () => {
     const { session, relay } = joined({ follow: s.sink });
     session.startFollow(sam.id);
     relay.leave(sam.id);
-    expect(s.log.at(-1)).toBe("following null");
+    expect(s.log.at(-1)).toBe("ended target_left");
     expect(session.stopFollow()).toBe(false);
   });
 

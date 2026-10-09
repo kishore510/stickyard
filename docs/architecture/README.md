@@ -10,8 +10,8 @@ Detail for each area of Stickyard, one file per area. CLAUDE.md stays short and 
 | [canvas.md](canvas.md) | React Flow canvas, palette and Properties panels, selection, marquee, arrange and grid, delete keys, Duplicate, Export, panel defaults, navigation (fit, zoom to selection, minimap, jump) |
 | [frames.md](frames.md) | Frames, frame title style, templates and their palette groups, frame multi-select |
 | [editing.md](editing.md) | `itemsAdd` (create with content), undo/redo history, Clear board |
-| [connection.md](connection.md) | Reconnect, resync, presence (avatars, toasts), live cursors, last known pointers |
-| [facilitation.md](facilitation.md) | Timer and lock UI, End session, dot voting (relay and UI), silent brainstorm |
+| [connection.md](connection.md) | Reconnect, resync, presence (avatars, toasts), live cursors, last known pointers, following |
+| [facilitation.md](facilitation.md) | Timer and lock UI, End session, dot voting (relay and UI), silent brainstorm, Bring to me |
 | [shapes.md](shapes.md) | Text labels and shapes, one stacking space with notes, emoji picker |
 
 ## Where each section lives
@@ -34,6 +34,7 @@ Sections are named after the slice that introduced them. Cross-references in quo
 | Reconnect and presence (v0.13.0) | connection.md |
 | Live cursors, protocol v14 (v0.19.0) | connection.md |
 | Navigation: last known pointers (v0.24.0) | connection.md |
+| Follow and Bring to me, protocol v19 (v0.30.0, part 1 of 2) | connection.md |
 | Create with content, protocol v11 (slice create with content) | editing.md |
 | Undo and redo (v0.12.0, part 2) | editing.md |
 | Clear board (v0.12.0, part 3) | editing.md |
@@ -44,6 +45,7 @@ Sections are named after the slice that introduced them. Cross-references in quo
 | Silent brainstorm: which notes are mine, protocol v18 (v0.26.0) | facilitation.md |
 | Silent brainstorm: web state and plumbing (v0.27.0, part 2 of 3) | facilitation.md, connection.md |
 | Silent brainstorm: the UI (v0.28.0, part 3 of 3) | facilitation.md, notes.md, shell.md |
+| Bring to me, protocol v19 (v0.30.0, part 1 of 2) | facilitation.md |
 | Frames, protocol v9 (slice frames) | frames.md |
 | Frame title styling, protocol v10 (slice frame title styling) | frames.md |
 | Templates (slice templates) | frames.md |

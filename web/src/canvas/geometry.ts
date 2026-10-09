@@ -1,4 +1,4 @@
-import { BOARD_HEIGHT, BOARD_WIDTH, NOTE_DEFAULT_W, clampNotePosition } from "@stickyard/shared";
+import { BOARD_HEIGHT, BOARD_WIDTH, MAX_ZOOM, MIN_ZOOM, NOTE_DEFAULT_W, clampNotePosition } from "@stickyard/shared";
 import { DEFAULT_NOTE_SIZE, noteSize } from "../notes/size";
 
 /*
@@ -31,8 +31,8 @@ export interface Placed extends XY {
 /** What a plain mouse wheel does. Ctrl+wheel and pinch always zoom. Flip to "zoom" for wheel-zooms. */
 export const WHEEL_BEHAVIOUR: "pan" | "zoom" = "pan";
 
-export const MIN_ZOOM = 0.1;
-export const MAX_ZOOM = 2;
+/** The zoom range lives in shared since protocol v19 (a followed view's zoom is checked against it). */
+export { MAX_ZOOM, MIN_ZOOM };
 /** Fit never zooms in past this, so one note doesn't fill the screen. */
 export const FIT_MAX_ZOOM = 1;
 /** Each zoom in/out step multiplies or divides the zoom by this. */

@@ -67,6 +67,29 @@ export const CURSOR_LIMITS = {
 } as const;
 
 /**
+ * Follow (protocol v19): viewports spend this per-socket bucket, never SOCKET_LIMITS or
+ * CURSOR_LIMITS, so a followed person's panning can't starve their edits or chat. The web sends at
+ * most 5 a second (one every 200 ms, only while followed and only when the view changed), so 10/s
+ * with a burst of 10 leaves room for timer jitter. Over the budget a viewport is dropped and
+ * counted as a violation (no reply): a page within the web's rate never gets there, and a flood
+ * closes the socket at SOCKET_LIMITS.maxViolations like any other abuse.
+ */
+export const VIEWPORT_LIMITS = {
+  refillPerSecond: 10,
+  burst: 10,
+} as const;
+
+/**
+ * Bring to me (protocol v19, host only): one every 5 seconds, bursts of 2. Each one moves
+ * everyone's view, so it is kept tight. Over the budget: dropped with rate_limited to the sender,
+ * as a violation.
+ */
+export const BRING_LIMITS = {
+  refillPerSecond: 0.2,
+  burst: 2,
+} as const;
+
+/**
  * Idle room expiry (worker/src/expiry.ts). When the last socket of a room closes, its alarm is
  * set this far ahead; when it fires with nobody connected, the room's data is deleted and a
  * tombstone kept. An existing alarm within ALARM_RESET_SLACK_MS of the new time is left alone,

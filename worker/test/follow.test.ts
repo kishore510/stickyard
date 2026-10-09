@@ -436,6 +436,8 @@ describe("hibernation", () => {
     await evictDurableObject(stub, { webSockets: "hibernate" });
     a.close();
     expect(await nextOfType(b, "followEnded")).toEqual({ type: "followEnded", reason: "target_left" });
+    // Jo stopped following before: only the leave.
+    expect(await c.next()).toEqual({ type: "participant_left", id: alex.id });
     expect(await c.quiet()).toBe(true);
     const stored = await runInDurableObject(stub, async (_r, state) => ({
       keys: (await state.storage.list()).size,

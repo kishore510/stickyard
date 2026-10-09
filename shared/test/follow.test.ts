@@ -172,6 +172,6 @@ describe("sizes", () => {
     };
     for (const n of Object.values(sizes)) expect(n).toBeLessThan(128);
     // Recorded in docs/LIMITS.md.
-    expect(sizes).toEqual({ viewportIn: 87, viewportUpdate: 73, followersChanged: 37, followEnded: 41, broughtToMe: 72 });
+    expect(sizes).toEqual({ viewportIn: 76, viewportUpdate: 80, followersChanged: 38, followEnded: 45, broughtToMe: 79 });
   });
 });
