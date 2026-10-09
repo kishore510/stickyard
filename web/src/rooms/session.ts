@@ -23,6 +23,7 @@ import {
   cleanNoteText,
   cleanShapeText,
   cleanText,
+  clampViewportView,
   encodeMessage,
   groupOffset,
   parseMessage,
@@ -155,6 +156,7 @@ import { LOCK_TEXT, lockedOut } from "../facilitation/lock";
 import { LEAVE_GRACE_MS, RESYNC_QUIET_MS, TOAST_BATCH_MS, TOAST_GAP_MS, TOAST_SHOW_MS, summarizePresence, type PresenceEvent } from "../presence/toasts";
 import { discardUnconfirmed, resyncFrames, resyncNotes, unsavedKeys, type OrphanDraft } from "./resync";
 import type { CursorSink } from "../cursors/cursors";
+import { ViewportSender, mayShareViewport, type FollowEnd, type FollowSink, type View } from "../follow/follow";
 
 /*
  * One visit to a room: connect, hello, join, then follow participants, echoes and notes.
@@ -699,6 +701,8 @@ export interface SessionOptions {
   forgetVoterKey?(): void;
   /** Protocol v14: where other people's pointers go (cursors/cursorStore.ts). Never part of the view. */
   cursors?: CursorSink;
+  /** Protocol v19: who I follow, my follower count and Bring to me (follow/followStore.ts). Never part of the view. */
+  follow?: FollowSink;
 }
 
 /** Refusals of a voteSet that roll the vote back. */
@@ -836,6 +840,18 @@ export class RoomSession {
   private quietUntil = 0;
   /** Protocol v14: the others were sent my pointer and not told it left (cursorLeft is owed). */
   private cursorShown = false;
+  /** Protocol v19: the participant I follow (null: nobody), and how many follow me (the relay's count). */
+  private following: string | null = null;
+  private followerCount = 0;
+  /** My latest view (offered by the canvas), and whether this device is a phone (phones never send it). */
+  private myView: View | null = null;
+  private compact = false;
+  private readonly viewSender = new ViewportSender({
+    now: () => Date.now(),
+    setTimer: (fn, ms) => setTimeout(fn, ms),
+    clearTimer: (id) => clearTimeout(id),
+    send: (view) => this.sendView(view),
+  });
 
   constructor(private readonly options: SessionOptions) {
     this.env = options.env ?? STATIC_ENV;
@@ -1136,6 +1152,7 @@ export class RoomSession {
     this.stopAllMoves();
     this.socket = null;
     this.forgetCursors();
+    this.forgetFollow();
     // Joins and leaves not shown yet are forgotten; people here now aren't news when they come back.
     clearTimeout(this.presenceTimer);
     this.presenceTimer = undefined;
@@ -3104,6 +3121,113 @@ export class RoomSession {
     this.options.cursors?.clear();
   }
 
+  /* ── Follow and Bring to me (protocol v19) ───────────────────────── */
+
+  /**
+   * Follows someone else here now (a participant id from the list, never my own). The relay ends
+   * any earlier follow. False (nothing sent) while not live, for myself or someone not here.
+   */
+  startFollow(id: string): boolean {
+    if (!this.live || this.yourIds.has(id) || !this.view.participants.some((p) => p.id === id)) return false;
+    this.following = id;
+    this.sendFollow({ type: "followStart", target: id });
+    this.options.follow?.following(id);
+    return true;
+  }
+
+  /** Stops following: followStop once. False when following nobody. */
+  stopFollow(): boolean {
+    if (this.following === null) return false;
+    this.following = null;
+    if (this.live) this.sendFollow({ type: "followStop" });
+    this.options.follow?.following(null);
+    return true;
+  }
+
+  /** The person panned or zoomed the board themselves (follow/follow.ts isUserMove): following stops. */
+  stopOnUserMove(): boolean {
+    return this.stopFollow();
+  }
+
+  /**
+   * My view (the board point at the centre of my canvas, and my zoom), offered on every change.
+   * Sent only while live and someone follows me, never from a phone (`compact`), at most 5 a
+   * second and only when it changed (ViewportSender). True if it may go out.
+   */
+  shareViewport(view: View, compact: boolean): boolean {
+    this.myView = view;
+    this.compact = compact;
+    if (!this.mayShare()) return false;
+    this.viewSender.offer(view);
+    return true;
+  }
+
+  /** Host only: brings everyone else to my view (bringToMe). False (nothing sent) for a guest or while not live. */
+  bringToMe(view: View): boolean {
+    if (!this.canHost()) return false;
+    const { x, y, zoom } = clampViewportView(view.x, view.y, view.zoom);
+    this.sendFollow({ type: "bringToMe", x, y, zoom });
+    return true;
+  }
+
+  private mayShare(): boolean {
+    return mayShareViewport({ live: this.live && !this.env.hidden(), followers: this.followerCount, compact: this.compact });
+  }
+
+  private sendView(view: View): boolean {
+    if (!this.mayShare()) return false;
+    const { x, y, zoom } = clampViewportView(view.x, view.y, view.zoom);
+    this.sendFollow({ type: "viewport", x, y, zoom });
+    return true;
+  }
+
+  private sendFollow(message: Extract<ClientMessage, { type: "followStart" | "followStop" | "viewport" | "bringToMe" }>): void {
+    try {
+      this.socket?.send(encodeMessage(message));
+    } catch {
+      // The close handler reports the lost connection.
+    }
+  }
+
+  /** The relay's follow messages: to the sink, never a view update (nothing re-renders for them). */
+  private onFollow(message: Extract<ServerMessage, { type: "viewportUpdate" | "followersChanged" | "followEnded" | "broughtToMe" }>): void {
+    const sink = this.options.follow;
+    switch (message.type) {
+      case "viewportUpdate":
+        // Only the person I follow now; a late update from an earlier follow is stale.
+        if (message.id !== this.following) return;
+        return sink?.viewport({ id: message.id, x: message.x, y: message.y, zoom: message.zoom });
+      case "followersChanged": {
+        const rose = message.count > this.followerCount;
+        this.followerCount = message.count;
+        sink?.followers(message.count);
+        if (message.count === 0) return this.viewSender.reset();
+        // A new follower needs my view now, changed or not.
+        if (rose && this.myView && this.mayShare()) this.viewSender.force(this.myView);
+        return;
+      }
+      case "followEnded":
+        return this.followEnded(message.reason);
+      case "broughtToMe":
+        // From someone here now, never one of my own ids. The relay already checked they are host.
+        if (this.yourIds.has(message.from) || !this.view.participants.some((p) => p.id === message.from)) return;
+        return sink?.brought({ from: message.from, x: message.x, y: message.y, zoom: message.zoom });
+    }
+  }
+
+  private followEnded(reason: FollowEnd): void {
+    this.following = null;
+    this.options.follow?.ended(reason);
+  }
+
+  /** A new visit, a drop, a resync or leaving: no follow either way (the relay forgets the old socket's). */
+  private forgetFollow(): void {
+    this.following = null;
+    this.followerCount = 0;
+    this.viewSender.reset();
+    this.options.follow?.clear();
+  }
+
   /** Leaves: closes the socket and reports nothing further. */
   close(): void {
     this.stopped = true;
@@ -3122,6 +3246,7 @@ export class RoomSession {
     this.history.clear();
     this.stopAllMoves();
     this.forgetCursors();
+    this.forgetFollow();
     this.socket?.close();
   }
 
@@ -3160,6 +3285,9 @@ export class RoomSession {
     if (!parsed.ok) return this.finish("reload");
     // Pointers (protocol v14) go straight to the cursor sink: never a view update, so nothing re-renders for them.
     if (parsed.value.type === "cursorMoved" || parsed.value.type === "cursorGone") return this.otherCursor(parsed.value);
+    // Follow and Bring to me (protocol v19) go straight to the follow sink, never a view update.
+    const v = parsed.value;
+    if (v.type === "viewportUpdate" || v.type === "followersChanged" || v.type === "followEnded" || v.type === "broughtToMe") return this.onFollow(v);
     const before = this.view.board;
     this.handle(parsed.value);
     this.pruneVotes();
@@ -3179,6 +3307,8 @@ export class RoomSession {
         // A new visit (or a reconnect): pointers seen before are stale.
         this.cursorShown = false;
         this.options.cursors?.clear();
+        // Protocol v19: a new participant follows nobody and has no followers.
+        this.forgetFollow();
         for (const p of message.participants) this.known.set(p.id, p);
         this.known.set(message.you.id, message.you);
         this.yourIds.add(message.you.id);
@@ -3322,6 +3452,8 @@ export class RoomSession {
       case "participant_left": {
         // Their pointer and its last known position (jump to a person) both go.
         this.options.cursors?.left(message.id);
+        // The relay sends followEnded first; this covers a follow it never confirmed.
+        if (message.id === this.following) this.followEnded("target_left");
         const gone = this.view.participants.find((p) => p.id === message.id);
         if (!gone) return;
         // An old socket of someone who is back already (same name, new id) isn't news.
@@ -3350,7 +3482,10 @@ export class RoomSession {
       case "snapshot": {
         // A (re)sync: what the history knows about ids and revs can't be trusted any more.
         this.history.clear();
-        if (this.resyncing) this.options.cursors?.clear();
+        if (this.resyncing) {
+          this.options.cursors?.clear();
+          this.forgetFollow();
+        }
         if (!this.resyncing) return this.update({ board: applySnapshot(this.view.board, message.notes), synced: true });
         // After a reconnect the relay's notes replace the board; its frames follow (framesSnapshot).
         clearTimeout(this.timer);
@@ -3510,6 +3645,8 @@ export class RoomSession {
         if (message.noteId !== undefined && this.votesPending.has(message.noteId) && (VOTE_REFUSALS.has(message.code) || message.code === "rate_limited")) {
           return this.voteRefused(message.noteId, message.code);
         }
+        // Protocol v19: that person already has MAX_FOLLOWERS; I follow nobody (the relay ended my old follow too).
+        if (message.code === "followers_full") return this.followEnded("followers_full");
         if (message.code === "voters_full" && message.noteId === undefined) {
           // claimVoter refused: this round has its voters. Said when a vote is tried.
           this.votersFull = true;
@@ -3804,6 +3941,7 @@ export class RoomSession {
     this.history.clear();
     this.stopAllMoves();
     this.forgetCursors();
+    this.forgetFollow();
     this.detach(true);
     this.update({
       status,
@@ -4101,6 +4239,7 @@ export class RoomSession {
   private finish(status: RoomStatus): void {
     clearTimeout(this.timer);
     this.stopRetry();
+    this.forgetFollow();
     this.update({ status });
     this.socket?.close();
     this.socket = null;

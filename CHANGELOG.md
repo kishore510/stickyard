@@ -2,6 +2,14 @@
 
 All notable changes to Stickyard, newest first. The format follows Keep a Changelog. Versions are 0.x: a minor bump for each slice and a patch bump for each follow-up fix. This file is shown in the app under **What’s new**, so entries are written for the people using it.
 
+## [0.30.0] - 2026-10-09
+
+### Changed
+- Groundwork for **Follow** and **Bring to me**. Nothing new is visible yet: the buttons come in a later release. In it, you'll be able to follow someone's view of the board as they move around, and the host will be able to bring everyone to their own view at once.
+- The relay can now pass someone's view (where they're looking on the board, and their zoom) to the people following them, and only to them, at most five times a second while they move. The person being followed is told how many people follow them, never who. Phones never send their view. Nothing about following is stored, and it ends when either person leaves or reconnects.
+- About > Privacy describes what following passes on.
+- After this update, pages opened before it say **please reload** when they try to join, as with earlier updates.
+
 ## [0.29.0] - 2026-10-08
 
 ### Added

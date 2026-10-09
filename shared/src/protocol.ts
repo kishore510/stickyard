@@ -45,8 +45,12 @@ import { NOTE_Z_LIMIT, ORDER_ACTIONS } from "./stack";
  *   silentMine { ids } to the joining socket only: its writer's own sealed note ids. A note on the
  *   wire still never says it is sealed; v17 pages couldn't tell their sealed notes from the rest
  *   after a reload, a late join or a new tab, so they get version_mismatch.
+ * v19 (Follow and Bring to me): followStart / followStop and viewport from a page; viewportUpdate
+ *   (to that person's followers only), followersChanged (a count, to the followed person only) and
+ *   followEnded from the relay; bringToMe (host only) and broughtToMe (to everyone else). Relayed
+ *   live, never stored; v18 pages would refuse the new server messages, so they get version_mismatch.
  */
-export const PROTOCOL_VERSION = 18;
+export const PROTOCOL_VERSION = 19;
 
 /**
  * Hard cap on a single client-to-server WebSocket message, in UTF-8 bytes. Checked before JSON.parse.
@@ -1056,6 +1060,53 @@ export function clampCursor(x: number, y: number): { x: number; y: number } {
   return { x: between(whole(x, 0), 0, BOARD_WIDTH), y: between(whole(y, 0), 0, BOARD_HEIGHT) };
 }
 
+/* ── Follow and Bring to me (protocol v19) ───────────────────────────── */
+
+/** The canvas's zoom range (the web's React Flow uses these). A viewport outside it is refused. */
+export const MIN_ZOOM = 0.1;
+export const MAX_ZOOM = 2;
+/**
+ * How far past the board's edge a viewport's centre may be, in board units. The canvas can pan a
+ * note's width (NOTE_DEFAULT_W) past each edge, so its centre stays inside this (a test checks).
+ */
+export const VIEWPORT_MARGIN = 256;
+/**
+ * Followers one person may have at once. Small: each viewport is sent once per follower, so this
+ * bounds the fan-out of one message (10 x 5 a second). A whole room watching the host is what
+ * Bring to me is for (one message, no ongoing fan-out). A constant here, so both sides agree.
+ */
+export const MAX_FOLLOWERS = 10;
+/** Why following ended: the person left (or was evicted, or the session ended), isn't here, or is you. */
+export const FOLLOW_END_REASONS = ["target_left", "not_found", "self"] as const;
+export type FollowEndReason = (typeof FOLLOW_END_REASONS)[number];
+
+const viewX = z.number().min(-VIEWPORT_MARGIN).max(BOARD_WIDTH + VIEWPORT_MARGIN);
+const viewY = z.number().min(-VIEWPORT_MARGIN).max(BOARD_HEIGHT + VIEWPORT_MARGIN);
+const viewZoom = z.number().min(MIN_ZOOM).max(MAX_ZOOM);
+/** A view: the board point at the centre of someone's canvas, and their zoom. Finite (zod refuses NaN and Infinity). */
+const viewShape = { x: viewX, y: viewY, zoom: viewZoom };
+/** A view as the relay sends it: whole units, zoom to 3 decimals (clampViewportView). */
+const sentViewShape = { x: viewX.int(), y: viewY.int(), zoom: viewZoom };
+
+/** Follow this participant (a server id). Replaces any earlier follow. Strict: nothing else. */
+export const followStartSchema = z.strictObject({ type: z.literal("followStart"), target: serverIdSchema });
+/** Stop following. */
+export const followStopSchema = z.strictObject({ type: z.literal("followStop") });
+/** My view, sent only while someone follows me (the page decides; the relay forwards it to my followers only). */
+export const viewportSchema = z.strictObject({ type: z.literal("viewport"), ...viewShape });
+/** Host only: bring everyone else to my view. Not stored; nothing held back for late joiners. */
+export const bringToMeSchema = z.strictObject({ type: z.literal("bringToMe"), ...viewShape });
+
+/** Rounds a view to whole units and 3 decimals of zoom, inside the margin and the zoom range. */
+export function clampViewportView(x: number, y: number, zoom: number): { x: number; y: number; zoom: number } {
+  const z3 = Number.isFinite(zoom) ? Math.round(zoom * 1000) / 1000 : 1;
+  return {
+    x: between(whole(x, 0), -VIEWPORT_MARGIN, BOARD_WIDTH + VIEWPORT_MARGIN),
+    y: between(whole(y, 0), -VIEWPORT_MARGIN, BOARD_HEIGHT + VIEWPORT_MARGIN),
+    zoom: Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, z3)),
+  };
+}
+
 export const clientMessageSchema = z.discriminatedUnion("type", [
   helloSchema,
   joinSchema,
@@ -1093,6 +1144,10 @@ export const clientMessageSchema = z.discriminatedUnion("type", [
   cursorLeftSchema,
   silentStartSchema,
   silentRevealSchema,
+  followStartSchema,
+  followStopSchema,
+  viewportSchema,
+  bringToMeSchema,
 ]);
 export type ClientMessage = z.infer<typeof clientMessageSchema>;
 export type ClientMessageType = ClientMessage["type"];
@@ -1142,10 +1197,15 @@ export const BOARD_WRITES: Readonly<Record<ClientMessageType, boolean>> = {
   // Silent brainstorm (v17) is the host running the session: a host may start one on a locked board.
   silentStart: false,
   silentReveal: false,
+  // Follow and Bring to me (v19) move people's views, never the board.
+  followStart: false,
+  followStop: false,
+  viewport: false,
+  bringToMe: false,
 };
 
 /** Host-only messages: anyone else gets not_host. */
-export const HOST_ONLY: readonly ClientMessageType[] = ["lockSet", "timerStart", "timerStop", "endSession", "voteStart", "voteStop", "voteClear", "silentStart", "silentReveal"];
+export const HOST_ONLY: readonly ClientMessageType[] = ["lockSet", "timerStart", "timerStop", "endSession", "voteStart", "voteStop", "voteClear", "silentStart", "silentReveal", "bringToMe"];
 
 export const errorCodeSchema = z.enum([
   "version_mismatch",
@@ -1170,6 +1230,8 @@ export const errorCodeSchema = z.enum([
   "silent_active",
   "no_writer",
   "sealed_full",
+  // Follow (v19): that person already has MAX_FOLLOWERS followers.
+  "followers_full",
 ]);
 export type ErrorCode = z.infer<typeof errorCodeSchema>;
 
@@ -1686,6 +1748,18 @@ export const silentMineSchema = z.strictObject({
   ids: z.array(noteIdSchema).max(MAX_SEALED_PER_WRITER),
 });
 
+/** The view of the person I follow (protocol v19), to their followers only; the id is theirs, from their socket. */
+export const viewportUpdateSchema = z.strictObject({ type: z.literal("viewportUpdate"), id: participantIdSchema, ...sentViewShape });
+
+/** How many people follow me now (protocol v19), to me only. A count, never who. */
+export const followersChangedSchema = z.strictObject({ type: z.literal("followersChanged"), count: z.number().int().min(0).max(MAX_FOLLOWERS) });
+
+/** My follow has ended (protocol v19), to me only. */
+export const followEndedSchema = z.strictObject({ type: z.literal("followEnded"), reason: z.enum(FOLLOW_END_REASONS) });
+
+/** A host brought everyone to their view (protocol v19), to everyone but that host; `from` is the host's id, from their socket. */
+export const broughtToMeSchema = z.strictObject({ type: z.literal("broughtToMe"), from: participantIdSchema, ...sentViewShape });
+
 export const serverMessageSchema = z.discriminatedUnion("type", [
   welcomeSchema,
   errorMessageSchema,
@@ -1729,6 +1803,10 @@ export const serverMessageSchema = z.discriminatedUnion("type", [
   silentChangedSchema,
   notesRevealedSchema,
   silentMineSchema,
+  viewportUpdateSchema,
+  followersChangedSchema,
+  followEndedSchema,
+  broughtToMeSchema,
 ]);
 export type ServerMessage = z.infer<typeof serverMessageSchema>;
 export type ServerMessageType = ServerMessage["type"];
@@ -1784,6 +1862,11 @@ export const SERVER_MESSAGES = {
   silentChanged: { carriesNoteContent: false },
   notesRevealed: { carriesNoteContent: true },
   silentMine: { carriesNoteContent: true },
+  // Follow and Bring to me (v19): a view and a count, never anything about a note.
+  viewportUpdate: { carriesNoteContent: false },
+  followersChanged: { carriesNoteContent: false },
+  followEnded: { carriesNoteContent: false },
+  broughtToMe: { carriesNoteContent: false },
 } as const satisfies Record<ServerMessageType, { carriesNoteContent: boolean }>;
 
 /** The server message types that can carry note content (the relay filters each one). */

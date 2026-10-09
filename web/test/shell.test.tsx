@@ -201,7 +201,7 @@ describe("What's new", () => {
   it("shows the current version with the This version badge", async () => {
     await mount("#/changelog");
     const current = dialog()?.querySelector('[aria-current="true"]');
-    expect(current?.querySelector("h3")?.textContent).toBe("0.29.0");
+    expect(current?.querySelector("h3")?.textContent).toBe("0.30.0");
     expect(current?.textContent).toContain("This version");
     expect(current?.textContent).toMatch(/Added|Changed|Fixed/);
   });
@@ -215,11 +215,11 @@ describe("What's new", () => {
     await openFromMenu("What’s new");
     await press("Escape");
     expect(document.querySelector('[data-testid="unseen-dot"]')).toBeNull();
-    expect(localStorage.getItem("stickyard:last-seen-version")).toBe("0.29.0");
+    expect(localStorage.getItem("stickyard:last-seen-version")).toBe("0.30.0");
   });
 
   it("no dot once this version has been seen", async () => {
-    localStorage.setItem("stickyard:last-seen-version", "0.29.0");
+    localStorage.setItem("stickyard:last-seen-version", "0.30.0");
     await mount();
     expect(document.querySelector('[data-testid="unseen-dot"]')).toBeNull();
   });
@@ -231,7 +231,7 @@ describe("About", () => {
 
   it("shows version, build, protocol and relay", async () => {
     await mount("#/about");
-    expect(detail("Version")).toBe("0.29.0");
+    expect(detail("Version")).toBe("0.30.0");
     expect(detail("Build")).toMatch(/^([0-9a-f]{4,40}|dev)$/);
     expect(detail("Built")).not.toBe("unknown");
     expect(detail("Protocol")).toBe(`v${PROTOCOL_VERSION}`);
@@ -295,6 +295,10 @@ describe("About", () => {
       "hidden writer id",
       "removed from every note when the host reveals them",
       // Live cursors (v0.19.0): pointers shared live, never stored; the two switches stored here.
+      // Follow and Bring to me (protocol v19): views passed on live to followers only, a count, never stored.
+      "only to the people following you",
+      "never who",
+      "None of this is stored by the relay or in your browser",
       "pointer’s position on the board is passed on live",
       "never stored",
       "whether you show other people’s cursors and share yours",

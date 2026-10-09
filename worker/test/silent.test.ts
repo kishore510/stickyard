@@ -154,8 +154,8 @@ async function sealedAdd(c: TestClient, all: TestClient[], text: string, count: 
 }
 
 describe("versions", () => {
-  it("protocol 18 (silentMine) and stored schema 10; a v16 page is asked to reload", async () => {
-    expect(PROTOCOL_VERSION).toBe(18);
+  it("protocol 18 (silentMine) or later and stored schema 10; a v16 page is asked to reload", async () => {
+    expect(PROTOCOL_VERSION).toBeGreaterThanOrEqual(18);
     expect(SCHEMA_VERSION).toBe(10);
     const { code } = await newRoom();
     const c = await TestClient.open(code);

@@ -119,6 +119,12 @@ export function AboutPage() {
             position, in memory, so Participants’ Go to can take you there; it’s forgotten when they leave or you reconnect, and never stored or sent.
           </li>
           <li>
+            While someone follows you, the point at the centre of your view of the board and your zoom are passed on live, only to the people
+            following you, at most five times a second and only when your view moves; phones never send it. You’re told how many people follow
+            you, never who. When a host brings everyone to their view, the host’s view is passed on once to everyone in the session. None of
+            this is stored by the relay or in your browser, and following ends when either of you leaves or reconnects.
+          </li>
+          <li>
             Undo and redo history is kept only in this tab’s memory: it’s never stored or sent anywhere, and it’s gone when you
             leave or reconnect. Notes, frames and shapes that undo brings back are added again as new ones, recorded as added by your visit.
           </li>
