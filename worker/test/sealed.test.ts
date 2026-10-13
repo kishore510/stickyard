@@ -71,10 +71,20 @@ const SAMPLES: Record<string, { both: ServerMessage; hiddenOnly: ServerMessage |
     both: { type: "itemsAdded", notes: [{ note: note(HIDDEN) }, { note: note(SHOWN) }], frames: [], refused: [] },
     hiddenOnly: { type: "itemsAdded", clientRef: "r1", notes: [{ ref: "a", note: note(HIDDEN) }], frames: [], refused: [] },
   },
-  voterGranted: { both: { type: "voterGranted", remaining: 3, mine: [{ noteId: HIDDEN, count: 1 }, { noteId: SHOWN, count: 1 }] }, hiddenOnly: null },
+  voterGranted: {
+    both: { type: "voterGranted", remaining: 3, mine: [{ noteId: HIDDEN, count: 1 }, { noteId: SHOWN, count: 1 }], reactions: [{ noteId: HIDDEN, key: "heart" }, { noteId: SHOWN, key: "plus" }] },
+    hiddenOnly: null,
+  },
   voteConfirmed: { both: { type: "voteConfirmed", noteId: SHOWN, count: 1, remaining: 4 }, hiddenOnly: { type: "voteConfirmed", noteId: HIDDEN, count: 1, remaining: 4 } },
   votesRevealed: { both: { type: "votesRevealed", round: 1, totals: [{ noteId: HIDDEN, count: 3 }, { noteId: SHOWN, count: 2 }] }, hiddenOnly: null },
   silentMine: { both: { type: "silentMine", ids: [HIDDEN, SHOWN] }, hiddenOnly: null },
+  // Reactions (protocol v20).
+  reactionCount: { both: { type: "reactionCount", noteId: SHOWN, key: "heart", count: 2 }, hiddenOnly: { type: "reactionCount", noteId: HIDDEN, key: "heart", count: 0 } },
+  reactionMine: { both: { type: "reactionMine", noteId: SHOWN, key: "laugh", on: true }, hiddenOnly: { type: "reactionMine", noteId: HIDDEN, key: "laugh", on: false } },
+  reactionsSnapshot: {
+    both: { type: "reactionsSnapshot", counts: [{ noteId: HIDDEN, key: "heart", count: 1 }, { noteId: SHOWN, key: "thinking", count: 3 }] },
+    hiddenOnly: null,
+  },
   notesRevealed: { both: { type: "notesRevealed", notes: [note(HIDDEN), note(SHOWN)], final: true }, hiddenOnly: { type: "notesRevealed", notes: [note(HIDDEN)], final: true } },
 };
 
@@ -110,6 +120,11 @@ describe("scrubFor", () => {
     const frame = { id: FRAME, x: 0, y: 0, w: 640, h: 400, title: "", color: "neutral" as const, titleFontSize: "m" as const, titleBold: true, titleItalic: false, titleTextColor: "auto" as const, titleAlign: "left" as const, rev: 1, authorId: AUTHOR };
     const m: ServerMessage = { type: "itemsAdded", notes: [{ note: note(HIDDEN) }], frames: [{ frame }], refused: [] };
     expect(scrubFor(m, visible)).toEqual({ type: "itemsAdded", notes: [], frames: [{ frame }], refused: [] });
+  });
+
+  it("voterGranted drops its reactions field when none of them is visible, and keeps the votes", () => {
+    const m: ServerMessage = { type: "voterGranted", remaining: 4, mine: [{ noteId: SHOWN, count: 1 }], reactions: [{ noteId: HIDDEN, key: "heart" }] };
+    expect(scrubFor(m, visible)).toEqual({ type: "voterGranted", remaining: 4, mine: [{ noteId: SHOWN, count: 1 }] });
   });
 
   it("errors are passed through (they echo only what the sender sent, as for an unknown id)", () => {

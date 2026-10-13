@@ -166,6 +166,10 @@ describe("server message registry", () => {
         "votesRevealed",
         "notesRevealed",
         "silentMine",
+        // Reactions (protocol v20): each names a note.
+        "reactionCount",
+        "reactionMine",
+        "reactionsSnapshot",
       ].sort(),
     );
     expect(SERVER_MESSAGES.silentChanged.carriesNoteContent).toBe(false);

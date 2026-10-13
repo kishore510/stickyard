@@ -390,7 +390,7 @@ describe("the canary leak test", () => {
     // Since the round started, the passive people got only these kinds of message.
     const sinceStart = (t: string[]) => t.slice(t.findIndex((r) => r.includes('"silentChanged"')));
     const kinds = (t: string[]) => new Set(t.map((r) => (JSON.parse(r) as { type: string }).type));
-    const joining = ["welcome", "joined", "snapshot", "framesSnapshot", "shapesSnapshot"];
+    const joining = ["welcome", "joined", "snapshot", "framesSnapshot", "shapesSnapshot", "reactionsSnapshot"];
     for (const t of [sinceStart(raw.host), sinceStart(raw.b)]) {
       for (const k of kinds(t)) expect(["silentChanged", "participant_joined", "participant_left", "itemsAdded"]).toContain(k);
     }
@@ -614,7 +614,8 @@ describe("silentMine (protocol v18): a page learns which of its notes are sealed
       await settle(100);
       const t = types(raw);
       const at = t.indexOf("shapesSnapshot");
-      expect(t.slice(at - 3, at + 2), step).toEqual(["joined", "snapshot", "framesSnapshot", "shapesSnapshot", "silentMine"]);
+      // Protocol v20: the reaction counts come right after the shapes, then silentMine.
+      expect(t.slice(at - 3, at + 3), step).toEqual(["joined", "snapshot", "framesSnapshot", "shapesSnapshot", "reactionsSnapshot", "silentMine"]);
       expect(mineOf(raw), step).toEqual([{ type: "silentMine", ids: [a1.id, a3.id] }]);
       // Exactly the snapshot's notes that aren't everyone's.
       expect(tab.snapshot?.notes.map((n) => n.id)).toEqual([visible.id, a1.id, a3.id]);

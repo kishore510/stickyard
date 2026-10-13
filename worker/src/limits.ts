@@ -90,6 +90,18 @@ export const BRING_LIMITS = {
 } as const;
 
 /**
+ * Reactions on notes (protocol v20) spend this per-socket bucket instead of SOCKET_LIMITS, so a
+ * burst of reactions can never starve edits or chat. One reaction is one click or key press:
+ * 4 a second with a burst of 12 covers someone reacting to every note in a row as fast as they
+ * can tap. Over the budget a reaction is dropped with rate_limited (naming the note, so the page
+ * can roll it back), as a violation: 20 in 10 s close the socket, as for any other abuse.
+ */
+export const REACTION_LIMITS = {
+  refillPerSecond: 4,
+  burst: 12,
+} as const;
+
+/**
  * Idle room expiry (worker/src/expiry.ts). When the last socket of a room closes, its alarm is
  * set this far ahead; when it fires with nobody connected, the room's data is deleted and a
  * tombstone kept. An existing alarm within ALARM_RESET_SLACK_MS of the new time is left alone,

@@ -58,9 +58,20 @@ const SCRUB: { [K in NoteCarryingType]: Scrubber<K> } = {
     // A refused list only ever rides on the sender's copy, whose notes are all its own.
     return { ...m, notes };
   },
-  voterGranted: (m, visible) => ({ ...m, mine: m.mine.filter((v) => visible(v.noteId)) }),
+  voterGranted: (m, visible) => {
+    const { reactions, ...rest } = m;
+    const out = { ...rest, mine: m.mine.filter((v) => visible(v.noteId)) };
+    // Reactions (v20): the relay never stores one on a sealed note; filtered all the same.
+    const mine = reactions?.filter((r) => visible(r.noteId)) ?? [];
+    return mine.length > 0 ? { ...out, reactions: mine } : out;
+  },
   voteConfirmed: (m, visible) => (visible(m.noteId) ? m : null),
   votesRevealed: (m, visible) => ({ ...m, totals: m.totals.filter((v) => visible(v.noteId)) }),
+  // Reactions (v20): the relay refuses them on sealed notes and leaves sealed notes out of every
+  // count at the source (NoteStore), so these only ever back that up.
+  reactionCount: (m, visible) => (visible(m.noteId) ? m : null),
+  reactionMine: (m, visible) => (visible(m.noteId) ? m : null),
+  reactionsSnapshot: (m, visible) => ({ ...m, counts: m.counts.filter((c) => visible(c.noteId)) }),
   // Only ever the recipient's own ids; filtered all the same.
   silentMine: (m, visible) => ({ ...m, ids: m.ids.filter(visible) }),
   notesRevealed: (m, visible) => {

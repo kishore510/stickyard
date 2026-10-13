@@ -3,6 +3,7 @@ import {
   FRAME_DEFAULT_H,
   FRAME_DEFAULT_W,
   NOTE_DEFAULTS,
+  REACTION_KEYS,
   VOTE_BUDGET_MAX,
   clampFrameRect,
   clampNoteRect,
@@ -14,6 +15,7 @@ import {
   shapeSchema,
   type Frame,
   type Note,
+  type ReactionKey,
   type Shape,
 } from "@stickyard/shared";
 
@@ -60,8 +62,22 @@ import {
  *     Version 9 code still inserts (sealed 0) and updates (seal kept) without them; after a
  *     rollback it would show sealed notes to everyone, since it doesn't know the column. The
  *     round itself lives in meta (silent_active, silent_round; no version needed).
+ *  11 (reactions): a new reactions table (reactor_id, note_id, reaction_key; all three are the
+ *     primary key), every column with a DEFAULT. One row per reaction that is on; turning it off
+ *     deletes the row. Additive: every other table is untouched, and version 10 code never reads
+ *     it. A note's rows go with it (same transaction). Rows that version 10 code leaves behind on
+ *     a note it deletes, and rows with a key outside REACTION_KEYS, are ignored on load.
  */
-export const SCHEMA_VERSION = 10;
+export const SCHEMA_VERSION = 11;
+
+/** The reactions table (schema 11). */
+const REACTIONS_TABLE = `CREATE TABLE IF NOT EXISTS reactions (
+          reactor_id TEXT NOT NULL DEFAULT '',
+          note_id TEXT NOT NULL DEFAULT '',
+          reaction_key TEXT NOT NULL DEFAULT '',
+          PRIMARY KEY (reactor_id, note_id, reaction_key)
+        )`;
+const isReactionKey = (key: string): key is ReactionKey => (REACTION_KEYS as readonly string[]).includes(key);
 
 const RECT = shapeDefaults("rect");
 /** The shapes table (schema 9). */
@@ -203,6 +219,11 @@ export class NoteStore {
   private shapeCache: Map<string, Shape> | null = null;
   /** Votes by voter id, then note id (counts 1 to VOTE_BUDGET_MAX). */
   private voteCache: Map<string, Map<string, number>> | null = null;
+  /** Reactions (schema 11) by note id, then key: the reactors (voter ids) who have it on. */
+  private reactionCache: Map<string, Map<ReactionKey, Set<string>>> | null = null;
+  /** Reactions each reactor has on, and the room's total rows (both from reactionCache). */
+  private reactorTotals = new Map<string, number>();
+  private reactionTotal = 0;
   /**
    * Sealed notes (schema 10) and their writer ids, filled with the notes. Never on a Note: a note
    * on the wire has no seal or writer. A sealed row without a writer (never written by us) gets
@@ -309,6 +330,7 @@ export class NoteStore {
       if (!existing.has("sealed")) this.sql.exec("ALTER TABLE notes ADD COLUMN sealed INTEGER NOT NULL DEFAULT 0");
       if (!existing.has("writer")) this.sql.exec("ALTER TABLE notes ADD COLUMN writer TEXT DEFAULT NULL");
     }
+    if (version < 11) this.sql.exec(REACTIONS_TABLE);
     this.write("INSERT OR REPLACE INTO meta (key, value) VALUES ('schema_version', ?)", SCHEMA_VERSION);
   }
 
@@ -465,6 +487,7 @@ export class NoteStore {
     for (const id of deletes) {
       cache.delete(id);
       this.forgetVotesOn(id);
+      this.forgetReactionsOn(id);
       this.forgetWriter(id);
     }
   }
@@ -511,17 +534,20 @@ export class NoteStore {
     );
   }
 
-  /** Deletes a note and its votes (the dots go back to their voters) in one transaction. */
+  /** Deletes a note, its votes (the dots go back to their voters) and its reactions in one transaction. */
   delete(id: string): void {
     this.transact(() => this.writeNoteDelete(id));
     this.notes().delete(id);
     this.forgetVotesOn(id);
+    this.forgetReactionsOn(id);
     this.forgetWriter(id);
   }
 
+  /** Every note delete (single, batch, Clear board) goes through here: the note, its votes and its reactions. */
   private writeNoteDelete(id: string): void {
     this.write("DELETE FROM notes WHERE id = ?", id);
     this.write("DELETE FROM votes WHERE note_id = ?", id);
+    this.write("DELETE FROM reactions WHERE note_id = ?", id);
   }
 
   /* ── Frames (schema 6; title style since 7) ──────────────────────────────────────────── */
@@ -818,6 +844,122 @@ export class NoteStore {
       mine.delete(noteId);
       if (mine.size === 0) this.votes().delete(voterId);
     }
+  }
+
+  /* ── Reactions (schema 11, protocol v20) ─────────────────────────────────────────────── */
+
+  /**
+   * Every reaction, by note then key. Rows for notes that aren't here (left by older code) or with
+   * a key outside REACTION_KEYS are skipped, never fatal, and don't count towards the caps.
+   */
+  private reactions(): Map<string, Map<ReactionKey, Set<string>>> {
+    if (this.reactionCache) return this.reactionCache;
+    const notes = this.notes();
+    const cache = new Map<string, Map<ReactionKey, Set<string>>>();
+    const totals = new Map<string, number>();
+    let total = 0;
+    for (const row of this.sql.exec<{ reactor_id: string; note_id: string; reaction_key: string }>("SELECT reactor_id, note_id, reaction_key FROM reactions ORDER BY rowid")) {
+      if (!notes.has(row.note_id) || !isReactionKey(row.reaction_key) || row.reactor_id === "") continue;
+      const byKey = cache.get(row.note_id) ?? new Map<ReactionKey, Set<string>>();
+      const reactors = byKey.get(row.reaction_key) ?? new Set<string>();
+      reactors.add(row.reactor_id);
+      byKey.set(row.reaction_key, reactors);
+      cache.set(row.note_id, byKey);
+      totals.set(row.reactor_id, (totals.get(row.reactor_id) ?? 0) + 1);
+      total++;
+    }
+    this.reactionCache = cache;
+    this.reactorTotals = totals;
+    this.reactionTotal = total;
+    return cache;
+  }
+
+  /** Reaction rows in the room (the room cap counts these). */
+  get reactionRows(): number {
+    this.reactions();
+    return this.reactionTotal;
+  }
+
+  /** Reactions a reactor has on (the reactor cap counts these). */
+  reactionsBy(reactor: string): number {
+    this.reactions();
+    return this.reactorTotals.get(reactor) ?? 0;
+  }
+
+  /** Whether this reactor has this reaction on this note. */
+  hasReaction(reactor: string, noteId: string, key: ReactionKey): boolean {
+    return this.reactions().get(noteId)?.get(key)?.has(reactor) ?? false;
+  }
+
+  /** Everyone's count for a note and key. */
+  reactionCount(noteId: string, key: ReactionKey): number {
+    return this.reactions().get(noteId)?.get(key)?.size ?? 0;
+  }
+
+  /**
+   * Sets one reactor's reaction on or off: a row inserted (on) or deleted (off). Writes only when it
+   * changes; returns whether it did. Callers check the note and the caps first.
+   */
+  setReaction(reactor: string, noteId: string, key: ReactionKey, on: boolean): boolean {
+    if (this.hasReaction(reactor, noteId, key) === on) return false;
+    const cache = this.reactions();
+    if (on) {
+      this.write("INSERT INTO reactions (reactor_id, note_id, reaction_key) VALUES (?, ?, ?)", reactor, noteId, key);
+      const byKey = cache.get(noteId) ?? new Map<ReactionKey, Set<string>>();
+      byKey.set(key, (byKey.get(key) ?? new Set<string>()).add(reactor));
+      cache.set(noteId, byKey);
+      this.countReaction(reactor, 1);
+    } else {
+      this.write("DELETE FROM reactions WHERE reactor_id = ? AND note_id = ? AND reaction_key = ?", reactor, noteId, key);
+      const byKey = cache.get(noteId);
+      const reactors = byKey?.get(key);
+      reactors?.delete(reactor);
+      if (reactors?.size === 0) byKey?.delete(key);
+      if (byKey?.size === 0) cache.delete(noteId);
+      this.countReaction(reactor, -1);
+    }
+    return true;
+  }
+
+  /**
+   * Every non-zero count, in note creation order then REACTION_KEYS order. Never a sealed note's
+   * (anyone's, its writer's included): counts only, never who.
+   */
+  reactionCounts(): { noteId: string; key: ReactionKey; count: number }[] {
+    const cache = this.reactions();
+    return [...this.notes().keys()].flatMap((noteId) => {
+      const byKey = cache.get(noteId);
+      if (!byKey || this.writers.has(noteId)) return [];
+      return REACTION_KEYS.flatMap((key) => {
+        const count = byKey.get(key)?.size ?? 0;
+        return count > 0 ? [{ noteId, key, count }] : [];
+      });
+    });
+  }
+
+  /** A reactor's own reactions, in the same order. Never on a sealed note. */
+  reactionsOf(reactor: string): { noteId: string; key: ReactionKey }[] {
+    const cache = this.reactions();
+    return [...this.notes().keys()].flatMap((noteId) => {
+      const byKey = cache.get(noteId);
+      if (!byKey || this.writers.has(noteId)) return [];
+      return REACTION_KEYS.flatMap((key) => (byKey.get(key)?.has(reactor) ? [{ noteId, key }] : []));
+    });
+  }
+
+  private countReaction(reactor: string, by: number): void {
+    const next = (this.reactorTotals.get(reactor) ?? 0) + by;
+    if (next > 0) this.reactorTotals.set(reactor, next);
+    else this.reactorTotals.delete(reactor);
+    this.reactionTotal += by;
+  }
+
+  /** A deleted note's reactions leave the caches (its rows went in the delete's transaction). */
+  private forgetReactionsOn(noteId: string): void {
+    const byKey = this.reactions().get(noteId);
+    if (!byKey) return;
+    for (const reactors of byKey.values()) for (const reactor of reactors) this.countReaction(reactor, -1);
+    this.reactions().delete(noteId);
   }
 
   private write(query: string, ...bindings: SqlStorageValue[]): void {

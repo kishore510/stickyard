@@ -82,7 +82,10 @@ async function fullReactionBudget(stub: Stub): Promise<void> {
 
 async function addNote(c: TestClient, text: string, others: TestClient[] = []) {
   c.send({ type: "noteAdd", clientRef: "r1", x: 10, y: 10, color: "yellow", text });
-  const note = (await nextOfType(c, "noteAdded")).note;
+  // Its own add (with the clientRef), not someone else's broadcast.
+  let added = await nextOfType(c, "noteAdded");
+  while (added.clientRef !== "r1") added = await nextOfType(c, "noteAdded");
+  const note = added.note;
   for (const o of others) await nextOfType(o, "noteAdded");
   return note;
 }
@@ -158,6 +161,7 @@ describe("reactionSet", () => {
     // A second reactor: 2. Keys are counted apart.
     alex.send(react(n, "heart", true));
     expect(await nextOfType(sam, "reactionCount")).toEqual({ type: "reactionCount", noteId: n, key: "heart", count: 2 });
+    expect(await nextOfType(alex, "reactionCount")).toEqual({ type: "reactionCount", noteId: n, key: "heart", count: 2 });
     sam.send(react(n, "plus", true));
     expect(await nextOfType(alex, "reactionCount")).toEqual({ type: "reactionCount", noteId: n, key: "plus", count: 1 });
     await drain(alex, sam);
@@ -441,8 +445,8 @@ describe("sealed notes (silent round)", () => {
     for (const list of raw) {
       for (const r of list) if (reactionTypes.some((t) => r.includes(t))) expect(r).not.toContain(sealed.id);
     }
-    // Alex's sockets never heard of the sealed note at all.
-    for (const list of [raw[0]!, raw[2]!]) for (const r of list) expect(r).not.toContain(sealed.id);
+    // Alex's sockets never heard of the sealed note at all, but for the refusals of Alex's own probes.
+    for (const list of [raw[0]!, raw[2]!]) for (const r of list) if (!r.includes('"unknown_note"')) expect(r).not.toContain(sealed.id);
 
     // The reveal: now it's a normal note. The stored rows count, and new reactions go to everyone.
     alex2.send({ type: "silentReveal" });
@@ -521,11 +525,15 @@ async function bigRoom() {
   const key = newKey();
   const sam = await TestClient.open(room.code);
   await sam.enter("Sam", key);
-  sam.send({ type: "itemsAdd", clientRef: "many", notes: Array.from({ length: 20 }, (_, i) => noteItem(`n${i}`)) });
-  const added = await nextOfType(sam, "itemsAdded");
+  const noteIds: string[] = [];
+  // Two messages: 20 full note items don't fit in one (MAX_MESSAGE_BYTES).
+  for (const part of [0, 1]) {
+    sam.send({ type: "itemsAdd", clientRef: `many${part}`, notes: Array.from({ length: 10 }, (_, i) => noteItem(`n${part}x${i}`)) });
+    noteIds.push(...(await nextOfType(sam, "itemsAdded")).notes.map((n) => n.note.id));
+  }
   sam.close();
   await sam.waitClose();
-  return { ...room, key, noteIds: added.notes.map((n) => n.note.id) };
+  return { ...room, key, noteIds };
 }
 
 async function rejoin(code: string, key: string) {
