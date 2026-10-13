@@ -36,3 +36,37 @@ describe("trapFocus", () => {
     expect(listener).toBeUndefined();
   });
 });
+
+describe("trapFocus, stacked (a sheet opened over another, v0.32.0)", () => {
+  function fakeDoc() {
+    const listeners = new Set<(e: KeyboardEvent) => void>();
+    const doc: FocusDocument = {
+      activeElement: null,
+      addEventListener: (_t, l) => listeners.add(l),
+      removeEventListener: (_t, l) => listeners.delete(l),
+    };
+    const press = (key: string) => {
+      for (const l of [...listeners]) l({ key, stopPropagation: () => {}, preventDefault: () => {}, shiftKey: false } as KeyboardEvent);
+    };
+    return { doc, press };
+  }
+  const box = () => {
+    const item = { focus: vi.fn() };
+    return { querySelector: () => item, querySelectorAll: () => [item] };
+  };
+
+  it("only the topmost trap handles Escape; the one under it takes over once the top is released", () => {
+    const { doc, press } = fakeDoc();
+    const under = vi.fn();
+    const top = vi.fn();
+    const releaseUnder = trapFocus(box(), doc, under);
+    const releaseTop = trapFocus(box(), doc, top);
+    press("Escape");
+    expect(top).toHaveBeenCalledTimes(1);
+    expect(under).not.toHaveBeenCalled();
+    releaseTop();
+    press("Escape");
+    expect(under).toHaveBeenCalledTimes(1);
+    releaseUnder();
+  });
+});

@@ -4,7 +4,7 @@ Detail for each area of Stickyard, one file per area. CLAUDE.md stays short and 
 
 | File | Read before touching |
 |---|---|
-| [shell.md](shell.md) | App shell, tokens, sheets, routes, Help, What's new, About, storage keys, welcome screen, top bar and board bar |
+| [shell.md](shell.md) | App shell, tokens, sheets, routes, Help, What's new, About, storage keys, welcome screen, top bar and board bar, Share session (QR join) |
 | [rooms.md](rooms.md) | Room codes, Worker checks, secrets, limits, the room Durable Object, expiry and burial, host token, lock, timer relay |
 | [notes.md](notes.md) | Note protocol and storage, size, colour and text style, inline editing, z-order, sealed notes and the leak inventory |
 | [canvas.md](canvas.md) | React Flow canvas, palette and Properties panels, selection, marquee, arrange and grid, delete keys, Duplicate, Export, panel defaults, navigation (fit, zoom to selection, minimap, jump) |
@@ -71,3 +71,4 @@ Sections are named after the slice that introduced them. Cross-references in quo
 | Board bar in the top bar (v0.15.1) | shell.md |
 | Silent brainstorm in the shell (v0.28.0) | shell.md |
 | Follow and Bring to me in the shell (v0.31.0) | shell.md |
+| Share session and QR join (v0.32.0) | shell.md |

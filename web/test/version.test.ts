@@ -26,7 +26,7 @@ describe("formatDetails (Copy details)", () => {
 describe("credits", () => {
   it("names the real dependencies with a licence and purpose", () => {
     const byName = new Map(CREDITS.map((c) => [c.name, c]));
-    for (const name of ["react", "zustand", "tailwindcss", "zod", "vite", "@fontsource-variable/inter", "lucide-react"]) {
+    for (const name of ["react", "zustand", "tailwindcss", "zod", "vite", "@fontsource-variable/inter", "lucide-react", "lean-qr"]) {
       const credit = byName.get(name);
       expect(credit, name).toBeDefined();
       expect(credit?.license, name).toMatch(/^(MIT|ISC|OFL-1\.1|Apache-2\.0)$/);

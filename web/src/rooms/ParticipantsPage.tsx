@@ -1,10 +1,11 @@
-import { Check, CircleStop, Copy, Crosshair, Lock, LockOpen, LogOut, Power, RotateCcw, ScanEye, Square } from "lucide-react";
-import { useState } from "react";
+import { CircleStop, Crosshair, Lock, LockOpen, LogOut, Power, QrCode, RotateCcw, ScanEye, Square } from "lucide-react";
 import { MAX_NAME_LENGTH, MAX_PARTICIPANTS } from "@stickyard/shared";
 import { Button } from "../components/ui/button";
 import { cn } from "../lib/utils";
 import { participantColourClass } from "./colours";
-import { roomLink } from "./link";
+import { CopyLink } from "./CopyLink";
+import { joinLink } from "./link";
+import { useShare } from "../share/shareStore";
 import { useRoomUi } from "./roomStore";
 import { useMediaQuery } from "../lib/useMediaQuery";
 import { MEDIA } from "../styles/breakpoints";
@@ -27,33 +28,8 @@ import { BRING_TEXT, FOLLOW_TEXT, followReason } from "../follow/followUi";
 
 /*
  * The Participants sheet (#/participants): who's in the session now, the unverified-names
- * notice, the room link and Leave. Names are untrusted: rendered as text only.
+ * notice, the room link (Share session with its QR code, and Copy link) and Leave. Names are untrusted: rendered as text only.
  */
-
-function CopyLink({ code }: { code: string }) {
-  const [state, setState] = useState<"idle" | "copied" | "failed">("idle");
-  const link = roomLink(code, window.location.origin, import.meta.env.BASE_URL);
-  const copy = () => {
-    const done = navigator.clipboard?.writeText(link);
-    if (!done) return setState("failed");
-    done.then(
-      () => setState("copied"),
-      () => setState("failed"),
-    );
-  };
-  return (
-    <div className="flex flex-col gap-sm">
-      <Button onClick={copy} className="self-start">
-        {state === "copied" ? <Check /> : <Copy />}
-        Copy link
-      </Button>
-      <p role="status" className="text-sm break-all text-fg-muted">
-        {state === "copied" && "Link copied. Anyone with it can join."}
-        {state === "failed" && `Couldn’t copy. The link is: ${link}`}
-      </p>
-    </div>
-  );
-}
 
 /**
  * The host's Session section (phones; from md up these controls are in the palette, the board
@@ -290,8 +266,13 @@ export function ParticipantsPage() {
         <h3 id="invite-heading" className="text-base font-semibold">
           Invite
         </h3>
-        <p className="text-sm text-fg-muted">Share the session’s link. Anyone with it can join.</p>
-        <CopyLink code={room.code} />
+        <p className="text-sm text-fg-muted">Share the session’s link, or show its QR code. Anyone with it can join.</p>
+        {/* v0.32.0: Share session opens over this sheet; Escape closes it alone and focus comes back here. */}
+        <Button className="self-start" aria-haspopup="dialog" onClick={() => useShare.getState().show()}>
+          <QrCode />
+          Share session
+        </Button>
+        <CopyLink link={joinLink(room.code)} />
       </section>
 
       <section aria-labelledby="leave-heading" className="flex flex-col gap-sm">

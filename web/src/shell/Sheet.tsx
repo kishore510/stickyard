@@ -4,6 +4,7 @@ import { createPortal } from "react-dom";
 import { Button } from "../components/ui/button";
 import { readPxToken } from "../lib/cssVar";
 import { trapFocus } from "../lib/focusTrap";
+import { cn } from "../lib/utils";
 
 /*
  * The sheet frame used by Help, What's new and About (Chalkline's pattern).
@@ -19,6 +20,7 @@ export function Sheet({
   page,
   onClose,
   onBack,
+  large = false,
   children,
 }: {
   title: string;
@@ -28,6 +30,8 @@ export function Sheet({
   onClose: () => void;
   /** Shows a back arrow in place of the icon. */
   onBack?: (() => void) | undefined;
+  /** From md up, the full width of the screen instead of a side panel (Share session's Large). */
+  large?: boolean;
   children: ReactNode;
 }) {
   const ref = useRef<HTMLDivElement>(null);
@@ -72,7 +76,11 @@ export function Sheet({
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        className="sy-sheet-in flex h-(--sy-full-sheet-h) w-full flex-col rounded-t-lg border-t border-border bg-surface text-fg shadow-lg md:sy-safe-top md:h-full md:max-w-sheet md:rounded-none md:border-t-0 md:border-l"
+        data-large={large ? "true" : undefined}
+        className={cn(
+          "sy-sheet-in flex h-(--sy-full-sheet-h) w-full flex-col rounded-t-lg border-t border-border bg-surface text-fg shadow-lg md:sy-safe-top md:h-full md:rounded-none md:border-t-0",
+          large ? "md:max-w-none" : "md:max-w-sheet md:border-l",
+        )}
       >
         <div
           className="shrink-0 touch-none border-b border-border md:touch-auto"

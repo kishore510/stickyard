@@ -1,4 +1,4 @@
-// npm run shots: screenshots of the welcome page and a seeded room at 360, 768 and 1280 px,
+// npm run shots: screenshots of the welcome page, a seeded room and its Share session sheet at 360, 768 and 1280 px,
 // in light and dark, into shots/ (gitignored). Starts a local relay (wrangler dev, fake
 // secrets, throwaway storage) and the Vite dev server, then drives Chromium.
 //
@@ -193,6 +193,16 @@ async function main() {
           await page.locator(".react-flow__node").first().waitFor({ timeout: 20_000 });
           await page.waitForTimeout(1500); // first fit and fonts
           await shot("room");
+          // Share session (v0.32.0): the QR sheet from the menu, then Large.
+          await page.getByRole("button", { name: /^Menu/ }).click();
+          await page.getByRole("menuitem", { name: "Share session" }).click();
+          await page.locator("svg[data-qr]").waitFor({ timeout: 5_000 });
+          await page.waitForTimeout(400);
+          await shot("share");
+          await page.getByRole("button", { name: "Large" }).click();
+          await page.waitForTimeout(400);
+          await shot("share-large");
+          await page.keyboard.press("Escape");
           await context.close();
         }
       }

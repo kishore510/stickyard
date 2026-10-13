@@ -2,8 +2,12 @@
 title: Running a session
 order: 9
 summary: What the host can do (timer, lock the board, dot voting, silent brainstorm, bring everyone to your view, end the session) and what everyone else sees.
-keywords: host, hosting, facilitate, facilitator, timer, countdown, time, timebox, lock, locked, unlock, end, end session, delete, crown, badge, silent, brainstorm, reveal, bring to me, gather, follow
+keywords: host, hosting, facilitate, facilitator, qr, invite, share, projector, timer, countdown, time, timebox, lock, locked, unlock, end, end session, delete, crown, badge, silent, brainstorm, reveal, bring to me, gather, follow
 ---
+## Inviting people
+
+- To get people in, choose **Share session** in the menu (on a phone, also under **Invite** in **Participants**). Put it on the shared screen with **Large**, and people scan the QR code with their phone's camera to reach **Join session**. Everyone in the session can open it, not only the host. See [Joining by QR code](help:join-by-qr).
+
 ## Who the host is
 
 - Whoever starts a session is its host. Stickyard remembers that on the device the session was started from, so you're host again whenever you rejoin from there.

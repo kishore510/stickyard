@@ -1,8 +1,8 @@
 ---
 title: Participants
 order: 4
-summary: See who's in the session, go to someone's pointer, follow their view, copy its link, and leave.
-keywords: participants, people, follow, following, who, list, here, name, colour, color, invite, link, copy, leave, avatar, initials, joined, left, presence, host, session, cursor, pointer, mouse, go to, jump, find, where
+summary: See who's in the session, go to someone's pointer, follow their view, share or copy its link, and leave.
+keywords: participants, people, follow, following, who, list, here, name, colour, color, invite, link, copy, qr, share, leave, avatar, initials, joined, left, presence, host, session, cursor, pointer, mouse, go to, jump, find, where
 ---
 In a session, the **Participants** button at the top opens a panel. It's also in the menu.
 
@@ -14,6 +14,7 @@ In a session, the **Participants** button at the top opens a panel. It's also in
 - If you're the host, it also has a **Session** section on a phone, with the timer, **Lock board**, dot voting, silent brainstorm, **Bring to me** and **End session**.
 - A session holds up to 20 people at once.
 - Names aren't verified: anyone with the link can join and type any name. See [Names and identity](help:names).
+- **Share session** shows the session's link as a QR code for people to scan, with **Large** for a shared screen. See [Joining by QR code](help:join-by-qr).
 - **Copy link** copies the session's link, to share with the people you want to invite.
 - **Leave session** takes you back to the start page. Your notes stay on the board.
 

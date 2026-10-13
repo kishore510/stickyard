@@ -125,6 +125,10 @@ export function AboutPage() {
             this is stored by the relay or in your browser, and following ends when either of you leaves or reconnects.
           </li>
           <li>
+            Share session’s QR code is drawn on this device from the session’s link. Nothing is sent anywhere to make it, it uses no
+            online service, and it isn’t stored.
+          </li>
+          <li>
             Undo and redo history is kept only in this tab’s memory: it’s never stored or sent anywhere, and it’s gone when you
             leave or reconnect. Notes, frames and shapes that undo brings back are added again as new ones, recorded as added by your visit.
           </li>

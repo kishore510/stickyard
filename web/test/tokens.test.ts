@@ -33,6 +33,16 @@ const contrast = (a: string, b: string) => {
 };
 
 describe("design tokens", () => {
+  it("QR join (v0.32.0): dark modules (--sy-note-fg) on a light panel (--sy-brand-ink), 7:1 or more in both themes", () => {
+    const ink = [...tokens.matchAll(/--sy-brand-ink:\s*(#[0-9a-f]{6})\b/g)].map((m) => m[1]);
+    expect(ink).toHaveLength(1);
+    for (const selector of [':root,\n[data-theme="light"]', '[data-theme="dark"]']) {
+      const c = theme(selector);
+      expect(contrast(c["note-fg"]!, ink[0]!), selector).toBeGreaterThanOrEqual(7);
+      expect(luminance(c["note-fg"]!)).toBeLessThan(luminance(ink[0]!));
+    }
+  });
+
   it("breakpoints in script match tokens.css", () => {
     for (const [name, value] of Object.entries(BREAKPOINTS)) expect(tokens).toContain(`--breakpoint-${name}: ${value};`);
   });

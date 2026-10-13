@@ -5,7 +5,7 @@ import { buildTopics, parseFrontMatter, searchTopics } from "../src/help/topics"
 
 describe("help topics", () => {
   it("loads the topics, quick start first", () => {
-    expect(HELP_TOPICS.map((t) => t.id)).toEqual(["quick-start", "sessions", "notes", "text-and-shapes", "participants", "chat", "names", "connection", "touch-and-keyboard", "hosting", "dot-voting", "silent-brainstorm", "follow"]);
+    expect(HELP_TOPICS.map((t) => t.id)).toEqual(["quick-start", "sessions", "notes", "text-and-shapes", "participants", "chat", "names", "connection", "touch-and-keyboard", "hosting", "dot-voting", "silent-brainstorm", "follow", "join-by-qr"]);
     expect(topicById("sessions")?.title).toBe("Starting and joining a session");
     expect(topicById(QUICK_START_ID)?.title).toBe("Quick start");
   });
@@ -84,11 +84,17 @@ describe("help topics", () => {
     expect(sessions).not.toMatch(/end session button|lock button|timer tile/);
   });
 
-  it("help topics only claim what exists: no QR codes yet (the timer since v0.16.0, dot voting since v0.18.0, cursors since v0.19.0)", () => {
-    const all = HELP_TOPICS.map((t) => t.text).join("\n");
-    expect(all).not.toMatch(/qr code/);
+  it("help topics only claim what exists (the timer since v0.16.0, dot voting since v0.18.0, cursors since v0.19.0, QR codes since v0.32.0)", () => {
     // Cursors are covered in Participants (and Silent brainstorm points at its Share switch).
     for (const t of HELP_TOPICS) if (!["participants", "touch-and-keyboard", "silent-brainstorm"].includes(t.id)) expect(t.text, t.id).not.toMatch(/cursor/);
+  });
+
+  it("Joining by QR code covers where it is, Large, scanning to the join screen, and that nothing is sent or stored", () => {
+    const qr = HELP_TOPICS.find((t) => t.id === "join-by-qr")?.text ?? "";
+    for (const claim of ["share session", "invite", "copy link", "large", "join session", "drawn on your device", "nothing is sent", "nothing is stored", "too long"]) {
+      expect(qr, claim).toContain(claim);
+    }
+    for (const id of ["sessions", "participants", "hosting"]) expect(HELP_TOPICS.find((t) => t.id === id)?.text, id).toContain("joining by qr code");
   });
 
   it("Participants covers live cursors: live only, never stored, the two switches, phones show but don't share", () => {

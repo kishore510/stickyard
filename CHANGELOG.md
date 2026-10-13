@@ -2,6 +2,19 @@
 
 All notable changes to Stickyard, newest first. The format follows Keep a Changelog. Versions are 0.x: a minor bump for each slice and a patch bump for each follow-up fix. This file is shown in the app under **What’s new**, so entries are written for the people using it.
 
+## [0.32.0] - 2026-10-13
+
+### Added
+- **Share session.** In a session, choose **Share session** in the menu (under **Participants** and **Chat**) or under **Invite** in **Participants**. It shows a QR code of the session's link, the link itself, and **Copy link**. Anyone in the session can open it, as with **Copy link**.
+- Scanning the code with a phone's camera opens the session's link, so people land on **Join session**, exactly as when they open the link.
+- **Large** makes the code fill the panel, and the whole screen on a wider screen, for a projector or a shared screen.
+- The code is always dark on a white panel with a clear border, in the light and dark themes, so it scans either way. If a link were ever too long for a code, the panel says so and you can still copy the link.
+- A new Help topic, **Joining by QR code**, and updates to **Starting and joining a session**, **Participants**, **Running a session** and **Touch and keyboard tips**.
+
+### Changed
+- About > Privacy says the QR code is drawn on your device from the session's link: nothing is sent anywhere to make it, and nothing is stored.
+- A panel opened over another one (**Share session** over **Participants**) now closes on its own with **Esc**, and focus goes back to the button that opened it.
+
 ## [0.31.0] - 2026-10-09
 
 ### Added

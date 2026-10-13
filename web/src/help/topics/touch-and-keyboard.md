@@ -15,6 +15,7 @@ keywords: shape, follow, stop following, bring to me, go there, zoom to selectio
 - In the overview map (wider screens), tap or click to go to that part of the board, or drag to move around.
 - In **Participants**, **Go to** beside someone's name takes the view to their pointer, and **Follow** keeps your view with theirs until you swipe or pinch the board yourself. Both work on a phone too; on a narrow screen they sit under the name. See [Follow and Bring to me](help:follow).
 - **Stop**, **Go there** and **Dismiss** under the top bar are full-size buttons, easy to tap.
+- **Share session** (in the menu, or in **Participants**) opens over what you had open. **Esc** or **X** closes just it, and focus goes back to the button you used. See [Joining by QR code](help:join-by-qr).
 
 ## Keyboard
 
