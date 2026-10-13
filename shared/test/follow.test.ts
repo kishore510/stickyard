@@ -35,8 +35,8 @@ const HI_X = BOARD_WIDTH + VIEWPORT_MARGIN;
 const HI_Y = BOARD_HEIGHT + VIEWPORT_MARGIN;
 
 describe("protocol v19", () => {
-  it("is version 19", () => {
-    expect(PROTOCOL_VERSION).toBe(19);
+  it("is version 19 or later", () => {
+    expect(PROTOCOL_VERSION).toBeGreaterThanOrEqual(19);
   });
 
   it("zoom bounds live in shared (the web's canvas uses the same numbers)", () => {

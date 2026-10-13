@@ -161,7 +161,8 @@ export class TestClient {
   /**
    * hello + join; returns the `joined` message. The notes snapshot that follows it is kept in
    * `snapshot`, the frames snapshot right after that (protocol v9) in `frames`, and the shapes
-   * snapshot after that (protocol v15) in `shapes`. `key` (protocol v17) names this page's writer.
+   * snapshot after that (protocol v15) in `shapes`, and the reaction counts after that (protocol
+   * v20) in `reactions`. `key` (protocol v17) names this page's writer.
    */
   async enter(name: string, key?: string): Promise<Extract<ServerMessage, { type: "joined" }>> {
     const welcome = await this.request({ type: "hello", protocolVersion: PROTOCOL_VERSION });
@@ -178,12 +179,17 @@ export class TestClient {
     const shapes = await this.next();
     if (shapes.type !== "shapesSnapshot") throw new Error(`expected shapesSnapshot, got ${JSON.stringify(shapes)}`);
     this.shapes = shapes;
+    // Protocol v20: the reaction counts, right after the shapes, on every join.
+    const reactions = await this.next();
+    if (reactions.type !== "reactionsSnapshot") throw new Error(`expected reactionsSnapshot, got ${JSON.stringify(reactions)}`);
+    this.reactions = reactions;
     return joined;
   }
 
   snapshot: Extract<ServerMessage, { type: "snapshot" }> | null = null;
   frames: Extract<ServerMessage, { type: "framesSnapshot" }> | null = null;
   shapes: Extract<ServerMessage, { type: "shapesSnapshot" }> | null = null;
+  reactions: Extract<ServerMessage, { type: "reactionsSnapshot" }> | null = null;
 }
 
 /**

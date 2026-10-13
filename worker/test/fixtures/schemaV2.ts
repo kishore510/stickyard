@@ -17,6 +17,8 @@ export function loadSchemaV2(sql: SqlStorage): void {
   sql.exec("DROP TABLE IF EXISTS meta");
   // Older schemas have no shapes table (schema 9).
   sql.exec("DROP TABLE IF EXISTS shapes");
+  // ...and no reactions table (schema 11).
+  sql.exec("DROP TABLE IF EXISTS reactions");
   sql.exec("CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value INTEGER NOT NULL)");
   sql.exec(
     `CREATE TABLE IF NOT EXISTS notes (

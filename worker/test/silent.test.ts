@@ -154,9 +154,9 @@ async function sealedAdd(c: TestClient, all: TestClient[], text: string, count: 
 }
 
 describe("versions", () => {
-  it("protocol 18 (silentMine) or later and stored schema 10; a v16 page is asked to reload", async () => {
+  it("protocol 18 (silentMine) or later and stored schema 10 or later; a v16 page is asked to reload", async () => {
     expect(PROTOCOL_VERSION).toBeGreaterThanOrEqual(18);
-    expect(SCHEMA_VERSION).toBe(10);
+    expect(SCHEMA_VERSION).toBeGreaterThanOrEqual(10);
     const { code } = await newRoom();
     const c = await TestClient.open(code);
     expect(await c.request({ type: "hello", protocolVersion: 16 })).toMatchObject({ type: "error", code: "version_mismatch" });
@@ -1088,7 +1088,7 @@ describe(`schema migration 9 -> ${SCHEMA_VERSION}`, () => {
       loadSchemaV9(sql);
       const before = sql.exec<Row>("SELECT * FROM notes ORDER BY rowid").toArray();
       const store = new NoteStore(sql);
-      expect(sql.exec<{ value: number }>("SELECT value FROM meta WHERE key = 'schema_version'").one().value).toBe(10);
+      expect(sql.exec<{ value: number }>("SELECT value FROM meta WHERE key = 'schema_version'").one().value).toBe(SCHEMA_VERSION);
       const after = sql.exec<Row>("SELECT * FROM notes ORDER BY rowid").toArray();
       expect(after.map(({ sealed: _s, writer: _w, ...rest }) => rest)).toEqual(before);
       expect(after.map((r) => [r.sealed, r.writer])).toEqual(before.map(() => [0, null]));

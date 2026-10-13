@@ -10,7 +10,7 @@ export const V5_NOTES = [
   { id: "v5note0000000003", x: 80, y: 80, w: 96, h: 96, text: "Continue", color: "pink", z: -2, rev: 2 },
 ] as const;
 
-const V5_COLUMNS =
+export const V5_COLUMNS =
   "id, x, y, w, h, text, color, font_size, bold, italic, text_color, align, title_align, title_font_size, title_bold, title_italic, title_text_color, z, rev, author_id";
 
 /** Replaces whatever the room has with a version 5 database holding V5_NOTES. */
@@ -19,6 +19,8 @@ export function loadSchemaV5(sql: SqlStorage): void {
   sql.exec("DROP TABLE IF EXISTS meta");
   // Older schemas have no shapes table (schema 9).
   sql.exec("DROP TABLE IF EXISTS shapes");
+  // ...and no reactions table (schema 11).
+  sql.exec("DROP TABLE IF EXISTS reactions");
   // Schema 5 has no frames table.
   sql.exec("DROP TABLE IF EXISTS frames");
   sql.exec("CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value INTEGER NOT NULL)");
