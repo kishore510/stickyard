@@ -39,6 +39,7 @@ import { useTopBarSlot } from "../shell/topBarSlot";
 import { TIMER_HINTS } from "../timer/controls";
 import { LOCK_TEXT, lockedOut, withLock } from "../facilitation/lock";
 import { LockNotices } from "../facilitation/LockNotices";
+import { ReactionAnnouncer } from "../reactions/NoteReactions";
 import { TimerPicker } from "../timer/TimerPicker";
 import { VotingStrip } from "../voting/VotingStrip";
 import { SilentStrip } from "../silent/SilentStrip";
@@ -674,6 +675,8 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
         <SilentStrip silent={view.silent} mine={view.mySealed.size} />
         {/* Follow and Bring to me (v0.31.0): under the strips, so they stack and never overlap. */}
         <FollowNotices wide={wide} onStop={stopFollow} onGo={goThere} />
+        {/* Reactions (v0.34.0): my own actions only, politely; nothing visible. */}
+        <ReactionAnnouncer />
       </>
     ),
     [view.locked, isHost, view.voting, view.remaining, closed, showResults, view.silent, view.mySealed, wide, stopFollow, goThere],

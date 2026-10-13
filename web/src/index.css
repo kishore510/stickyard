@@ -287,6 +287,116 @@
   color: var(--sy-accent-fg);
 }
 
+/* Reactions on notes (v0.34.0): a row of chips just below the note, in board units (it scales
+   with the board, like the vote badges above), so it never covers the note's text or changes its
+   size. Wraps within the note's width. Mine: a thicker accent outline and a tinted fill (and
+   aria-pressed), never colour alone. At middle zoom one quiet summary instead; at low zoom nothing. */
+.sy-reactions {
+  position: absolute;
+  top: calc(100% + var(--sy-reaction-gap));
+  left: 0;
+  right: 0;
+  z-index: 3;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sy-space-xs);
+}
+
+.sy-reaction-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sy-space-2xs);
+  min-width: var(--sy-reaction-chip);
+  height: var(--sy-reaction-chip);
+  padding: 0 var(--sy-space-sm);
+  border-radius: 9999px;
+  border: var(--sy-border-width) solid var(--sy-border-strong);
+  background: var(--sy-surface);
+  color: var(--sy-fg);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  box-shadow: 0 1px 2px var(--sy-shadow);
+}
+
+.sy-reaction-chip:hover {
+  border-color: var(--sy-accent);
+}
+
+.sy-reaction-chip:focus-visible {
+  outline: var(--sy-focus-width) solid var(--sy-focus);
+  outline-offset: var(--sy-focus-width);
+}
+
+.sy-reaction-chip[data-mine] {
+  border-color: var(--sy-accent);
+  background: var(--sy-accent-subtle);
+  box-shadow: inset 0 0 0 calc(var(--sy-reaction-mine-width) - var(--sy-border-width)) var(--sy-accent);
+}
+
+.sy-reaction-emoji {
+  font-size: var(--sy-reaction-emoji);
+  font-weight: 400;
+}
+
+.sy-reaction-add {
+  border-style: dashed;
+  color: var(--sy-fg-muted);
+}
+
+.sy-reaction-add svg {
+  width: var(--sy-icon-sm);
+  height: var(--sy-icon-sm);
+}
+
+.sy-reaction-pop {
+  animation: sy-reaction-pop var(--sy-duration-base) var(--sy-ease);
+}
+
+@keyframes sy-reaction-pop {
+  50% {
+    transform: scale(1.15);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sy-reaction-pop {
+    animation: none;
+  }
+}
+
+.sy-reactions-summary {
+  position: absolute;
+  top: calc(100% + var(--sy-reaction-gap));
+  left: 0;
+  z-index: 3;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sy-space-2xs);
+  height: var(--sy-reaction-chip);
+  padding: 0 var(--sy-space-sm);
+  border-radius: 9999px;
+  border: var(--sy-border-width) solid var(--sy-border-strong);
+  background: var(--sy-surface);
+  color: var(--sy-fg);
+  font-size: var(--sy-reaction-emoji);
+  font-weight: 600;
+  line-height: 1;
+  pointer-events: none;
+}
+
+/* An exported PNG shows the counts (as it shows vote totals) but never which are mine (as it
+   leaves out my dots). */
+.sy-exporting .sy-reaction-chip[data-mine] {
+  border-color: var(--sy-border-strong);
+  background: var(--sy-surface);
+  box-shadow: 0 1px 2px var(--sy-shadow);
+}
+
 /* Resize handles (after Chalkline's): a small visible square in token colours, with a hit area
    around it that is a full touch target on touch screens. Corner handles only; the edge lines
    resize one side. */

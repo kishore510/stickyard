@@ -36,7 +36,7 @@ function PublishRoom({ code, view, room }: { code: string; view: RoomView; room:
   const latest = useRef(room);
   latest.current = room;
   const live = view.status === "joined";
-  const { you, yourIds, participants, messages, rateLimited, isHost, locked, timer, lockPending, voting, isVoter, votersFull, myVotes, remaining, results, silent, mySealed, totalNotes, writer, silentPending } = view;
+  const { you, yourIds, participants, messages, rateLimited, isHost, locked, timer, lockPending, voting, isVoter, votersFull, myVotes, remaining, results, silent, mySealed, totalNotes, writer, silentPending, reactionCounts, myReactions } = view;
   const endReason = endSessionReason({ live, busy: view.adding, clearing: view.clearing || view.deleting });
   const resultRows = useResultRows(results, view.board);
   useEffect(() => {
@@ -75,13 +75,16 @@ function PublishRoom({ code, view, room }: { code: string; view: RoomView; room:
       silentPending,
       startSilent: () => latest.current.startSilent(),
       revealSilent: () => latest.current.revealSilent(),
+      reactionCounts,
+      myReactions,
+      reactionSet: (noteId, key, on) => latest.current.reactionSet(noteId, key, on),
       startFollow: (id) => latest.current.startFollow(id),
       stopFollow: () => latest.current.stopFollow(),
       bringToMe: (v) => latest.current.bringToMe(v),
       say: (text) => latest.current.say(text),
       leave: () => latest.current.leave(),
     });
-  }, [publish, code, you, yourIds, participants, live, messages, rateLimited, isHost, locked, timer, lockPending, endReason, voting, isVoter, votersFull, myVotes, remaining, results, resultRows, silent, mySealed, totalNotes, writer, silentPending]);
+  }, [publish, code, you, yourIds, participants, live, messages, rateLimited, isHost, locked, timer, lockPending, endReason, voting, isVoter, votersFull, myVotes, remaining, results, resultRows, silent, mySealed, totalNotes, writer, silentPending, reactionCounts, myReactions]);
   useEffect(() => () => publish(null), [publish]);
   return null;
 }

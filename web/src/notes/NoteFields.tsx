@@ -11,6 +11,7 @@ import { OrderSection } from "./OrderFields";
 import { ColourSection, PartTextSection, READ_ONLY, Section, SizeSection } from "./StyleFields";
 import { joinTitleBody, splitTitleBody } from "./titleBody";
 import { VotesSection } from "../voting/VoteButtons";
+import { ReactionsSection } from "../reactions/NoteReactions";
 import { EmojiPicker } from "../emoji/EmojiPicker";
 import { fitsCap } from "./inlineEdit";
 import { useRoomUi } from "../rooms/roomStore";
@@ -131,6 +132,8 @@ export function NoteFields({
       )}
       {/* While a round is open (or its results are shown): first, and never turned off by the lock. */}
       <VotesSection noteId={entry.note.id} confirmed={entry.confirmed !== null} />
+      {/* Reactions (v0.34.0): the same row as under the note, never turned off by the lock. */}
+      <ReactionsSection noteId={entry.note.id} confirmed={entry.confirmed !== null} />
       <div className="flex flex-col gap-sm" onBlur={onBlur}>
         <div className="flex flex-col gap-xs">
           <div className="flex items-center justify-between gap-sm">

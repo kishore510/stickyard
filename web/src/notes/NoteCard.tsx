@@ -19,6 +19,7 @@ import { partTextClasses } from "./style";
 import { VoteBadges, VoteControls, useNoteVoteLabel } from "../voting/NoteVotes";
 import { voteFromKey } from "../voting/VoteButtons";
 import { voteKey } from "../voting/voting";
+import { BoardReactions, useNoteReactionLabel } from "../reactions/NoteReactions";
 
 /** Arrow keys move by this many board units; with Shift, by KEY_STEP_BIG. */
 export const KEY_STEP = 10;
@@ -292,9 +293,13 @@ export const NoteNode = memo(function NoteNode({ id, data }: NodeProps<NoteFlowN
   const actions = useContext(NoteActionsContext);
   const several = useBoardUi((s) => s.selection.size + s.frames.size > 1);
   const voteLabel = useNoteVoteLabel(id);
+  const reactionLabel = useNoteReactionLabel(id);
   const votingOpen = useRoomUi((s) => s.room?.voting.state === "open");
-  // My sealed notes (silent brainstorm) take no votes until the reveal: no dots, no controls.
+  // My sealed notes (silent brainstorm) take no votes or reactions until the reveal: no dots,
+  // no chips, no controls.
   const sealed = useRoomUi((s) => s.room?.mySealed.has(id) ?? false);
+  const confirmed = data.entry.confirmed !== null;
+  const label = [voteLabel, reactionLabel].filter(Boolean).join(" ");
   return (
     <>
       <NodeResizer
@@ -309,9 +314,11 @@ export const NoteNode = memo(function NoteNode({ id, data }: NodeProps<NoteFlowN
         onResize={(_, p) => actions?.resizeNote(id, rectOf(p), false)}
         onResizeEnd={(_, p) => actions?.resizeNote(id, rectOf(p), true)}
       />
-      <NoteCard entry={data.entry} editable={data.editable} selected={data.selected} voteLabel={sealed ? `${SILENT_UI.marker}.` : voteLabel} />
+      <NoteCard entry={data.entry} editable={data.editable} selected={data.selected} voteLabel={sealed ? `${SILENT_UI.marker}.` : label} />
       {sealed ? <SealedMarker /> : <VoteBadges id={id} />}
-      {votingOpen && !sealed && data.selected && !several && <VoteControls id={id} confirmed={data.entry.confirmed !== null} />}
+      {/* Reactions (v0.34.0): chips below the note; Add reaction on the one selected, saved note. */}
+      {!sealed && <BoardReactions noteId={id} add={confirmed && data.selected && !several} />}
+      {votingOpen && !sealed && data.selected && !several && <VoteControls id={id} confirmed={confirmed} />}
       {data.selected && several && (
         <span data-select-badge aria-hidden="true" className="sy-select-badge">
           <Check strokeWidth={3} />

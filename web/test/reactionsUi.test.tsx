@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { act } from "react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { REACTION_KEYS } from "@stickyard/shared";
@@ -104,7 +105,7 @@ describe("chips on a note", () => {
     expect(card.contains(rowOf(1))).toBe(false);
     expect(rowOf(1)?.classList.contains("sy-reactions")).toBe(true);
     // Positioned below the note (in the CSS), and React Flow leaves presses on it alone.
-    const css = readFileSync(new URL("../src/index.css", import.meta.url), "utf8");
+    const css = readFileSync(join(process.cwd(), "src/index.css"), "utf8");
     const rule = css.slice(css.indexOf(".sy-reactions {"), css.indexOf("}", css.indexOf(".sy-reactions {")));
     expect(rule).toContain("position: absolute");
     expect(rule).toMatch(/top: calc\(100% \+ var\(--sy-reaction-gap\)\)/);
@@ -176,6 +177,8 @@ describe("chips on a note", () => {
     for (const theme of ["light", "dark"]) {
       localStorage.setItem(STORAGE_KEYS.theme, theme);
       await reacting();
+      const { applyTheme, readPreference } = await import("../src/shell/theme");
+      await act(async () => applyTheme(readPreference()));
       expect(document.documentElement.dataset.theme).toBe(theme);
       const heart = chip(1, "heart")!;
       expect(heart.className).toMatch(/sy-reaction-chip/);
@@ -293,6 +296,20 @@ describe("a silent round", () => {
     await tap(notesShown()[0]);
     expect(document.querySelector('[role="dialog"]')).not.toBeNull();
     expect(document.querySelector("[data-reactions-section]")).toBeNull();
+  });
+});
+
+describe("export", () => {
+  it("as votes: a PNG keeps the counts but never the controls or which are mine; Markdown has nothing new", async () => {
+    const { keepInExport } = await import("../src/export/png");
+    await reacting();
+    await selectNote(0);
+    expect(keepInExport(chip(1, "heart")!)).toBe(true);
+    expect(keepInExport(addButton(rowOf(1))!)).toBe(false);
+    const css = readFileSync(join(process.cwd(), "src/index.css"), "utf8");
+    expect(css).toContain(".sy-exporting .sy-reaction-chip[data-mine]");
+    const md = readFileSync(join(process.cwd(), "src/export/markdown.ts"), "utf8");
+    expect(md).not.toMatch(/reaction/i);
   });
 });
 

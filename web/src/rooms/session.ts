@@ -157,6 +157,23 @@ import { LEAVE_GRACE_MS, RESYNC_QUIET_MS, TOAST_BATCH_MS, TOAST_GAP_MS, TOAST_SH
 import { discardUnconfirmed, resyncFrames, resyncNotes, unsavedKeys, type OrphanDraft } from "./resync";
 import type { CursorSink } from "../cursors/cursors";
 import { ViewportSender, mayShareViewport, type FollowEnd, type FollowSink, type View } from "../follow/follow";
+import {
+  NO_COUNTS,
+  NO_MINE,
+  REACTION_NOTICES,
+  countsFromSnapshot,
+  isReactionKey,
+  isReactionRefusal,
+  keepNotes,
+  mineFromGrant,
+  shownReactions,
+  withCount,
+  withMine,
+  type MyReactions,
+  type PendingReaction,
+  type ReactionCounts,
+  type ReactionRefusal,
+} from "../reactions/reactions";
 
 /*
  * One visit to a room: connect, hello, join, then follow participants, echoes and notes.
@@ -306,6 +323,10 @@ export interface RoomView {
   silentPending: "start" | "reveal" | null;
   /** The last reveal seen here: its number in this visit, the count known before it, and the notes it brought that this page didn't have. */
   lastReveal: { seq: number; count: number; ids: readonly string[] } | null;
+  /** Protocol v20 (UI since v0.34.0): every note's reaction counts by key, mine still waiting included. Never who. */
+  reactionCounts: ReactionCounts;
+  /** My own reactions by note (sets still waiting for the relay shown already). */
+  myReactions: MyReactions;
 }
 
 /** One note's dots in a closed round's results. */
@@ -361,6 +382,8 @@ export const INITIAL_VIEW: RoomView = {
   writer: false,
   silentPending: null,
   lastReveal: null,
+  reactionCounts: NO_COUNTS,
+  myReactions: NO_MINE,
 };
 
 /** What a dropped connection says about changes it may have lost. */
@@ -756,6 +779,11 @@ export class RoomSession {
   private readonly votesPending = new Map<string, number[]>();
   /** The relay refused this visit as a voter (voters_full on claimVoter). */
   private votersFull = false;
+  /** Protocol v20: reaction counts and my own set as the relay last said (reactionsSnapshot, reactionCount, voterGranted, reactionMine). */
+  private reactCounts: ReactionCounts = NO_COUNTS;
+  private reactMine: MyReactions = NO_MINE;
+  /** reactionSets sent and not answered yet, per note, in send order. */
+  private readonly reactPending = new Map<string, PendingReaction[]>();
   /** Protocol v17/v18: my sealed note ids this round (the source of view.mySealed). */
   private sealed = new Set<string>();
   /** Protocol v17: the last join carried this page's key (it can write during a silent round). */
@@ -1197,8 +1225,10 @@ export class RoomSession {
     this.history.clear();
     const { board, orphans } = discardUnconfirmed(this.view.board);
     this.retry = { phase: this.env.online() ? "reconnecting" : "network", attempt: 1, failedOpens: 0, probes: 0, timer: undefined, trying: false, due: false, lastTryAt: -Infinity, gen: ++this.retryGen };
-    // Votes still waiting go too: the next claim's voterGranted says what the relay has.
+    // Votes and reactions still waiting go too: the next claim's voterGranted (and the join's
+    // reactionsSnapshot) say what the relay has.
     this.votesPending.clear();
+    this.reactPending.clear();
     this.votersFull = false;
     this.update({
       status: "disconnected",
@@ -1206,6 +1236,7 @@ export class RoomSession {
       isVoter: false,
       votersFull: false,
       ...this.voteView(),
+      ...this.reactionView(),
       board,
       dropReport: unsaved > 0 ? DROP_TEXT.unsaved(unsaved) : null,
       ...(orphans.length > 0 ? { orphanDraft: orphans.at(-1) ?? null } : {}),
@@ -3291,6 +3322,7 @@ export class RoomSession {
     const before = this.view.board;
     this.handle(parsed.value);
     this.pruneVotes();
+    this.pruneReactions();
     this.observe(before, this.view.board);
     this.settleClear();
   }
@@ -3373,7 +3405,12 @@ export class RoomSession {
         this.votesPending.clear();
         this.votesLeft = message.remaining;
         this.votersFull = false;
-        return this.update({ isVoter: true, votersFull: false, ...this.voteView() });
+        // Protocol v20: my own reactions replace what this page had (a reconnect, another tab).
+        // Kept whatever the board holds now (a grant can beat a slow snapshot); notes that turn
+        // out not to be here are pruned once the board is live, and only notes on it render.
+        this.reactMine = mineFromGrant(message.reactions ?? [], () => true);
+        this.reactPending.clear();
+        return this.update({ isVoter: true, votersFull: false, ...this.voteView(), ...this.reactionView() });
       }
 
       case "votingChanged": {
@@ -3396,6 +3433,34 @@ export class RoomSession {
         const pending = this.votesPending.get(message.noteId);
         if (pending?.[0] === message.count) this.shiftPendingVote(message.noteId);
         return this.update(this.voteView());
+      }
+
+      case "reactionsSnapshot":
+        // Every join: the relay's counts replace this page's, never merged.
+        this.reactCounts = countsFromSnapshot(message.counts, (id) => this.knownNote(id));
+        return this.update(this.reactionView());
+
+      case "reactionCount": {
+        if (!this.knownNote(message.noteId)) return;
+        this.reactCounts = withCount(this.reactCounts, message.noteId, message.key, message.count);
+        // A set of mine waiting on this note and key: this count may already hold it, and its
+        // reactionMine comes right after (the relay sends both in one step), so the view waits
+        // for it rather than counting mine twice for a moment.
+        if (this.reactPending.get(message.noteId)?.some((p) => p.key === message.key)) return;
+        return this.update(this.reactionView());
+      }
+
+      case "reactionMine": {
+        if (!this.knownNote(message.noteId)) return;
+        this.reactMine = withMine(this.reactMine, message.noteId, message.key, message.on);
+        // Mine, answered in order (or my other tab's, which settles mine the same way).
+        const pending = this.reactPending.get(message.noteId);
+        const at = pending?.findIndex((p) => p.key === message.key) ?? -1;
+        if (pending && at >= 0 && pending[at]?.on === message.on) {
+          pending.splice(at, 1);
+          if (pending.length === 0) this.reactPending.delete(message.noteId);
+        }
+        return this.update(this.reactionView());
       }
 
       case "silentChanged": {
@@ -3645,12 +3710,18 @@ export class RoomSession {
         if (message.noteId !== undefined && this.votesPending.has(message.noteId) && (VOTE_REFUSALS.has(message.code) || message.code === "rate_limited")) {
           return this.voteRefused(message.noteId, message.code);
         }
+        if (message.noteId !== undefined && this.reactPending.has(message.noteId) && isReactionRefusal(message.code)) {
+          return this.reactionRefused(message.noteId, message.code);
+        }
         // Protocol v19: that person already has MAX_FOLLOWERS; I follow nobody (the relay ended my old follow too).
         if (message.code === "followers_full") return this.followEnded("followers_full");
         if (message.code === "voters_full" && message.noteId === undefined) {
-          // claimVoter refused: this round has its voters. Said when a vote is tried.
+          // claimVoter refused: this round has its voters. Said when a vote is tried. Without a
+          // voter this page can't change its reactions, so none show as mine.
           this.votersFull = true;
-          return this.update({ isVoter: false, votersFull: true });
+          this.reactMine = NO_MINE;
+          this.reactPending.clear();
+          return this.update({ isVoter: false, votersFull: true, ...this.reactionView() });
         }
         const batch = message.clientRef === undefined ? undefined : this.itemBatches.get(message.clientRef);
         if (batch) return this.itemsErrored(message, batch);
@@ -3918,6 +3989,9 @@ export class RoomSession {
     this.votesPending.clear();
     this.votesLeft = VOTE_BUDGET_DEFAULT;
     this.votersFull = false;
+    this.reactCounts = NO_COUNTS;
+    this.reactMine = NO_MINE;
+    this.reactPending.clear();
     this.sealed.clear();
     clearTimeout(this.timer);
     this.stopRetry();
@@ -3959,6 +4033,8 @@ export class RoomSession {
       mySealed: new Set(),
       silentPending: null,
       lastReveal: null,
+      reactionCounts: NO_COUNTS,
+      myReactions: NO_MINE,
       board: EMPTY_BOARD,
       synced: false,
       presenceToast: null,
@@ -4210,6 +4286,72 @@ export class RoomSession {
     // Shown first: a refusal can only come after.
     this.update({ ...this.voteView(), noteNotice: null });
     this.send({ type: "voteSet", noteId, count });
+    return true;
+  }
+
+  /* ── Reactions on notes (protocol v20; the UI since v0.34.0) ───── */
+
+  /** A note on the board (or being deleted here): the only notes reactions are kept for. */
+  private knownNote(id: string): boolean {
+    const board = this.view.board;
+    return findNote(board, id) !== undefined || board.removed.some((n) => n.note.id === id);
+  }
+
+  /** Counts and my set as shown: the relay's, with my waiting sets on top. */
+  private reactionView(): Pick<RoomView, "reactionCounts" | "myReactions"> {
+    const { counts, mine } = shownReactions(this.reactCounts, this.reactMine, this.reactPending);
+    return { reactionCounts: counts, myReactions: mine };
+  }
+
+  /** A reaction refused by the relay: the oldest waiting set on that note rolled back, with one calm notice. */
+  private reactionRefused(noteId: string, code: ReactionRefusal): void {
+    const pending = this.reactPending.get(noteId);
+    pending?.shift();
+    if (pending?.length === 0) this.reactPending.delete(noteId);
+    this.update({ ...this.reactionView(), noteNotice: REACTION_NOTICES[code], ...(code === "rate_limited" ? { rateLimited: true } : {}) });
+  }
+
+  /** Notes that are gone drop out of the counts, my set and my waiting sets. Only once the board is live. */
+  private pruneReactions(): void {
+    if (!this.view.synced || this.resyncing || this.view.status !== "joined") return;
+    const here = (id: string) => this.knownNote(id);
+    const counts = keepNotes(this.reactCounts, here);
+    const mine = keepNotes(this.reactMine, here);
+    let changed = counts !== this.reactCounts || mine !== this.reactMine;
+    this.reactCounts = counts;
+    this.reactMine = mine;
+    for (const id of this.reactPending.keys()) {
+      if (here(id)) continue;
+      this.reactPending.delete(id);
+      changed = true;
+    }
+    if (changed) this.update(this.reactionView());
+  }
+
+  /**
+   * Sets my reaction `key` on a note on or off (an idempotent set, never a toggle). Optimistic:
+   * shown at once, settled by the relay's reactionCount and reactionMine, rolled back with a calm
+   * notice if refused. Refused here, with nothing sent: an unknown key, a note that isn't on the
+   * board or isn't saved yet, my sealed note (no reactions until the reveal), while disconnected
+   * (a notice), and without a voter (a notice). A locked board still takes reactions. Not
+   * recorded by undo.
+   */
+  reactionSet(noteId: string, key: string, on: boolean): boolean {
+    if (!isReactionKey(key)) return false;
+    if (!this.live) {
+      this.update({ noteNotice: REACTION_NOTICES.offline });
+      return false;
+    }
+    if (this.sealed.has(noteId) || !findNote(this.view.board, noteId)?.confirmed) return false;
+    if (!this.view.isVoter) {
+      this.update({ noteNotice: REACTION_NOTICES.no_voter });
+      return false;
+    }
+    if ((this.view.myReactions.get(noteId)?.has(key) ?? false) === on) return true;
+    this.reactPending.set(noteId, [...(this.reactPending.get(noteId) ?? []), { key, on }]);
+    // Shown first: a refusal can only come after.
+    this.update({ ...this.reactionView(), noteNotice: null });
+    this.send({ type: "reactionSet", noteId, key, on });
     return true;
   }
 

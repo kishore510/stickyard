@@ -263,6 +263,14 @@
   --sy-vote-badge: 22px;
   --sy-vote-badge-gap: 8px;
   --sy-vote-controls-offset: 16px;
+  /* Reactions on notes (v0.34.0): chips in a row just below a note (index.css .sy-reactions), in
+     board units: a touch target tall at 100% zoom, clear of the bottom resize handles. Mine have a
+     thicker accent outline (more than colour). The picker holds the six emoji in one row. */
+  --sy-reaction-chip: var(--sy-touch-min);
+  --sy-reaction-gap: 8px;
+  --sy-reaction-emoji: 1.125rem;
+  --sy-reaction-mine-width: 3px;
+  --sy-reaction-picker: calc(6 * var(--sy-touch-min) + 5 * var(--sy-space-xs) + 2 * var(--sy-space-xs) + 2 * var(--sy-border-width));
   /* Gap between cells of Arrange > Grid, in board units (= GRID_GAP in canvas/arrange.ts, test checks). */
   --sy-grid-gap: 24px;
   /* How far Duplicate puts the copies from the originals, right and down, in board units
@@ -584,6 +592,7 @@
   --spacing-handle-w: var(--sy-handle-width);
   --spacing-handle-h: var(--sy-handle-height);
   --spacing-menu: var(--sy-menu-width);
+  --spacing-reaction-picker: var(--sy-reaction-picker);
   --spacing-term: var(--sy-term-width);
   --spacing-sheet: var(--sy-sheet-width);
   --spacing-content: var(--sy-content-max);
