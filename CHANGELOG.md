@@ -2,6 +2,15 @@
 
 All notable changes to Stickyard, newest first. The format follows Keep a Changelog. Versions are 0.x: a minor bump for each slice and a patch bump for each follow-up fix. This file is shown in the app under **What’s new**, so entries are written for the people using it.
 
+## [0.33.0] - 2026-10-13
+
+### Changed
+- Groundwork for **reactions on notes**. Nothing new is visible yet: the buttons come in a later release. In it, you'll be able to put a quick reaction on a note (thumbs up, heart, laugh, celebrate, thinking or plus one) and see how many people chose each.
+- The relay can now keep reactions on notes: one of each kind per person per note, so pressing it twice changes nothing. Everyone sees the counts; nobody is told who reacted, and only your own pages are told which reactions are yours. Reactions work on a locked board, as votes do. During a silent round they're only for the notes everyone can see.
+- Reactions go with their note when it's deleted, when the board is cleared, and with the session when it ends or expires.
+- About > Privacy describes what reactions keep.
+- After this update, pages opened before it say **please reload** when they try to join, as with earlier updates.
+
 ## [0.32.0] - 2026-10-13
 
 ### Added

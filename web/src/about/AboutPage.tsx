@@ -173,6 +173,12 @@ export function AboutPage() {
             sent your hidden notes. The writer id is never sent to anyone, and it is removed from every note when the host reveals
             them; the notes then stay like any other note. Silent brainstorm keeps nothing else in this browser: only that same key.
           </li>
+          <li>
+            Reactions on notes (the buttons come in a later version) use your voting key too. The relay stores each reaction against the
+            same scrambled version of that key as your votes, never your name or your visit. Everyone sees how many of each reaction a
+            note has; nobody is told who reacted, and only your own pages are told which reactions are yours. Reactions are deleted with
+            their note, by Clear board, and with the session.
+          </li>
           <li>There are no accounts.</li>
         </ul>
       </section>
