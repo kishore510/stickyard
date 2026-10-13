@@ -15,5 +15,6 @@ export const CREDIT_LIST = [
   { name: "class-variance-authority", title: "class-variance-authority", role: "Button and component variants (shadcn/ui style)." },
   { name: "tailwind-merge", title: "tailwind-merge", role: "Combines component styles without conflicts." },
   { name: "clsx", title: "clsx", role: "Builds class names." },
+  { name: "lean-qr", title: "lean-qr", role: "Makes Share session's QR code, on your device." },
   { name: "html-to-image", title: "html-to-image", role: "Draws the board for Export PNG, in your browser (loaded only when you export)." },
 ] as const;

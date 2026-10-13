@@ -2,7 +2,7 @@
 title: Starting and joining a session
 order: 2
 summary: Start a session with the create passcode, share its link, and join by link or code.
-keywords: start, create, new, session, room, passcode, join, link, code, copy, share, leave, full, invalid, limit, host, expire, expired, expiry, idle, delete, deleted, days, last
+keywords: start, create, new, session, room, passcode, join, link, code, copy, share, qr, scan, leave, full, invalid, limit, host, expire, expired, expiry, idle, delete, deleted, days, last
 ---
 A **session** is one shared room with its own link. Its address looks like `#/room/` followed by a long code.
 
@@ -16,14 +16,15 @@ A **session** is one shared room with its own link. Its address looks like `#/ro
 ## Sharing and joining
 
 - In a session, open **Participants** (the people button at the top) and choose **Copy link**, then share it with the people you want to invite. Anyone with the link can join.
-- To join, open the link, or paste it (or just its code) into **Join a session** on the start page. Then type your name and choose **Join**.
+- Or choose **Share session** (in the menu, or under **Invite** in **Participants**) to show the link as a QR code that people scan with a phone. See [Joining by QR code](help:join-by-qr).
+- To join, open the link (or scan the code), or paste it (or just its code) into **Join a session** on the start page. Then type your name and choose **Join**.
 - A session holds up to 20 people at once. If it's full, try again when someone leaves.
 - If a link has been cut short or mistyped, you'll see "This link isn't valid". Ask for the link again.
 
 ## In a session
 
 - The **board** fills the screen and holds the session's notes. See [Notes](help:notes).
-- **Participants** lists who's here and has **Copy link** and **Leave session**. See [Participants](help:participants).
+- **Participants** lists who's here and has **Share session**, **Copy link** and **Leave session**. See [Participants](help:participants).
 - **Chat** sends short messages to everyone in the session; they aren't saved. See [Chat](help:chat).
 - **Leave session** takes you back to the start page. Your notes stay on the board. If your connection drops, choose **Rejoin**.
 

@@ -28,11 +28,11 @@ async function key(k: string) {
 }
 
 async function openParticipants() {
-  await click(q('header [aria-label^="Participants"]'));
+  await click(q<HTMLElement>('header [aria-label^="Participants"]'));
 }
 
 async function openFromMenu() {
-  await click(q('header button[aria-label^="Menu"]'));
+  await click(q<HTMLElement>('header button[aria-label^="Menu"]'));
   const item = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((m) => m.textContent?.includes("Share session"));
   await click(item);
 }
@@ -105,13 +105,14 @@ describe("Share session: the code", () => {
   });
 
   it("hostile names and room content never reach the sheet's markup", async () => {
-    const hostile: Participant = { ...sam, name: '<img src=x onerror="alert(1)">Sam' };
+    // 23 characters: within the 24-character name limit, so the relay would pass it on.
+    const hostile: Participant = { ...sam, name: "<img src=x onerror=a()>" };
     await inRoom({ others: [hostile] });
     await openFromMenu();
     const sheet = shareDialog()!;
     expect(sheet.querySelectorAll("img, script, iframe").length).toBe(0);
     expect(sheet.innerHTML).not.toContain("onerror");
-    expect(sheet.textContent).not.toContain("Sam");
+    expect(sheet.textContent).not.toContain("<img");
   });
 });
 

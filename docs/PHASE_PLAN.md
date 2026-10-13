@@ -1,6 +1,6 @@
 # Phase plan: Stickyard
 
-Last updated: 9 October 2026
+Last updated: 13 October 2026
 
 Draft roadmap. When a slice starts, rewrite its prompt against the real code (see the skeleton in PROJECT_BRIEF.md). Do not treat these notes as final prompts.
 
@@ -53,7 +53,8 @@ Draft roadmap. When a slice starts, rewrite its prompt against the real code (se
 | More built-in templates | Eleven more templates as data (Mad Sad Glad, 4Ls, Starfish, Sailboat, Lean coffee, SWOT, TIME, Migration strategy, Technology radar, RAID, Architecture decision) and the palette's templates under three group headings; web only, no protocol, relay or stored-schema change | Done (v0.29.0, PR #51, web only, merged and deployed 8 October 2026) |
 | 7b Arrows | (i) Free endpoints and a line style; (ii) endpoints bound to notes and shapes, re-routed when a bound object moves, with a rule for deleting a bound object | Not started |
 | 7c Structure (remaining) | Group boxes, affinity grouping, Stencils tab and Save as stencil. Frames, templates and export moved to their own slices | Not started |
-| 8 Phone view | Phone participant view, QR join | Not started |
+| QR join | Share session: the join link as a QR code made on the device (lean-qr, level M), the link as text, Copy link and Large for a shared screen; from the menu's Session group and Participants > Invite, for everyone who can copy the link. Phone audit in the PR. Web only, no protocol, relay or stored-schema change | Done (v0.32.0, web only, PR #PRNUM; awaiting review, not merged yet) |
+| 8 Phone view | Simplified phone participant view (QR join done separately in v0.32.0); whether it's worth a slice is decided from the v0.32.0 phone audit | Not started |
 | 10 AI | Summary and sentiment analysis, explicit buttons, add-only | Optional, last |
 | Later | Yjs migration, anonymous mode, PWA | Parked |
 
@@ -328,7 +329,14 @@ Draft roadmap. When a slice starts, rewrite its prompt against the real code (se
 - Stencils tab in the left panel with packaged areas (sprint planning, brainstorming area and similar), and Save as stencil from a selection.
 
 ### 8 Phone view
-- Add a note, vote, see the timer. Big canvas is for the shared screen. QR join.
+- Add a note, vote, see the timer. Big canvas is for the shared screen. QR join done on its own in v0.32.0 (below).
+- The phone audit (what a phone can and can't do in a session today) is in the v0.32.0 PR description (PR #PRNUM); it decides whether a simplified phone view is worth a slice. Not started.
+
+### QR join (web only) — done, v0.32.0
+- Branch `phase-qr-join`, PR #PRNUM, tests first (red commit, then green). Protocol 19 and schema 10 unchanged; nothing sent or stored; no new storage key or route.
+- Share session sheet (not a hash route: it opens over Participants, Esc closes it alone, focus returns to its opener; focus traps now stack). Menu > Session group and Participants > Invite, for everyone (Copy link was everyone's). Not in the board bar's host-only Session group.
+- `lean-qr` 2.7.4 pinned (MIT, zero dependencies, published 7 September 2026); `npm audit`: 0 for the web's production tree (the 5 high findings are the existing wrangler/miniflare dev tooling); main chunk +13.2 kB (+5.9 kB gzip), lean-qr itself about 6.9 kB (3.6 kB gzip). Level M, versions 1 to 10; too long = a message and Copy link. Inline SVG from React elements, `--sy-note-fg` on `--sy-brand-ink` (dark on white in both themes), quiet zone of 4. Large widens the sheet to the screen from md up.
+- Checked in Chromium at 360/768/1280, light and dark, normal and Large; every shot decoded back to the join link (off-repo decoder).
 
 ### 10 AI (optional)
 - Summary and sentiment of board content. Explicit buttons, confirmation with size estimate, add-only output, content treated as data. Key handling decided then.
@@ -376,6 +384,7 @@ Draft roadmap. When a slice starts, rewrite its prompt against the real code (se
 - Add and edit shapes on phones (v0.21.0 shows them read-only)
 - Emoji picker in the frame header's own title field (v0.21.0 has it in Properties only)
 - Export on phones
+- Share session: the browser's Back button doesn't close it (it isn't a hash route, so it can sit over Participants and give focus back to its button)
 - Export selection only
 - Follow: a person on a phone (or a hidden tab) never sends a view, and the page can't tell who is on a phone, so following them waits forever with "Waiting for Sam's view." Telling the page (a `compact` flag on the participant) needs a protocol change.
 - Follow: a leader whose tab was hidden sends nothing on return until their view next moves (the session doesn't re-send on `visibilitychange`); a follower waits until then.

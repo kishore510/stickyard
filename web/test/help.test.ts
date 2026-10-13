@@ -84,11 +84,17 @@ describe("help topics", () => {
     expect(sessions).not.toMatch(/end session button|lock button|timer tile/);
   });
 
-  it("help topics only claim what exists: no QR codes yet (the timer since v0.16.0, dot voting since v0.18.0, cursors since v0.19.0)", () => {
-    const all = HELP_TOPICS.map((t) => t.text).join("\n");
-    expect(all).not.toMatch(/qr code/);
+  it("help topics only claim what exists (the timer since v0.16.0, dot voting since v0.18.0, cursors since v0.19.0, QR codes since v0.32.0)", () => {
     // Cursors are covered in Participants (and Silent brainstorm points at its Share switch).
     for (const t of HELP_TOPICS) if (!["participants", "touch-and-keyboard", "silent-brainstorm"].includes(t.id)) expect(t.text, t.id).not.toMatch(/cursor/);
+  });
+
+  it("Joining by QR code covers where it is, Large, scanning to the join screen, and that nothing is sent or stored", () => {
+    const qr = HELP_TOPICS.find((t) => t.id === "join-by-qr")?.text ?? "";
+    for (const claim of ["share session", "invite", "copy link", "large", "join session", "drawn on your device", "nothing is sent", "nothing is stored", "too long"]) {
+      expect(qr, claim).toContain(claim);
+    }
+    for (const id of ["sessions", "participants", "hosting"]) expect(HELP_TOPICS.find((t) => t.id === id)?.text, id).toContain("joining by qr code");
   });
 
   it("Participants covers live cursors: live only, never stored, the two switches, phones show but don't share", () => {

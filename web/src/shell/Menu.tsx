@@ -1,10 +1,11 @@
-import { CircleHelp, Info, Menu as MenuIcon, MessageCircle, Sparkles, Users, type LucideIcon } from "lucide-react";
+import { CircleHelp, Info, Menu as MenuIcon, MessageCircle, QrCode, Sparkles, Users, type LucideIcon } from "lucide-react";
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
 import { useWhatsNew } from "../changelog/whatsNew";
 import { Button } from "../components/ui/button";
 import { Panel } from "../components/ui/panel";
 import { chatLabel } from "../chat/ChatDock";
 import { useRoomUi, useUnread } from "../rooms/roomStore";
+import { useShare } from "../share/shareStore";
 import type { Sheet } from "../router";
 import { openSheet } from "./nav";
 
@@ -24,6 +25,8 @@ interface MenuItem {
 const SESSION_GROUP: MenuItem[] = [
   { label: "Participants", icon: Users, sheet: { kind: "participants" } },
   { label: "Chat", icon: MessageCircle, action: () => useRoomUi.getState().openChat() },
+  // v0.32.0: the join link as a QR code (share/ShareSheet.tsx); everyone in a session, like Copy link.
+  { label: "Share session", icon: QrCode, action: () => useShare.getState().show() },
 ];
 
 const GROUPS: MenuItem[][] = [

@@ -21,3 +21,8 @@ export function roomHash(code: string): string {
 export function roomLink(code: string, origin: string, basePath: string): string {
   return `${origin}${basePath}${roomHash(code)}`;
 }
+
+/** This page's join link for a room: what Copy link copies and Share session's QR code holds. */
+export function joinLink(code: string): string {
+  return roomLink(code, window.location.origin, import.meta.env.BASE_URL);
+}

@@ -2,7 +2,11 @@
  * Focus trapping for modal sheets: focus moves in on open (to `[data-autofocus]` if
  * present), Tab and Shift+Tab cycle inside, Escape calls `onEscape`, and focus returns
  * to where it was on release. Written against minimal interfaces so it can be unit tested.
+ * Traps stack (v0.32.0: Share session opens over Participants): only the newest one handles
+ * keys, so Escape closes the top sheet alone and the one under it takes over once it's released.
  */
+
+const active: object[] = [];
 
 export const FOCUSABLE =
   'a[href], button:not([disabled]), summary, input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
@@ -42,8 +46,11 @@ export function trapFocus<T extends Focusable>(
 ): () => void {
   const previous = doc.activeElement as (Partial<Focusable> & { isConnected?: boolean }) | null;
   (container.querySelector("[data-autofocus]") ?? container.querySelector(FOCUSABLE))?.focus();
+  const token = {};
+  active.push(token);
 
   const onKeyDown = (e: KeyboardEvent) => {
+    if (active.at(-1) !== token) return;
     if (e.key === "Escape") {
       e.stopPropagation();
       onEscape();
@@ -59,6 +66,8 @@ export function trapFocus<T extends Focusable>(
   doc.addEventListener("keydown", onKeyDown, true);
   return () => {
     doc.removeEventListener("keydown", onKeyDown, true);
+    const at = active.indexOf(token);
+    if (at !== -1) active.splice(at, 1);
     if (previous?.isConnected !== false) previous?.focus?.();
   };
 }

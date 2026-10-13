@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useHashRoute, type Route } from "./router";
 import { HomeScreen } from "./screens/HomeScreen";
 import { RoomScreen } from "./screens/RoomScreen";
+import { ShareSheetHost } from "./share/ShareSheet";
 import { SheetHost } from "./shell/SheetHost";
 import { Shell } from "./shell/Shell";
 
@@ -44,6 +45,7 @@ export function App() {
     <Shell bleed={base.name === "room"}>
       {base.name === "room" ? <RoomScreen key={base.code} code={base.code} /> : <HomeScreen />}
       {route.name === "home" && route.sheet && <SheetHost sheet={route.sheet} />}
+      <ShareSheetHost />
     </Shell>
   );
 }
