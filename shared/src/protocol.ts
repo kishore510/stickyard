@@ -49,8 +49,13 @@ import { NOTE_Z_LIMIT, ORDER_ACTIONS } from "./stack";
  *   (to that person's followers only), followersChanged (a count, to the followed person only) and
  *   followEnded from the relay; bringToMe (host only) and broughtToMe (to everyone else). Relayed
  *   live, never stored; v18 pages would refuse the new server messages, so they get version_mismatch.
+ * v20 (reactions on notes): reactionSet { noteId, key, on } from a page (one of six fixed keys, an
+ *   idempotent set, never a toggle); reactionCount (to everyone who may see the note), reactionMine
+ *   (to the reactor's own sockets only), reactionsSnapshot (counts, on every join, right after
+ *   shapesSnapshot); voterGranted may carry my own reactions. A reactor is the dot-voting voter
+ *   (claimVoter). Never who reacted. v19 pages would refuse the new messages, so they get version_mismatch.
  */
-export const PROTOCOL_VERSION = 19;
+export const PROTOCOL_VERSION = 20;
 
 /**
  * Hard cap on a single client-to-server WebSocket message, in UTF-8 bytes. Checked before JSON.parse.
@@ -101,6 +106,16 @@ export const VOTER_KEY_MAX_LENGTH = 64;
  * every note, sealed or not. Beyond it: sealed_full.
  */
 export const MAX_SEALED_PER_WRITER = 40;
+/**
+ * Reactions on notes (protocol v20). A fixed set of keys, never raw emoji (the web maps keys to
+ * emoji). One reaction per reactor (the dot-voting voter) per key per note. A room holds at most
+ * MAX_REACTIONS_PER_ROOM reaction rows (beyond: reactions_full) and one reactor at most
+ * MAX_REACTIONS_PER_REACTOR (beyond: reactor_full): 20 people at their cap fill the room's.
+ */
+export const REACTION_KEYS = ["thumbs_up", "heart", "laugh", "celebrate", "thinking", "plus"] as const;
+export type ReactionKey = (typeof REACTION_KEYS)[number];
+export const MAX_REACTIONS_PER_ROOM = 2000;
+export const MAX_REACTIONS_PER_REACTOR = 100;
 /** off: no round (no votes); open: voting (anonymous, no live totals); closed: totals revealed. */
 export const VOTING_STATES = ["off", "open", "closed"] as const;
 export type VotingStateName = (typeof VOTING_STATES)[number];
@@ -1012,6 +1027,21 @@ export const voteSetSchema = z.strictObject({
   count: voteCount,
 });
 
+/* ── Reactions on notes (protocol v20) ──────────────────────────────────── */
+
+export const reactionKeySchema = z.enum(REACTION_KEYS);
+
+/**
+ * Set my reaction `key` on a note on or off. An idempotent set, never a toggle, so a retry or a
+ * reconnect can't flip it. After claimVoter (the reactor is the voter). Strict: nothing names a reactor.
+ */
+export const reactionSetSchema = z.strictObject({
+  type: z.literal("reactionSet"),
+  noteId: noteIdSchema,
+  key: reactionKeySchema,
+  on: z.boolean(),
+});
+
 /** Host only: start a new round (every earlier vote is deleted). */
 export const voteStartSchema = z.strictObject({
   type: z.literal("voteStart"),
@@ -1140,6 +1170,7 @@ export const clientMessageSchema = z.discriminatedUnion("type", [
   voteStartSchema,
   voteStopSchema,
   voteClearSchema,
+  reactionSetSchema,
   cursorSchema,
   cursorLeftSchema,
   silentStartSchema,
@@ -1191,6 +1222,8 @@ export const BOARD_WRITES: Readonly<Record<ClientMessageType, boolean>> = {
   voteStart: false,
   voteStop: false,
   voteClear: false,
+  // Reactions (v20) are like votes: a locked board still takes them.
+  reactionSet: false,
   // Live cursors (v14) are pointers, not edits: a locked board still shows everyone's.
   cursor: false,
   cursorLeft: false,
@@ -1232,6 +1265,10 @@ export const errorCodeSchema = z.enum([
   "sealed_full",
   // Follow (v19): that person already has MAX_FOLLOWERS followers.
   "followers_full",
+  // Reactions (v20): no such note (or a sealed one, anyone's); the room's cap; one reactor's cap.
+  "unknown_note",
+  "reactions_full",
+  "reactor_full",
 ]);
 export type ErrorCode = z.infer<typeof errorCodeSchema>;
 
@@ -1666,11 +1703,19 @@ export const noteVotesSchema = z.strictObject({
 });
 const remainingSchema = z.number().int().min(0).max(VOTE_BUDGET_MAX);
 
-/** The claim worked: this socket votes as that voter. Its own votes this round, and dots left. */
+/** One of my own reactions (protocol v20): a note and a key, never who. */
+export const myReactionSchema = z.strictObject({ noteId: noteIdSchema, key: reactionKeySchema });
+
+/**
+ * The claim worked: this socket votes (and, since v20, reacts) as that voter. Its own votes this
+ * round, and dots left; since v20 its own reactions, in note creation order then key order
+ * (left out when it has none).
+ */
 export const voterGrantedSchema = z.strictObject({
   type: z.literal("voterGranted"),
   remaining: remainingSchema,
   mine: z.array(noteVotesSchema.extend({ count: voteCount.min(1) })).max(VOTE_BUDGET_MAX),
+  reactions: z.array(myReactionSchema).max(MAX_REACTIONS_PER_REACTOR).optional(),
 });
 
 /** Voting started, stopped or cleared. To everyone. */
@@ -1695,6 +1740,24 @@ export const votesRevealedSchema = z.strictObject({
   type: z.literal("votesRevealed"),
   round: z.number().int().nonnegative(),
   totals: z.array(noteVotesSchema).max(MAX_NOTES_PER_ROOM),
+});
+
+/** A note's count for one reaction key (protocol v20): everyone's, never who. */
+const reactionCountShape = { noteId: noteIdSchema, key: reactionKeySchema, count: z.number().int().min(0).max(MAX_REACTIONS_PER_ROOM) };
+
+/** A note's count for a key changed. To everyone who may see the note (0 when the last one goes). */
+export const reactionCountSchema = z.strictObject({ type: z.literal("reactionCount"), ...reactionCountShape });
+
+/** My own reaction for a note and key is now on or off. To my own sockets only (every one with my voter). */
+export const reactionMineSchema = z.strictObject({ type: z.literal("reactionMine"), noteId: noteIdSchema, key: reactionKeySchema, on: z.boolean() });
+
+/**
+ * Every non-zero count, in note creation order then REACTION_KEYS order. On every join, right
+ * after shapesSnapshot in the same step. Counts only: my own set comes with voterGranted.
+ */
+export const reactionsSnapshotSchema = z.strictObject({
+  type: z.literal("reactionsSnapshot"),
+  counts: z.array(z.strictObject({ ...reactionCountShape, count: reactionCountShape.count.min(1) })).max(MAX_NOTES_PER_ROOM * REACTION_KEYS.length),
 });
 
 /**
@@ -1738,8 +1801,9 @@ export const notesRevealedSchema = z.strictObject({
 
 /**
  * Protocol v18: which notes in the snapshot are this page's own sealed ones (its writer's, from the
- * key in join), in creation order. Sent only to the joining socket, right after shapesSnapshot in
- * the join step, and only while a round is silent ([] without a key or sealed notes). From then
+ * key in join), in creation order. Sent only to the joining socket, at the end of the join step
+ * (right after shapesSnapshot; since v20 right after reactionsSnapshot), and only while a round is
+ * silent ([] without a key or sealed notes). From then
  * on the page keeps it itself: while a round runs, every note add it hears about is its own and
  * sealed (nobody else's sealed adds are ever sent); deletes take ids out; the reveal empties it.
  */
@@ -1798,6 +1862,9 @@ export const serverMessageSchema = z.discriminatedUnion("type", [
   votingChangedSchema,
   voteConfirmedSchema,
   votesRevealedSchema,
+  reactionCountSchema,
+  reactionMineSchema,
+  reactionsSnapshotSchema,
   cursorMovedSchema,
   cursorGoneSchema,
   silentChangedSchema,
@@ -1857,6 +1924,10 @@ export const SERVER_MESSAGES = {
   votingChanged: { carriesNoteContent: false },
   voteConfirmed: { carriesNoteContent: true },
   votesRevealed: { carriesNoteContent: true },
+  // Reactions (v20): each names a note, so the sealed filter sees them all.
+  reactionCount: { carriesNoteContent: true },
+  reactionMine: { carriesNoteContent: true },
+  reactionsSnapshot: { carriesNoteContent: true },
   cursorMoved: { carriesNoteContent: false },
   cursorGone: { carriesNoteContent: false },
   silentChanged: { carriesNoteContent: false },

@@ -154,9 +154,9 @@ async function sealedAdd(c: TestClient, all: TestClient[], text: string, count: 
 }
 
 describe("versions", () => {
-  it("protocol 18 (silentMine) or later and stored schema 10; a v16 page is asked to reload", async () => {
+  it("protocol 18 (silentMine) or later and stored schema 10 or later; a v16 page is asked to reload", async () => {
     expect(PROTOCOL_VERSION).toBeGreaterThanOrEqual(18);
-    expect(SCHEMA_VERSION).toBe(10);
+    expect(SCHEMA_VERSION).toBeGreaterThanOrEqual(10);
     const { code } = await newRoom();
     const c = await TestClient.open(code);
     expect(await c.request({ type: "hello", protocolVersion: 16 })).toMatchObject({ type: "error", code: "version_mismatch" });
@@ -390,7 +390,7 @@ describe("the canary leak test", () => {
     // Since the round started, the passive people got only these kinds of message.
     const sinceStart = (t: string[]) => t.slice(t.findIndex((r) => r.includes('"silentChanged"')));
     const kinds = (t: string[]) => new Set(t.map((r) => (JSON.parse(r) as { type: string }).type));
-    const joining = ["welcome", "joined", "snapshot", "framesSnapshot", "shapesSnapshot"];
+    const joining = ["welcome", "joined", "snapshot", "framesSnapshot", "shapesSnapshot", "reactionsSnapshot"];
     for (const t of [sinceStart(raw.host), sinceStart(raw.b)]) {
       for (const k of kinds(t)) expect(["silentChanged", "participant_joined", "participant_left", "itemsAdded"]).toContain(k);
     }
@@ -614,7 +614,8 @@ describe("silentMine (protocol v18): a page learns which of its notes are sealed
       await settle(100);
       const t = types(raw);
       const at = t.indexOf("shapesSnapshot");
-      expect(t.slice(at - 3, at + 2), step).toEqual(["joined", "snapshot", "framesSnapshot", "shapesSnapshot", "silentMine"]);
+      // Protocol v20: the reaction counts come right after the shapes, then silentMine.
+      expect(t.slice(at - 3, at + 3), step).toEqual(["joined", "snapshot", "framesSnapshot", "shapesSnapshot", "reactionsSnapshot", "silentMine"]);
       expect(mineOf(raw), step).toEqual([{ type: "silentMine", ids: [a1.id, a3.id] }]);
       // Exactly the snapshot's notes that aren't everyone's.
       expect(tab.snapshot?.notes.map((n) => n.id)).toEqual([visible.id, a1.id, a3.id]);
@@ -1088,7 +1089,7 @@ describe(`schema migration 9 -> ${SCHEMA_VERSION}`, () => {
       loadSchemaV9(sql);
       const before = sql.exec<Row>("SELECT * FROM notes ORDER BY rowid").toArray();
       const store = new NoteStore(sql);
-      expect(sql.exec<{ value: number }>("SELECT value FROM meta WHERE key = 'schema_version'").one().value).toBe(10);
+      expect(sql.exec<{ value: number }>("SELECT value FROM meta WHERE key = 'schema_version'").one().value).toBe(SCHEMA_VERSION);
       const after = sql.exec<Row>("SELECT * FROM notes ORDER BY rowid").toArray();
       expect(after.map(({ sealed: _s, writer: _w, ...rest }) => rest)).toEqual(before);
       expect(after.map((r) => [r.sealed, r.writer])).toEqual(before.map(() => [0, null]));

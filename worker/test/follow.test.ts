@@ -626,9 +626,9 @@ describe("the canary: a silent round", () => {
 });
 
 describe("versions", () => {
-  it("protocol 19 and stored schema 10 (no stored change); a v18 page is asked to reload", async () => {
-    expect(PROTOCOL_VERSION).toBe(19);
-    expect(SCHEMA_VERSION).toBe(10);
+  it("protocol 19 or later and stored schema 10 or later (no stored change in v19); a v18 page is asked to reload", async () => {
+    expect(PROTOCOL_VERSION).toBeGreaterThanOrEqual(19);
+    expect(SCHEMA_VERSION).toBeGreaterThanOrEqual(10);
     const { code } = await newRoom();
     const c = await TestClient.open(code);
     expect(await c.request({ type: "hello", protocolVersion: 18 })).toMatchObject({ type: "error", code: "version_mismatch" });

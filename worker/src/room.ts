@@ -10,6 +10,8 @@ import {
   MAX_NOTES_PER_ROOM,
   MAX_FOLLOWERS,
   MAX_PARTICIPANTS,
+  MAX_REACTIONS_PER_REACTOR,
+  MAX_REACTIONS_PER_ROOM,
   MAX_SEALED_PER_WRITER,
   MAX_SHAPES_PER_ROOM,
   REVEAL_CHUNK_NOTES,
@@ -72,7 +74,7 @@ import { randomBase64url } from "./crypto";
 import type { Secrets } from "./env";
 import { ENDED_REASON, EXPIRED_REASON, clearToTombstone, nextExpiryAlarm, readTombstone, writeTombstone, type Tombstone, type TombstoneKind } from "./expiry";
 import { verifyHostToken } from "./hostToken";
-import { BATCH_LIMITS, BRING_LIMITS, CURSOR_LIMITS, SOCKET_LIMITS, VIEWPORT_LIMITS } from "./limits";
+import { BATCH_LIMITS, BRING_LIMITS, CURSOR_LIMITS, REACTION_LIMITS, SOCKET_LIMITS, VIEWPORT_LIMITS } from "./limits";
 import { NoteStore } from "./noteStore";
 import { canSee, scrubFor } from "./sealed";
 import { voterIdFor } from "./voterId";
@@ -136,6 +138,9 @@ const socketStateSchema = z.object({
   viewAt: z.number().default(0),
   bringTokens: z.number().default(BRING_LIMITS.burst),
   bringAt: z.number().default(0),
+  /** Reactions token bucket (REACTION_LIMITS), protocol v20. Defaults keep older attachments readable. */
+  reactTokens: z.number().default(REACTION_LIMITS.burst),
+  reactAt: z.number().default(0),
 });
 type SocketState = z.infer<typeof socketStateSchema>;
 
@@ -190,6 +195,7 @@ function refOf(message: ClientMessage): ErrorRef {
     case "frameDelete":
       return { frameId: message.id };
     case "voteSet":
+    case "reactionSet":
       return { noteId: message.noteId };
     case "frameMove":
       // The notes and shapes it was carrying roll back with it.
@@ -215,6 +221,7 @@ type CursorMessage = Extract<ClientMessage, { type: "cursor" | "cursorLeft" }>;
 type JoinMessage = Extract<ClientMessage, { type: "join" }>;
 type SilentMessage = Extract<ClientMessage, { type: "silentStart" | "silentReveal" }>;
 type ViewMessage = Extract<ClientMessage, { type: "viewport" | "bringToMe" }>;
+type ReactionMessage = Extract<ClientMessage, { type: "reactionSet" }>;
 
 /** The silent round's meta keys (protocol v17): 1 while a round runs, and rounds started. */
 const SILENT_KEYS = { active: "silent_active", round: "silent_round" } as const;
@@ -383,6 +390,8 @@ export class Room extends DurableObject<Env> {
       viewAt: Date.now(),
       bringTokens: BRING_LIMITS.burst,
       bringAt: Date.now(),
+      reactTokens: REACTION_LIMITS.burst,
+      reactAt: Date.now(),
     };
     pair[1].serializeAttachment(state);
     return new Response(null, { status: 101, webSocket: pair[0] });
@@ -413,6 +422,8 @@ export class Room extends DurableObject<Env> {
     if (parsed.ok && isCursor(parsed.value)) return this.cursor(ws, state, now, parsed.value);
     // Viewports and Bring to me (protocol v19) spend their own buckets too.
     if (parsed.ok && isView(parsed.value)) return this.view(ws, state, now, parsed.value);
+    // Reactions (protocol v20) spend their own bucket, so they can never starve edits.
+    if (parsed.ok && parsed.value.type === "reactionSet") return this.reaction(ws, state, now, parsed.value);
     state.tokens = Math.min(SOCKET_LIMITS.burst, state.tokens + ((now - state.at) / 1000) * SOCKET_LIMITS.refillPerSecond);
     state.at = now;
     if (state.tokens < 1) {
@@ -515,6 +526,19 @@ export class Room extends DurableObject<Env> {
     if (!state.participant) return this.send(ws, error("not_joined", "Join the room first."));
     if (!state.participant.host) return this.send(ws, error("not_host", "Only the host can do that."));
     this.broadcast({ type: "broughtToMe", from: state.participant.id, ...clampViewportView(message.x, message.y, message.zoom) }, ws);
+  }
+
+  /**
+   * A reaction (protocol v20) spends REACTION_LIMITS, never SOCKET_LIMITS. Over the budget it is
+   * dropped with rate_limited naming its note, as a violation; otherwise it is handled in order
+   * like any other message (handle: pending drags relayed first).
+   */
+  private async reaction(ws: WebSocket, state: SocketState, now: number, message: ReactionMessage): Promise<void> {
+    state.reactTokens = Math.min(REACTION_LIMITS.burst, state.reactTokens + ((now - state.reactAt) / 1000) * REACTION_LIMITS.refillPerSecond);
+    state.reactAt = now;
+    if (state.reactTokens < 1) return this.overLimit(ws, state, now, refOf(message));
+    state.reactTokens -= 1;
+    await this.handle(ws, state, message);
   }
 
   /** The open sockets following this participant (protocol v19), from their attachments. */
@@ -782,6 +806,12 @@ export class Room extends DurableObject<Env> {
         return this.voteSet(ws, state, message.noteId, message.count);
       }
 
+      case "reactionSet": {
+        ws.serializeAttachment(state);
+        if (!state.participant) return this.send(ws, error("not_joined", "Join the room first.", refOf(message)));
+        return this.reactionSet(ws, state, message);
+      }
+
       case "voteStart":
       case "voteStop":
       case "voteClear": {
@@ -816,7 +846,7 @@ export class Room extends DurableObject<Env> {
   /**
    * join: a participant with a server-assigned id and colour, then (in one step, so nothing can land
    * between them) joined with the room's lock, timer, voting and silent state, and the notes,
-   * frames and shapes snapshots. Since v17 a join may carry the page's client key: its writer id
+   * frames and shapes snapshots and (protocol v20) the reaction counts. Since v17 a join may carry the page's client key: its writer id
    * (writerId.ts) is worked out first, so the snapshot already holds that writer's sealed notes on
    * every join, reconnect and second tab, and nobody else's. The key is never stored or echoed.
    */
@@ -860,6 +890,8 @@ export class Room extends DurableObject<Env> {
     this.send(ws, { type: "snapshot", notes: this.notes.all() });
     this.send(ws, { type: "framesSnapshot", frames: this.notes.allFrames() });
     this.send(ws, { type: "shapesSnapshot", shapes: this.notes.allShapes() });
+    // Protocol v20: every note's reaction counts (never a sealed note's, never who), in this same step.
+    this.send(ws, { type: "reactionsSnapshot", counts: this.notes.reactionCounts() });
     // Protocol v18: during a round, which of the snapshot's notes are this socket's own sealed ones.
     if (this.silent.active) this.send(ws, { type: "silentMine", ids: writerId === null ? [] : this.notes.sealedIdsOf(writerId) });
     // A closed round's totals, so a late joiner sees the results. While open, nothing about anyone's votes.
@@ -955,7 +987,9 @@ export class Room extends DurableObject<Env> {
     }
     latest.voterId = voterId;
     ws.serializeAttachment(latest);
-    this.send(ws, { type: "voterGranted", remaining: this.remaining(voterId), mine: this.notes.votesOf(voterId) });
+    // Protocol v20: the voter is also the reactor, so its own reactions come with the grant.
+    const reactions = this.notes.reactionsOf(voterId);
+    this.send(ws, { type: "voterGranted", remaining: this.remaining(voterId), mine: this.notes.votesOf(voterId), ...(reactions.length > 0 ? { reactions } : {}) });
   }
 
   /** Voters this round: those with votes, and those claimed on other open sockets. */
@@ -997,6 +1031,35 @@ export class Room extends DurableObject<Env> {
     const confirmed: ServerMessage = { type: "voteConfirmed", noteId, count, remaining: this.remaining(voterId) };
     for (const socket of this.ctx.getWebSockets()) {
       if (socket.readyState === WebSocket.OPEN && readState(socket)?.voterId === voterId) this.send(socket, confirmed);
+    }
+  }
+
+  /**
+   * reactionSet (protocol v20): after claimVoter (the reactor is the voter; no_voter otherwise). An
+   * unknown, deleted or sealed note (anyone's, its writer's too) gets unknown_note, word for word
+   * the same. Turning on past the reactor's cap is reactor_full, past the room's reactions_full.
+   * An idempotent set: the same state again writes and sends nothing. Otherwise one row (insert or
+   * delete), then reactionCount to everyone who may see the note and reactionMine to the reactor's
+   * own sockets only. Allowed on a locked board and during a silent round (on visible notes).
+   * Nothing names the reactor, and nothing about it is logged.
+   */
+  private reactionSet(ws: WebSocket, state: SocketState, message: ReactionMessage): void {
+    const { noteId, key, on } = message;
+    const reactor = state.voterId;
+    if (!reactor) return this.send(ws, error("no_voter", "Claim a voter first.", { noteId }));
+    if (!this.notes.get(noteId) || this.notes.writerOf(noteId) !== null) return this.send(ws, error("unknown_note", "That note isn't on the board.", { noteId }));
+    if (this.notes.hasReaction(reactor, noteId, key) === on) return;
+    if (on && this.notes.reactionsBy(reactor) >= MAX_REACTIONS_PER_REACTOR) {
+      return this.send(ws, error("reactor_full", `You have the maximum of ${MAX_REACTIONS_PER_REACTOR} reactions.`, { noteId }));
+    }
+    if (on && this.notes.reactionRows >= MAX_REACTIONS_PER_ROOM) {
+      return this.send(ws, error("reactions_full", `This board has the maximum of ${MAX_REACTIONS_PER_ROOM} reactions.`, { noteId }));
+    }
+    this.notes.setReaction(reactor, noteId, key, on);
+    this.broadcast({ type: "reactionCount", noteId, key, count: this.notes.reactionCount(noteId, key) });
+    const mine: ServerMessage = { type: "reactionMine", noteId, key, on };
+    for (const socket of this.ctx.getWebSockets()) {
+      if (socket.readyState === WebSocket.OPEN && readState(socket)?.voterId === reactor) this.send(socket, mine);
     }
   }
 

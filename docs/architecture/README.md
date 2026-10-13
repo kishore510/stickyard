@@ -6,7 +6,7 @@ Detail for each area of Stickyard, one file per area. CLAUDE.md stays short and 
 |---|---|
 | [shell.md](shell.md) | App shell, tokens, sheets, routes, Help, What's new, About, storage keys, welcome screen, top bar and board bar, Share session (QR join) |
 | [rooms.md](rooms.md) | Room codes, Worker checks, secrets, limits, the room Durable Object, expiry and burial, host token, lock, timer relay |
-| [notes.md](notes.md) | Note protocol and storage, size, colour and text style, inline editing, z-order, sealed notes and the leak inventory |
+| [notes.md](notes.md) | Note protocol and storage, size, colour and text style, inline editing, z-order, sealed notes and the leak inventory, reactions on notes |
 | [canvas.md](canvas.md) | React Flow canvas, palette and Properties panels, selection, marquee, arrange and grid, delete keys, Duplicate, Export, panel defaults, navigation (fit, zoom to selection, minimap, jump) |
 | [frames.md](frames.md) | Frames, frame title style, templates and their palette groups, frame multi-select |
 | [editing.md](editing.md) | `itemsAdd` (create with content), undo/redo history, Clear board |
@@ -36,6 +36,7 @@ Sections are named after the slice that introduced them. Cross-references in quo
 | Navigation: last known pointers (v0.24.0) | connection.md |
 | Follow and Bring to me, protocol v19 (v0.30.0, part 1 of 2) | connection.md |
 | Follow and Bring to me: the UI (v0.31.0, part 2 of 2) | connection.md |
+| Reactions in the join step (protocol v20, v0.33.0, part 1 of 2) | connection.md |
 | Follow: programmatic moves versus mine (v0.31.0) | canvas.md |
 | Create with content, protocol v11 (slice create with content) | editing.md |
 | Undo and redo (v0.12.0, part 2) | editing.md |
@@ -49,6 +50,7 @@ Sections are named after the slice that introduced them. Cross-references in quo
 | Silent brainstorm: the UI (v0.28.0, part 3 of 3) | facilitation.md, notes.md, shell.md |
 | Bring to me, protocol v19 (v0.30.0, part 1 of 2) | facilitation.md |
 | Bring to me: the UI (v0.31.0, part 2 of 2) | facilitation.md, shell.md |
+| Reactions reuse the voter (protocol v20, v0.33.0, part 1 of 2) | facilitation.md |
 | Frames, protocol v9 (slice frames) | frames.md |
 | Frame title styling, protocol v10 (slice frame title styling) | frames.md |
 | Templates (slice templates) | frames.md |
@@ -62,9 +64,11 @@ Sections are named after the slice that introduced them. Cross-references in quo
 | Inline editing (slice 2.9) | notes.md |
 | Z-order, protocol v8 (slice z-order) | notes.md |
 | Silent brainstorm: sealed notes and the leak inventory, protocol v17 (v0.25.0, part 1) | notes.md |
+| Reactions on notes, protocol v20 (v0.33.0, part 1 of 2) | notes.md |
 | Rooms and protocol v2 (slice 1) | rooms.md |
 | Room expiry (v0.14.0) | rooms.md |
 | Host, lock, timer, protocol v12 (v0.15.0) | rooms.md |
+| Reactions: rate bucket, caps and burial (protocol v20, v0.33.0, part 1 of 2) | rooms.md |
 | Shapes, protocol v15 (v0.21.0) | shapes.md |
 | App shell conventions (slice 0.5) | shell.md |
 | Welcome screen (v0.8.1) | shell.md |
