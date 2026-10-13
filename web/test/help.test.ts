@@ -5,7 +5,7 @@ import { buildTopics, parseFrontMatter, searchTopics } from "../src/help/topics"
 
 describe("help topics", () => {
   it("loads the topics, quick start first", () => {
-    expect(HELP_TOPICS.map((t) => t.id)).toEqual(["quick-start", "sessions", "notes", "text-and-shapes", "participants", "chat", "names", "connection", "touch-and-keyboard", "hosting", "dot-voting", "silent-brainstorm", "follow", "join-by-qr"]);
+    expect(HELP_TOPICS.map((t) => t.id)).toEqual(["quick-start", "sessions", "notes", "text-and-shapes", "participants", "chat", "names", "connection", "touch-and-keyboard", "hosting", "dot-voting", "reactions", "silent-brainstorm", "follow", "join-by-qr"]);
     expect(topicById("sessions")?.title).toBe("Starting and joining a session");
     expect(topicById(QUICK_START_ID)?.title).toBe("Quick start");
   });
@@ -184,6 +184,38 @@ describe("help topics", () => {
     }
     expect(searchTopics(HELP_TOPICS, "dots").map((r) => r.topic.id)[0]).toBe("dot-voting");
     expect(searchTopics(HELP_TOPICS, "vote").map((r) => r.topic.id)[0]).toBe("dot-voting");
+  });
+
+  it("Reactions covers adding, chips, toggling, phones, privacy, the lock, silent rounds, zoom, export, limits and the keys (v0.34.0)", () => {
+    const reactions = HELP_TOPICS.find((t) => t.id === "reactions")?.text ?? "";
+    for (const claim of [
+      "add reaction",
+      "thumbs up",
+      "plus one",
+      "thicker outline",
+      "take yours off",
+      "on a phone",
+      "properties",
+      "never selects, moves or edits the note",
+      "nobody sees who reacted",
+      "locked board",
+      "hidden notes have no reactions",
+      "below 50%",
+      "exported png",
+      "markdown export doesn't include reactions",
+      "100 reactions",
+      "2,000",
+      "esc",
+      "never other people's",
+      "reduced motion",
+    ]) {
+      expect(reactions, claim).toContain(claim);
+    }
+    expect(searchTopics(HELP_TOPICS, "reaction").map((r) => r.topic.id)[0]).toBe("reactions");
+    const hosting = HELP_TOPICS.find((t) => t.id === "hosting")?.text ?? "";
+    for (const claim of ["reactions", "never who reacted"]) expect(hosting, claim).toContain(claim);
+    const keys = HELP_TOPICS.find((t) => t.id === "touch-and-keyboard")?.text ?? "";
+    for (const claim of ["reaction chips", "add reaction", "no reaction shortcut"]) expect(keys, claim).toContain(claim);
   });
 
   it("Running a session covers the host, the timer, the lock, End session and a changed device", () => {

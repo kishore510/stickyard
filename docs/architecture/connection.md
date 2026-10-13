@@ -57,4 +57,4 @@ Architecture notes, moved out of CLAUDE.md on 7 October 2026 so they load only w
 
 ## Reactions in the join step (protocol v20, v0.33.0, part 1 of 2)
 - Every join (first join, reconnect, second tab, after a wake) now has one more message in the same step: `reactionsSnapshot` right after `shapesSnapshot` (then `silentMine` during a round, then `votesRevealed` while closed). It holds every non-zero reaction count, never who. A page's own reactions come with `voterGranted`, after its `claimVoter` on each `joined`, so a reconnect gets both again. Details in notes.md "Reactions on notes, protocol v20".
-- The web (part 1) ignores the three reaction messages; part 2 applies `reactionsSnapshot` as a full replace on each join (like the other snapshots) and `voterGranted.reactions` as my own set.
+- The web (part 1) ignored the three reaction messages. Since v0.34.0 (part 2) it applies `reactionsSnapshot` as a full replace on each join (like the other snapshots) and `voterGranted.reactions` as my own set; a drop clears reaction sets still waiting, so a reconnect resyncs from both. Details in notes.md "Reactions on notes: the UI".

@@ -174,10 +174,10 @@ export function AboutPage() {
             them; the notes then stay like any other note. Silent brainstorm keeps nothing else in this browser: only that same key.
           </li>
           <li>
-            Reactions on notes (the buttons come in a later version) use your voting key too. The relay stores each reaction against the
-            same scrambled version of that key as your votes, never your name or your visit. Everyone sees how many of each reaction a
-            note has; nobody is told who reacted, and only your own pages are told which reactions are yours. Reactions are deleted with
-            their note, by Clear board, and with the session.
+            Reactions on notes use your voting key too, and keep nothing else in this browser. The relay stores each reaction against the
+            same scrambled version of that key as your votes, never your name or your visit. The counts are shared: everyone sees how many
+            of each reaction a note has. Who reacted is not: nobody is told, the host included, and only your own pages are told which
+            reactions are yours. Reactions are deleted with their note, by Clear board, and with the session.
           </li>
           <li>There are no accounts.</li>
         </ul>
