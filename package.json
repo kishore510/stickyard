@@ -18,9 +18,11 @@
     "dev:web": "npm run dev -w web",
     "dev:worker": "npm run dev -w worker",
     "shots": "node scripts/shots.mjs",
-    "load": "vitest run --config dev/load/vitest.load.config.ts"
+    "load": "vitest run --config dev/load/vitest.load.config.ts",
+    "a11y": "node dev/a11y/audit.mjs"
   },
   "devDependencies": {
+    "axe-core": "^4.10.3",
     "playwright-core": "^1.56.1",
     "typescript": "5.9",
     "vitest": "^4.1.11"
