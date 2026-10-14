@@ -22,6 +22,9 @@ export function loadSchemaV3(sql: SqlStorage): void {
   sql.exec("DROP TABLE IF EXISTS reactions");
   // ...and no connectors table (schema 12).
   sql.exec("DROP TABLE IF EXISTS connectors");
+  // ...nor the groups tables (schema 13).
+  sql.exec("DROP TABLE IF EXISTS groups");
+  sql.exec("DROP TABLE IF EXISTS group_members");
   sql.exec("CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value INTEGER NOT NULL)");
   sql.exec(
     `CREATE TABLE IF NOT EXISTS notes (

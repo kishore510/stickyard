@@ -52,8 +52,8 @@ const add = (extra: Record<string, unknown> = {}) => ({ type: "connectorAdd", cl
 const connector = (extra: Record<string, unknown> = {}) => ({ id: ID, start: { x: 10, y: 20 }, end: { item: OTHER, anchor: "left" }, ...style, rev: 1, authorId: OTHER, ...extra });
 
 describe("protocol v21", () => {
-  it("is version 21", () => {
-    expect(PROTOCOL_VERSION).toBe(21);
+  it("is version 21 or later", () => {
+    expect(PROTOCOL_VERSION).toBeGreaterThanOrEqual(21);
   });
 
   it("key sets: anchors, routes, dashes, widths, inks (the shape border colours) and heads", () => {

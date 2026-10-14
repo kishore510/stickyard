@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { SERVER_MESSAGES, serverMessageSchema, type Connector, type Note, type ServerMessage } from "@stickyard/shared";
+import { SERVER_MESSAGES, serverMessageSchema, type Connector, type Group, type Note, type ServerMessage } from "@stickyard/shared";
 import { scrubFor } from "../src/sealed";
 
 /*
@@ -43,6 +43,11 @@ const connector = (id: string, item: string, side: "start" | "end" = "start"): C
   const bound = { item, anchor: "auto" as const };
   return { id, start: side === "start" ? bound : free, end: side === "end" ? bound : free, route: "straight", dash: "solid", width: "medium", ink: "neutral", startHead: "none", endHead: "arrow", rev: 1, authorId: AUTHOR };
 };
+
+/** A group of `members` (protocol v22). */
+const group = (id: string, members: string[]): Group => ({ id, label: "Label", color: "neutral", members: [...members].sort(), rev: 1 });
+const SHAPE_A = "shapeAAAAAAAAAAA";
+const SHAPE_B = "shapeBBBBBBBBBBB";
 
 /** Every note-carrying type, with the hidden note in it (and the visible one where the message can carry two). */
 const SAMPLES: Record<string, { both: ServerMessage; hiddenOnly: ServerMessage | null }> = {
@@ -97,6 +102,14 @@ const SAMPLES: Record<string, { both: ServerMessage; hiddenOnly: ServerMessage |
   connectorsSnapshot: { both: { type: "connectorsSnapshot", connectors: [connector("connHidden000001", HIDDEN), connector("connShown0000001", SHOWN)] }, hiddenOnly: null },
   connectorAdded: { both: { type: "connectorAdded", connector: connector("connShown0000001", SHOWN) }, hiddenOnly: { type: "connectorAdded", connector: connector("connHidden000001", HIDDEN), clientRef: "r1" } },
   connectorUpdated: { both: { type: "connectorUpdated", connector: connector("connShown0000001", SHOWN) }, hiddenOnly: { type: "connectorUpdated", connector: connector("connHidden000001", HIDDEN, "end") } },
+  // Groups (protocol v22): the relay never puts a sealed note in one; a hidden member is left out,
+  // and a group left with fewer than 2 members is left out whole.
+  groupsSnapshot: {
+    both: { type: "groupsSnapshot", groups: [group("groupHidden00001", [HIDDEN, SHAPE_A]), group("groupShown000001", [HIDDEN, SHOWN, SHAPE_B])] },
+    hiddenOnly: null,
+  },
+  groupCreated: { both: { type: "groupCreated", group: group("groupShown000001", [HIDDEN, SHOWN, SHAPE_A]) }, hiddenOnly: { type: "groupCreated", group: group("groupHidden00001", [HIDDEN, SHAPE_A]), clientRef: "r1" } },
+  groupUpdated: { both: { type: "groupUpdated", group: group("groupShown000001", [SHOWN, SHAPE_A, HIDDEN]) }, hiddenOnly: { type: "groupUpdated", group: group("groupHidden00001", [HIDDEN, SHAPE_B]) } },
 };
 
 const carrying = Object.entries(SERVER_MESSAGES)
@@ -141,6 +154,11 @@ describe("scrubFor", () => {
   it("a connector bound to a frame or shape id (never a note) is always kept", () => {
     const m: ServerMessage = { type: "connectorUpdated", connector: connector("connShape0000001", "shapeAAAAAAAAAAA") };
     expect(scrubFor(m, (id) => id.startsWith("shape") || id === SHOWN)).toEqual(m);
+  });
+
+  it("groups: a hidden member is left out and the group keeps going at 2 or more; the snapshot keeps every visible group", () => {
+    const m: ServerMessage = { type: "groupsSnapshot", groups: [group("groupHidden00001", [HIDDEN, SHAPE_A]), group("groupShown000001", [HIDDEN, SHOWN, SHAPE_B])] };
+    expect(scrubFor(m, visible)).toEqual({ type: "groupsSnapshot", groups: [group("groupShown000001", [SHOWN, SHAPE_B])] });
   });
 
   it("errors are passed through (they echo only what the sender sent, as for an unknown id)", () => {

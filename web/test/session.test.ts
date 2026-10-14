@@ -265,12 +265,12 @@ describe("a v21 relay: connectors (applied since arrows part 2, v0.36.0)", () =>
     authorId: sam.id,
   };
 
-  it("joins with protocol 21", () => {
-    expect(PROTOCOL_VERSION).toBe(21);
+  it("joins with protocol 21 or later", () => {
+    expect(PROTOCOL_VERSION).toBeGreaterThanOrEqual(21);
     const t = setup();
     t.session.join("Alex");
     t.sock().open();
-    expect(t.sock().sent[0]).toEqual({ type: "hello", protocolVersion: 21 });
+    expect(t.sock().sent[0]).toEqual({ type: "hello", protocolVersion: PROTOCOL_VERSION });
   });
 
   it("the four connector messages parse and apply: no crash, no error, no notice, nothing sent", () => {
@@ -303,6 +303,49 @@ describe("a v21 relay: connectors (applied since arrows part 2, v0.36.0)", () =>
   it("a connector message that doesn't validate (hostile text in a key) is still 'please reload', never a crash", () => {
     const t = joined();
     expect(() => t.sock().receive({ type: "connectorUpdated", connector: { ...connector, ink: HOSTILE } })).not.toThrow();
+    expect(t.view().status).toBe("reload");
+  });
+});
+
+describe("a v22 relay: groups (ignored by the page until the groups UI)", () => {
+  const HOSTILE = "<img src=x onerror=alert(1)>";
+  const group = { id: "GGGGGGGGGGGGGGG1", label: HOSTILE, color: "blue", members: ["NNNNNNNNNNNNNNN1", "SSSSSSSSSSSSSSS1"], rev: 1 };
+
+  it("joins with protocol 22", () => {
+    expect(PROTOCOL_VERSION).toBe(22);
+    const t = setup();
+    t.session.join("Alex");
+    t.sock().open();
+    expect(t.sock().sent[0]).toEqual({ type: "hello", protocolVersion: 22 });
+  });
+
+  it("the four group messages parse and are ignored: no crash, no error, no notice, no view change, nothing sent", () => {
+    const t = joined();
+    const note: Note = { id: "NNNNNNNNNNNNNNN1", x: 100, y: 100, ...NOTE_DEFAULTS, text: HOSTILE, color: "yellow", z: 0, rev: 1, authorId: sam.id };
+    t.sock().receive({ type: "snapshot", notes: [note] });
+    t.sock().receive({ type: "framesSnapshot", frames: [] });
+    t.sock().receive({ type: "shapesSnapshot", shapes: [] });
+    t.sock().receive({ type: "reactionsSnapshot", counts: [] });
+    t.sock().receive({ type: "connectorsSnapshot", connectors: [] });
+    const before = t.view();
+    const sent = t.sock().sent.length;
+    for (const m of [
+      { type: "groupsSnapshot", groups: [group] },
+      { type: "groupCreated", group: { ...group, id: "GGGGGGGGGGGGGGG2" }, clientRef: "g1" },
+      { type: "groupUpdated", group: { ...group, rev: 2, label: "", members: [...group.members, "NNNNNNNNNNNNNNN2"].sort() } },
+      { type: "groupDeleted", id: "GGGGGGGGGGGGGGG2" },
+    ]) {
+      expect(() => t.sock().receive(m)).not.toThrow();
+    }
+    expect(t.view()).toBe(before);
+    expect(t.view().status).toBe("joined");
+    expect(t.sock().closed).toBe(false);
+    expect(t.sock().sent.length).toBe(sent);
+  });
+
+  it("a group message that doesn't validate (hostile text in the colour key) is still 'please reload', never a crash", () => {
+    const t = joined();
+    expect(() => t.sock().receive({ type: "groupUpdated", group: { ...group, color: HOSTILE } })).not.toThrow();
     expect(t.view().status).toBe("reload");
   });
 });

@@ -266,6 +266,14 @@ describe("the canary leak test", () => {
     b.send({ type: "connectorAdd", clientRef: "k3", start: { x: 10, y: 10 }, end: { x: 90, y: 90 }, ...style });
     const kC = await nextOfType(b, "connectorAdded");
     await drain(host, a, b);
+    // Protocol v22: groups from before the round, of visible notes and shapes.
+    const vshape2 = (await host.request({ type: "shapeAdd", clientRef: "v2", kind: "oval", x: 2400, y: 2000 })) as Extract<ServerMessage, { type: "shapeAdded" }>;
+    await drain(host, a, b);
+    const gA = (await host.request({ type: "groupCreate", clientRef: "g1", label: "Before", color: "blue", members: [old.id, bnote.id] })) as Extract<ServerMessage, { type: "groupCreated" }>;
+    await drain(host, a, b);
+    b.send({ type: "groupCreate", clientRef: "g2", label: "", color: "neutral", members: [vshape.shape.id, vshape2.shape.id] });
+    const gB = await nextOfType(b, "groupCreated");
+    await drain(host, a, b);
     await startSilent(host, [a, b]);
     const all = [host, a, b];
     const sealed = new Set<string>();
@@ -358,11 +366,27 @@ describe("the canary leak test", () => {
       expect(toSealed).toMatchObject([{ type: "error", code: "silent_active" }]);
     }
     expect(await answers(a, { type: "connectorDelete", id: kC.connector.id })).toMatchObject([{ type: "error", code: "silent_active", connectorId: kC.connector.id }]);
-    // A visible bound note deleted during the round: its connector's end turns free, for everyone.
+    // 12c. Groups (protocol v22): every group message is refused during the round (silent_active),
+    // the host's too, and naming a sealed note gets exactly the reply a random id gets.
+    for (const make of [
+      (id: string) => ({ type: "groupCreate", clientRef: "g9", label: "x", color: "blue", members: [id, old.id] }),
+      (id: string) => ({ type: "groupMembers", id: gA.group.id, add: [id], remove: [] }),
+    ]) {
+      for (const c of [a, host]) {
+        const toSealed = await answers(c, make(s1.id));
+        expect(toSealed).toEqual(await answers(c, make(random)));
+        expect(toSealed).toMatchObject([{ type: "error", code: "silent_active" }]);
+      }
+    }
+    expect(await answers(a, { type: "groupUpdate", id: gA.group.id, label: "CANARY-label" })).toMatchObject([{ type: "error", code: "silent_active", groupId: gA.group.id }]);
+    expect(await answers(host, { type: "groupDelete", id: gB.group.id })).toMatchObject([{ type: "error", code: "silent_active", groupId: gB.group.id }]);
+    // A visible bound note deleted during the round: its connector's end turns free, and the group
+    // it was in (two members) is dissolved, for everyone.
     host.send({ type: "noteDelete", id: bnote.id });
     for (const o of [host, a, b, a2]) {
       expect(await nextOfType(o, "noteDeleted")).toEqual({ type: "noteDeleted", id: bnote.id });
       expect(await o.next()).toMatchObject({ type: "connectorUpdated", connector: { id: kB.connector.id, start: { x: 1660, y: 1580 }, rev: 2 } });
+      expect(await o.next()).toEqual({ type: "groupDeleted", id: gA.group.id });
     }
 
     // 13. frameMove carrying sealed notes (live and final): refused for A, nothing to anyone else.
@@ -422,9 +446,9 @@ describe("the canary leak test", () => {
     // Since the round started, the passive people got only these kinds of message.
     const sinceStart = (t: string[]) => t.slice(t.findIndex((r) => r.includes('"silentChanged"')));
     const kinds = (t: string[]) => new Set(t.map((r) => (JSON.parse(r) as { type: string }).type));
-    const joining = ["welcome", "joined", "snapshot", "framesSnapshot", "shapesSnapshot", "reactionsSnapshot", "connectorsSnapshot"];
+    const joining = ["welcome", "joined", "snapshot", "framesSnapshot", "shapesSnapshot", "reactionsSnapshot", "connectorsSnapshot", "groupsSnapshot"];
     for (const t of [sinceStart(raw.host), sinceStart(raw.b)]) {
-      for (const k of kinds(t)) expect(["silentChanged", "participant_joined", "participant_left", "itemsAdded", "noteDeleted", "connectorUpdated"]).toContain(k);
+      for (const k of kinds(t)) expect(["silentChanged", "participant_joined", "participant_left", "itemsAdded", "noteDeleted", "connectorUpdated", "groupDeleted"]).toContain(k);
     }
     // Connectors (protocol v21): no connector message to anyone, A's own sockets included, names a
     // sealed note or carries a sealed note's place; every snapshot holds the three from before the round.
@@ -440,6 +464,23 @@ describe("the canary leak test", () => {
     for (const t of [rawC, rawB2]) {
       const snap = connectorMessages(t).find((m) => m.type === "connectorsSnapshot") as { connectors: { id: string }[] } | undefined;
       expect(snap?.connectors.map((k) => k.id)).toEqual([kA.connector.id, kB.connector.id, kC.connector.id]);
+    }
+    // Groups (protocol v22): no group message to anyone, A's own sockets included, names a sealed
+    // note or carries a sealed note's place or the refused label; the late joiners' snapshots hold
+    // the one group left from before the round.
+    const groupMessages = (t: string[]) => t.map((r) => JSON.parse(r) as { type: string }).filter((m) => m.type.startsWith("group"));
+    for (const [who, transcript] of [["host", raw.host], ["A", rawA], ["B", raw.b], ["late joiner", rawC], ["B's second tab", rawB2]] as const) {
+      const messages = groupMessages(transcript);
+      expect(messages.length, who).toBeGreaterThan(0);
+      const text = JSON.stringify(messages);
+      expect(text, who).not.toContain("CANARY");
+      for (const id of sealed) expect(text, `${who}: sealed id in a group message`).not.toContain(id);
+      const { numbers } = leaves(messages.map((m) => JSON.stringify(m)));
+      for (const n of canaryNumbers) expect(numbers, `${who}: number ${n} in a group message`).not.toContain(n);
+    }
+    for (const t of [rawC, rawB2]) {
+      const snap = groupMessages(t).find((m) => m.type === "groupsSnapshot") as { groups: { id: string; members: string[] }[] } | undefined;
+      expect(snap?.groups).toEqual([{ ...gB.group }]);
     }
     for (const t of [rawC, rawB2]) for (const k of kinds(t)) expect([...joining, "silentMine", "silentChanged", "participant_joined", "participant_left"]).toContain(k);
     // Protocol v18: their own sealed ids only, none here.

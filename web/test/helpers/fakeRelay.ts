@@ -407,6 +407,8 @@ export class Relay {
         this.out({ type: "reactionsSnapshot", counts: this.reactionCounts() });
         // Protocol v21: the connectors, as the Worker sends them.
         this.out({ type: "connectorsSnapshot", connectors: [...this.connectors.values()] });
+        // Protocol v22: the groups, as the Worker sends them (the page ignores them until the groups UI).
+        this.out({ type: "groupsSnapshot", groups: [] });
         if (this.voting.state === "closed") this.out({ type: "votesRevealed", round: this.voting.round, totals: this.totals() });
         return;
       }
