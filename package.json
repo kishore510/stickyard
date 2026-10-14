@@ -12,12 +12,13 @@
     "node": ">=22.12"
   },
   "scripts": {
-    "typecheck": "npm run typecheck --workspaces",
-    "test": "npm run test --workspaces",
+    "typecheck": "npm run typecheck --workspaces && tsc --noEmit -p dev/load",
+    "test": "npm run test --workspaces && vitest run --config dev/load/vitest.unit.config.ts",
     "build": "npm run build -w web -w worker",
     "dev:web": "npm run dev -w web",
     "dev:worker": "npm run dev -w worker",
-    "shots": "node scripts/shots.mjs"
+    "shots": "node scripts/shots.mjs",
+    "load": "vitest run --config dev/load/vitest.load.config.ts"
   },
   "devDependencies": {
     "playwright-core": "^1.56.1",
