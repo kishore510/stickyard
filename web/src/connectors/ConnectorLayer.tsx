@@ -22,7 +22,7 @@ import type { ConnectorPatch } from "./board";
  * exported (data-connector-overlay), and its targets are 44 px whatever the zoom.
  */
 
-/** Arrows sit between the frames (FRAME_Z_INDEX, -NOTE_Z_LIMIT - 2) and the lowest possible note (-NOTE_Z_LIMIT). */
+/** Arrows sit between the group boxes (-NOTE_Z_LIMIT - 2, above the frames) and the lowest possible note (-NOTE_Z_LIMIT). */
 export const CONNECTOR_Z_INDEX = -NOTE_Z_LIMIT - 1;
 /** Below this zoom arrows are plain lines: heads and dashes would be noise. */
 export const READABLE_ZOOM = 0.25;

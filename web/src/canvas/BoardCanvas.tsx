@@ -38,6 +38,10 @@ import { useConnectorDrawing } from "../connectors/useConnectorDrawing";
 import { useConnectorUi } from "../connectors/connectorUi";
 import { boxOfBoard, freedArrows, resolveShown } from "../connectors/geometry";
 import { CONNECTOR_TEXT } from "../connectors/rules";
+import { groupOfSelection, ungroupedBy } from "../groups/geometry";
+import { GroupLayer, type GroupLayerActions } from "../groups/GroupLayer";
+import { findGroup } from "../groups/board";
+import { groupKey } from "../groups/rules";
 import type { ConnectorPatch } from "../connectors/board";
 import type { ConnectorEnd } from "@stickyard/shared";
 import type { DrawStyle } from "../connectors/connectorUi";
@@ -119,6 +123,8 @@ export interface BoardRoom {
   updateConnector?(id: string, change: ConnectorPatch): boolean;
   moveConnector?(id: string, dx: number, dy: number): boolean;
   deleteConnectors?(ids: readonly string[]): void;
+  /** Groups (protocol v22; v0.38.0): a label edited on the chip. */
+  updateGroup?(id: string, change: { label?: string }): boolean;
 }
 
 /** Deletes arrows (no confirm: they hold no text) and says so politely; clears the selection. */
@@ -132,7 +138,7 @@ export function deleteArrows(room: Pick<BoardRoom, "deleteConnectors" | "live">,
 /** Deletes a shape, asking first when it has text, and clears the selection. */
 export function deleteShapeAsking(room: Pick<BoardRoom, "board" | "deleteShape">, id: string): void {
   const entry = findShape(room.board, id);
-  if (!entry || !confirmShapeDelete(entry.shape, undefined, freedArrows(room.board, [id]))) return;
+  if (!entry || !confirmShapeDelete(entry.shape, undefined, freedArrows(room.board, [id]), ungroupedBy(room.board, [id]))) return;
   room.deleteShape(id);
   useBoardUi.getState().clearSelection();
 }
@@ -146,11 +152,12 @@ export function deleteSelected(room: Pick<BoardRoom, "board" | "live" | "deleteN
   if (only === undefined) return;
   if (!room.live) return room.deleteNotes(ids);
   const freed = freedArrows(room.board, ids);
+  const ungrouped = ungroupedBy(room.board, ids);
   if (ids.length === 1) {
-    if (!confirmDelete(findNote(room.board, only)?.note.text ?? "", undefined, freed)) return;
+    if (!confirmDelete(findNote(room.board, only)?.note.text ?? "", undefined, freed, ungrouped)) return;
     room.deleteNote(only);
   } else {
-    if (!confirmDeleteNotes(ids.length, undefined, freed)) return;
+    if (!confirmDeleteNotes(ids.length, undefined, freed, ungrouped)) return;
     room.deleteNotes(ids);
   }
   useBoardUi.getState().clearSelection();
@@ -234,11 +241,17 @@ export function BoardCanvas({
   view,
   onShortcut,
   arrowsEditable = editable,
+  groupsEditable = arrowsEditable,
+  onGroupKey,
 }: {
   room: BoardRoom;
   editable: boolean;
   /** Arrows can be drawn and changed (editable, and no silent round: the relay refuses every arrow then). */
   arrowsEditable?: boolean;
+  /** Groups can be changed (connected, not locked out, no silent round: the relay refuses every group message then). */
+  groupsEditable?: boolean;
+  /** G (group the selection) or Shift+G (ungroup), md and up (groups/rules.ts groupKey). */
+  onGroupKey?: (command: "group" | "ungroup") => void;
   /** Several notes can be selected (md and up): marquee, Shift/Ctrl-click, Ctrl+A, group moves. */
   multiSelect: boolean;
   /** The snapshot has arrived: fit to the notes once. */
@@ -260,6 +273,12 @@ export function BoardCanvas({
   const soleNote = useBoardUi((s) => (s.selection.size === 1 && s.frames.size + s.shapes.size + s.connectors.size === 0 ? [...s.selection][0]! : null));
   const soleShape = useBoardUi((s) => s.shapeSelected);
   const armed = useConnectorUi((s) => s.draw !== null);
+  // The group shown as selected: the one picked by its chip or outline, or the one whose members are exactly the selection.
+  const pinnedGroup = useBoardUi((s) => s.group);
+  const selectedGroup = useMemo(
+    () => pinnedGroup ?? (frameSelection.size + connectorSelection.size === 0 ? groupOfSelection(room.board, [...selection, ...shapeSelection]) : null),
+    [pinnedGroup, frameSelection, connectorSelection, selection, shapeSelection, room.board],
+  );
   const [spaceHeld, setSpaceHeld] = useState(false);
   const panOnly = tool === "hand" || spaceHeld;
   const latest = useRef(room);
@@ -607,6 +626,20 @@ export function BoardCanvas({
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
+  // G and Shift+G (v0.38.0): group the selection, ungroup (groups/rules.ts guards them). Never Ctrl+G.
+  const groupCommand = useRef(onGroupKey);
+  groupCommand.current = onGroupKey;
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const command = groupKey(e, { multi: multi.current, modal: document.querySelector('[aria-modal="true"]') !== null, board: sectionRef.current });
+      if (!command || !groupCommand.current) return;
+      e.preventDefault();
+      groupCommand.current(command);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
   // Ctrl/Cmd shortcuts for board commands (shortcuts.ts guards them): the browser's own action
   // (Ctrl+D bookmarks) is stopped whenever the board takes the key.
   const shortcut = useRef(onShortcut);
@@ -679,6 +712,36 @@ export function BoardCanvas({
       update: (id, change) => void latest.current.updateConnector?.(id, change),
     }),
     [drawing],
+  );
+  const groupActions = useMemo<GroupLayerActions>(
+    () => ({
+      select: (id) => {
+        const entry = findGroup(latest.current.board, id);
+        if (!entry) return;
+        const board = latest.current.board;
+        const members = entry.group.members;
+        useBoardUi.getState().selectGroup(
+          id,
+          members.filter((m) => findNote(board, m) !== undefined),
+          members.filter((m) => findShape(board, m) !== undefined),
+        );
+      },
+      startDrag: (id) => {
+        const entry = findGroup(latest.current.board, id);
+        if (!entry) return false;
+        const board = latest.current.board;
+        const notes = entry.group.members.filter((m) => findNote(board, m) !== undefined);
+        const shapes = entry.group.members.filter((m) => findShape(board, m) !== undefined);
+        return latest.current.startSelectionDrag([], notes, false, shapes);
+      },
+      drag: (dx, dy, final) => void latest.current.moveSelection(dx, dy, final),
+      startEdit: (id) => useBoardUi.getState().startGroupEdit(id),
+      commitLabel: (id, label) => {
+        useBoardUi.getState().endGroupEdit();
+        latest.current.updateGroup?.(id, { label });
+      },
+    }),
+    [],
   );
   // My pointer, shared from md up with a mouse or a hovering pen (phones only receive).
   useCursorSharing(sectionRef, multiSelect, room);
@@ -799,6 +862,8 @@ export function BoardCanvas({
                 />
               </ViewportPortal>
             )}
+            {/* Group boxes (v0.38.0): above the frames, below the arrows, notes and shapes. */}
+            <GroupLayer board={room.board} selected={selectedGroup} interactive={multiSelect} editable={groupsEditable && !panOnly} actions={groupActions} />
             {/* The side handles first, so an arrow attached at that side stays clickable over them. */}
             {multiSelect && arrowsEditable && !panOnly && !armed && (soleNote ?? soleShape) && (
               <DrawHandles board={room.board} item={(soleNote ?? soleShape)!} actions={overlayActions} />

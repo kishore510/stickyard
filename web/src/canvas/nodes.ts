@@ -29,10 +29,11 @@ export type BoardFlowNode = Node<Record<string, never>, "board">;
 export type CanvasNode = NoteFlowNode | FrameFlowNode | ShapeFlowNode | BoardFlowNode;
 
 /**
- * Frames sit in one band behind every note (whatever its z, down to -NOTE_Z_LIMIT) and the
- * arrows' layer, and above the board. Among themselves, frames stack in creation order (the node list's order).
+ * Frames sit in one band behind every note (whatever its z, down to -NOTE_Z_LIMIT), the arrows'
+ * layer and the groups' layer (v0.38.0: -NOTE_Z_LIMIT - 2), and above the board. Among
+ * themselves, frames stack in creation order (the node list's order).
  */
-export const FRAME_Z_INDEX = -NOTE_Z_LIMIT - 2;
+export const FRAME_Z_INDEX = -NOTE_Z_LIMIT - 3;
 
 /** The board's bounded area, drawn under the notes (and shown in the minimap). Never interactive. */
 export const BOARD_NODE: BoardFlowNode = {
@@ -46,8 +47,9 @@ export const BOARD_NODE: BoardFlowNode = {
   draggable: false,
   selectable: false,
   focusable: false,
-  // Below every frame, arrow and note, whatever its z (arrows: -NOTE_Z_LIMIT - 1, connectors/ConnectorLayer.tsx).
-  zIndex: -NOTE_Z_LIMIT - 3,
+  // Below every frame, group box, arrow and note, whatever its z (arrows: -NOTE_Z_LIMIT - 1,
+  // connectors/ConnectorLayer.tsx; group boxes: -NOTE_Z_LIMIT - 2, groups/GroupLayer.tsx).
+  zIndex: -NOTE_Z_LIMIT - 4,
   // A click on the board's area is a click on empty space (it clears the selection).
   style: { pointerEvents: "none" },
   domAttributes: { "aria-hidden": true },

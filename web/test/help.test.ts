@@ -5,7 +5,7 @@ import { buildTopics, parseFrontMatter, searchTopics } from "../src/help/topics"
 
 describe("help topics", () => {
   it("loads the topics, quick start first", () => {
-    expect(HELP_TOPICS.map((t) => t.id)).toEqual(["quick-start", "sessions", "notes", "text-and-shapes", "arrows", "participants", "chat", "names", "connection", "touch-and-keyboard", "hosting", "dot-voting", "reactions", "silent-brainstorm", "follow", "join-by-qr"]);
+    expect(HELP_TOPICS.map((t) => t.id)).toEqual(["quick-start", "sessions", "notes", "text-and-shapes", "arrows", "groups", "participants", "chat", "names", "connection", "touch-and-keyboard", "hosting", "dot-voting", "reactions", "silent-brainstorm", "follow", "join-by-qr"]);
     expect(topicById("sessions")?.title).toBe("Starting and joining a session");
     expect(topicById(QUICK_START_ID)?.title).toBe("Quick start");
   });
@@ -17,6 +17,15 @@ describe("help topics", () => {
         if (id) expect(topicById(id), `${topic.id} links to ${href}`).toBeDefined();
       }
     }
+  });
+
+  it("Groups and affinity grouping (v0.38.0) covers making, moving, labels, limits, affinity grouping and the off states", () => {
+    const groups = topicById("groups")?.text ?? "";
+    for (const claim of ["press g", "shift+g", "drag the chip", "40 characters", "2 to 100", "30 groups", "affinity grouping", "nothing is grouped for you", "silent brainstorm", "on a phone", "locks the board", "markdown"]) {
+      expect(groups, claim).toContain(claim);
+    }
+    expect(topicById("touch-and-keyboard")?.text).toContain("shift+g");
+    expect(topicById("hosting")?.text).toContain("affinity grouping");
   });
 
   it("names and identity describes what exists now", () => {

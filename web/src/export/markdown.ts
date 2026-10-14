@@ -21,6 +21,8 @@ export interface ExportBoard {
   results: readonly ResultRow[] | null;
   /** Arrows (v0.36.0), in creation order: only their ends, never their style. */
   connectors?: readonly { start: ConnectorEnd; end: ConnectorEnd }[];
+  /** Groups (v0.38.0), in creation order: only their label and members, never their colour. */
+  groups?: readonly { label: string; members: readonly string[] }[];
 }
 
 export const EXPORT_TEXT = {
@@ -37,6 +39,8 @@ export const EXPORT_TEXT = {
   connections: "Connections",
   freeEnd: "(free end)",
   emptyShape: "Empty shape",
+  group: "Group",
+  untitledGroup: "Untitled group",
 } as const;
 
 /** YYYY-MM-DD in local time. */
@@ -89,6 +93,12 @@ function noteLine(text: string, dots: number | null): string {
   return `- ${main}${dots === null ? "" : ` (${dotsWord(dots)})`}`;
 }
 
+/** A shape's line: its kind and text, or that it's empty. */
+const shapeLine = (s: { kind: ShapeKind; text: string }) => {
+  const text = plain(s.text);
+  return `- ${SHAPE_KIND_NAMES[s.kind]}: ${text === "" ? `*${EXPORT_TEXT.emptyShape}*` : text}`;
+};
+
 /** The whole file: title and date, a section per frame, the unframed notes, labels and shapes, then results. */
 export function boardToMarkdown(board: ExportBoard, date: Date): string {
   const totals = board.results ? new Map(board.results.map((r) => [r.noteId, r.count])) : null;
@@ -96,18 +106,54 @@ export function boardToMarkdown(board: ExportBoard, date: Date): string {
   const out: string[] = [`# ${EXPORT_TEXT.title}`, "", `Exported ${localDate(date)}`];
   const section = (heading: string, lines: string[]) => out.push("", `## ${heading}`, "", ...lines);
 
+  // Groups (v0.38.0): each is listed once, as a sub-list under its label, in the section its box's
+  // centre falls in (the frames' centre rule, applied to the box round its members). Its notes and
+  // shapes are listed there and nowhere else.
+  const noteById = new Map(board.notes.map((n) => [n.id, n] as const));
+  const shapeById = new Map(board.shapes.map((x) => [x.id, x] as const));
+  const grouped = new Set<string>();
+  const groups = (board.groups ?? []).flatMap((g, i) => {
+    // A shape keeps its kind (`shapeKind`); a note has none.
+    type Item = { id: string; x: number; y: number; w: number; h: number; text: string; shapeKind: ShapeKind | null };
+    const items = g.members.flatMap((id): Item[] => {
+      const n = noteById.get(id);
+      if (n) return [{ ...n, shapeKind: null }];
+      const x = shapeById.get(id);
+      return x ? [{ ...x, shapeKind: x.kind }] : [];
+    });
+    if (items.length === 0) return [];
+    for (const item of items) grouped.add(item.id);
+    const left = Math.min(...items.map((r) => r.x));
+    const top = Math.min(...items.map((r) => r.y));
+    const right = Math.max(...items.map((r) => r.x + r.w));
+    const bottom = Math.max(...items.map((r) => r.y + r.h));
+    return [{ id: `group:${i}`, x: left, y: top, w: right - left, h: bottom - top, label: g.label, items }];
+  });
+  const groupLines = (g: (typeof groups)[number]) => {
+    const label = plain(g.label);
+    return [
+      `- ${EXPORT_TEXT.group}: ${label === "" ? `*${EXPORT_TEXT.untitledGroup}*` : label}`,
+      ...readingOrder(g.items).map((item) => `  ${item.shapeKind !== null ? shapeLine({ kind: item.shapeKind, text: item.text }) : noteLine(item.text, dotsOf(item.id))}`),
+    ];
+  };
+  const loneNotes = board.notes.filter((n) => !grouped.has(n.id));
+
   // Each note goes to the first frame (in reading order) its centre is inside: the frame carry's rule.
   const placed = new Set<string>();
   for (const frame of readingOrder(board.frames)) {
-    const inside = readingOrder(framedNotes(frame, board.notes).filter((n) => !placed.has(n.id)));
+    const inside = readingOrder(framedNotes(frame, loneNotes).filter((n) => !placed.has(n.id)));
     for (const n of inside) placed.add(n.id);
+    const boxes = readingOrder(framedNotes(frame, groups).filter((g) => !placed.has(g.id)));
+    for (const g of boxes) placed.add(g.id);
     const title = plain(frame.title);
-    section(title === "" ? EXPORT_TEXT.untitledFrame : title, inside.length ? inside.map((n) => noteLine(n.text, dotsOf(n.id))) : [`*${EXPORT_TEXT.noNotes}*`]);
+    const lines = [...inside.map((n) => noteLine(n.text, dotsOf(n.id))), ...boxes.flatMap(groupLines)];
+    section(title === "" ? EXPORT_TEXT.untitledFrame : title, lines.length ? lines : [`*${EXPORT_TEXT.noNotes}*`]);
   }
-  const loose = readingOrder(board.notes.filter((n) => !placed.has(n.id)));
-  if (loose.length) section(EXPORT_TEXT.unframed, loose.map((n) => noteLine(n.text, dotsOf(n.id))));
+  const loose = readingOrder(loneNotes.filter((n) => !placed.has(n.id)));
+  const looseGroups = readingOrder(groups.filter((g) => !placed.has(g.id)));
+  if (loose.length + looseGroups.length) section(EXPORT_TEXT.unframed, [...loose.map((n) => noteLine(n.text, dotsOf(n.id))), ...looseGroups.flatMap(groupLines)]);
 
-  const shapes = readingOrder(board.shapes).flatMap((s) => {
+  const shapes = readingOrder(board.shapes.filter((x) => !grouped.has(x.id))).flatMap((s) => {
     const text = plain(s.text);
     return text === "" ? [] : [`- ${SHAPE_KIND_NAMES[s.kind]}: ${text}`];
   });

@@ -4,6 +4,7 @@ import { rollbackFrame } from "../frames/board";
 import { rollback, type Board, type BoardNote } from "../notes/board";
 import { discardUnconfirmedShapes } from "../shapes/board";
 import { discardUnconfirmedConnectors } from "../connectors/board";
+import { discardUnconfirmedGroups } from "../groups/board";
 
 /*
  * A dropped connection and the resync after it (web only, pure). There's no offline queue: at the
@@ -48,7 +49,7 @@ export function discardUnconfirmed(board: Board): { board: Board; orphans: Orpha
     if (entry.frame === entry.confirmed && !entry.dragging && !entry.resizing) return [entry];
     return [{ ...entry, frame: entry.confirmed, dragging: false, resizing: false }];
   });
-  return { board: discardUnconfirmedConnectors(discardUnconfirmedShapes({ ...next, notes, removed: [], frames, framesRemoved: [] })), orphans };
+  return { board: discardUnconfirmedGroups(discardUnconfirmedConnectors(discardUnconfirmedShapes({ ...next, notes, removed: [], frames, framesRemoved: [] }))), orphans };
 }
 
 /**
@@ -67,6 +68,8 @@ export function unsavedKeys(board: Board, inFlight: Iterable<string>, excluded: 
   for (const s of board.shapesRemoved) keys.add(`shape:${s.shape.id}`);
   for (const c of board.connectors) if (c.confirmed === null || c.connector !== c.confirmed) keys.add(`connector:${c.connector.id}`);
   for (const c of board.connectorsRemoved) keys.add(`connector:${c.connector.id}`);
+  for (const g of board.groups) if (g.confirmed === null || g.group !== g.confirmed) keys.add(`group:${g.group.id}`);
+  for (const g of board.groupsRemoved) keys.add(`group:${g.group.id}`);
   for (const key of inFlight) keys.add(key);
   for (const key of excluded) keys.delete(key);
   return keys;

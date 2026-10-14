@@ -15,6 +15,7 @@ import {
   type ConnectorEnd,
   type Frame,
   type FrameItem,
+  type Group,
   type Note,
   type NoteItem,
   type Participant,
@@ -57,8 +58,16 @@ export const connector = (i: number, start: ConnectorEnd, end: ConnectorEnd, ext
   ...extra,
 });
 
+export const gid = (i: number) => `grup${String(i).padStart(12, "0")}`;
+/** A group (protocol v22): members in id order, neutral and unlabelled unless said. */
+export const group = (i: number, members: string[], extra: Partial<Group> = {}): Group => ({ id: gid(i), label: "", color: "neutral", members: [...members].sort(), rev: 1, ...extra });
+
 export class Relay {
   notes = new Map<string, Note>();
+  /** Protocol v22: groups, in creation order. */
+  groups = new Map<string, Group>();
+  /** Group messages to refuse with this error code (once each): groups_full, group_size, unknown_item, unknown_group, board_locked, silent_active, rate_limited. */
+  refuseGroups: string | null = null;
   /** Protocol v21: connectors, in creation order. */
   connectors = new Map<string, Connector>();
   /** Connector messages to refuse with this error code (once each): board_locked, connectors_full, silent_active, rate_limited, unknown_item. */
@@ -285,6 +294,7 @@ export class Relay {
     this.notes.delete(id);
     this.out({ type: "noteDeleted", id });
     for (const m of this.detach([id], boxes)) this.out(m);
+    for (const m of this.ungroup([id])) this.out(m);
   }
   private connectorMessage(m: Record<string, unknown>) {
     const refused = this.refuseConnectors;
@@ -320,7 +330,96 @@ export class Relay {
     if (!this.connectors.delete(m.id as string)) return;
     return this.out({ type: "connectorDeleted", id: m.id });
   }
+  /** Sam stores a change to a group: broadcast like the Worker. */
+  samEditGroup(id: string, change: Partial<Group>) {
+    const current = this.groups.get(id)!;
+    const g = { ...current, ...change, members: [...(change.members ?? current.members)].sort(), rev: current.rev + 1 };
+    this.groups.set(id, g);
+    this.out({ type: "groupUpdated", group: g });
+  }
+  /**
+   * The Worker's rule (worker/src/groups.ts regroup): each move puts an item in a group (or none),
+   * out of any other; a group whose members change gets one rev; one below 2 is dissolved. Returns
+   * the messages for the other groups touched (creation order), not for `self`.
+   */
+  private regroup(moves: Map<string, string | null>, self: string | null): unknown[] {
+    const out: unknown[] = [];
+    for (const g of [...this.groups.values()]) {
+      const members = new Set(g.members);
+      let changed = false;
+      for (const [item, to] of moves) {
+        if (to === g.id && !members.has(item)) {
+          members.add(item);
+          changed = true;
+        } else if (to !== g.id && members.has(item)) {
+          members.delete(item);
+          changed = true;
+        }
+      }
+      if (!changed) continue;
+      if (members.size < 2) {
+        this.groups.delete(g.id);
+        if (g.id !== self) out.push({ type: "groupDeleted", id: g.id });
+        else out.unshift({ type: "groupDeleted", id: g.id });
+        continue;
+      }
+      const next = { ...g, members: [...members].sort(), rev: g.rev + 1 };
+      this.groups.set(g.id, next);
+      if (g.id !== self) out.push({ type: "groupUpdated", group: next });
+      else out.unshift({ type: "groupUpdated", group: next });
+    }
+    return out;
+  }
+  /** Deleted items leave their groups (after the item's delete message and the connectors' updates). */
+  private ungroup(ids: readonly string[]): unknown[] {
+    return this.regroup(new Map(ids.map((id) => [id, null])), null);
+  }
+  private groupMessage(m: Record<string, unknown>) {
+    const ref = m.type === "groupCreate" ? { clientRef: m.clientRef } : { groupId: m.id };
+    const refuse = (code: string) => this.out({ type: "error", code, message: "No.", ...ref });
+    const refused = this.refuseGroups;
+    if (refused) {
+      this.refuseGroups = null;
+      return refuse(refused);
+    }
+    const known = (id: string) => this.notes.has(id) || this.shapes.has(id);
+    if (m.type === "groupCreate") {
+      const members = m.members as string[];
+      if (this.groups.size >= 30) return refuse("groups_full");
+      if (members.length < 2) return refuse("group_size");
+      if (!members.every(known)) return refuse("unknown_item");
+      const id = this.newId("grup");
+      const others = this.regroup(new Map(members.map((item) => [item, id])), id);
+      const g: Group = { id, label: m.label as string, color: m.color as Group["color"], members: [...members].sort(), rev: 1 };
+      this.groups.set(id, g);
+      this.out({ type: "groupCreated", group: g, clientRef: m.clientRef });
+      for (const o of others) this.out(o);
+      return;
+    }
+    const current = this.groups.get(m.id as string);
+    if (!current) return refuse("unknown_group");
+    if (m.type === "groupUpdate") {
+      const next = { ...current, ...(m.label !== undefined ? { label: m.label as string } : {}), ...(m.color !== undefined ? { color: m.color as Group["color"] } : {}) };
+      if (next.label === current.label && next.color === current.color) return;
+      const g = { ...next, rev: current.rev + 1 };
+      this.groups.set(g.id, g);
+      return this.out({ type: "groupUpdated", group: g });
+    }
+    if (m.type === "groupMembers") {
+      const add = (m.add as string[]).filter((x) => !current.members.includes(x));
+      const remove = (m.remove as string[]).filter((x) => current.members.includes(x));
+      if (!(m.add as string[]).every(known)) return refuse("unknown_item");
+      if (add.length + remove.length === 0) return;
+      if (current.members.length + add.length - remove.length > 100) return refuse("group_size");
+      const moves = new Map<string, string | null>([...add.map((x) => [x, current.id] as const), ...remove.map((x) => [x, null] as const)]);
+      for (const o of this.regroup(moves, current.id)) this.out(o);
+      return;
+    }
+    this.groups.delete(current.id);
+    return this.out({ type: "groupDeleted", id: current.id });
+  }
   private handle(m: Record<string, unknown>) {
+    if (m.type === "groupCreate" || m.type === "groupUpdate" || m.type === "groupMembers" || m.type === "groupDelete") return this.groupMessage(m);
     if (m.type === "connectorAdd" || m.type === "connectorUpdate" || m.type === "connectorDelete") return this.connectorMessage(m);
     if (typeof m.type === "string" && m.type.startsWith("shape") && this.refuseShapes) {
       const code = this.refuseShapes;
@@ -369,6 +468,7 @@ export class Relay {
         if (!this.shapes.delete(m.id as string)) return;
         this.out({ type: "shapeDeleted", id: m.id });
         for (const u of this.detach([m.id as string], boxes)) this.out(u);
+        for (const u of this.ungroup([m.id as string])) this.out(u);
         return;
       }
       case "shapeBatch": {
@@ -392,6 +492,7 @@ export class Relay {
         if (results.length > 0) this.out({ type: "shapesBatchApplied", results, final: true });
         const deleted = (m.ops as { op: string; id: string }[]).filter((o) => o.op === "delete").map((o) => o.id);
         for (const u of this.detach(deleted, boxes)) this.out(u);
+        for (const u of this.ungroup(deleted)) this.out(u);
         return;
       }
       case "hello":
@@ -407,8 +508,8 @@ export class Relay {
         this.out({ type: "reactionsSnapshot", counts: this.reactionCounts() });
         // Protocol v21: the connectors, as the Worker sends them.
         this.out({ type: "connectorsSnapshot", connectors: [...this.connectors.values()] });
-        // Protocol v22: the groups, as the Worker sends them (the page ignores them until the groups UI).
-        this.out({ type: "groupsSnapshot", groups: [] });
+        // Protocol v22: the groups, as the Worker sends them.
+        this.out({ type: "groupsSnapshot", groups: [...this.groups.values()] });
         if (this.voting.state === "closed") this.out({ type: "votesRevealed", round: this.voting.round, totals: this.totals() });
         return;
       }
@@ -500,6 +601,7 @@ export class Relay {
         this.dropReactions(m.id as string);
         this.out({ type: "noteDeleted", id: m.id });
         for (const u of this.detach([m.id as string], boxes)) this.out(u);
+        for (const u of this.ungroup([m.id as string])) this.out(u);
         return;
       }
       case "noteBatch": {
@@ -527,6 +629,7 @@ export class Relay {
         this.out({ type: "notesBatchApplied", results, final: true });
         const deleted = (m.ops as { op: string; id: string }[]).filter((o) => o.op === "delete").map((o) => o.id);
         for (const u of this.detach(deleted, boxes)) this.out(u);
+        for (const u of this.ungroup(deleted)) this.out(u);
         return;
       }
       case "noteAdd": {
@@ -625,9 +728,18 @@ export class Relay {
   }
 }
 
-export function room(notes: Note[] = [], frames: Frame[] = [], options: Partial<SessionOptions> = {}, setup?: (relay: Relay) => void, shapes: Shape[] = [], connectors: Connector[] = []) {
+export function room(
+  notes: Note[] = [],
+  frames: Frame[] = [],
+  options: Partial<SessionOptions> = {},
+  setup?: (relay: Relay) => void,
+  shapes: Shape[] = [],
+  connectors: Connector[] = [],
+  groups: Group[] = [],
+) {
   const relay = new Relay(notes, frames, shapes);
   for (const c of connectors) relay.connectors.set(c.id, c);
+  for (const g of groups) relay.groups.set(g.id, g);
   setup?.(relay);
   const views: RoomView[] = [];
   const createSocket: SocketFactory = (_url, handlers) => relay.socket(handlers);
@@ -645,5 +757,7 @@ export function room(notes: Note[] = [], frames: Frame[] = [], options: Partial<
   const shown = (id: string) => findNote(view().board, id)?.note;
   /** A connector as this page shows it (protocol v21). */
   const arrow = (id: string) => view().board.connectors.find((c) => c.connector.id === id)?.connector;
-  return { session, relay, view, views, sent, shown, arrow };
+  /** A group as this page shows it (protocol v22). */
+  const shownGroup = (id: string) => view().board.groups.find((g) => g.group.id === id)?.group;
+  return { session, relay, view, views, sent, shown, arrow, shownGroup };
 }

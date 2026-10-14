@@ -9,9 +9,9 @@ export function shapeLabel(shape: Pick<Shape, "kind" | "text">): string {
 }
 
 /** Asks before deleting a shape that has text or attached arrows (they keep a free end). Empty ones without arrows go straight away. */
-export function confirmShapeDelete(shape: Pick<Shape, "kind" | "text">, confirm: (message: string) => boolean = (m) => window.confirm(m), freed = 0): boolean {
+export function confirmShapeDelete(shape: Pick<Shape, "kind" | "text">, confirm: (message: string) => boolean = (m) => window.confirm(m), freed = 0, ungrouped = 0): boolean {
   const what = shape.kind === "text" ? "text box" : "shape";
-  return (!shape.text.trim() && freed === 0) || confirm(`Delete this ${what}? It’s removed for everyone in the session.${freedSuffix(freed)}`);
+  return (!shape.text.trim() && freed === 0 && ungrouped === 0) || confirm(`Delete this ${what}? It’s removed for everyone in the session.${freedSuffix(freed, ungrouped)}`);
 }
 
 /** The placeholder an empty shape shows so it can be found (never stored or sent). */

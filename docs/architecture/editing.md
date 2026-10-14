@@ -20,3 +20,6 @@ Architecture notes, moved out of CLAUDE.md on 7 October 2026 so they load only w
 
 ## Arrows in undo and Clear board (v0.36.0)
 - History kind `connector` (ends as JSON strings, renamed with their items' new ids); an item delete records the arrows the relay frees, so undo re-attaches them; Clear board deletes arrows first and its undo restores items, then arrows. Details in connectors.md "Arrows: the UI".
+
+## Groups in undo, Duplicate and Clear board (v0.38.0)
+- History kind `group` (members as a JSON id list, renamed with their items' new ids); an item delete records the groups the relay dissolves or shrinks, so undo re-creates them or puts the items back; Clear board ungroups first and its undo restores items, then arrows, then groups; Duplicate copies whole groups. Details in groups.md "Groups: the UI".

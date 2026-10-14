@@ -22,6 +22,7 @@ export function exportBoardOf(board: Board, results: readonly ResultRow[] | null
     shapes: board.shapes.map((e) => e.shape),
     results,
     connectors: board.connectors.map((e) => ({ start: e.connector.start, end: e.connector.end })),
+    groups: board.groups.map((e) => ({ label: e.group.label, members: e.group.members })),
   };
 }
 

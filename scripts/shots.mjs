@@ -1,4 +1,4 @@
-// npm run shots: screenshots of the welcome page, a seeded room (with reactions, the reaction picker and arrows: attached, free, dashed, elbow, one selected with its handles, one being drawn; phones read-only) and its Share session sheet at 360, 768 and 1280 px,
+// npm run shots: screenshots of the welcome page, a seeded room (with reactions, the reaction picker and arrows: attached, free, dashed, elbow, one selected with its handles, one being drawn; phones read-only; groups: a plain cluster, one spanning two frames, one selected, a label being edited on its chip, phones read-only) and its Share session sheet at 360, 768 and 1280 px,
 // in light and dark, into shots/ (gitignored). Starts a local relay (wrangler dev, fake
 // secrets, throwaway storage) and the Vite dev server, then drives Chromium.
 //
@@ -107,6 +107,10 @@ async function seedRoom(page) {
             note("n2", 1240, 680, "green", "Demo day 🎉"),
             note("n3", 1740, 680, "pink", "Flaky tests\nTwo reruns a day"),
             note("n4", 1940, 760, "blue", "Long stand-ups"),
+            // Groups (v0.38.0): a plain cluster to the right of the frames.
+            note("c1", 2700, 680, "purple", "Faster feedback"),
+            note("c2", 2920, 680, "purple", "Clearer goals"),
+            note("c3", 2810, 900, "purple", "Fewer meetings"),
           ],
           shapes: [
             shape("s1", "text", 1000, 500, "Sprint retro"),
@@ -136,6 +140,14 @@ async function seedRoom(page) {
       ]) {
         ws.send(JSON.stringify(m));
         await next("connectorAdded");
+      }
+      // Groups (v0.38.0): a plain cluster, and a group spanning both frames.
+      for (const m of [
+        { type: "groupCreate", clientRef: "g1", label: "Customer themes", color: "blue", members: [ids.c1, ids.c2, ids.c3] },
+        { type: "groupCreate", clientRef: "g2", label: "Across both frames", color: "orange", members: [ids.n2, ids.n3] },
+      ]) {
+        ws.send(JSON.stringify(m));
+        await next("groupCreated");
       }
       ws.close();
       return { code, hostToken, roomId: code.split(".")[0] };
@@ -306,6 +318,36 @@ async function main() {
               await page.keyboard.press("Escape");
               await page.mouse.up();
             }
+          }
+          // Groups (v0.38.0): fit, the boxes with their chips; no chip may sit over the overview map or the
+          // view bar. Then (md and up) a selected group and its label edited on the chip; phones read-only.
+          await page.keyboard.press("Escape");
+          await page.keyboard.press("f");
+          await page.waitForTimeout(600);
+          if ((await page.locator("[data-group-chip]").count()) < 2) throw new Error(`groups missing at ${size.name} ${theme}`);
+          const chipOverlaps = await page.evaluate(() => {
+            const rects = (sel) => [...document.querySelectorAll(sel)].map((e) => e.getBoundingClientRect());
+            const ui = [...rects(".react-flow__minimap"), ...rects('[role="toolbar"][aria-label="View"]'), ...rects('[role="toolbar"][aria-label="Board tools"]')];
+            return rects("[data-group-chip]").filter((h) => h.width > 0 && ui.some((u) => h.left < u.right && h.right > u.left && h.top < u.bottom && h.bottom > u.top)).length;
+          });
+          if (chipOverlaps > 0) throw new Error(`a group chip overlaps the minimap or view bar at ${size.name} ${theme}: ${chipOverlaps}`);
+          await shot(size.width >= 768 ? "groups" : "groups-phone");
+          if (size.width >= 768) {
+            // Below lg the panels start collapsed: open Properties to show the group's fields.
+            if (size.width < 1024) await page.keyboard.press("]");
+            await page.locator('[data-group-chip][aria-label^="Group: Customer themes"]').click();
+            await page.waitForTimeout(400);
+            if ((await page.locator("[data-group-fields]").count()) === 0) throw new Error(`group Properties missing at ${size.name} ${theme}`);
+            await shot("group-selected");
+            await page.locator('[data-group-chip][aria-label^="Group: Customer themes"]').dblclick();
+            await page.locator("input[data-group-edit]").waitFor({ timeout: 5_000 });
+            await page.keyboard.press("End");
+            await page.keyboard.type(" (draft)");
+            await page.waitForTimeout(300);
+            await shot("group-label-edit");
+            await page.keyboard.press("Escape");
+            await page.keyboard.press("Escape");
+            await page.waitForTimeout(300);
           }
           // Share session (v0.32.0): the QR sheet from the menu, then Large.
           await page.getByRole("button", { name: /^Menu/ }).click();

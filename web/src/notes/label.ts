@@ -1,9 +1,13 @@
 import type { Note, Participant } from "@stickyard/shared";
 import { NOTE_COLOR_NAMES } from "./colours";
 import { freedLine } from "../connectors/rules";
+import { ungroupedLine } from "../groups/rules";
 
-/** The confirm's line about arrows that keep a free end (v0.36.0), with a leading space; empty for none. */
-export const freedSuffix = (freed: number) => (freed > 0 ? ` ${freedLine(freed)}` : "");
+/**
+ * The confirm's lines about arrows that keep a free end (v0.36.0) and groups the delete leaves
+ * with fewer than 2 items (v0.38.0), each with a leading space; empty for none.
+ */
+export const freedSuffix = (freed: number, ungrouped = 0) => `${freed > 0 ? ` ${freedLine(freed)}` : ""}${ungrouped > 0 ? ` ${ungroupedLine(ungrouped)}` : ""}`;
 
 /** Characters of note text in its accessible name. */
 export const LABEL_TEXT_LENGTH = 40;
@@ -25,13 +29,13 @@ export function noteLabel(note: Pick<Note, "text" | "color">): string {
  * Asks before deleting a note that has text, or that has arrows attached (`freed`: they keep a
  * free end, and the confirm says so). Empty notes without arrows go straight away.
  */
-export function confirmDelete(text: string, confirm: (message: string) => boolean = (m) => window.confirm(m), freed = 0): boolean {
-  return (!text.trim() && freed === 0) || confirm(`Delete this note? It’s removed for everyone in the session.${freedSuffix(freed)}`);
+export function confirmDelete(text: string, confirm: (message: string) => boolean = (m) => window.confirm(m), freed = 0, ungrouped = 0): boolean {
+  return (!text.trim() && freed === 0 && ungrouped === 0) || confirm(`Delete this note? It’s removed for everyone in the session.${freedSuffix(freed, ungrouped)}`);
 }
 
 /** Asks before deleting several notes, always (even empty ones), with the count and the arrows that keep a free end. */
-export function confirmDeleteNotes(count: number, confirm: (message: string) => boolean = (m) => window.confirm(m), freed = 0): boolean {
-  return confirm(`Delete ${count} notes? They’re removed for everyone in the session.${freedSuffix(freed)}`);
+export function confirmDeleteNotes(count: number, confirm: (message: string) => boolean = (m) => window.confirm(m), freed = 0, ungrouped = 0): boolean {
+  return confirm(`Delete ${count} notes? They’re removed for everyone in the session.${freedSuffix(freed, ungrouped)}`);
 }
 
 /**

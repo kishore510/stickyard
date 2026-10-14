@@ -58,6 +58,22 @@ interface BoardUi {
   renameConnector(from: string, to: string): void;
   /** Drops arrows that no longer exist. */
   pruneConnectors(exists: (id: string) => boolean): void;
+  /**
+   * The group shown in Properties (v0.38.0): its chip or outline was clicked (its members became
+   * the selection). Shift/Ctrl-clicks keep it, so items can be picked to add or take out; any plain
+   * selection lets it go. Null: none (Properties still shows a group when exactly its members are selected).
+   */
+  group: string | null;
+  /** Selects a group: its notes and shapes become the selection, and it's shown in Properties. */
+  selectGroup(id: string, noteIds: Iterable<string>, shapeIds: Iterable<string>): void;
+  /** A group got its server id. */
+  renameGroup(from: string, to: string): void;
+  /** Lets go of the group if it no longer exists (and of an edit of its label). */
+  pruneGroup(exists: (id: string) => boolean): void;
+  /** The group whose label is being edited on its chip (md and up). `n` makes each request new. */
+  groupEdit: { id: string; n: number } | null;
+  startGroupEdit(id: string): void;
+  endGroupEdit(): void;
   /** The shape whose text is being edited in place (md and up). `n` makes each request new. */
   shapeEdit: { id: string; n: number } | null;
   /** Asks a frame's header to take focus (a new frame: its title is ready to type). */
@@ -136,6 +152,7 @@ interface BoardUi {
 const sole = (only: Selection, ...others: Selection[]) => (others.every((o) => o.size === 0) ? onlySelected(only) : null);
 /** Every set and the derived sole frame, shape and arrow, to spread into a state update. */
 const all = (selection: Selection, frames: Selection, shapes: Selection = EMPTY_SELECTION, connectors: Selection = EMPTY_SELECTION) => ({
+  group: null,
   selection,
   frames,
   shapes,
@@ -156,6 +173,8 @@ export const useBoardUi = create<BoardUi>()((set, get) => ({
   shapeSelected: null,
   connectors: EMPTY_SELECTION,
   connectorSelected: null,
+  group: null,
+  groupEdit: null,
   shapeEdit: null,
   frameEditRequest: null,
   editRequest: null,
@@ -170,7 +189,7 @@ export const useBoardUi = create<BoardUi>()((set, get) => ({
   setColor: (color) => set({ color }),
   setMinimap: (minimap) => set({ minimap }),
   select: (id) => set(all(selectOnly(get().selection, id), EMPTY_SELECTION)),
-  toggle: (id) => set(all(toggleSelected(get().selection, id), get().frames, get().shapes, get().connectors)),
+  toggle: (id) => set({ ...all(toggleSelected(get().selection, id), get().frames, get().shapes, get().connectors), group: get().group }),
   setSelection: (selection) => {
     if (selection !== get().selection || get().frames.size > 0 || get().shapes.size > 0 || get().connectors.size > 0) set(all(selection, EMPTY_SELECTION));
   },
@@ -186,16 +205,32 @@ export const useBoardUi = create<BoardUi>()((set, get) => ({
   selectConnector: (id) => {
     if (get().connectorSelected !== id) set({ ...all(EMPTY_SELECTION, EMPTY_SELECTION, EMPTY_SELECTION, selectOnly(get().connectors, id)), inlineEdit: null, shapeEdit: null });
   },
-  toggleConnector: (id) => set({ ...all(get().selection, get().frames, get().shapes, toggleSelected(get().connectors, id)), inlineEdit: null, shapeEdit: null }),
-  renameConnector: (from, to) => set(all(get().selection, get().frames, get().shapes, renameInSelection(get().connectors, from, to))),
+  toggleConnector: (id) => set({ ...all(get().selection, get().frames, get().shapes, toggleSelected(get().connectors, id)), group: get().group, inlineEdit: null, shapeEdit: null }),
+  renameConnector: (from, to) => set({ ...all(get().selection, get().frames, get().shapes, renameInSelection(get().connectors, from, to)), group: get().group }),
   pruneConnectors: (exists) => {
     const next = pruneSelection(get().connectors, exists);
-    if (next !== get().connectors) set(all(get().selection, get().frames, get().shapes, next));
+    if (next !== get().connectors) set({ ...all(get().selection, get().frames, get().shapes, next), group: get().group });
+  },
+  selectGroup: (id, noteIds, shapeIds) => set({ ...all(selectAll(noteIds), EMPTY_SELECTION, selectAll(shapeIds)), group: id, inlineEdit: null, shapeEdit: null }),
+  renameGroup: (from, to) => {
+    const { group, groupEdit } = get();
+    if (group === from || groupEdit?.id === from) set({ group: group === from ? to : group, groupEdit: groupEdit?.id === from ? { ...groupEdit, id: to } : groupEdit });
+  },
+  pruneGroup: (exists) => {
+    const { group, groupEdit } = get();
+    const goneGroup = group !== null && !exists(group);
+    const goneEdit = groupEdit !== null && !exists(groupEdit.id);
+    if (goneGroup || goneEdit) set({ ...(goneGroup ? { group: null } : {}), ...(goneEdit ? { groupEdit: null } : {}) });
+  },
+  startGroupEdit: (id) => set({ groupEdit: { id, n: (get().groupEdit?.n ?? 0) + 1 } }),
+  endGroupEdit: () => {
+    if (get().groupEdit) set({ groupEdit: null });
   },
   renameSelected: (from, to) => {
     const { selection, editRequest, inlineEdit } = get();
     set({
       ...all(renameInSelection(selection, from, to), get().frames, get().shapes, get().connectors),
+      group: get().group,
       editRequest: editRequest?.id === from ? { ...editRequest, id: to } : editRequest,
       inlineEdit: inlineEdit?.id === from ? { ...inlineEdit, id: to } : inlineEdit,
     });
@@ -207,16 +242,17 @@ export const useBoardUi = create<BoardUi>()((set, get) => ({
     const goneInline = inlineEdit !== null && !exists(inlineEdit.id);
     const goneRequest = editRequest !== null && !exists(editRequest.id);
     if (next !== selection || goneInline || goneRequest)
-      set({ ...all(next, get().frames, get().shapes, get().connectors), ...(goneInline ? { inlineEdit: null } : {}), ...(goneRequest ? { editRequest: null } : {}) });
+      set({ ...all(next, get().frames, get().shapes, get().connectors), group: get().group, ...(goneInline ? { inlineEdit: null } : {}), ...(goneRequest ? { editRequest: null } : {}) });
   },
   selectFrame: (id) => {
     if (get().frameSelected !== id) set({ ...all(EMPTY_SELECTION, selectOnly(get().frames, id)), inlineEdit: null });
   },
-  toggleFrame: (id) => set({ ...all(get().selection, toggleSelected(get().frames, id), get().shapes, get().connectors), inlineEdit: null }),
+  toggleFrame: (id) => set({ ...all(get().selection, toggleSelected(get().frames, id), get().shapes, get().connectors), group: get().group, inlineEdit: null }),
   renameFrame: (from, to) => {
     const { frames, frameEditRequest } = get();
     set({
       ...all(get().selection, renameInSelection(frames, from, to), get().shapes, get().connectors),
+      group: get().group,
       frameEditRequest: frameEditRequest?.id === from ? { ...frameEditRequest, id: to } : frameEditRequest,
     });
   },
@@ -224,21 +260,21 @@ export const useBoardUi = create<BoardUi>()((set, get) => ({
     const { frames, frameEditRequest } = get();
     const next = pruneSelection(frames, exists);
     const goneRequest = frameEditRequest !== null && !exists(frameEditRequest.id);
-    if (next !== frames || goneRequest) set({ ...all(get().selection, next, get().shapes, get().connectors), ...(goneRequest ? { frameEditRequest: null } : {}) });
+    if (next !== frames || goneRequest) set({ ...all(get().selection, next, get().shapes, get().connectors), group: get().group, ...(goneRequest ? { frameEditRequest: null } : {}) });
   },
   selectShape: (id) => {
     if (get().shapeSelected !== id) set({ ...all(EMPTY_SELECTION, EMPTY_SELECTION, selectOnly(get().shapes, id)), inlineEdit: null });
   },
-  toggleShape: (id) => set({ ...all(get().selection, get().frames, toggleSelected(get().shapes, id), get().connectors), inlineEdit: null, shapeEdit: null }),
+  toggleShape: (id) => set({ ...all(get().selection, get().frames, toggleSelected(get().shapes, id), get().connectors), group: get().group, inlineEdit: null, shapeEdit: null }),
   renameShape: (from, to) => {
     const { shapes, shapeEdit } = get();
-    set({ ...all(get().selection, get().frames, renameInSelection(shapes, from, to), get().connectors), shapeEdit: shapeEdit?.id === from ? { ...shapeEdit, id: to } : shapeEdit });
+    set({ ...all(get().selection, get().frames, renameInSelection(shapes, from, to), get().connectors), group: get().group, shapeEdit: shapeEdit?.id === from ? { ...shapeEdit, id: to } : shapeEdit });
   },
   pruneShapes: (exists) => {
     const { shapes, shapeEdit } = get();
     const next = pruneSelection(shapes, exists);
     const goneEdit = shapeEdit !== null && !exists(shapeEdit.id);
-    if (next !== shapes || goneEdit) set({ ...all(get().selection, get().frames, next, get().connectors), ...(goneEdit ? { shapeEdit: null } : {}) });
+    if (next !== shapes || goneEdit) set({ ...all(get().selection, get().frames, next, get().connectors), group: get().group, ...(goneEdit ? { shapeEdit: null } : {}) });
   },
   startShapeEdit: (id) =>
     set({ ...all(EMPTY_SELECTION, EMPTY_SELECTION, selectOnly(get().shapes, id)), inlineEdit: null, shapeEdit: { id, n: (get().shapeEdit?.n ?? 0) + 1 } }),
@@ -259,5 +295,5 @@ export const useBoardUi = create<BoardUi>()((set, get) => ({
   setGridColumns: (gridColumns) => set({ gridColumns }),
   requestJump: (id) => set({ jumpRequest: { id, n: (get().jumpRequest?.n ?? 0) + 1 } }),
   setViewNotice: (viewNotice) => set({ viewNotice }),
-  resetRoom: () => set({ jumpRequest: null, viewNotice: null,  ...all(EMPTY_SELECTION, EMPTY_SELECTION), shapeEdit: null, frameEditRequest: null, editRequest: null, inlineEdit: null, addSheetOpen: false, timerPickerOpen: false, revealRequest: null }),
+  resetRoom: () => set({ groupEdit: null, jumpRequest: null, viewNotice: null,  ...all(EMPTY_SELECTION, EMPTY_SELECTION), shapeEdit: null, frameEditRequest: null, editRequest: null, inlineEdit: null, addSheetOpen: false, timerPickerOpen: false, revealRequest: null }),
 }));

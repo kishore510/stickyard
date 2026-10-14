@@ -77,3 +77,6 @@ Architecture notes, moved out of CLAUDE.md on 7 October 2026 so they load only w
 
 ## Arrows on the canvas (v0.36.0)
 - One SVG layer between frames and notes (frames now at -NOTE_Z_LIMIT - 2, the board at -3), the overlay for handles, the arrow draw tool, a fourth selection set (`uiStore.connectors`), the marquee and Delete key for arrows, the Connectors palette category and Properties for arrows. Details in connectors.md "Arrows: the UI".
+
+## Groups on the canvas (v0.38.0)
+- One box layer between the frames and the arrows (frames now at -NOTE_Z_LIMIT - 3, the board at - 4), a label chip per group that selects, drags its members with the existing batch moves and renames, G and Shift+G, `uiStore.group` (the group in Properties), Properties for a group, and the Group button in the top bar's Edit group. Details in groups.md "Groups: the UI".

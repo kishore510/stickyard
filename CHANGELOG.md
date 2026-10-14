@@ -2,6 +2,22 @@
 
 All notable changes to Stickyard, newest first. The format follows Keep a Changelog. Versions are 0.x: a minor bump for each slice and a patch bump for each follow-up fix. This file is shown in the app under **What’s new**, so entries are written for the people using it.
 
+## [0.38.0] - 2026-10-14
+
+### Added
+- **Groups.** On a wider screen, select two or more notes or shapes and press **G** (or **Group** in the top bar) to group them. A tinted dashed box goes round them, with a label chip at its top-left. Frames and arrows can't be in a group; if they're selected too, they're left out and the page says so.
+- Click a group's chip or its outline to select it: its items are selected and **Properties** shows the group: **Label** (up to 40 characters), **Colour** (it tints the box, never the notes), how many members it has, **Add selection**, **Remove selection**, **Select members** and **Ungroup**. **Shift+G** ungroups too. Double-click the chip to type its label in place.
+- Drag the chip to move the whole group. Moving one item on its own keeps it in the group: the box follows it. Clicks inside the box still reach the notes and the board.
+- **Affinity grouping**: cluster notes (after a silent brainstorm's reveal, say), select a cluster, press **G** and name it. Nothing is grouped for you.
+- Deleting items that would leave a group with fewer than 2 asks first and says how many groups will be ungrouped; **Undo** brings the items back into their group (unless someone changed the group meanwhile).
+- **Clear board**, **Duplicate**, **Undo** and **Redo** include groups: one undo of Clear board brings back the items, then the arrows, then the groups. Duplicate copies a group when all of its items are selected. A session holds up to 30 groups; anything that would pass that is refused with the reason.
+- Export: the PNG shows the boxes and labels; the Markdown file lists each group as a sub-list under its label, in the section of the frame its box sits in.
+- On a phone groups and labels are shown but can't be changed. A locked board (for guests) and a silent round (for everyone) turn the group controls off and say why. At low zoom the label is shortened, and below 25% only the outline shows.
+- A new Help topic, **Groups and affinity grouping**, and updates to **Touch and keyboard tips** and **Running a session**.
+
+### Changed
+- About > Privacy describes groups as they are now kept.
+
 ## [0.37.0] - 2026-10-14
 
 ### Changed
