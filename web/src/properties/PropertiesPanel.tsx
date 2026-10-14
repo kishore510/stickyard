@@ -26,6 +26,11 @@ import { ShapeFields, ShapesFields } from "../shapes/ShapeFields";
 import { SHAPE_KIND_NAMES } from "../shapes/style";
 import type { ResultRow } from "../voting/voting";
 import { LOCK_TEXT, confirmEndSession, endSessionReason, withLock } from "../facilitation/lock";
+import { ConnectorFields } from "../connectors/ConnectorFields";
+import { connectorKindName } from "../connectors/geometry";
+import { CONNECTOR_TEXT } from "../connectors/rules";
+import { useConnectorUi } from "../connectors/connectorUi";
+import type { ConnectorPatch } from "../connectors/board";
 
 /*
  * The Properties panel's content (md and up, inside the SidePanel frame), laid out like
@@ -57,8 +62,13 @@ export interface PropertiesRoom {
   editFrames?(ids: readonly string[], change: FrameEdit): boolean;
   setFrameSize(id: string, w: number, h: number): boolean;
   deleteFrame(id: string): void;
-  /** Deletes notes and frames together (v0.20.0): one paced run, one report, one undo step. */
-  deleteSelection(noteIds: readonly string[], frameIds: readonly string[], shapeIds?: readonly string[]): boolean;
+  /** Deletes notes and frames together (v0.20.0; shapes and arrows since): one paced run, one report, one undo step. */
+  deleteSelection(noteIds: readonly string[], frameIds: readonly string[], shapeIds?: readonly string[], connectorIds?: readonly string[]): boolean;
+  /** Arrows (v0.36.0): style for one or several, Reverse, delete; why they can't change now (null: they can). */
+  updateConnectors?(ids: readonly string[], change: ConnectorPatch): boolean;
+  reverseConnectors?(ids: readonly string[]): boolean;
+  deleteConnectors?(ids: readonly string[]): void;
+  arrowReason?: string | null;
   /** Deletes every note and frame (asked first here); false if it couldn't start. */
   clearBoard(): boolean;
   /** An add run (template, duplicate, restore) is still being sent. */
@@ -138,7 +148,8 @@ function Summary({ room }: { room: PropertiesRoom }) {
   const notes = room.board.notes.length;
   const frames = room.board.frames.length;
   const shapes = room.board.shapes.length;
-  const reason = withLock(clearBoardReason({ live: room.live, notes, frames, shapes, busy: room.adding, clearing: room.clearing, deleting: room.deleting ?? false, silent: room.silent ?? false }), {
+  const arrows = room.board.connectors.length;
+  const reason = withLock(clearBoardReason({ live: room.live, notes, frames, shapes, arrows, busy: room.adding, clearing: room.clearing, deleting: room.deleting ?? false, silent: room.silent ?? false }), {
     live: room.live,
     locked: room.locked ?? false,
     isHost: room.isHost ?? false,
@@ -148,7 +159,8 @@ function Summary({ room }: { room: PropertiesRoom }) {
     <>
       {room.results && <ResultsList rows={room.results} onPick={(id) => room.onPickResult?.(id)} />}
       <p className="text-sm text-fg-muted tabular-nums">
-        {noteCountText({ shown: notes, silent: room.silentRound?.silent ?? SILENT_OFF, mine: room.silentRound?.mine ?? 0 })}{shapes > 0 ? `, ${shapes} of ${MAX_SHAPES_PER_ROOM} shapes` : ""}. Board size {BOARD_WIDTH} × {BOARD_HEIGHT}.
+        {noteCountText({ shown: notes, silent: room.silentRound?.silent ?? SILENT_OFF, mine: room.silentRound?.mine ?? 0 })}{shapes > 0 ? `, ${shapes} of ${MAX_SHAPES_PER_ROOM} shapes` : ""}
+        {arrows > 0 ? `, ${CONNECTOR_TEXT.summary(arrows)}` : ""}. Board size {BOARD_WIDTH} × {BOARD_HEIGHT}.
       </p>
       <p className="text-sm text-fg-muted">Select a note, shape or frame to see and edit it here.</p>
       <div className="flex flex-col gap-xs">
@@ -156,7 +168,7 @@ function Summary({ room }: { room: PropertiesRoom }) {
           aria-describedby={reason ? hintId : undefined}
           disabled={reason !== null}
           onClick={() => {
-            if (!confirmClearBoard(notes, frames, undefined, shapes)) return;
+            if (!confirmClearBoard(notes, frames, undefined, shapes, arrows)) return;
             if (room.clearBoard()) useBoardUi.getState().clearSelection();
           }}
           className="self-start text-status-error"
@@ -211,12 +223,19 @@ export function PropertiesContent({ room, collapse }: { room: PropertiesRoom; co
   // A selection of several items with frames or shapes in it (v0.20.0; shapes v15): a summary with Delete.
   const frameSet = useBoardUi((s) => s.frames);
   const shapeSet = useBoardUi((s) => s.shapes);
-  const several = frameSet.size + shapeSet.size > 0 && frameSet.size + selection.size + shapeSet.size > 1;
+  const arrowSet = useBoardUi((s) => s.connectors);
+  const several = frameSet.size + shapeSet.size + arrowSet.size > 0 && frameSet.size + selection.size + shapeSet.size + arrowSet.size > 1;
+  // Arrows only (v0.36.0): their fields; with other items they're part of the group.
+  const arrowsOnly = arrowSet.size > 0 && selection.size + frameSet.size + shapeSet.size === 0;
+  const arrowList = orderedIds(arrowSet).flatMap((a) => room.board.connectors.find((c) => c.connector.id === a)?.connector ?? []);
+  const groupArrows = several && !arrowsOnly ? arrowList : [];
   const groupFrames = several ? orderedIds(frameSet).flatMap((f) => findFrame(room.board, f) ?? []) : [];
   const groupShapes = several ? orderedIds(shapeSet).flatMap((f) => findShape(room.board, f) ?? []) : [];
   const groupNotes = several ? orderedIds(selection).flatMap((n) => findNote(room.board, n)?.note ?? []) : [];
-  const group = groupFrames.length + groupShapes.length > 0 && groupFrames.length + groupNotes.length + groupShapes.length > 1;
-  const groupWhat = itemsInWords(groupNotes.length, groupFrames.length, groupShapes.length);
+  const group = !arrowsOnly && groupFrames.length + groupShapes.length + groupArrows.length > 0 && groupFrames.length + groupNotes.length + groupShapes.length + groupArrows.length > 1;
+  const groupWhat = itemsInWords(groupNotes.length, groupFrames.length, groupShapes.length, groupArrows.length);
+  const arrowsEditable = editable && (room.arrowReason ?? null) === null;
+  const arrowIds = arrowList.map((c) => c.id);
   // One shape selected alone (protocol v15).
   const shapeId = useBoardUi((s) => s.shapeSelected);
   const shape = shapeId === null ? undefined : findShape(room.board, shapeId);
@@ -230,7 +249,11 @@ export function PropertiesContent({ room, collapse }: { room: PropertiesRoom; co
       <div className="flex min-h-touch items-center gap-xs">
         {/* A selection summary wraps at the panel's narrowest; a note or frame name stays on one line. */}
         <h3 className={cn("min-w-0 flex-1 text-sm font-semibold", group ? "break-words" : "truncate")}>
-          {group ? selectionLabel(groupNotes.length, groupFrames.length, groupShapes.length) : shape ? (shape.shape.kind === "text" ? "Text box" : SHAPE_KIND_NAMES[shape.shape.kind]) : frame ? "Frame" : many.length > 1 ? `${many.length} selected` : entry ? `${NOTE_COLOR_NAMES[entry.note.color]} note` : "Board"}
+          {arrowsOnly && arrowList.length > 0
+            ? arrowList.length === 1
+              ? connectorKindName(arrowList[0]!)
+              : `${arrowList.length} arrows`
+            : group ? selectionLabel(groupNotes.length, groupFrames.length, groupShapes.length, groupArrows.length) : shape ? (shape.shape.kind === "text" ? "Text box" : SHAPE_KIND_NAMES[shape.shape.kind]) : frame ? "Frame" : many.length > 1 ? `${many.length} selected` : entry ? `${NOTE_COLOR_NAMES[entry.note.color]} note` : "Board"}
         </h3>
         {group && (
           <Button
@@ -243,8 +266,29 @@ export function PropertiesContent({ room, collapse }: { room: PropertiesRoom; co
               const noteIds = groupNotes.map((n) => n.id);
               const frameIds = groupFrames.map((f) => f.frame.id);
               const shapeIds = groupShapes.map((x) => x.shape.id);
-              if (!confirmDeleteSelection(deleteCounts(room.board, noteIds, frameIds, shapeIds))) return;
-              if (room.deleteSelection(noteIds, frameIds, shapeIds)) useBoardUi.getState().clearSelection();
+              const connectorIds = groupArrows.map((c) => c.id);
+              if (!confirmDeleteSelection(deleteCounts(room.board, noteIds, frameIds, shapeIds, connectorIds))) return;
+              if (room.deleteSelection(noteIds, frameIds, shapeIds, connectorIds)) {
+                if (connectorIds.length > 0) useConnectorUi.getState().say(CONNECTOR_TEXT.deleted(connectorIds.length));
+                useBoardUi.getState().clearSelection();
+              }
+            }}
+            className="text-status-error"
+          >
+            <Trash2 />
+          </Button>
+        )}
+        {arrowsOnly && arrowList.length > 0 && (
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label={arrowList.length === 1 ? "Delete arrow" : `Delete ${arrowList.length} arrows`}
+            title="Delete (Del)"
+            disabled={!arrowsEditable}
+            onClick={() => {
+              room.deleteConnectors?.(arrowIds);
+              useConnectorUi.getState().say(CONNECTOR_TEXT.deleted(arrowIds.length));
+              useBoardUi.getState().clearSelection();
             }}
             className="text-status-error"
           >
@@ -325,9 +369,17 @@ export function PropertiesContent({ room, collapse }: { room: PropertiesRoom; co
             {LOCK_TEXT.reason}
           </p>
         )}
-        {group && groupNotes.length === 0 && groupShapes.length === 0 ? (
+        {arrowsOnly && arrowList.length > 0 ? (
+          <ConnectorFields
+            connectors={arrowList}
+            live={arrowsEditable}
+            reason={room.live ? (room.locked ? LOCK_TEXT.reason : (room.arrowReason ?? null)) : (room.arrowReason ?? null)}
+            onEdit={(change) => room.updateConnectors?.(arrowIds, change)}
+            onReverse={() => room.reverseConnectors?.(arrowIds)}
+          />
+        ) : group && groupNotes.length === 0 && groupShapes.length === 0 && groupArrows.length === 0 ? (
           <FramesFields frames={groupFrames.map((f) => f.frame)} live={editable} onEdit={(change) => room.editFrames?.(groupFrames.map((f) => f.frame.id), change)} />
-        ) : group && groupNotes.length === 0 && groupFrames.length === 0 ? (
+        ) : group && groupNotes.length === 0 && groupFrames.length === 0 && groupArrows.length === 0 ? (
           <ShapesFields shapes={groupShapes.map((x) => x.shape)} live={editable} onEdit={(change) => room.editShapes?.(groupShapes.map((x) => x.shape.id), change)} />
         ) : group ? (
           <GroupFields />

@@ -23,7 +23,7 @@ import {
  */
 
 const state: PaletteRoomState = { live: true, noteCount: 0, isHost: false };
-const actions = (): PaletteActions => ({ addNote: vi.fn(), addFrame: vi.fn(), applyTemplate: vi.fn(), openTimer: vi.fn(), addShape: vi.fn() });
+const actions = (): PaletteActions => ({ addNote: vi.fn(), addFrame: vi.fn(), applyTemplate: vi.fn(), openTimer: vi.fn(), addShape: vi.fn(), startArrow: vi.fn() });
 const ids = (items: readonly PaletteItem[]) => items.map((i) => i.id);
 
 describe("palette registry", () => {
@@ -80,7 +80,7 @@ describe("palette registry", () => {
       ],
     };
     const sections = paletteSections([...PALETTE_CATEGORIES, shapes], "add", state, "");
-    expect(sections.map((s) => s.category.label)).toEqual(["Test shapes", "Notes", "Frames", "Shapes", "Retros", "Planning and facilitation", "Architecture and analysis"]);
+    expect(sections.map((s) => s.category.label)).toEqual(["Test shapes", "Notes", "Frames", "Shapes", "Connectors", "Retros", "Planning and facilitation", "Architecture and analysis"]);
   });
 
   it("a category with no items (static or from the room) is hidden", () => {
@@ -89,6 +89,7 @@ describe("palette registry", () => {
       "notes",
       "frames",
       "shapes",
+      "connectors",
       "templates-retros",
       "templates-planning",
       "templates-architecture",
@@ -182,8 +183,8 @@ describe("Facilitation (host only, md and up)", () => {
   it("the tile opens the picker (a drop too) and is off with the reason while disconnected", () => {
     const tile = facilitationTiles({ ...state, isHost: true })[0]!;
     const openTimer = vi.fn();
-    tile.create({ addNote: vi.fn(), addFrame: vi.fn(), applyTemplate: vi.fn(), openTimer, addShape: vi.fn() });
-    tile.create({ addNote: vi.fn(), addFrame: vi.fn(), applyTemplate: vi.fn(), openTimer, addShape: vi.fn() }, { x: 10, y: 10 });
+    tile.create({ addNote: vi.fn(), addFrame: vi.fn(), applyTemplate: vi.fn(), openTimer, addShape: vi.fn(), startArrow: vi.fn() });
+    tile.create({ addNote: vi.fn(), addFrame: vi.fn(), applyTemplate: vi.fn(), openTimer, addShape: vi.fn(), startArrow: vi.fn() }, { x: 10, y: 10 });
     expect(openTimer).toHaveBeenCalledTimes(2);
     expect(tile.disabled({ noteReason: null, frameReason: null, templateReason: null, timerReason: "Not connected.", shapeReason: null })).toBe("Not connected.");
   });

@@ -186,7 +186,8 @@ describe("deleting items with attached arrows", () => {
   });
 
   it("Delete on a note with an attached arrow asks with that line", async () => {
-    const ask = vi.spyOn(window, "confirm").mockReturnValue(false);
+    const ask = vi.fn(() => false);
+    window.confirm = ask;
     await inRoom({ notes: [noteAt(0), noteAt(1)], shapes: [shapeAt(0)], connectors: [arrow(1, bound(N0), bound(N1))] });
     const card = notesShown()[0]!;
     await press(card);

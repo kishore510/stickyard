@@ -46,6 +46,18 @@ interface BoardUi {
   shapes: Selection;
   /** The one selected shape when it's selected alone (nothing else), else null. Derived from `shapes`. */
   shapeSelected: string | null;
+  /** Selected arrows (protocol v21; v0.36.0), in the order they were selected, beside the rest. */
+  connectors: Selection;
+  /** The one selected arrow when it's selected alone, else null. Derived from `connectors`. */
+  connectorSelected: string | null;
+  /** Selects just this arrow. */
+  selectConnector(id: string): void;
+  /** Shift/Ctrl/Cmd-click on an arrow: adds it or takes it out (the rest stays). */
+  toggleConnector(id: string): void;
+  /** An arrow got its server id. */
+  renameConnector(from: string, to: string): void;
+  /** Drops arrows that no longer exist. */
+  pruneConnectors(exists: (id: string) => boolean): void;
   /** The shape whose text is being edited in place (md and up). `n` makes each request new. */
   shapeEdit: { id: string; n: number } | null;
   /** Asks a frame's header to take focus (a new frame: its title is ready to type). */
@@ -68,9 +80,9 @@ interface BoardUi {
   toggle(id: string): void;
   /** Notes only (the frames are cleared). */
   setSelection(selection: Selection): void;
-  /** Notes, frames and (optionally) shapes together. */
-  setSelections(selection: Selection, frames: Selection, shapes?: Selection): void;
-  selectAll(ids: Iterable<string>, frameIds?: Iterable<string>, shapeIds?: Iterable<string>): void;
+  /** Notes, frames and (optionally) shapes and arrows together. */
+  setSelections(selection: Selection, frames: Selection, shapes?: Selection, connectors?: Selection): void;
+  selectAll(ids: Iterable<string>, frameIds?: Iterable<string>, shapeIds?: Iterable<string>, connectorIds?: Iterable<string>): void;
   clearSelection(): void;
   /** A note got its server id. */
   renameSelected(from: string, to: string): void;
@@ -122,13 +134,15 @@ interface BoardUi {
 
 /** The single item of `only` when nothing else is selected, or null. */
 const sole = (only: Selection, ...others: Selection[]) => (others.every((o) => o.size === 0) ? onlySelected(only) : null);
-/** Every set and the derived sole frame and shape, to spread into a state update. */
-const all = (selection: Selection, frames: Selection, shapes: Selection = EMPTY_SELECTION) => ({
+/** Every set and the derived sole frame, shape and arrow, to spread into a state update. */
+const all = (selection: Selection, frames: Selection, shapes: Selection = EMPTY_SELECTION, connectors: Selection = EMPTY_SELECTION) => ({
   selection,
   frames,
   shapes,
-  frameSelected: sole(frames, selection, shapes),
-  shapeSelected: sole(shapes, selection, frames),
+  connectors,
+  frameSelected: sole(frames, selection, shapes, connectors),
+  shapeSelected: sole(shapes, selection, frames, connectors),
+  connectorSelected: sole(connectors, selection, frames, shapes),
 });
 
 export const useBoardUi = create<BoardUi>()((set, get) => ({
@@ -140,6 +154,8 @@ export const useBoardUi = create<BoardUi>()((set, get) => ({
   frameSelected: null,
   shapes: EMPTY_SELECTION,
   shapeSelected: null,
+  connectors: EMPTY_SELECTION,
+  connectorSelected: null,
   shapeEdit: null,
   frameEditRequest: null,
   editRequest: null,
@@ -154,22 +170,32 @@ export const useBoardUi = create<BoardUi>()((set, get) => ({
   setColor: (color) => set({ color }),
   setMinimap: (minimap) => set({ minimap }),
   select: (id) => set(all(selectOnly(get().selection, id), EMPTY_SELECTION)),
-  toggle: (id) => set(all(toggleSelected(get().selection, id), get().frames, get().shapes)),
+  toggle: (id) => set(all(toggleSelected(get().selection, id), get().frames, get().shapes, get().connectors)),
   setSelection: (selection) => {
-    if (selection !== get().selection || get().frames.size > 0 || get().shapes.size > 0) set(all(selection, EMPTY_SELECTION));
+    if (selection !== get().selection || get().frames.size > 0 || get().shapes.size > 0 || get().connectors.size > 0) set(all(selection, EMPTY_SELECTION));
   },
-  setSelections: (selection, frames, shapes = EMPTY_SELECTION) => {
-    if (selection !== get().selection || frames !== get().frames || shapes !== get().shapes) set(all(selection, frames, shapes));
+  setSelections: (selection, frames, shapes = EMPTY_SELECTION, connectors = EMPTY_SELECTION) => {
+    if (selection !== get().selection || frames !== get().frames || shapes !== get().shapes || connectors !== get().connectors) set(all(selection, frames, shapes, connectors));
   },
-  selectAll: (ids, frameIds = [], shapeIds = []) => set(all(selectAll(ids), selectAll(frameIds), selectAll(shapeIds))),
+  selectAll: (ids, frameIds = [], shapeIds = [], connectorIds = []) => set(all(selectAll(ids), selectAll(frameIds), selectAll(shapeIds), selectAll(connectorIds))),
   clearSelection: () => {
-    const { selection, frames, shapes } = get();
-    if (selection.size > 0 || frames.size > 0 || shapes.size > 0) set(all(clearSelection(selection), clearSelection(frames), clearSelection(shapes)));
+    const { selection, frames, shapes, connectors } = get();
+    if (selection.size > 0 || frames.size > 0 || shapes.size > 0 || connectors.size > 0)
+      set(all(clearSelection(selection), clearSelection(frames), clearSelection(shapes), clearSelection(connectors)));
+  },
+  selectConnector: (id) => {
+    if (get().connectorSelected !== id) set({ ...all(EMPTY_SELECTION, EMPTY_SELECTION, EMPTY_SELECTION, selectOnly(get().connectors, id)), inlineEdit: null, shapeEdit: null });
+  },
+  toggleConnector: (id) => set({ ...all(get().selection, get().frames, get().shapes, toggleSelected(get().connectors, id)), inlineEdit: null, shapeEdit: null }),
+  renameConnector: (from, to) => set(all(get().selection, get().frames, get().shapes, renameInSelection(get().connectors, from, to))),
+  pruneConnectors: (exists) => {
+    const next = pruneSelection(get().connectors, exists);
+    if (next !== get().connectors) set(all(get().selection, get().frames, get().shapes, next));
   },
   renameSelected: (from, to) => {
     const { selection, editRequest, inlineEdit } = get();
     set({
-      ...all(renameInSelection(selection, from, to), get().frames, get().shapes),
+      ...all(renameInSelection(selection, from, to), get().frames, get().shapes, get().connectors),
       editRequest: editRequest?.id === from ? { ...editRequest, id: to } : editRequest,
       inlineEdit: inlineEdit?.id === from ? { ...inlineEdit, id: to } : inlineEdit,
     });
@@ -181,16 +207,16 @@ export const useBoardUi = create<BoardUi>()((set, get) => ({
     const goneInline = inlineEdit !== null && !exists(inlineEdit.id);
     const goneRequest = editRequest !== null && !exists(editRequest.id);
     if (next !== selection || goneInline || goneRequest)
-      set({ ...all(next, get().frames, get().shapes), ...(goneInline ? { inlineEdit: null } : {}), ...(goneRequest ? { editRequest: null } : {}) });
+      set({ ...all(next, get().frames, get().shapes, get().connectors), ...(goneInline ? { inlineEdit: null } : {}), ...(goneRequest ? { editRequest: null } : {}) });
   },
   selectFrame: (id) => {
     if (get().frameSelected !== id) set({ ...all(EMPTY_SELECTION, selectOnly(get().frames, id)), inlineEdit: null });
   },
-  toggleFrame: (id) => set({ ...all(get().selection, toggleSelected(get().frames, id), get().shapes), inlineEdit: null }),
+  toggleFrame: (id) => set({ ...all(get().selection, toggleSelected(get().frames, id), get().shapes, get().connectors), inlineEdit: null }),
   renameFrame: (from, to) => {
     const { frames, frameEditRequest } = get();
     set({
-      ...all(get().selection, renameInSelection(frames, from, to), get().shapes),
+      ...all(get().selection, renameInSelection(frames, from, to), get().shapes, get().connectors),
       frameEditRequest: frameEditRequest?.id === from ? { ...frameEditRequest, id: to } : frameEditRequest,
     });
   },
@@ -198,21 +224,21 @@ export const useBoardUi = create<BoardUi>()((set, get) => ({
     const { frames, frameEditRequest } = get();
     const next = pruneSelection(frames, exists);
     const goneRequest = frameEditRequest !== null && !exists(frameEditRequest.id);
-    if (next !== frames || goneRequest) set({ ...all(get().selection, next, get().shapes), ...(goneRequest ? { frameEditRequest: null } : {}) });
+    if (next !== frames || goneRequest) set({ ...all(get().selection, next, get().shapes, get().connectors), ...(goneRequest ? { frameEditRequest: null } : {}) });
   },
   selectShape: (id) => {
     if (get().shapeSelected !== id) set({ ...all(EMPTY_SELECTION, EMPTY_SELECTION, selectOnly(get().shapes, id)), inlineEdit: null });
   },
-  toggleShape: (id) => set({ ...all(get().selection, get().frames, toggleSelected(get().shapes, id)), inlineEdit: null, shapeEdit: null }),
+  toggleShape: (id) => set({ ...all(get().selection, get().frames, toggleSelected(get().shapes, id), get().connectors), inlineEdit: null, shapeEdit: null }),
   renameShape: (from, to) => {
     const { shapes, shapeEdit } = get();
-    set({ ...all(get().selection, get().frames, renameInSelection(shapes, from, to)), shapeEdit: shapeEdit?.id === from ? { ...shapeEdit, id: to } : shapeEdit });
+    set({ ...all(get().selection, get().frames, renameInSelection(shapes, from, to), get().connectors), shapeEdit: shapeEdit?.id === from ? { ...shapeEdit, id: to } : shapeEdit });
   },
   pruneShapes: (exists) => {
     const { shapes, shapeEdit } = get();
     const next = pruneSelection(shapes, exists);
     const goneEdit = shapeEdit !== null && !exists(shapeEdit.id);
-    if (next !== shapes || goneEdit) set({ ...all(get().selection, get().frames, next), ...(goneEdit ? { shapeEdit: null } : {}) });
+    if (next !== shapes || goneEdit) set({ ...all(get().selection, get().frames, next, get().connectors), ...(goneEdit ? { shapeEdit: null } : {}) });
   },
   startShapeEdit: (id) =>
     set({ ...all(EMPTY_SELECTION, EMPTY_SELECTION, selectOnly(get().shapes, id)), inlineEdit: null, shapeEdit: { id, n: (get().shapeEdit?.n ?? 0) + 1 } }),

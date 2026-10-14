@@ -6,6 +6,8 @@ import { marqueeFrames } from "./frameSelect";
 import { marqueeSelection, type Selection } from "./selection";
 import type { Mode } from "./tools";
 import { useBoardUi } from "./uiStore";
+import { marqueeConnectors } from "../connectors/geometry";
+import { useConnectorUi } from "../connectors/connectorUi";
 
 /** The marquee as drawn, in pixels from the board section's top-left corner. */
 export interface MarqueeBox {
@@ -19,7 +21,7 @@ export interface MarqueeBox {
 const onEmptyCanvas = (target: EventTarget | null) =>
   target instanceof Element &&
   target.closest(".react-flow__pane") !== null &&
-  target.closest(".react-flow__node, .react-flow__panel, .react-flow__minimap, button, a, input, textarea, select") === null;
+  target.closest(".react-flow__node, .react-flow__panel, .react-flow__minimap, button, a, input, textarea, select, [data-connector-id], [data-connector-handle]") === null;
 
 /**
  * Mouse marquee selection, as in Chalkline (Select tool, left-drag on empty canvas; Shift adds
@@ -40,6 +42,7 @@ export function useMarquee({
   notes,
   frames = () => [],
   shapes = () => [],
+  connectors = () => [],
 }: {
   section: RefObject<HTMLElement | null>;
   /** Multi-select is on (md and up). */
@@ -53,12 +56,14 @@ export function useMarquee({
   frames?: () => { id: string; x: number; y: number; w: number; h: number }[];
   /** The shapes as board rects (protocol v15): taken like notes, by touching. */
   shapes?: () => { id: string; x: number; y: number; w: number; h: number }[];
+  /** The arrows as drawn now (protocol v21): taken when both ends are inside. */
+  connectors?: () => { id: string; start: { x: number; y: number }; end: { x: number; y: number } }[];
 }) {
   const flow = useReactFlow();
   const [box, setBox] = useState<MarqueeBox | null>(null);
   const handledClick = useRef(false);
-  const latest = useRef({ enabled, tool, spaceHeld, threshold, notes, frames, shapes, flow });
-  latest.current = { enabled, tool, spaceHeld, threshold, notes, frames, shapes, flow };
+  const latest = useRef({ enabled, tool, spaceHeld, threshold, notes, frames, shapes, connectors, flow });
+  latest.current = { enabled, tool, spaceHeld, threshold, notes, frames, shapes, connectors, flow };
 
   useEffect(() => {
     const el = section.current;
@@ -68,7 +73,8 @@ export function useMarquee({
     const onDown = (e: PointerEvent) => {
       const { enabled: on, tool: t, spaceHeld: space } = latest.current;
       handledClick.current = false;
-      if (!on || !onEmptyCanvas(e.target)) return;
+      // An armed Connectors tile draws instead (connectors/useConnectorDrawing.ts).
+      if (!on || !onEmptyCanvas(e.target) || useConnectorUi.getState().draw !== null) return;
       if (paneGesture({ pointerType: e.pointerType, button: e.button, tool: t, spaceHeld: space }) !== "marquee") return;
       e.preventDefault();
       e.stopPropagation();
@@ -81,14 +87,16 @@ export function useMarquee({
       const base: Selection = useBoardUi.getState().selection;
       const baseFrames: Selection = useBoardUi.getState().frames;
       const baseShapes: Selection = useBoardUi.getState().shapes;
+      const baseConnectors: Selection = useBoardUi.getState().connectors;
       const additive = e.shiftKey;
       let moved = false;
       let last: Selection | undefined;
       let lastFrames: Selection | undefined;
       let lastShapes: Selection | undefined;
+      let lastConnectors: Selection | undefined;
 
       const onMove = (m: PointerEvent) => {
-        const { threshold: limit, flow: f, notes: list, frames: frameList, shapes: shapeList } = latest.current;
+        const { threshold: limit, flow: f, notes: list, frames: frameList, shapes: shapeList, connectors: arrowList } = latest.current;
         if (!moved && !isDrag(m.clientX - start.x, m.clientY - start.y, limit)) return;
         moved = true;
         const bounds = el.getBoundingClientRect();
@@ -104,7 +112,8 @@ export function useMarquee({
         last = marqueeSelection(list(), area, base, additive, last);
         lastFrames = marqueeFrames(frameList(), area, baseFrames, additive, lastFrames);
         lastShapes = marqueeSelection(shapeList(), area, baseShapes, additive, lastShapes);
-        useBoardUi.getState().setSelections(last, lastFrames, lastShapes);
+        lastConnectors = marqueeConnectors(arrowList(), area, baseConnectors, additive, lastConnectors);
+        useBoardUi.getState().setSelections(last, lastFrames, lastShapes, lastConnectors);
       };
       const onUp = () => {
         stop();

@@ -7,7 +7,7 @@
  * The selected frame (alone), the selected shape (alone), the selected notes (no frames or shapes),
  * a selection of several items with frames or shapes, or nothing.
  */
-export type DeleteKeyTarget = "frame" | "shape" | "notes" | "selection" | null;
+export type DeleteKeyTarget = "frame" | "shape" | "notes" | "connectors" | "selection" | null;
 
 export interface DeleteKeyEvent {
   key: string;
@@ -29,6 +29,8 @@ export interface DeleteKeyState {
   frames?: number;
   /** Shapes selected (protocol v15; absent: none). */
   shapes?: number;
+  /** Arrows selected (protocol v21; absent: none). */
+  connectors?: number;
   /** A modal sheet is open. */
   modal: boolean;
   /** The board's element: focus inside it (or on nothing) is the board's. */
@@ -65,8 +67,11 @@ export function deleteKeyTarget(e: DeleteKeyEvent, state: DeleteKeyState): Delet
   if (inField(e.target) || state.modal || !state.multi || !(onBoard(e.target, state.board) || onBoardBar(e.target) || onSidePanel(e.target))) return null;
   const frames = state.frames ?? (state.frameSelected ? 1 : 0);
   const shapes = state.shapes ?? 0;
-  const total = state.selection + frames + shapes;
-  if ((frames > 0 || shapes > 0) && total > 1) return "selection";
+  const arrows = state.connectors ?? 0;
+  const total = state.selection + frames + shapes + arrows;
+  // Arrows alone: deleted without a confirm (they hold no text); with anything else, one confirm.
+  if (arrows > 0 && arrows === total) return "connectors";
+  if ((frames > 0 || shapes > 0 || arrows > 0) && total > 1) return "selection";
   if (frames === 1) return "frame";
   if (shapes === 1) return "shape";
   return state.selection > 0 ? "notes" : null;

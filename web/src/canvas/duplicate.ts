@@ -121,13 +121,15 @@ export interface DuplicateState {
   /** Shapes selected, and room for more (protocol v15; absent: none). */
   shapes?: number;
   freeShapes?: number;
+  /** Arrows selected (protocol v21; absent: none). Those attached outside the selection aren't copied. */
+  arrows?: number;
 }
 
 /** Duplicate needs a selection, a connection, everything in it saved and still, room for every copy, and no add run in progress. */
 export function duplicateDisabledReason(s: DuplicateState): string | null {
   const frames = s.frames ?? (s.frame ? 1 : 0);
   const shapes = s.shapes ?? 0;
-  if (s.notes === 0 && frames === 0 && shapes === 0) return DUPLICATE_HINTS.none;
+  if (s.notes === 0 && frames === 0 && shapes === 0 && (s.arrows ?? 0) === 0) return DUPLICATE_HINTS.none;
   if (!s.live) return DUPLICATE_HINTS.offline;
   if (s.held) return DUPLICATE_HINTS.held;
   if (s.unsaved) return DUPLICATE_HINTS.unsaved;

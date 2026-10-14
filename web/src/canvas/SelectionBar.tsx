@@ -362,6 +362,8 @@ export interface BoardBarProps {
   lockedReason?: string | null;
   /** A silent round is running: frames can't move (Align, Distribute, Grid on frames; Match size still works). */
   silentReason?: string | null;
+  /** Arrows selected (v0.36.0): Delete and Duplicate work on them too. */
+  arrows?: number;
   /** The host's Session group (Lock / Unlock); null for guests, who get no dead buttons. */
   session?: { locked: boolean; pending: boolean | null; setLock: (locked: boolean) => boolean } | null;
 }
@@ -398,6 +400,7 @@ export function BoardBar({
   lockedReason = null,
   silentReason = null,
   session = null,
+  arrows = 0,
 }: BoardBarProps) {
   // Arrange works on notes and shapes together (protocol v15; each clamped to its own limits), or
   // (v0.20.0) on the frames when only frames are selected; a mix with frames is refused with a reason.
@@ -418,7 +421,8 @@ export function BoardBar({
     else send(result.changes);
   };
   const stackable = count;
-  const deleteReason = lockedReason ?? (stackable === 0 && !frame ? DELETE_HINTS.none : !live ? DELETE_HINTS.offline : null);
+  const deleteReason =
+    lockedReason ?? (stackable === 0 && !frame && arrows === 0 ? DELETE_HINTS.none : !live ? DELETE_HINTS.offline : stackable === 0 && !frame ? silentReason : null);
   const orderReason = lockedReason ?? (stackable === 0 ? (frame ? ORDER_HINTS.frame : ORDER_HINTS.none) : !live ? ORDER_HINTS.offline : null);
   // Align and Match size need 2+ notes (or frames) and a connection; Distribute needs 3.
   const arrangeOff = onFrames ? frameReason : (lockedReason ?? (count < 2 ? GRID_HINTS.few : !live ? GRID_HINTS.offline : null));

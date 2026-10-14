@@ -1,5 +1,7 @@
 import { getViewportForBounds } from "@xyflow/react";
 import { notesBounds, type Rect } from "../canvas/geometry";
+import { boxOfBoard, resolveShown } from "../connectors/geometry";
+import type { Board } from "../notes/board";
 
 /*
  * Export PNG (v0.22.0): the board's items drawn at 100% zoom, whatever the view, cropped to the
@@ -32,6 +34,16 @@ export const EXPORT_NOTICES = {
   failed: "Export failed",
   failedDetail: "Export failed. Try again, or zoom out and export a smaller board.",
 } as const;
+
+/** What the image must hold: every note, frame and shape, and each arrow's ends (as points). */
+export function exportItems(board: Board): { x: number; y: number; w: number; h: number }[] {
+  const boxOf = boxOfBoard(board);
+  const ends = board.connectors.flatMap((c) => {
+    const points = resolveShown(c.connector, boxOf);
+    return points ? [points.start, points.end].map((p) => ({ x: p.x, y: p.y, w: 0, h: 0 })) : [];
+  });
+  return [...board.notes.map((e) => e.note), ...board.frames.map((e) => e.frame), ...board.shapes.map((e) => e.shape), ...ends];
+}
 
 /** The box to draw: every note, frame and shape plus the margin, in board units; null for an empty board. */
 export function exportBounds(items: readonly { x: number; y: number; w: number; h: number }[]): Rect | null {
@@ -68,7 +80,19 @@ const SKIP_CLASSES = [
   "sy-selection-box",
   "sy-cursor",
 ];
-const SKIP_ATTRIBUTES = ["data-my-dots", "data-cursor", "data-selection-box", "data-select-badge", "data-vote-controls", "data-export-skip"];
+const SKIP_ATTRIBUTES = [
+  "data-my-dots",
+  "data-cursor",
+  "data-selection-box",
+  "data-select-badge",
+  "data-vote-controls",
+  "data-export-skip",
+  // Arrows (v0.36.0): the arrows are drawn; their handles, snap points and a drawing in progress aren't.
+  "data-connector-overlay",
+  "data-connector-handle",
+  "data-connector-snap",
+  "data-connector-preview",
+];
 
 /** html-to-image's filter: false leaves the element (and what's inside it) out. */
 export function keepInExport(node: Node): boolean {

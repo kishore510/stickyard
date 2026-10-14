@@ -46,7 +46,7 @@ export function shapeTextValues(shape: Shape): TextStyleValues {
 }
 
 /** A row of labelled choice buttons (border width and style): a radio group, 44px targets. */
-function ChoiceRow<K extends string>({
+export function ChoiceRow<K extends string>({
   label,
   keys,
   names,

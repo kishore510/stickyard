@@ -48,7 +48,13 @@ import { VOTE_TEXT } from "../voting/voting";
 import { openSheet } from "../shell/nav";
 import { createPortal } from "react-dom";
 import type { Placed } from "./arrange";
-import { BoardCanvas, deleteFrameAsking, deleteSelected, deleteSelectionAsking, deleteShapeAsking, type BoardRoom } from "./BoardCanvas";
+import { BoardCanvas, deleteArrows, deleteFrameAsking, deleteSelected, deleteSelectionAsking, deleteShapeAsking, type BoardRoom } from "./BoardCanvas";
+import { useConnectorUi, type DrawStyle } from "../connectors/connectorUi";
+import { ConnectorAnnouncer } from "../connectors/ConnectorAnnouncer";
+import { connectorToolReason } from "../connectors/rules";
+import { endAt, snapEnd } from "../connectors/geometry";
+import { snapItems } from "../connectors/ConnectorLayer";
+import { clampConnectorPoint } from "@stickyard/shared";
 import { duplicateDisabledReason } from "./duplicate";
 import { BoardBar } from "./SelectionBar";
 import type { BoardCommand } from "./shortcuts";
@@ -57,7 +63,7 @@ import { newNotePosition, type Placed as ViewItem, type XY } from "./geometry";
 import { Ribbon, ViewBar } from "./ToolBars";
 import { placeTemplate, templateOrigin } from "../templates/place";
 import type { Template } from "../templates/registry";
-import { frameToolReason, noteToolReason, shapeToolReason, templateToolReason, toolForKey, type ToolContext } from "./tools";
+import { NOTE_TOOL_REASONS, frameToolReason, noteToolReason, shapeToolReason, templateToolReason, toolForKey, type ToolContext } from "./tools";
 import { useBoardUi } from "./uiStore";
 import { useCanvasView } from "./useCanvasView";
 import { zoomSelectionReason } from "./navigation";
@@ -266,6 +272,7 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
   const frameSelected = useBoardUi((s) => s.frameSelected);
   const frameSelection = useBoardUi((s) => s.frames);
   const shapeSelection = useBoardUi((s) => s.shapes);
+  const connectorSelection = useBoardUi((s) => s.connectors);
   const panels = usePanels();
   const zoom = useStore((s) => s.transform[2]);
   const free = useStore((s) => s.width);
@@ -286,6 +293,10 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
   const frameCount = view.board.frames.length;
   const frameReason = withLock(frameToolReason({ live, count: frameCount }), lock);
   const shapeReason = withLock(shapeToolReason({ live, count: view.board.shapes.length }), lock);
+  // Arrows (v0.36.0): off for a guest on a locked board and for everyone during a silent round (the
+  // relay refuses every connector message then); the tiles also stop at 100 arrows.
+  const arrowReason = !live ? NOTE_TOOL_REASONS.disconnected : locked ? LOCK_TEXT.reason : silentOn ? SILENT_TEXT.on : null;
+  const connectorReason = arrowReason ?? connectorToolReason({ live, count: view.board.connectors.length });
   const templateReason = withLock(templateToolReason({ live, applying: view.template?.state === "applying", adding: view.adding }), lock);
   const sizes = panelWidths(windowWidth, panels);
 
@@ -322,7 +333,12 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
     useBoardUi.getState().pruneSelected((id) => findNote(view.board, id) !== undefined);
     useBoardUi.getState().pruneFrame((id) => findFrame(view.board, id) !== undefined);
     useBoardUi.getState().pruneShapes((id) => findShape(view.board, id) !== undefined);
+    useBoardUi.getState().pruneConnectors((id) => view.board.connectors.some((c) => c.connector.id === id));
   }, [view.board]);
+  // Nothing can be drawn while arrows can't change (disconnected, locked, a silent round): the tool disarms.
+  useEffect(() => {
+    if (arrowReason !== null) useConnectorUi.getState().arm(null);
+  }, [arrowReason]);
 
   /**
    * Opens a note's editor. From md up: in place on the note (caret in `part`, the title unless
@@ -385,6 +401,15 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
     },
     [canvas],
   );
+
+  /** Arms the arrow tool (a Connectors tile); a drop starts the arrow where it landed (then click the end). */
+  const startArrow = useCallback((style: DrawStyle, at?: XY) => {
+    const ui = useConnectorUi.getState();
+    ui.arm(style);
+    if (!at) return;
+    const snap = snapEnd(at, snapItems(latest.current.view.board), 1);
+    ui.setDrawing({ start: endAt(at, snap), startPoint: snap?.point ?? clampConnectorPoint(at.x, at.y), current: at, snap: null, dragged: false });
+  }, []);
 
   /**
    * Applies a template: centred on `at`'s box (a drop gives its top-left) or on the viewport
@@ -456,15 +481,15 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
 
   const paletteHost = useMemo<PaletteHost>(
     () => ({
-      ctx: { noteReason, frameReason, templateReason, timerReason, shapeReason },
+      ctx: { noteReason, frameReason, templateReason, timerReason, shapeReason, connectorReason },
       state: { live, noteCount, isHost },
       activate: (item, at) => {
         useBoardUi.getState().setAddSheetOpen(false);
-        item.create({ addNote, addFrame, applyTemplate, addShape, openTimer: () => useBoardUi.getState().setTimerPickerOpen(true) }, at);
+        item.create({ addNote, addFrame, applyTemplate, addShape, startArrow, openTimer: () => useBoardUi.getState().setTimerPickerOpen(true) }, at);
       },
       dropAt: canvas.dropAt,
     }),
-    [noteReason, frameReason, templateReason, timerReason, shapeReason, live, noteCount, isHost, addNote, addFrame, applyTemplate, addShape, canvas],
+    [noteReason, frameReason, templateReason, timerReason, shapeReason, connectorReason, live, noteCount, isHost, addNote, addFrame, applyTemplate, addShape, startArrow, canvas],
   );
 
   const rejoinRef = useRef(onRejoin);
@@ -531,6 +556,10 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
     setShapeDraft: room.setShapeDraft,
     editShape: room.editShape,
     deleteShape: room.deleteShape,
+    addConnector: room.addConnector,
+    updateConnector: room.updateConnector,
+    moveConnector: room.moveConnector,
+    deleteConnectors: room.deleteConnectors,
   };
 
   // The bar: md and up, always there. Notes in selection order (the first is Match size's reference).
@@ -542,8 +571,11 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
   // Selected shapes (protocol v15), in selection order.
   const selectedShapeEntries = wide ? orderedIds(shapeSelection).flatMap((id) => findShape(view.board, id) ?? []) : [];
   const shapeCount = selectedShapeEntries.length;
-  // Several items with frames or shapes in them move, duplicate and delete as one selection.
-  const group = selectedFrameEntries.length + shapeCount > 0 && selectedFrameEntries.length + selectedEntries.length + shapeCount > 1;
+  // Selected arrows (v0.36.0), in selection order.
+  const selectedArrowIds = wide ? orderedIds(connectorSelection).filter((id) => view.board.connectors.some((c) => c.connector.id === id)) : [];
+  const arrowCount = selectedArrowIds.length;
+  // Several items with frames, shapes or arrows in them move, duplicate and delete as one selection.
+  const group = selectedFrameEntries.length + shapeCount + arrowCount > 0 && selectedFrameEntries.length + selectedEntries.length + shapeCount + arrowCount > 1;
   const framesHeld = selectedFrameEntries.some(isFrameHeld);
   const framesUnsaved = selectedFrameEntries.some((e) => e.confirmed === null);
   const shapesHeld = selectedShapeEntries.some(isShapeHeld);
@@ -560,18 +592,20 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
     freeNotes: Math.max(0, MAX_NOTES_PER_ROOM - noteCount),
     freeFrames: Math.max(0, MAX_FRAMES_PER_ROOM - frameCount),
     freeShapes: Math.max(0, MAX_SHAPES_PER_ROOM - view.board.shapes.length),
-  }) ?? (selectedEntries.length > 0 ? silentNote : null), lock);
+    arrows: arrowCount,
+  }) ?? (selectedEntries.length > 0 ? silentNote : null) ?? (arrowCount > 0 && silentOn ? SILENT_TEXT.on : null), lock);
 
   /** Duplicates the selection (notes, the frame alone, shapes, or a mix) and selects the copies. */
   const duplicate = () => {
     if (duplicateReason !== null) return room.showNotice(duplicateReason);
-    if (group || shapeCount > 0) {
+    if (group || shapeCount > 0 || arrowCount > 0) {
       const ids = room.duplicateSelection(
         selectedEntries.map((e) => e.note.id),
         selectedFrameEntries.map((e) => e.frame.id),
         selectedShapeEntries.map((e) => e.shape.id),
+        selectedArrowIds,
       );
-      if (ids) useBoardUi.getState().setSelections(new Set(ids.notes), new Set(ids.frames), new Set(ids.shapes));
+      if (ids) useBoardUi.getState().setSelections(new Set(ids.notes), new Set(ids.frames), new Set(ids.shapes), new Set(ids.connectors));
       return;
     }
     if (frameEntry) {
@@ -585,12 +619,17 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
 
   /** Deletes the selection as the Delete key does (same confirms and report). */
   const removeSelection = () => {
+    if (arrowCount > 0 && arrowCount === selectedEntries.length + selectedFrameEntries.length + shapeCount + arrowCount) {
+      if (arrowReason !== null) return room.showNotice(arrowReason);
+      return deleteArrows({ live, deleteConnectors: room.deleteConnectors }, selectedArrowIds);
+    }
     if (group) {
       return deleteSelectionAsking(
         { board: view.board, live, deleteSelection },
         selectedEntries.map((e) => e.note.id),
         selectedFrameEntries.map((e) => e.frame.id),
         selectedShapeEntries.map((e) => e.shape.id),
+        selectedArrowIds,
       );
     }
     const onlyShape = selectedShapeEntries[0];
@@ -677,6 +716,8 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
         <FollowNotices wide={wide} onStop={stopFollow} onGo={goThere} />
         {/* Reactions (v0.34.0): my own actions only, politely; nothing visible. */}
         <ReactionAnnouncer />
+        {/* Arrows (v0.36.0): my own adds and deletes only, politely. */}
+        <ConnectorAnnouncer />
       </>
     ),
     [view.locked, isHost, view.voting, view.remaining, closed, showResults, view.silent, view.mySealed, wide, stopFollow, goThere],
@@ -707,6 +748,7 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
       notice={(text) => room.showNotice(text)}
       lockedReason={live && locked ? LOCK_TEXT.reason : null}
       silentReason={silentOn ? SILENT_TEXT.on : null}
+      arrows={arrowCount}
       session={isHost ? { locked: view.locked, pending: view.lockPending, setLock: (on: boolean) => room.setLock(on) } : null}
     />
   ) : null;
@@ -751,6 +793,7 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
         <BoardCanvas
           room={boardRoom}
           editable={live && !locked}
+          arrowsEditable={arrowReason === null}
           multiSelect={wide}
           synced={view.synced}
           minimap={minimap}
@@ -829,6 +872,10 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
                 setShapeSize: room.setShapeSize,
                 deleteShape: room.deleteShape,
                 deleteSelection,
+                updateConnectors: room.updateConnectors,
+                reverseConnectors: room.reverseConnectors,
+                deleteConnectors: room.deleteConnectors,
+                arrowReason,
                 clearBoard: room.clearBoard,
                 adding: view.adding,
                 clearing: view.clearing,

@@ -968,6 +968,7 @@ describe("the palette (md up)", () => {
       "Frame",
       // Protocol v15: then Shapes (text and three outlines).
       "Text", "Rectangle", "Oval", "Diamond",
+      "Arrow", "Line", "Elbow arrow",
       // Slice templates: then the templates, one heading per group (v0.29.0).
       "Retro", "Start Stop Continue", "Mad Sad Glad", "4Ls", "Starfish", "Sailboat",
       "Sprint planning", "2x2 Impact and Effort", "Lean coffee",
@@ -1013,7 +1014,7 @@ describe("the palette (md up)", () => {
     expect(palette()?.querySelector("h3")).toBeNull();
     expect(palette()?.textContent).toContain("No matches");
     await type(search() as HTMLInputElement, "");
-    expect(tiles()).toHaveLength(11 + TEMPLATES.length);
+    expect(tiles()).toHaveLength(14 + TEMPLATES.length);
   });
 
   it("collapses to a strip with an expand button and compact tiles (as in Chalkline), from the header or with [, and remembers it", async () => {
@@ -1022,7 +1023,7 @@ describe("the palette (md up)", () => {
     expect(search()).toBeNull();
     expect(palette()?.querySelector("h3")).toBeNull();
     // Collapsing never takes adding away: the strip keeps one compact tile per colour.
-    expect(tiles().map((t) => t.getAttribute("aria-label"))).toEqual(["Yellow note", "Pink note", "Blue note", "Green note", "Orange note", "Purple note", "Frame", "Text", "Rectangle", "Oval", "Diamond", ...TEMPLATES.map((t) => t.label)]);
+    expect(tiles().map((t) => t.getAttribute("aria-label"))).toEqual(["Yellow note", "Pink note", "Blue note", "Green note", "Orange note", "Purple note", "Frame", "Text", "Rectangle", "Oval", "Diamond", "Arrow", "Line", "Elbow arrow", ...TEMPLATES.map((t) => t.label)]);
     await click(tiles()[2]);
     expect(sentOfType(socket, "noteAdd")[0]).toMatchObject({ color: "blue" });
     expect(palette()?.querySelector('[aria-label="Expand palette"]')?.getAttribute("aria-expanded")).toBe("false");
@@ -1030,7 +1031,7 @@ describe("the palette (md up)", () => {
     await act(async () => (document.activeElement as HTMLElement | null)?.blur());
     await press("[");
     expect(search()).not.toBeNull();
-    expect(tiles()).toHaveLength(11 + TEMPLATES.length);
+    expect(tiles()).toHaveLength(14 + TEMPLATES.length);
     expect(saved("stickyard:palette-panel")).toEqual({ width: null, collapsed: false });
   });
 
