@@ -209,3 +209,38 @@ it("12 pages bursting edits converge on the relay's snapshot", async () => {
   // Honest pages pace themselves inside every relay bucket.
   expect(errorCodes(room.pages).rate_limited ?? 0).toBe(0);
 });
+
+/*
+ * A known gap, measured and reported (not asserted): a drag cut off before its final move (the
+ * dragger's connection drops mid-drag) leaves every other page showing the last live preview,
+ * which the relay never stored, until that item changes again. Backlog: see docs/PHASE_PLAN.md.
+ */
+it("reports what others show after a dragger drops mid-drag", async () => {
+  const r = await openRoom(relay, 3);
+  try {
+    const [a, b, c] = r.pages as [Page, Page, Page];
+    a.session.addNote({ x: 500, y: 500, color: "yellow", text: "Dragged" });
+    await c.until((v) => v.board.notes.some((n) => n.confirmed !== null), 10_000, "note");
+    await b.until((v) => v.board.notes.some((n) => n.confirmed !== null), 10_000, "note");
+    const id = c.view.board.notes[0]?.note.id as string;
+    expect(b.session.startDrag(id)).toBe(true);
+    for (let i = 1; i <= 5; i++) {
+      b.session.moveNote(id, 500 + i * 100, 500, false);
+      await sleep(60);
+    }
+    await sleep(300);
+    b.drop();
+    await b.until((v) => v.status === "joined" && v.synced, 20_000, "back");
+    await sleep(1500);
+    const shownByC = c.view.board.notes.find((n) => n.note.id === id);
+    const { diffs } = await convergence(relay, r);
+    report("1b. drag cut off mid-way (known gap)", {
+      relayKeeps: shownByC?.confirmed ? { x: shownByC.confirmed.x, y: shownByC.confirmed.y } : null,
+      otherPageShows: shownByC ? { x: shownByC.note.x, y: shownByC.note.y } : null,
+      draggerAfterRejoin: b.view.board.notes.find((n) => n.note.id === id)?.note.x,
+      pagesThatDiffer: [...new Set(diffs.map((d) => d.split(":")[0]))],
+    });
+  } finally {
+    closeAll(r);
+  }
+});
