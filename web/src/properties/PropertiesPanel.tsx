@@ -1,5 +1,5 @@
 import { useId, type ReactNode } from "react";
-import { Eraser, Power, Trash2 } from "lucide-react";
+import { BookmarkPlus, Eraser, Power, Trash2 } from "lucide-react";
 import { BOARD_HEIGHT, BOARD_WIDTH, MAX_SHAPES_PER_ROOM, NOTE_STYLE_FIELDS, type FrameColor, type Note, type OrderAction, type Participant, type SilentState } from "@stickyard/shared";
 import { Button } from "../components/ui/button";
 import { cn } from "../lib/utils";
@@ -80,6 +80,8 @@ export interface PropertiesRoom {
   addToGroup?(id: string, ids: readonly string[]): boolean;
   removeFromGroup?(id: string, ids: readonly string[]): boolean;
   ungroup?(ids: readonly string[]): void;
+  /** Save as stencil (v0.39.0): why it's off, and opening its dialog. */
+  saveStencil?: { reason: string | null; run: () => void };
   /** Deletes every note and frame (asked first here); false if it couldn't start. */
   clearBoard(): boolean;
   /** An add run (template, duplicate, restore) is still being sent. */
@@ -470,6 +472,23 @@ export function PropertiesContent({ room, collapse }: { room: PropertiesRoom; co
           />
         ) : (
           <Summary room={room} />
+        )}
+        {/* Save as stencil (v0.39.0), for any selection with notes, shapes or frames. */}
+        {room.saveStencil && selection.size + frameSet.size + shapeSet.size > 0 && (
+          <div className="flex flex-col gap-xs border-t border-border pt-md">
+            <Button
+              variant="ghost"
+              className="self-start"
+              aria-disabled={room.saveStencil.reason !== null || undefined}
+              onClick={() => {
+                if (room.saveStencil?.reason === null) room.saveStencil.run();
+              }}
+            >
+              <BookmarkPlus />
+              Save as stencil
+            </Button>
+            <p className="text-xs text-fg-muted">{room.saveStencil.reason ?? "Saved in this browser only, with the selected items’ text."}</p>
+          </div>
         )}
       </div>
     </div>

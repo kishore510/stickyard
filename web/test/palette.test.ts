@@ -147,8 +147,9 @@ describe("palette search", () => {
 });
 
 describe("palette tabs", () => {
-  it("only tabs with something in them are shown: no Stencils tab without a stencil", () => {
-    expect(visibleTabs(PALETTE_TABS, PALETTE_CATEGORIES, state).map((t) => t.id)).toEqual(["add"]);
+  it("only tabs with something in them are shown: Stencils from md up (built-ins), never in the phone drawer", () => {
+    expect(visibleTabs(PALETTE_TABS, PALETTE_CATEGORIES, state).map((t) => t.id)).toEqual(["add", "stencils"]);
+    expect(visibleTabs(PALETTE_TABS, PALETTE_CATEGORIES, state, "drawer").map((t) => t.id)).toEqual(["add"]);
   });
 
   it("registering a stencil shows the Stencils tab, after Add", () => {
@@ -164,7 +165,7 @@ describe("palette tabs", () => {
       ["add", "Add"],
       ["stencils", "Stencils"],
     ]);
-    expect(paletteSections([...PALETTE_CATEGORIES, stencils], "stencils", state, "").map((s) => s.category.id)).toEqual(["test-stencils"]);
+    expect(paletteSections([...PALETTE_CATEGORIES, stencils], "stencils", state, "").map((s) => s.category.id)).toContain("test-stencils");
   });
 });
 

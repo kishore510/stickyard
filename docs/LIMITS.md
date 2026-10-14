@@ -291,3 +291,10 @@ Structure part 1 of 3 (relay and shared). Row counts measured in `worker/test/gr
 - *Reads and memory:* groups are read once when the object wakes (at most 30 group rows and 250 member rows, plus any left by a rollback) and kept in memory.
 - *Hibernation:* nothing is scheduled; the attachment gains four numbers (the two group buckets).
 - *Silent rounds:* every group message is refused during a round (`silent_active`), so a round adds no work; a member's delete during a round only names visible items. The three member-carrying group messages pass through the per-recipient filter as a backstop.
+
+## Stencils (v0.39.0): what placing one costs
+
+Web only; nothing new on the relay. Saved stencils live in this browser (at most 20, 24 KB each, 200 KB in all) and cost nothing until placed.
+
+- *Placing one* is the same messages as adding the items by hand: itemsAdd messages of up to 50 items (paced at 10 a second), then one `connectorAdd` per arrow and one `groupCreate` per group (paced inside `CONNECTOR_LIMITS` and `GROUP_LIMITS`). The largest built-in (Pros and cons) is 7 items and 2 groups: 1 itemsAdd and 2 groupCreates. A saved stencil can be at most the room's caps, so its worst case is a full board's worth of adds, which the room refuses up front when it wouldn't fit.
+- *Rows written* are those of the add messages (LIMITS.md "Create with content", "Connectors", "Groups").

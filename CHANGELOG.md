@@ -2,6 +2,19 @@
 
 All notable changes to Stickyard, newest first. The format follows Keep a Changelog. Versions are 0.x: a minor bump for each slice and a patch bump for each follow-up fix. This file is shown in the app under **What’s new**, so entries are written for the people using it.
 
+## [0.39.0] - 2026-10-14
+
+### Added
+- **Stencils.** On a wider screen the palette has a **Stencils** tab beside **Add**: small ready-made areas to drop in. The built-ins: a labelled area with three blank notes, a three-step flow of shapes joined by arrows, a cluster of four notes in a group, a decision, and pros and cons.
+- Click a stencil to place it in the middle of the view, or drag it onto the board. Its notes, shapes and frames go first, then its arrows and groups, and one **Undo** removes all of it. If the board hasn't room for everything in it, nothing is added and the page says what's missing.
+- **Save as stencil**: select notes, shapes and frames, choose **Save as stencil** (top bar, or **Properties**) and name it. It keeps their sizes, colours, styles and text, the arrows between them and the groups whose items are all selected; an arrow attached to something outside keeps a free end where it was.
+- Saved stencils stay in this browser only (up to 20, each up to 24 KB): nothing is sent until you place one. **Rename**, **Delete** and **Delete all** are in the Stencils tab. If this browser blocks storage, the tab says so and the built-ins still work; a saved stencil that can't be read is left out and counted.
+- Stencils can't be placed by guests on a locked board, or by anyone during a silent round; the tiles say why. There's no Stencils tab on a phone.
+- A new Help topic, **Stencils**.
+
+### Changed
+- About > Privacy describes saved stencils.
+
 ## [0.38.0] - 2026-10-14
 
 ### Added

@@ -17,6 +17,7 @@ import type { ShapeEdit } from "../shapes/board";
 import type { ConnectorContent, ConnectorPatch } from "../connectors/board";
 import { useConnectorUi } from "../connectors/connectorUi";
 import { useGroupUi } from "../groups/groupUi";
+import type { Stencil } from "../stencils/data";
 import type { ConnectorEnd, GroupColor } from "@stickyard/shared";
 import { INITIAL_VIEW, RoomSession, type RoomView, type TemplateFramePlan } from "./session";
 
@@ -133,6 +134,7 @@ export function useRoom(code: string) {
     addToGroup: (id: string, ids: readonly string[]) => session.current?.addToGroup(id, ids) ?? false,
     removeFromGroup: (id: string, ids: readonly string[]) => session.current?.removeFromGroup(id, ids) ?? false,
     ungroup: (ids: readonly string[]) => session.current?.ungroup(ids) ?? false,
+    placeStencil: (stencil: Stencil, centre: { x: number; y: number }) => session.current?.placeStencil(stencil, centre) ?? false,
     startSelectionDrag: (frameIds: readonly string[], noteIds: readonly string[], carry: boolean, shapeIds: readonly string[] = []) =>
       session.current?.startSelectionDrag(frameIds, noteIds, carry, shapeIds) ?? false,
     applyFrameRects: (rects: readonly (NoteRect & { id: string })[]) => session.current?.applyFrameRects(rects) ?? false,

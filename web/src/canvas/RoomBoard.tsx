@@ -80,6 +80,11 @@ import { groupOfSelection, groupsTouching, wholeGroups } from "../groups/geometr
 import { GROUP_TEXT, createReason, groupReason } from "../groups/rules";
 import { GroupAnnouncer } from "../groups/GroupLayer";
 import { useGroupUi } from "../groups/groupUi";
+import { STENCIL_TEXT, stencilReason as stencilBaseReason } from "../stencils/rules";
+import { buildStencil, stencilBounds, type Stencil } from "../stencils/data";
+import { newStencilId, useStencils } from "../stencils/stencilStore";
+import { StencilSaveDialog } from "../stencils/StencilUi";
+import { UNDO_TEXT } from "../rooms/session";
 
 /*
  * The room's board with its tools and panels, loaded on demand (React Flow is only needed in a
@@ -304,6 +309,10 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
   const connectorReason = arrowReason ?? connectorToolReason({ live, count: view.board.connectors.length });
   // Groups (v0.38.0): off for a guest on a locked board and for everyone during a silent round.
   const groupBase = groupReason({ live, lockedOut: locked, silent: silentOn });
+  // Stencils (v0.39.0): placed like templates, so off while one is applying or items are being added.
+  const stencilReason = stencilBaseReason({ live, lockedOut: locked, silent: silentOn }) ?? (view.adding || view.template?.state === "applying" ? UNDO_TEXT.busy : null);
+  const savedStencils = useStencils((s) => s.loaded.stencils);
+  useEffect(() => useStencils.getState().reload(), []);
   const templateReason = withLock(templateToolReason({ live, applying: view.template?.state === "applying", adding: view.adding }), lock);
   const sizes = panelWidths(windowWidth, panels);
 
@@ -410,6 +419,16 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
     [canvas],
   );
 
+  /** Places a stencil: centred on the view, or (a drop) with its box's top-left at `at`. */
+  const placeStencil = useCallback(
+    (stencil: Stencil, at?: XY) => {
+      const { width, height } = stencilBounds(stencil);
+      const centre = at ? { x: at.x + width / 2, y: at.y + height / 2 } : canvas.centre();
+      latest.current.room.placeStencil(stencil, centre);
+    },
+    [canvas],
+  );
+
   /** Arms the arrow tool (a Connectors tile); a drop starts the arrow where it landed (then click the end). */
   const startArrow = useCallback((style: DrawStyle, at?: XY) => {
     const ui = useConnectorUi.getState();
@@ -489,15 +508,15 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
 
   const paletteHost = useMemo<PaletteHost>(
     () => ({
-      ctx: { noteReason, frameReason, templateReason, timerReason, shapeReason, connectorReason },
-      state: { live, noteCount, isHost },
+      ctx: { noteReason, frameReason, templateReason, timerReason, shapeReason, connectorReason, stencilReason },
+      state: { live, noteCount, isHost, stencils: savedStencils },
       activate: (item, at) => {
         useBoardUi.getState().setAddSheetOpen(false);
-        item.create({ addNote, addFrame, applyTemplate, addShape, startArrow, openTimer: () => useBoardUi.getState().setTimerPickerOpen(true) }, at);
+        item.create({ addNote, addFrame, applyTemplate, addShape, startArrow, placeStencil, openTimer: () => useBoardUi.getState().setTimerPickerOpen(true) }, at);
       },
       dropAt: canvas.dropAt,
     }),
-    [noteReason, frameReason, templateReason, timerReason, shapeReason, connectorReason, live, noteCount, isHost, addNote, addFrame, applyTemplate, addShape, startArrow, canvas],
+    [noteReason, frameReason, templateReason, timerReason, shapeReason, connectorReason, stencilReason, savedStencils, live, noteCount, isHost, addNote, addFrame, applyTemplate, addShape, startArrow, placeStencil, canvas],
   );
 
   const rejoinRef = useRef(onRejoin);
@@ -633,6 +652,27 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
   const groupKeys = useRef({ group: groupSelection, ungroup: ungroupSelection });
   groupKeys.current = { group: groupSelection, ungroup: ungroupSelection };
   const onGroupKey = useCallback((command: "group" | "ungroup") => (command === "group" ? groupKeys.current.group() : groupKeys.current.ungroup()), []);
+
+  // Save as stencil (v0.39.0): what's selected, kept in this browser only.
+  const stencilSaveReason =
+    selectedEntries.length + selectedFrameEntries.length + selectedShapeEntries.length === 0
+      ? STENCIL_TEXT.nothingToSave
+      : useStencils.getState().loaded.blocked
+        ? STENCIL_TEXT.blocked
+        : null;
+  const openStencilSave = () => (stencilSaveReason !== null ? room.showNotice(stencilSaveReason) : useStencils.getState().setSaveOpen(true));
+  /** Builds the stencil from the selection now and saves it; null when saved, else the reason. */
+  const saveStencilAs = (name: string): string | null => {
+    const ui = useBoardUi.getState();
+    const { board } = latest.current.view;
+    const sel = { notes: orderedIds(ui.selection), shapes: orderedIds(ui.shapes), frames: orderedIds(ui.frames), connectors: orderedIds(ui.connectors) };
+    if (sel.notes.length + sel.shapes.length + sel.frames.length === 0) return STENCIL_TEXT.nothingToSave;
+    const stencil = buildStencil(board, sel, name, newStencilId());
+    const result = useStencils.getState().save(stencil);
+    if (!result.ok) return result.reason;
+    room.showNotice(STENCIL_TEXT.saved(stencil.name));
+    return null;
+  };
 
   /** Duplicates the selection (notes, the frame alone, shapes, or a mix) and selects the copies. */
   const duplicate = () => {
@@ -792,6 +832,7 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
       silentReason={silentOn ? SILENT_TEXT.on : null}
       arrows={arrowCount}
       grouping={{ reason: groupCreateReason, run: groupSelection }}
+      stencil={{ reason: stencilSaveReason, run: openStencilSave }}
       session={isHost ? { locked: view.locked, pending: view.lockPending, setLock: (on: boolean) => room.setLock(on) } : null}
     />
   ) : null;
@@ -926,6 +967,7 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
                 addToGroup: room.addToGroup,
                 removeFromGroup: room.removeFromGroup,
                 ungroup: (ids: readonly string[]) => ungroupSelection(ids),
+                saveStencil: { reason: stencilSaveReason, run: openStencilSave },
                 clearBoard: room.clearBoard,
                 adding: view.adding,
                 clearing: view.clearing,
@@ -944,6 +986,7 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
         </SidePanel>
       )}
       {wide && <TimerPicker />}
+      {wide && <StencilSaveDialog save={saveStencilAs} />}
       {!wide && <AddDrawer host={paletteHost} open={addSheetOpen} onClose={() => useBoardUi.getState().setAddSheetOpen(false)} />}
     </div>
   );

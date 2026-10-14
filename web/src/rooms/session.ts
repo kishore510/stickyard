@@ -4,6 +4,8 @@ import {
   FRAME_STYLE_FIELDS,
   MAX_BATCH_ENTRIES,
   MAX_CONNECTORS_PER_ROOM,
+  BOARD_HEIGHT,
+  BOARD_WIDTH,
   MAX_FRAMES_PER_ROOM,
   MAX_GROUP_LABEL,
   MAX_GROUP_MEMBERS,
@@ -205,6 +207,8 @@ import { groupEffects, groupOfSelection, wholeGroups } from "../groups/geometry"
 import { decodeMembers, groupFields, groupFromFields, renameMemberRefs } from "../groups/fields";
 import { GroupPacer, type GroupMessage } from "../groups/pace";
 import { GROUP_TEXT } from "../groups/rules";
+import { stencilBounds, type Stencil, type StencilArrow } from "../stencils/data";
+import { STENCIL_TEXT, type StencilCap } from "../stencils/rules";
 import { DUPLICATE_HINTS, DUPLICATE_OFFSET, duplicateFrameInput, duplicateNoteInputs, duplicateSelectionInputs } from "../canvas/duplicate";
 import { HISTORY_TEXT, History, type Fields, type ItemKind, type Lookup, type Plan } from "../history/history";
 import type { CodeCheck } from "./api";
@@ -3603,6 +3607,96 @@ export class RoomSession {
     part.updates = [];
     this.update({ board, ...(run.restore ? this.itemsDone(run, board) : {}) });
     for (const message of sends) this.groupPacer.enqueue(message);
+  }
+
+
+  /* ── Stencils (v0.39.0) ─────────────────────────────────────────── */
+
+  /**
+   * Places a stencil (stencils/data.ts) centred on `centre`, clamped so all of it is on the board,
+   * through the same paced path as templates: its frames, notes and shapes in itemsAdd messages,
+   * then its arrows and groups (paced) with the ids the relay returns. One history step, so one
+   * undo removes all of it. Refused up front, with the reason and nothing sent: not connected, a
+   * guest on a locked board, a silent round (everyone), another add or restore still being sent,
+   * or any room cap it wouldn't fit (notes, shapes, frames, 100 arrows, 30 groups).
+   */
+  placeStencil(stencil: Stencil, centre: { x: number; y: number }): boolean {
+    if (!this.live || !this.view.you) return false;
+    if (lockedOut(this.view)) {
+      this.update({ noteNotice: LOCK_TEXT.reason });
+      return false;
+    }
+    if (this.refuseSilent()) return false;
+    if (this.itemBatches.size > 0 || this.restoreRun || this.template) {
+      this.update({ noteNotice: UNDO_TEXT.busy });
+      return false;
+    }
+    const board = this.view.board;
+    const room: [StencilCap, number, number][] = [
+      ["frames", stencil.frames.length, MAX_FRAMES_PER_ROOM - board.frames.length],
+      ["notes", stencil.notes.length, MAX_NOTES_PER_ROOM - this.view.totalNotes],
+      ["shapes", stencil.shapes.length, MAX_SHAPES_PER_ROOM - board.shapes.length],
+      ["arrows", stencil.arrows.length, MAX_CONNECTORS_PER_ROOM - board.connectors.length],
+      ["groups", stencil.groups.length, MAX_GROUPS_PER_ROOM - board.groups.length],
+    ];
+    for (const [kind, needs, free] of room) {
+      if (needs > Math.max(0, free)) {
+        this.update({ noteNotice: STENCIL_TEXT.noRoom(kind, needs, Math.max(0, free)) });
+        return false;
+      }
+    }
+    const { width, height } = stencilBounds(stencil);
+    const clamp = (v: number, max: number) => Math.min(Math.max(0, Math.round(v)), Math.max(0, max));
+    const ox = clamp(centre.x - width / 2, BOARD_WIDTH - width);
+    const oy = clamp(centre.y - height / 2, BOARD_HEIGHT - height);
+    const refs: string[] = [];
+    const inputs: ItemInput[] = [];
+    for (const { ref, ...f } of stencil.frames) {
+      refs.push(ref);
+      inputs.push({ kind: "frame", ...f, x: f.x + ox, y: f.y + oy });
+    }
+    for (const { ref, ...n } of stencil.notes) {
+      refs.push(ref);
+      inputs.push({ kind: "note", ...n, x: n.x + ox, y: n.y + oy });
+    }
+    for (const { ref, kind, ...x } of stencil.shapes) {
+      refs.push(ref);
+      inputs.push({ kind: "shape", shapeKind: kind, ...x, x: x.x + ox, y: x.y + oy });
+    }
+    const run = this.startItems(inputs, null, { defer: true });
+    if (!run) return false;
+    const localOf = new Map<string, string>();
+    refs.forEach((ref, i) => {
+      const r = run.refs[i];
+      if (r) localOf.set(ref, localId(r));
+    });
+    let next = this.view.board;
+    const added: { kind: ItemKind; id: string }[] = inputs.flatMap((input, i) => {
+      const r = run.refs[i];
+      return r && run.pending.has(r) ? [{ kind: input.kind, id: localId(r) }] : [];
+    });
+    for (const a of stencil.arrows) {
+      const end = (e: StencilArrow["start"]): ConnectorEnd => ("ref" in e ? { item: localOf.get(e.ref) ?? e.ref, anchor: e.anchor } : clampConnectorPoint(e.x + ox, e.y + oy));
+      const { start, end: finish, ...style } = a;
+      const clientRef = randomRef();
+      next = addConnectorLocal(next, { clientRef, content: { ...style, start: end(start), end: end(finish) }, authorId: this.view.you.id });
+      this.addArrowToRun(run, clientRef);
+      added.push({ kind: "connector", id: localId(clientRef) });
+    }
+    for (const g of stencil.groups) {
+      const clientRef = randomRef();
+      next = addGroupLocal(next, { clientRef, label: g.label, color: g.color, members: g.members.flatMap((m) => localOf.get(m) ?? []) }).board;
+      this.addGroupToRun(run, clientRef);
+      added.push({ kind: "group", id: localId(clientRef) });
+    }
+    this.update({ board: next, noteNotice: null });
+    this.history.recordAdd("Stencil", added, Date.now());
+    if (run.pending.size === 0) {
+      this.update(this.itemsDone(run, this.view.board));
+      this.flushRun(run);
+    }
+    this.pumpItems();
+    return true;
   }
 
   /* ── Undo and redo (history/history.ts) ─────────────────────────── */

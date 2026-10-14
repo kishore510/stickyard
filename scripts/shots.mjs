@@ -1,4 +1,4 @@
-// npm run shots: screenshots of the welcome page, a seeded room (with reactions, the reaction picker and arrows: attached, free, dashed, elbow, one selected with its handles, one being drawn; phones read-only; groups: a plain cluster, one spanning two frames, one selected, a label being edited on its chip, phones read-only) and its Share session sheet at 360, 768 and 1280 px,
+// npm run shots: screenshots of the welcome page, a seeded room (with reactions, the reaction picker and arrows: attached, free, dashed, elbow, one selected with its handles, one being drawn; phones read-only; groups: a plain cluster, one spanning two frames, one selected, a label being edited on its chip, phones read-only; the Stencils tab with the built-ins, Save as stencil, a saved one and storage blocked) and its Share session sheet at 360, 768 and 1280 px,
 // in light and dark, into shots/ (gitignored). Starts a local relay (wrangler dev, fake
 // secrets, throwaway storage) and the Vite dev server, then drives Chromium.
 //
@@ -324,7 +324,7 @@ async function main() {
           await page.keyboard.press("Escape");
           await page.keyboard.press("f");
           await page.waitForTimeout(600);
-          if ((await page.locator("[data-group-chip]").count()) < 2) throw new Error(`groups missing at ${size.name} ${theme}`);
+          if ((await page.locator("[data-group-box]").count()) < 2) throw new Error(`groups missing at ${size.name} ${theme}`);
           const chipOverlaps = await page.evaluate(() => {
             const rects = (sel) => [...document.querySelectorAll(sel)].map((e) => e.getBoundingClientRect());
             const ui = [...rects(".react-flow__minimap"), ...rects('[role="toolbar"][aria-label="View"]'), ...rects('[role="toolbar"][aria-label="Board tools"]')];
@@ -348,6 +348,41 @@ async function main() {
             await page.keyboard.press("Escape");
             await page.keyboard.press("Escape");
             await page.waitForTimeout(300);
+          }
+          // Stencils (v0.39.0, md and up): the built-ins, a saved one, and storage blocked.
+          if (size.width >= 768) {
+            await page.keyboard.press("Escape");
+            if (size.width < 1024) await page.keyboard.press("[");
+            await page.waitForTimeout(300);
+            await page.locator('aside[aria-label="Palette"] [role="tab"]', { hasText: "Stencils" }).click();
+            await page.waitForTimeout(400);
+            if ((await page.locator('[data-palette-item^="stencil-"]').count()) < 4) throw new Error(`built-in stencils missing at ${size.name} ${theme}`);
+            await shot("stencils");
+            await page.locator('[data-group-chip][aria-label^="Group: Customer themes"]').click();
+            await page.waitForTimeout(300);
+            await page.locator('aside[aria-label="Properties"] button', { hasText: "Save as stencil" }).click();
+            await page.locator("[data-stencil-save] input").fill("Theme cluster");
+            await page.waitForTimeout(200);
+            await shot("stencil-save");
+            await page.locator("[data-stencil-save] button", { hasText: "Save" }).first().click();
+            await page.waitForTimeout(400);
+            if ((await page.locator('[data-palette-item^="saved-"]').count()) === 0) throw new Error(`saved stencil missing at ${size.name} ${theme}`);
+            await page.keyboard.press("Escape");
+            await page.waitForTimeout(200);
+            await shot("stencils-saved");
+            // Storage blocked: the tab says so, the built-ins stay.
+            await page.evaluate(() => {
+              const get = Storage.prototype.getItem;
+              Storage.prototype.getItem = function (key) {
+                if (key === "stickyard:stencils") throw new Error("blocked");
+                return get.call(this, key);
+              };
+            });
+            await page.locator('aside[aria-label="Palette"] [role="tab"]', { hasText: "Add" }).click();
+            await page.locator('aside[aria-label="Palette"] [role="tab"]', { hasText: "Stencils" }).click();
+            await page.waitForTimeout(300);
+            if ((await page.locator("[data-stencil-blocked]").count()) === 0) throw new Error(`blocked storage not said at ${size.name} ${theme}`);
+            await shot("stencils-blocked");
           }
           // Share session (v0.32.0): the QR sheet from the menu, then Large.
           await page.getByRole("button", { name: /^Menu/ }).click();

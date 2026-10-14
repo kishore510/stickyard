@@ -5,7 +5,7 @@ import { buildTopics, parseFrontMatter, searchTopics } from "../src/help/topics"
 
 describe("help topics", () => {
   it("loads the topics, quick start first", () => {
-    expect(HELP_TOPICS.map((t) => t.id)).toEqual(["quick-start", "sessions", "notes", "text-and-shapes", "arrows", "groups", "participants", "chat", "names", "connection", "touch-and-keyboard", "hosting", "dot-voting", "reactions", "silent-brainstorm", "follow", "join-by-qr"]);
+    expect(HELP_TOPICS.map((t) => t.id)).toEqual(["quick-start", "sessions", "notes", "text-and-shapes", "arrows", "groups", "participants", "stencils", "chat", "names", "connection", "touch-and-keyboard", "hosting", "dot-voting", "reactions", "silent-brainstorm", "follow", "join-by-qr"]);
     expect(topicById("sessions")?.title).toBe("Starting and joining a session");
     expect(topicById(QUICK_START_ID)?.title).toBe("Quick start");
   });
@@ -26,6 +26,13 @@ describe("help topics", () => {
     }
     expect(topicById("touch-and-keyboard")?.text).toContain("shift+g");
     expect(topicById("hosting")?.text).toContain("affinity grouping");
+  });
+
+  it("Stencils (v0.39.0) says they stay in this browser and nothing is sent until one is placed", () => {
+    const stencils = topicById("stencils")?.text ?? "";
+    for (const claim of ["stencils tab", "saved in this browser only", "nothing is sent", "until you place it", "40 characters", "up to 20 stencils", "24 kb", "delete all", "blocks storage", "one undo", "free end"]) {
+      expect(stencils, claim).toContain(claim);
+    }
   });
 
   it("names and identity describes what exists now", () => {
@@ -62,8 +69,7 @@ describe("help topics", () => {
     for (const claim of ["palette", "drag a tile", "properties", "title", "body", "collapse", "resize", "[", "]"]) {
       expect(notes, claim).toContain(claim);
     }
-    // No Stencils tab yet; colour change, text style and resizing exist (slice 2.7).
-    expect(notes).not.toMatch(/stencil/i);
+    // Colour change, text style and resizing exist (slice 2.7).
     expect(notes).not.toContain("arrives in a later update");
     for (const claim of ["resizing a note", "alt", "width", "height", "colour and text style", "bold", "italic", "title and the body each have their own size, bold, italic, alignment and text colour", "text colour", "auto"]) {
       expect(notes, claim).toContain(claim);
