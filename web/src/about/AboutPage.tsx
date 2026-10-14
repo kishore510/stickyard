@@ -117,6 +117,10 @@ export function AboutPage() {
             arrows go with the session when it expires or ends.
           </li>
           <li>
+            Groups will be stored the same way: each group’s label, colour and which notes and shapes are in it (never where it is: that comes
+            from its items). Ungrouping never deletes the notes and shapes in a group; groups go with the session when it expires or ends.
+          </li>
+          <li>
             While you share your cursor (a mouse or pen over the board, on a wider screen), your pointer’s position on the board is passed on live
             to the others in the session, with the relay’s random id for your visit so their page can show your name beside it. It is never stored,
             and nothing is sent while your pointer is still, off the board, in a hidden tab, or when you’re the only one there. Phones never share a

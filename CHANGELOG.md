@@ -2,6 +2,15 @@
 
 All notable changes to Stickyard, newest first. The format follows Keep a Changelog. Versions are 0.x: a minor bump for each slice and a patch bump for each follow-up fix. This file is shown in the app under **What’s new**, so entries are written for the people using it.
 
+## [0.37.0] - 2026-10-14
+
+### Changed
+- Groundwork for **groups**. Nothing new is visible yet: grouping comes in a later release. Then you'll be able to group notes and shapes, give the group a label and a colour, and add or take out items.
+- The relay can now keep up to 30 groups a session, each of 2 to 100 notes and shapes. An item is in one group at most; putting it in another moves it. A group left with fewer than 2 items (because they were taken out or deleted) goes, and its items stay. Ending the session or letting it expire takes the groups with everything else, as before.
+- Groups can't be changed during a silent round, or by guests on a locked board.
+- About > Privacy describes what groups will keep.
+- After this update, pages opened before it say **please reload** when they try to join, as with earlier updates.
+
 ## [0.36.0] - 2026-10-14
 
 ### Added
