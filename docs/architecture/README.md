@@ -79,6 +79,10 @@ Sections are named after the slice that introduced them. Cross-references in quo
 | Groups, protocol v22 (v0.37.0, structure part 1 of 3) | groups.md (pointers in notes.md, rooms.md, connection.md) |
 | Groups: the UI (v0.38.0, structure part 2 of 3) | groups.md (pointers in canvas.md, editing.md) |
 | Stencils (v0.39.0, structure part 3 of 3) | stencils.md (pointer in canvas.md) |
+| Hardening: what a held note shows (v0.39.1) | notes.md (shapes and frames follow the same rule) |
+| Hardening: a frame deleted mid-drag (v0.39.1) | frames.md |
+| Accessibility pass (v0.39.1) | shell.md |
+| Hardening: the load harness (v0.39.1) | rooms.md (numbers in docs/LIMITS.md) |
 | App shell conventions (slice 0.5) | shell.md |
 | Welcome screen (v0.8.1) | shell.md |
 | Board bar in the top bar (v0.15.1) | shell.md |

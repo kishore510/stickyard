@@ -47,6 +47,8 @@ npm run typecheck   # tsc --noEmit in shared, web, worker
 npm test            # vitest in shared, web, worker
 npm run build       # web + worker (wrangler dry-run)
 npm run shots       # screenshots at 360/768/1280, light and dark, into shots/ (local relay + Chromium)
+npm run load        # dev only: 12 simulated pages against local wrangler dev (dev/load, localhost only)
+npm run a11y        # dev only: axe, keyboard, targets, reduced motion at 360/768/1280 (dev/a11y)
 ```
 - On the Raspberry Pi, run the worker tests one file at a time if memory is short; the Pi may not be able to run a browser (skip `shots` there).
 - GitHub runners run the full suites normally.
