@@ -112,6 +112,11 @@ export function AboutPage() {
             it expires or ends.
           </li>
           <li>
+            Arrows (coming in a later version) will be stored the same way: each arrow’s ends (a place on the board, or the note or
+            shape it is attached to), its line style, and the random id the relay gave the visit that added it. Deleting a note or
+            shape leaves its arrows where they were; arrows go with the session when it expires or ends.
+          </li>
+          <li>
             While you share your cursor (a mouse or pen over the board, on a wider screen), your pointer’s position on the board is passed on live
             to the others in the session, with the relay’s random id for your visit so their page can show your name beside it. It is never stored,
             and nothing is sent while your pointer is still, off the board, in a hidden tab, or when you’re the only one there. Phones never share a

@@ -253,6 +253,18 @@ describe("the canary leak test", () => {
     // A visible note and frame from before the round, so carries and orders have something to touch.
     const frame = (await host.request({ type: "frameAdd", clientRef: "f1", x: 1000, y: 1000, color: "neutral", title: "Ideas" })) as Extract<ServerMessage, { type: "frameAdded" }>;
     const old = await noteAdd(b, "Before the round", { x: 1100, y: 1100 });
+    // Protocol v21: connectors from before the round, bound to visible notes and a shape, and one free.
+    const bnote = await noteAdd(b, "Bound", { x: 1500, y: 1500 });
+    await drain(host, a, b);
+    const vshape = (await host.request({ type: "shapeAdd", clientRef: "v1", kind: "rect", x: 2000, y: 2000 })) as Extract<ServerMessage, { type: "shapeAdded" }>;
+    const style = { route: "straight", dash: "solid", width: "medium", ink: "neutral", startHead: "none", endHead: "arrow" };
+    await drain(host, a, b);
+    const kA = (await host.request({ type: "connectorAdd", clientRef: "k1", start: { item: old.id, anchor: "auto" }, end: { item: vshape.shape.id, anchor: "auto" }, ...style })) as Extract<ServerMessage, { type: "connectorAdded" }>;
+    await drain(host, a, b);
+    b.send({ type: "connectorAdd", clientRef: "k2", start: { item: bnote.id, anchor: "right" }, end: { x: 2500, y: 1500 }, ...style });
+    const kB = await nextOfType(b, "connectorAdded");
+    b.send({ type: "connectorAdd", clientRef: "k3", start: { x: 10, y: 10 }, end: { x: 90, y: 90 }, ...style });
+    const kC = await nextOfType(b, "connectorAdded");
     await drain(host, a, b);
     await startSilent(host, [a, b]);
     const all = [host, a, b];
@@ -265,7 +277,7 @@ describe("the canary leak test", () => {
     // 2. A second socket for A (same key): its snapshot has A's sealed note, and it hears A's changes from now on.
     const a2 = await TestClient.open(code);
     await a2.enter("Ari", keys.a);
-    expect(a2.snapshot?.notes.map((n) => n.id)).toEqual([old.id, s1.id]);
+    expect(a2.snapshot?.notes.map((n) => n.id)).toEqual([old.id, bnote.id, s1.id]);
     await drain(host, a, b);
 
     // 3. Edit text, colour and style.
@@ -333,6 +345,26 @@ describe("the canary leak test", () => {
     sealed.add(undo.notes[0]!.note.id);
     for (const o of [host, b]) expect(await nextOfType(o, "silentChanged")).toEqual({ type: "silentChanged", active: true, count: 3 });
 
+    // 12b. Connectors (protocol v21): every connector message is refused during the round
+    // (silent_active), and a bind to a sealed note gets exactly the reply a random id gets.
+    await drain(host, a, b, a2);
+    const random = unknownId();
+    for (const make of [
+      (id: string) => ({ type: "connectorAdd", clientRef: "k9", start: { item: id, anchor: "auto" }, end: { item: old.id, anchor: "auto" }, ...style }),
+      (id: string) => ({ type: "connectorUpdate", id: kA.connector.id, end: { item: id, anchor: "top" } }),
+    ]) {
+      const toSealed = await answers(a, make(s1.id));
+      expect(toSealed).toEqual(await answers(a, make(random)));
+      expect(toSealed).toMatchObject([{ type: "error", code: "silent_active" }]);
+    }
+    expect(await answers(a, { type: "connectorDelete", id: kC.connector.id })).toMatchObject([{ type: "error", code: "silent_active", connectorId: kC.connector.id }]);
+    // A visible bound note deleted during the round: its connector's end turns free, for everyone.
+    host.send({ type: "noteDelete", id: bnote.id });
+    for (const o of [host, a, b, a2]) {
+      expect(await nextOfType(o, "noteDeleted")).toEqual({ type: "noteDeleted", id: bnote.id });
+      expect(await o.next()).toMatchObject({ type: "connectorUpdated", connector: { id: kB.connector.id, start: { x: 1660, y: 1580 }, rev: 2 } });
+    }
+
     // 13. frameMove carrying sealed notes (live and final): refused for A, nothing to anyone else.
     await drain(a, a2);
     for (const final of [false, true]) {
@@ -390,9 +422,24 @@ describe("the canary leak test", () => {
     // Since the round started, the passive people got only these kinds of message.
     const sinceStart = (t: string[]) => t.slice(t.findIndex((r) => r.includes('"silentChanged"')));
     const kinds = (t: string[]) => new Set(t.map((r) => (JSON.parse(r) as { type: string }).type));
-    const joining = ["welcome", "joined", "snapshot", "framesSnapshot", "shapesSnapshot", "reactionsSnapshot"];
+    const joining = ["welcome", "joined", "snapshot", "framesSnapshot", "shapesSnapshot", "reactionsSnapshot", "connectorsSnapshot"];
     for (const t of [sinceStart(raw.host), sinceStart(raw.b)]) {
-      for (const k of kinds(t)) expect(["silentChanged", "participant_joined", "participant_left", "itemsAdded"]).toContain(k);
+      for (const k of kinds(t)) expect(["silentChanged", "participant_joined", "participant_left", "itemsAdded", "noteDeleted", "connectorUpdated"]).toContain(k);
+    }
+    // Connectors (protocol v21): no connector message to anyone, A's own sockets included, names a
+    // sealed note or carries a sealed note's place; every snapshot holds the three from before the round.
+    const connectorMessages = (t: string[]) => t.map((r) => JSON.parse(r) as { type: string }).filter((m) => m.type.startsWith("connector"));
+    for (const [who, transcript] of [["host", raw.host], ["A", rawA], ["B", raw.b], ["late joiner", rawC], ["B's second tab", rawB2]] as const) {
+      const messages = connectorMessages(transcript);
+      expect(messages.length, who).toBeGreaterThan(0);
+      const text = JSON.stringify(messages);
+      for (const id of sealed) expect(text, `${who}: sealed id in a connector message`).not.toContain(id);
+      const { numbers } = leaves(messages.map((m) => JSON.stringify(m)));
+      for (const n of canaryNumbers) expect(numbers, `${who}: number ${n} in a connector message`).not.toContain(n);
+    }
+    for (const t of [rawC, rawB2]) {
+      const snap = connectorMessages(t).find((m) => m.type === "connectorsSnapshot") as { connectors: { id: string }[] } | undefined;
+      expect(snap?.connectors.map((k) => k.id)).toEqual([kA.connector.id, kB.connector.id, kC.connector.id]);
     }
     for (const t of [rawC, rawB2]) for (const k of kinds(t)) expect([...joining, "silentMine", "silentChanged", "participant_joined", "participant_left"]).toContain(k);
     // Protocol v18: their own sealed ids only, none here.
@@ -614,8 +661,8 @@ describe("silentMine (protocol v18): a page learns which of its notes are sealed
       await settle(100);
       const t = types(raw);
       const at = t.indexOf("shapesSnapshot");
-      // Protocol v20: the reaction counts come right after the shapes, then silentMine.
-      expect(t.slice(at - 3, at + 3), step).toEqual(["joined", "snapshot", "framesSnapshot", "shapesSnapshot", "reactionsSnapshot", "silentMine"]);
+      // Protocol v20: the reaction counts come right after the shapes; protocol v21: then the connectors, then silentMine.
+      expect(t.slice(at - 3, at + 4), step).toEqual(["joined", "snapshot", "framesSnapshot", "shapesSnapshot", "reactionsSnapshot", "connectorsSnapshot", "silentMine"]);
       expect(mineOf(raw), step).toEqual([{ type: "silentMine", ids: [a1.id, a3.id] }]);
       // Exactly the snapshot's notes that aren't everyone's.
       expect(tab.snapshot?.notes.map((n) => n.id)).toEqual([visible.id, a1.id, a3.id]);

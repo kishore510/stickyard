@@ -249,6 +249,63 @@ describe("server messages this page can't parse", () => {
   });
 });
 
+describe("a v21 relay: connectors (arrows part 1, no UI yet)", () => {
+  const HOSTILE = "<img src=x onerror=alert(1)>";
+  const connector = {
+    id: "KKKKKKKKKKKKKKK1",
+    start: { item: "NNNNNNNNNNNNNNN1", anchor: "auto" },
+    end: { x: 900, y: 500 },
+    route: "straight",
+    dash: "solid",
+    width: "medium",
+    ink: "neutral",
+    startHead: "none",
+    endHead: "arrow",
+    rev: 1,
+    authorId: sam.id,
+  };
+
+  it("joins with protocol 21", () => {
+    expect(PROTOCOL_VERSION).toBe(21);
+    const t = setup();
+    t.session.join("Alex");
+    t.sock().open();
+    expect(t.sock().sent[0]).toEqual({ type: "hello", protocolVersion: 21 });
+  });
+
+  it("the four connector messages parse and are ignored: no crash, no error, no notice, no view update", () => {
+    const t = joined();
+    const note: Note = { id: "NNNNNNNNNNNNNNN1", x: 100, y: 100, ...NOTE_DEFAULTS, text: HOSTILE, color: "yellow", z: 0, rev: 1, authorId: sam.id };
+    t.sock().receive({ type: "snapshot", notes: [note] });
+    t.sock().receive({ type: "framesSnapshot", frames: [] });
+    t.sock().receive({ type: "shapesSnapshot", shapes: [] });
+    t.sock().receive({ type: "reactionsSnapshot", counts: [] });
+    const before = t.view();
+    const sockets = t.sockets.length;
+    for (const m of [
+      { type: "connectorsSnapshot", connectors: [connector] },
+      { type: "connectorAdded", connector: { ...connector, id: "KKKKKKKKKKKKKKK2" }, clientRef: "k1" },
+      { type: "connectorUpdated", connector: { ...connector, rev: 2, dash: "dotted" } },
+      { type: "connectorDeleted", id: "KKKKKKKKKKKKKKK2" },
+    ]) {
+      expect(() => t.sock().receive(m)).not.toThrow();
+    }
+    expect(t.view()).toBe(before);
+    expect(t.view().status).toBe("joined");
+    expect(t.sock().closed).toBe(false);
+    expect(t.sockets.length).toBe(sockets);
+    expect(t.sock().sent.filter((m) => (m as { type: string }).type.startsWith("connector"))).toEqual([]);
+    // The note is untouched (a connector never changes the board in part 1).
+    expect(t.view().board.notes.map((n) => n.note.id)).toEqual([note.id]);
+  });
+
+  it("a connector message that doesn't validate (hostile text in a key) is still 'please reload', never a crash", () => {
+    const t = joined();
+    expect(() => t.sock().receive({ type: "connectorUpdated", connector: { ...connector, ink: HOSTILE } })).not.toThrow();
+    expect(t.view().status).toBe("reload");
+  });
+});
+
 describe("notes", () => {
   const N1 = "NNNNNNNNNNNNNNN1";
   const one: Note = { id: N1, x: 100, y: 100, ...NOTE_DEFAULTS, text: "Idea one", color: "yellow", z: 0, rev: 1, authorId: sam.id };

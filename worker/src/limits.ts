@@ -102,6 +102,19 @@ export const REACTION_LIMITS = {
 } as const;
 
 /**
+ * Connectors (protocol v21) spend this per-socket bucket instead of SOCKET_LIMITS, so drawing
+ * arrows can never starve edits or chat. Each message is one gesture (an arrow drawn, an end
+ * dropped, a style picked): 4 a second is faster than anyone draws. The burst is a whole room's
+ * worth (MAX_CONNECTORS_PER_ROOM), so the page can delete every connector at once (Clear board) or
+ * add a duplicated selection's arrows in one go. Over the budget a message is dropped with
+ * rate_limited (naming the connector or clientRef, so the page can roll back), as a violation.
+ */
+export const CONNECTOR_LIMITS = {
+  refillPerSecond: 4,
+  burst: 100,
+} as const;
+
+/**
  * Idle room expiry (worker/src/expiry.ts). When the last socket of a room closes, its alarm is
  * set this far ahead; when it fires with nobody connected, the room's data is deleted and a
  * tombstone kept. An existing alarm within ALARM_RESET_SLACK_MS of the new time is left alone,

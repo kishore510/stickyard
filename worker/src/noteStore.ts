@@ -1,18 +1,27 @@
 import {
+  CONNECTOR_DEFAULTS,
   FRAME_DEFAULTS,
   FRAME_DEFAULT_H,
   FRAME_DEFAULT_W,
   NOTE_DEFAULTS,
   REACTION_KEYS,
   VOTE_BUDGET_MAX,
+  anchorPoint,
+  clampConnectorPoint,
   clampFrameRect,
   clampNoteRect,
   clampShapeRect,
   clampZ,
+  connectorSchema,
+  endReference,
   frameSchema,
+  isBound,
   noteSchema,
   shapeDefaults,
   shapeSchema,
+  type Box,
+  type Connector,
+  type ConnectorEnd,
   type Frame,
   type Note,
   type ReactionKey,
@@ -67,8 +76,59 @@ import {
  *     deletes the row. Additive: every other table is untouched, and version 10 code never reads
  *     it. A note's rows go with it (same transaction). Rows that version 10 code leaves behind on
  *     a note it deletes, and rows with a key outside REACTION_KEYS, are ignored on load.
+ *  12 (connectors): a new connectors table (id; start_item, start_anchor, start_x, start_y and the
+ *     same four for the end; route, dash, width, ink, start_head, end_head, rev, author_id), every
+ *     column but the key with a DEFAULT. A bound end stores its item and anchor and NULL
+ *     coordinates; a free end NULL item and anchor and whole-unit coordinates. Additive: every other
+ *     table is untouched, and version 11 code never reads it. Deleting a note or shape turns the
+ *     ends bound to it free, in the same transaction. A connector that version 11 code leaves bound
+ *     to an item it deleted (after a rollback) is skipped on load (ids are random: it never
+ *     comes back), as are rows that don't validate.
  */
-export const SCHEMA_VERSION = 11;
+export const SCHEMA_VERSION = 12;
+
+/** The connectors table (schema 12). */
+const CONNECTORS_TABLE = `CREATE TABLE IF NOT EXISTS connectors (
+          id TEXT PRIMARY KEY,
+          start_item TEXT DEFAULT NULL,
+          start_anchor TEXT DEFAULT NULL,
+          start_x INTEGER DEFAULT NULL,
+          start_y INTEGER DEFAULT NULL,
+          end_item TEXT DEFAULT NULL,
+          end_anchor TEXT DEFAULT NULL,
+          end_x INTEGER DEFAULT NULL,
+          end_y INTEGER DEFAULT NULL,
+          route TEXT NOT NULL DEFAULT '${CONNECTOR_DEFAULTS.route}',
+          dash TEXT NOT NULL DEFAULT '${CONNECTOR_DEFAULTS.dash}',
+          width TEXT NOT NULL DEFAULT '${CONNECTOR_DEFAULTS.width}',
+          ink TEXT NOT NULL DEFAULT '${CONNECTOR_DEFAULTS.ink}',
+          start_head TEXT NOT NULL DEFAULT '${CONNECTOR_DEFAULTS.startHead}',
+          end_head TEXT NOT NULL DEFAULT '${CONNECTOR_DEFAULTS.endHead}',
+          rev INTEGER NOT NULL DEFAULT 1,
+          author_id TEXT NOT NULL DEFAULT ''
+        )`;
+const CONNECTOR_COLUMNS =
+  "id, start_item, start_anchor, start_x, start_y, end_item, end_anchor, end_x, end_y, route, dash, width, ink, start_head, end_head, rev, author_id";
+
+interface ConnectorRow extends Record<string, SqlStorageValue> {
+  id: string;
+  start_item: string | null;
+  start_anchor: string | null;
+  start_x: number | null;
+  start_y: number | null;
+  end_item: string | null;
+  end_anchor: string | null;
+  end_x: number | null;
+  end_y: number | null;
+  route: string;
+  dash: string;
+  width: string;
+  ink: string;
+  start_head: string;
+  end_head: string;
+  rev: number;
+  author_id: string;
+}
 
 /** The reactions table (schema 11). */
 const REACTIONS_TABLE = `CREATE TABLE IF NOT EXISTS reactions (
@@ -224,6 +284,8 @@ export class NoteStore {
   /** Reactions each reactor has on, and the room's total rows (both from reactionCache). */
   private reactorTotals = new Map<string, number>();
   private reactionTotal = 0;
+  /** Connectors (schema 12) by id, in creation order. */
+  private connectorCache: Map<string, Connector> | null = null;
   /**
    * Sealed notes (schema 10) and their writer ids, filled with the notes. Never on a Note: a note
    * on the wire has no seal or writer. A sealed row without a writer (never written by us) gets
@@ -331,6 +393,7 @@ export class NoteStore {
       if (!existing.has("writer")) this.sql.exec("ALTER TABLE notes ADD COLUMN writer TEXT DEFAULT NULL");
     }
     if (version < 11) this.sql.exec(REACTIONS_TABLE);
+    if (version < 12) this.sql.exec(CONNECTORS_TABLE);
     this.write("INSERT OR REPLACE INTO meta (key, value) VALUES ('schema_version', ?)", SCHEMA_VERSION);
   }
 
@@ -471,13 +534,16 @@ export class NoteStore {
    * A final batch (or a restack): every update and delete in one transaction, so it lands whole or not at all.
    * The cache changes only once it has committed.
    */
-  applyBatch(updates: readonly Note[], deletes: readonly string[], shapeUpdates: readonly Shape[] = []): void {
-    if (updates.length === 0 && deletes.length === 0 && shapeUpdates.length === 0) return;
+  applyBatch(updates: readonly Note[], deletes: readonly string[], shapeUpdates: readonly Shape[] = []): Connector[] {
+    if (updates.length === 0 && deletes.length === 0 && shapeUpdates.length === 0) return [];
+    // Connectors bound to a deleted note turn free (schema 12), in the same transaction.
+    const detached = this.detachFrom(deletes);
     this.transact(() => {
       for (const note of updates) this.writeUpdate(note);
       for (const id of deletes) this.writeNoteDelete(id);
       // A restack over notes and shapes (one stacking space since v15) lands whole too.
       for (const shape of shapeUpdates) this.writeShapeUpdate(shape);
+      for (const connector of detached) this.writeConnectorUpdate(connector);
     });
     this.transactions += 1;
     const shapes = this.shapes();
@@ -490,6 +556,8 @@ export class NoteStore {
       this.forgetReactionsOn(id);
       this.forgetWriter(id);
     }
+    this.keepConnectors(detached);
+    return detached;
   }
 
   /**
@@ -534,13 +602,22 @@ export class NoteStore {
     );
   }
 
-  /** Deletes a note, its votes (the dots go back to their voters) and its reactions in one transaction. */
-  delete(id: string): void {
-    this.transact(() => this.writeNoteDelete(id));
+  /**
+   * Deletes a note, its votes (the dots go back to their voters) and its reactions, and turns the
+   * connector ends bound to it free, in one transaction. Returns the connectors that changed.
+   */
+  delete(id: string): Connector[] {
+    const detached = this.detachFrom([id]);
+    this.transact(() => {
+      this.writeNoteDelete(id);
+      for (const connector of detached) this.writeConnectorUpdate(connector);
+    });
     this.notes().delete(id);
     this.forgetVotesOn(id);
     this.forgetReactionsOn(id);
     this.forgetWriter(id);
+    this.keepConnectors(detached);
+    return detached;
   }
 
   /** Every note delete (single, batch, Clear board) goes through here: the note, its votes and its reactions. */
@@ -696,22 +773,36 @@ export class NoteStore {
     this.shapes().set(shape.id, shape);
   }
 
-  deleteShape(id: string): void {
-    this.writeShapeDelete(id);
+  /** Deletes a shape and turns the connector ends bound to it free, in one transaction. Returns the connectors that changed. */
+  deleteShape(id: string): Connector[] {
+    const detached = this.detachFrom([id]);
+    this.transact(() => {
+      this.writeShapeDelete(id);
+      for (const connector of detached) this.writeConnectorUpdate(connector);
+    });
     this.shapes().delete(id);
+    this.keepConnectors(detached);
+    return detached;
   }
 
-  /** A final shapeBatch: every update and delete in one transaction. Caches change once it has committed. */
-  applyShapeBatch(updates: readonly Shape[], deletes: readonly string[]): void {
-    if (updates.length === 0 && deletes.length === 0) return;
+  /**
+   * A final shapeBatch: every update and delete, and the connector ends bound to a deleted shape
+   * turned free, in one transaction. Caches change once it has committed. Returns the connectors that changed.
+   */
+  applyShapeBatch(updates: readonly Shape[], deletes: readonly string[]): Connector[] {
+    if (updates.length === 0 && deletes.length === 0) return [];
+    const detached = this.detachFrom(deletes);
     this.transact(() => {
       for (const shape of updates) this.writeShapeUpdate(shape);
       for (const id of deletes) this.writeShapeDelete(id);
+      for (const connector of detached) this.writeConnectorUpdate(connector);
     });
     this.transactions += 1;
     const cache = this.shapes();
     for (const shape of updates) cache.set(shape.id, shape);
     for (const id of deletes) cache.delete(id);
+    this.keepConnectors(detached);
+    return detached;
   }
 
   private writeShapeInsert(shape: Shape): void {
@@ -732,6 +823,126 @@ export class NoteStore {
 
   private writeShapeDelete(id: string): void {
     this.write("DELETE FROM shapes WHERE id = ?", id);
+  }
+
+  /* ── Connectors (schema 12, protocol v21) ────────────────────────────────────────────── */
+
+  /**
+   * Every connector, in creation order. Rows that don't validate are skipped, never fatal; a free
+   * end off the board is clamped back on (in memory). A connector bound to an item that isn't here
+   * (version 11 code deleted it after a rollback) or to a sealed note (never written by us) is
+   * skipped too, so a snapshot never names one.
+   */
+  private connectors(): Map<string, Connector> {
+    if (this.connectorCache) return this.connectorCache;
+    const notes = this.notes();
+    const shapes = this.shapes();
+    const bindable = (item: string) => (notes.has(item) && !this.writers.has(item)) || shapes.has(item);
+    const end = (item: string | null, anchor: string | null, x: number | null, y: number | null): unknown => {
+      if (item !== null) return { item, anchor };
+      return x !== null && y !== null ? clampConnectorPoint(x, y) : null;
+    };
+    const cache = new Map<string, Connector>();
+    for (const row of this.sql.exec<ConnectorRow>(`SELECT ${CONNECTOR_COLUMNS} FROM connectors ORDER BY rowid`)) {
+      const parsed = connectorSchema.safeParse({
+        id: row.id,
+        start: end(row.start_item, row.start_anchor, row.start_x, row.start_y),
+        end: end(row.end_item, row.end_anchor, row.end_x, row.end_y),
+        route: row.route,
+        dash: row.dash,
+        width: row.width,
+        ink: row.ink,
+        startHead: row.start_head,
+        endHead: row.end_head,
+        rev: row.rev,
+        authorId: row.author_id,
+      });
+      if (!parsed.success) continue;
+      const { start, end: last } = parsed.data;
+      if ((isBound(start) && !bindable(start.item)) || (isBound(last) && !bindable(last.item))) continue;
+      cache.set(parsed.data.id, parsed.data);
+    }
+    this.connectorCache = cache;
+    return cache;
+  }
+
+  allConnectors(): Connector[] {
+    return [...this.connectors().values()];
+  }
+
+  getConnector(id: string): Connector | undefined {
+    return this.connectors().get(id);
+  }
+
+  get connectorCount(): number {
+    return this.connectors().size;
+  }
+
+  /** A note (not sealed) or shape's box, for binding and anchor points; undefined for anything else. */
+  boxOf(item: string): Box | undefined {
+    const note = this.notes().get(item);
+    if (note) return this.writers.has(item) ? undefined : note;
+    return this.shapes().get(item);
+  }
+
+  insertConnector(connector: Connector): void {
+    const row = connectorValues(connector);
+    this.write(`INSERT INTO connectors (${CONNECTOR_COLUMNS}) VALUES (${row.map(() => "?").join(", ")})`, ...row);
+    this.connectors().set(connector.id, connector);
+  }
+
+  updateConnector(connector: Connector): void {
+    this.writeConnectorUpdate(connector);
+    this.connectors().set(connector.id, connector);
+  }
+
+  deleteConnector(id: string): void {
+    this.write("DELETE FROM connectors WHERE id = ?", id);
+    this.connectors().delete(id);
+  }
+
+  /** Everything but the id and author. */
+  private writeConnectorUpdate(connector: Connector): void {
+    this.write(
+      `UPDATE connectors SET start_item = ?, start_anchor = ?, start_x = ?, start_y = ?, end_item = ?, end_anchor = ?, end_x = ?, end_y = ?,
+       route = ?, dash = ?, width = ?, ink = ?, start_head = ?, end_head = ?, rev = ? WHERE id = ?`,
+      ...connectorValues(connector).slice(1, -1),
+      connector.id,
+    );
+  }
+
+  /**
+   * The delete rule: the connectors with an end bound to one of these items (about to be deleted),
+   * each with those ends turned free at their last anchor point (anchorPoint on the item's box as
+   * it is now, aimed at the other end's reference point, rounded and clamped) and one rev bump.
+   * Pure over the caches: the caller writes them in its delete's transaction, then keepConnectors.
+   */
+  private detachFrom(items: readonly string[]): Connector[] {
+    if (items.length === 0) return [];
+    const gone = new Set(items);
+    const boxOf = (item: string) => this.boxOf(item);
+    const freed = (end: ConnectorEnd, other: ConnectorEnd): ConnectorEnd => {
+      if (!isBound(end) || !gone.has(end.item)) return end;
+      const box = boxOf(end.item);
+      const aim = endReference(other, boxOf);
+      if (!box || !aim) return end;
+      const point = anchorPoint(box, end.anchor, aim);
+      return clampConnectorPoint(point.x, point.y);
+    };
+    const detached: Connector[] = [];
+    for (const connector of this.connectors().values()) {
+      const bound = [connector.start, connector.end].some((end) => isBound(end) && gone.has(end.item));
+      if (!bound) continue;
+      detached.push({ ...connector, start: freed(connector.start, connector.end), end: freed(connector.end, connector.start), rev: connector.rev + 1 });
+    }
+    return detached;
+  }
+
+  /** Detached connectors into the cache, once their transaction has committed. */
+  private keepConnectors(connectors: readonly Connector[]): void {
+    if (connectors.length === 0) return;
+    const cache = this.connectors();
+    for (const connector of connectors) cache.set(connector.id, connector);
   }
 
   /* ── Room settings in meta (protocol v12: locked, timer_started_at, timer_duration_ms) ── */
@@ -985,6 +1196,12 @@ function shapeValues(s: Shape): SqlStorageValue[] {
     s.id, s.kind, s.x, s.y, s.w, s.h, s.text, s.fill, s.stroke, s.strokeWidth, s.strokeStyle, s.fontSize,
     Number(s.bold), Number(s.italic), Number(s.underline), s.textColor, s.align, s.valign, s.z, s.rev, s.authorId,
   ];
+}
+
+/** A connector's column values, in CONNECTOR_COLUMNS order: a bound end's item and anchor, or a free end's x and y (the others NULL). */
+function connectorValues(k: Connector): SqlStorageValue[] {
+  const end = (e: ConnectorEnd): SqlStorageValue[] => (isBound(e) ? [e.item, e.anchor, null, null] : [null, null, e.x, e.y]);
+  return [k.id, ...end(k.start), ...end(k.end), k.route, k.dash, k.width, k.ink, k.startHead, k.endHead, k.rev, k.authorId];
 }
 
 /** A frame's column values, in FRAME_COLUMNS order. */

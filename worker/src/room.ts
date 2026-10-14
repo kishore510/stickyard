@@ -1,11 +1,14 @@
 import { DurableObject } from "cloudflare:workers";
 import {
+  CONNECTOR_STYLE_FIELDS,
+  CONNECTOR_UPDATE_FIELDS,
   FRAME_DEFAULTS,
   FRAME_DEFAULT_H,
   FRAME_DEFAULT_W,
   FRAME_EDIT_FIELDS,
   FRAME_STYLE_FIELDS,
   MAX_BATCH_ENTRIES,
+  MAX_CONNECTORS_PER_ROOM,
   MAX_FRAMES_PER_ROOM,
   MAX_NOTES_PER_ROOM,
   MAX_FOLLOWERS,
@@ -29,6 +32,7 @@ import {
   VOTE_BUDGET_MAX,
   VOTE_BUDGET_MIN,
   VOTING_STATES,
+  clampConnectorPoint,
   clampCursor,
   clampViewportView,
   clampFramePosition,
@@ -49,12 +53,16 @@ import {
   cleanText,
   encodeMessage,
   groupOffset,
+  isBound,
   parseMessage,
   participantSchema,
+  resolveConnector,
   restack,
   shapeDefaults,
   zForNew,
   type ClientMessage,
+  type Connector,
+  type ConnectorEnd,
   type ErrorCode,
   type Frame,
   type ItemRefusal,
@@ -74,7 +82,7 @@ import { randomBase64url } from "./crypto";
 import type { Secrets } from "./env";
 import { ENDED_REASON, EXPIRED_REASON, clearToTombstone, nextExpiryAlarm, readTombstone, writeTombstone, type Tombstone, type TombstoneKind } from "./expiry";
 import { verifyHostToken } from "./hostToken";
-import { BATCH_LIMITS, BRING_LIMITS, CURSOR_LIMITS, REACTION_LIMITS, SOCKET_LIMITS, VIEWPORT_LIMITS } from "./limits";
+import { BATCH_LIMITS, BRING_LIMITS, CONNECTOR_LIMITS, CURSOR_LIMITS, REACTION_LIMITS, SOCKET_LIMITS, VIEWPORT_LIMITS } from "./limits";
 import { NoteStore } from "./noteStore";
 import { canSee, scrubFor } from "./sealed";
 import { voterIdFor } from "./voterId";
@@ -141,6 +149,9 @@ const socketStateSchema = z.object({
   /** Reactions token bucket (REACTION_LIMITS), protocol v20. Defaults keep older attachments readable. */
   reactTokens: z.number().default(REACTION_LIMITS.burst),
   reactAt: z.number().default(0),
+  /** Connectors token bucket (CONNECTOR_LIMITS), protocol v21. Defaults keep older attachments readable. */
+  connectorTokens: z.number().default(CONNECTOR_LIMITS.burst),
+  connectorAt: z.number().default(0),
 });
 type SocketState = z.infer<typeof socketStateSchema>;
 
@@ -152,6 +163,7 @@ type ErrorRef =
   | { shapeId: string }
   | { shapeIds: string[] }
   | { frameId: string; noteIds?: string[]; shapeIds?: string[] }
+  | { connectorId: string }
   | Record<string, never>;
 
 const error = (code: ErrorCode, message: string, ref: ErrorRef = {}): ServerMessage => ({ type: "error", code, message, ...ref });
@@ -179,7 +191,11 @@ function refOf(message: ClientMessage): ErrorRef {
     case "frameAdd":
     case "itemsAdd":
     case "shapeAdd":
+    case "connectorAdd":
       return { clientRef: message.clientRef };
+    case "connectorUpdate":
+    case "connectorDelete":
+      return { connectorId: message.id };
     case "shapeEdit":
     case "shapeMove":
     case "shapeResize":
@@ -222,11 +238,19 @@ type JoinMessage = Extract<ClientMessage, { type: "join" }>;
 type SilentMessage = Extract<ClientMessage, { type: "silentStart" | "silentReveal" }>;
 type ViewMessage = Extract<ClientMessage, { type: "viewport" | "bringToMe" }>;
 type ReactionMessage = Extract<ClientMessage, { type: "reactionSet" }>;
+type ConnectorMessage = Extract<ClientMessage, { type: "connectorAdd" | "connectorUpdate" | "connectorDelete" }>;
 
 /** The silent round's meta keys (protocol v17): 1 while a round runs, and rounds started. */
 const SILENT_KEYS = { active: "silent_active", round: "silent_round" } as const;
 const isCursor = (message: ClientMessage): message is CursorMessage => message.type === "cursor" || message.type === "cursorLeft";
 const isView = (message: ClientMessage): message is ViewMessage => message.type === "viewport" || message.type === "bringToMe";
+const isConnector = (message: ClientMessage): message is ConnectorMessage =>
+  message.type === "connectorAdd" || message.type === "connectorUpdate" || message.type === "connectorDelete";
+/** Two ends are the same: the same item and anchor, or the same point. */
+const sameEnd = (a: ConnectorEnd, b: ConnectorEnd) =>
+  isBound(a) ? isBound(b) && a.item === b.item && a.anchor === b.anchor : !isBound(b) && a.x === b.x && a.y === b.y;
+/** An end as stored: a bound end as it is, a free point rounded and clamped onto the board. */
+const storedEnd = (end: ConnectorEnd): ConnectorEnd => (isBound(end) ? { item: end.item, anchor: end.anchor } : clampConnectorPoint(end.x, end.y));
 
 /** The voting state's meta keys and their stored values (state as its index in VOTING_STATES). */
 const VOTING_KEYS = { state: "voting_state", budget: "voting_budget", round: "voting_round" } as const;
@@ -392,6 +416,8 @@ export class Room extends DurableObject<Env> {
       bringAt: Date.now(),
       reactTokens: REACTION_LIMITS.burst,
       reactAt: Date.now(),
+      connectorTokens: CONNECTOR_LIMITS.burst,
+      connectorAt: Date.now(),
     };
     pair[1].serializeAttachment(state);
     return new Response(null, { status: 101, webSocket: pair[0] });
@@ -424,6 +450,8 @@ export class Room extends DurableObject<Env> {
     if (parsed.ok && isView(parsed.value)) return this.view(ws, state, now, parsed.value);
     // Reactions (protocol v20) spend their own bucket, so they can never starve edits.
     if (parsed.ok && parsed.value.type === "reactionSet") return this.reaction(ws, state, now, parsed.value);
+    // Connectors (protocol v21) too.
+    if (parsed.ok && isConnector(parsed.value)) return this.connector(ws, state, now, parsed.value);
     state.tokens = Math.min(SOCKET_LIMITS.burst, state.tokens + ((now - state.at) / 1000) * SOCKET_LIMITS.refillPerSecond);
     state.at = now;
     if (state.tokens < 1) {
@@ -538,6 +566,19 @@ export class Room extends DurableObject<Env> {
     state.reactAt = now;
     if (state.reactTokens < 1) return this.overLimit(ws, state, now, refOf(message));
     state.reactTokens -= 1;
+    await this.handle(ws, state, message);
+  }
+
+  /**
+   * A connector message (protocol v21) spends CONNECTOR_LIMITS, never SOCKET_LIMITS. Over the budget
+   * it is dropped with rate_limited naming its connector (or clientRef), as a violation; otherwise
+   * it is handled in order like any other message (handle: the lock and a silent round first).
+   */
+  private async connector(ws: WebSocket, state: SocketState, now: number, message: ConnectorMessage): Promise<void> {
+    state.connectorTokens = Math.min(CONNECTOR_LIMITS.burst, state.connectorTokens + ((now - state.connectorAt) / 1000) * CONNECTOR_LIMITS.refillPerSecond);
+    state.connectorAt = now;
+    if (state.connectorTokens < 1) return this.overLimit(ws, state, now, refOf(message));
+    state.connectorTokens -= 1;
     await this.handle(ws, state, message);
   }
 
@@ -696,6 +737,12 @@ export class Room extends DurableObject<Env> {
       ws.serializeAttachment(state);
       return this.send(ws, error("silent_active", "Frames can't be moved during a silent round.", refOf(message)));
     }
+    // Connectors (protocol v21) are refused for everyone during a silent round, host included: an
+    // arrow could point at notes other people can't see. Nothing written or relayed.
+    if (isConnector(message) && this.silent.active && state.participant) {
+      ws.serializeAttachment(state);
+      return this.send(ws, error("silent_active", "Arrows can't be changed during a silent round.", refOf(message)));
+    }
     const viewer = state.writerId;
 
     switch (message.type) {
@@ -785,6 +832,15 @@ export class Room extends DurableObject<Env> {
         return;
       }
 
+      case "connectorAdd":
+      case "connectorUpdate":
+      case "connectorDelete": {
+        ws.serializeAttachment(state);
+        if (!state.participant) return this.send(ws, error("not_joined", "Join the room first.", refOf(message)));
+        this.handleConnector(ws, state.participant, message);
+        return;
+      }
+
       case "claimHost":
         return this.claimHost(ws, state, message.token);
 
@@ -846,7 +902,7 @@ export class Room extends DurableObject<Env> {
   /**
    * join: a participant with a server-assigned id and colour, then (in one step, so nothing can land
    * between them) joined with the room's lock, timer, voting and silent state, and the notes,
-   * frames and shapes snapshots and (protocol v20) the reaction counts. Since v17 a join may carry the page's client key: its writer id
+   * frames and shapes snapshots, (protocol v20) the reaction counts and (protocol v21) the connectors. Since v17 a join may carry the page's client key: its writer id
    * (writerId.ts) is worked out first, so the snapshot already holds that writer's sealed notes on
    * every join, reconnect and second tab, and nobody else's. The key is never stored or echoed.
    */
@@ -892,6 +948,8 @@ export class Room extends DurableObject<Env> {
     this.send(ws, { type: "shapesSnapshot", shapes: this.notes.allShapes() });
     // Protocol v20: every note's reaction counts (never a sealed note's, never who), in this same step.
     this.send(ws, { type: "reactionsSnapshot", counts: this.notes.reactionCounts() });
+    // Protocol v21: every connector (never one bound to a sealed note: refused at the source), in this same step.
+    this.send(ws, { type: "connectorsSnapshot", connectors: this.notes.allConnectors() });
     // Protocol v18: during a round, which of the snapshot's notes are this socket's own sealed ones.
     if (this.silent.active) this.send(ws, { type: "silentMine", ids: writerId === null ? [] : this.notes.sealedIdsOf(writerId) });
     // A closed round's totals, so a late joiner sees the results. While open, nothing about anyone's votes.
@@ -1534,8 +1592,9 @@ export class Room extends DurableObject<Env> {
           : { type: "noteResized", id: note.id, x: note.x, y: note.y, w: note.w, h: note.h, rev: note.rev, final: true },
       );
     }
-    this.notes.applyBatch(updates, deletes);
+    const detached = this.notes.applyBatch(updates, deletes);
     if (results.length > 0) this.broadcast({ type: "notesBatchApplied", results, final: true });
+    this.broadcastDetached(detached);
     if (this.notes.sealedCount !== sealedBefore) this.broadcastSilent();
   }
 
@@ -1661,8 +1720,9 @@ export class Room extends DurableObject<Env> {
       case "noteDelete": {
         if (!this.noteFor(viewer, message.id)) return;
         const sealed = this.notes.writerOf(message.id) !== null;
-        this.notes.delete(message.id);
+        const detached = this.notes.delete(message.id);
         this.broadcast({ type: "noteDeleted", id: message.id });
+        this.broadcastDetached(detached);
         if (sealed) this.broadcastSilent();
         return;
       }
@@ -1757,8 +1817,9 @@ export class Room extends DurableObject<Env> {
 
       case "shapeDelete": {
         if (!this.notes.getShape(message.id)) return;
-        this.notes.deleteShape(message.id);
+        const detached = this.notes.deleteShape(message.id);
         this.broadcast({ type: "shapeDeleted", id: message.id });
+        this.broadcastDetached(detached);
         return;
       }
     }
@@ -1819,8 +1880,96 @@ export class Room extends DurableObject<Env> {
           : { type: "shapeResized", id: shape.id, x: shape.x, y: shape.y, w: shape.w, h: shape.h, rev: shape.rev, final: true },
       );
     }
-    this.notes.applyShapeBatch(updates, deletes);
+    const detached = this.notes.applyShapeBatch(updates, deletes);
     if (results.length > 0) this.broadcast({ type: "shapesBatchApplied", results, final: true });
+    this.broadcastDetached(detached);
+  }
+
+  /**
+   * The delete rule (protocol v21): connectors whose bound ends a note or shape delete just turned
+   * free (written in that delete's transaction), one connectorUpdated each, after the item's delete.
+   */
+  private broadcastDetached(detached: readonly Connector[]): void {
+    for (const connector of detached) this.broadcast({ type: "connectorUpdated", connector });
+  }
+
+  /**
+   * Why these ends can't make a connector, or null when they can. Each end in `fresh` (the ones the
+   * message gave) must be bound to a note or shape on the board: anything else (an unknown or
+   * deleted id, a frame, a connector, and someone's sealed note, word for word) is unknown_item.
+   * Both ends on one item, or ends that resolve to the same point, are bad_message.
+   */
+  private refuseEnds(start: ConnectorEnd, end: ConnectorEnd, fresh: readonly ConnectorEnd[]): { code: ErrorCode; message: string } | null {
+    const boxOf = (item: string) => this.notes.boxOf(item);
+    if (fresh.some((e) => isBound(e) && !boxOf(e.item))) return { code: "unknown_item", message: "Arrows can only join notes and shapes on the board." };
+    if (isBound(start) && isBound(end) && start.item === end.item) return { code: "bad_message", message: "An arrow can't start and end on the same item." };
+    const points = resolveConnector({ start, end }, boxOf);
+    if (!points) return { code: "unknown_item", message: "Arrows can only join notes and shapes on the board." };
+    const a = clampConnectorPoint(points.start.x, points.start.y);
+    const b = clampConnectorPoint(points.end.x, points.end.y);
+    if (a.x === b.x && a.y === b.y) return { code: "bad_message", message: "An arrow needs two different ends." };
+    return null;
+  }
+
+  /**
+   * Connectors (protocol v21): last-write-wins in arrival order, every stored change bumps rev,
+   * unknown or deleted connectors ignored silently, an unchanged update writes and sends nothing.
+   * An add carries the full content; ids, rev and author are the server's. Free ends are rounded
+   * and clamped onto the board; bound ends are checked (refuseEnds) and stored without coordinates.
+   * A style-only update never re-checks the ends. Never stored per drag: the page sends final ends.
+   */
+  private handleConnector(ws: WebSocket, you: Participant, message: ConnectorMessage): void {
+    switch (message.type) {
+      case "connectorAdd": {
+        if (this.notes.connectorCount >= MAX_CONNECTORS_PER_ROOM) {
+          return this.send(ws, error("connectors_full", `This board has the maximum of ${MAX_CONNECTORS_PER_ROOM} arrows.`, refOf(message)));
+        }
+        const start = storedEnd(message.start);
+        const end = storedEnd(message.end);
+        const refused = this.refuseEnds(start, end, [start, end]);
+        if (refused) return this.send(ws, error(refused.code, refused.message, refOf(message)));
+        const { type: _, clientRef, start: _start, end: _end, ...style } = message;
+        const connector: Connector = { id: randomBase64url(12), start, end, ...style, rev: 1, authorId: you.id };
+        this.notes.insertConnector(connector);
+        this.send(ws, { type: "connectorAdded", connector, clientRef });
+        this.broadcast({ type: "connectorAdded", connector }, ws);
+        return;
+      }
+
+      case "connectorUpdate": {
+        const current = this.notes.getConnector(message.id);
+        if (!current) return;
+        const fresh = [message.start, message.end].flatMap((e) => (e === undefined ? [] : [storedEnd(e)]));
+        const next: Connector = {
+          ...current,
+          start: message.start === undefined ? current.start : storedEnd(message.start),
+          end: message.end === undefined ? current.end : storedEnd(message.end),
+        };
+        for (const field of CONNECTOR_STYLE_FIELDS) {
+          const value = message[field];
+          if (value !== undefined) Object.assign(next, { [field]: value });
+        }
+        const unchanged = CONNECTOR_UPDATE_FIELDS.every((field) =>
+          field === "start" || field === "end" ? sameEnd(next[field], current[field]) : next[field] === current[field],
+        );
+        if (unchanged) return;
+        if (fresh.length > 0) {
+          const refused = this.refuseEnds(next.start, next.end, fresh);
+          if (refused) return this.send(ws, error(refused.code, refused.message, refOf(message)));
+        }
+        const connector: Connector = { ...next, rev: current.rev + 1 };
+        this.notes.updateConnector(connector);
+        this.broadcast({ type: "connectorUpdated", connector });
+        return;
+      }
+
+      case "connectorDelete": {
+        if (!this.notes.getConnector(message.id)) return;
+        this.notes.deleteConnector(message.id);
+        this.broadcast({ type: "connectorDeleted", id: message.id });
+        return;
+      }
+    }
   }
 
   /** Drags and resizes that arrive together are coalesced: only the latest per note (and kind) is relayed. */

@@ -1,4 +1,4 @@
-import type { NoteCarryingType, ServerMessage } from "@stickyard/shared";
+import type { Connector, NoteCarryingType, ServerMessage } from "@stickyard/shared";
 
 /*
  * Silent brainstorm (protocol v17): what one recipient may see of an outbound message. Every
@@ -26,6 +26,8 @@ type Of<K extends NoteCarryingType> = Extract<ServerMessage, { type: K }>;
 type Scrubber<K extends NoteCarryingType> = (message: Of<K>, visible: Visible) => ServerMessage | null;
 
 const one = <M extends { id: string }>(m: M, visible: Visible): M | null => (visible(m.id) ? m : null);
+/** A connector is visible when neither end is bound to a note the recipient can't see. */
+const connectorVisible = (k: Connector, visible: Visible): boolean => [k.start, k.end].every((end) => !("item" in end) || visible(end.item));
 
 /** One entry per note-carrying type (the compiler checks every one is here). null: send nothing. */
 const SCRUB: { [K in NoteCarryingType]: Scrubber<K> } = {
@@ -78,6 +80,11 @@ const SCRUB: { [K in NoteCarryingType]: Scrubber<K> } = {
     const notes = m.notes.filter((n) => visible(n.id));
     return notes.length > 0 ? { ...m, notes } : null;
   },
+  // Connectors (v21): the relay never binds one to a sealed note (a bind to one is unknown_item),
+  // so these only ever back that up: a connector naming a hidden note is left out whole.
+  connectorsSnapshot: (m, visible) => ({ ...m, connectors: m.connectors.filter((k) => connectorVisible(k, visible)) }),
+  connectorAdded: (m, visible) => (connectorVisible(m.connector, visible) ? m : null),
+  connectorUpdated: (m, visible) => (connectorVisible(m.connector, visible) ? m : null),
 };
 
 const carries = (message: ServerMessage): message is Of<NoteCarryingType> => message.type in SCRUB;

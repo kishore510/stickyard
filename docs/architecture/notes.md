@@ -72,6 +72,8 @@ Architecture notes, moved out of CLAUDE.md on 7 October 2026 so they load only w
 | `reactionCount` (v20) | note id, key, count | `reactionSet` | never about a sealed note: a reaction on one is refused for everyone; filtered anyway |
 | `reactionMine` (v20) | note id, key, on | `reactionSet` | the reactor's own sockets; never about a sealed note; filtered anyway |
 | `reactionsSnapshot` (v20) | note ids, keys, counts | `join` (right after `shapesSnapshot`) | everyone; sealed notes left out at the source (`NoteStore.reactionCounts`), its writer's view too; filtered anyway |
+| `connectorsSnapshot` (v21) | note ids of bound ends | `join` (right after `reactionsSnapshot`) | everyone; a connector is never bound to a sealed note (a bind to one is `unknown_item`, and every connector message is `silent_active` during a round); one naming a hidden note is dropped whole anyway |
+| `connectorAdded` / `connectorUpdated` (v21) | note ids of bound ends | `connectorAdd`, `connectorUpdate`, and the delete rule after any note or shape delete | nobody: connector messages are refused during a round, and a detach names only the visible note being deleted; filtered anyway (`connectorDeleted` names only the connector) |
 | `error` | `noteId`, `noteIds`, `clientRef` echoed | refusals, rate limits, lock | the sender only, echoing ids it sent itself: the same reply as for an unknown id |
 | `silentChanged` | `active`, `count` | start, reveal, each sealed add or delete | everyone: one number, never whose |
 | `joined` | `silent { active, count }` | `join` | the joiner |

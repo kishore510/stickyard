@@ -187,7 +187,7 @@ describe("claimHost", () => {
     await a.request({ type: "hello", protocolVersion: PROTOCOL_VERSION });
     const joined = await a.request({ type: "join", name: "host", host: true, participant: { host: true } });
     expect(joined).toMatchObject({ type: "joined", you: { host: false } });
-    await nextOfType(a, "reactionsSnapshot");
+    await nextOfType(a, "connectorsSnapshot");
     expect(await a.request({ type: "lockSet", locked: true })).toMatchObject({ type: "error", code: "not_host" });
     a.close();
   });
@@ -245,6 +245,10 @@ function mutating(noteId: string, frameId: string, shapeId = "shape00000000000")
     ["shapeResize", { type: "shapeResize", id: shapeId, x: 10, y: 10, w: 300, h: 200, final: true }, { shapeId }],
     ["shapeDelete", { type: "shapeDelete", id: shapeId }, { shapeId }],
     ["shapeBatch", { type: "shapeBatch", ops: [{ op: "move", id: shapeId, x: 50, y: 50 }], final: true }, { shapeIds: [shapeId] }],
+    // Connectors (protocol v21): refused whatever they name (the lock comes before any lookup).
+    ["connectorAdd", { type: "connectorAdd", clientRef: "g5", start: { item: noteId, anchor: "auto" }, end: { x: 900, y: 900 }, route: "straight", dash: "solid", width: "medium", ink: "neutral", startHead: "none", endHead: "arrow" }, { clientRef: "g5" }],
+    ["connectorUpdate", { type: "connectorUpdate", id: "conn000000000000", dash: "dashed" }, { connectorId: "conn000000000000" }],
+    ["connectorDelete", { type: "connectorDelete", id: "conn000000000000" }, { connectorId: "conn000000000000" }],
   ];
 }
 

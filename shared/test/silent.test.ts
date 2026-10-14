@@ -170,6 +170,10 @@ describe("server message registry", () => {
         "reactionCount",
         "reactionMine",
         "reactionsSnapshot",
+        // Connectors (protocol v21): a bound end can name a note (connectorDeleted names only the connector).
+        "connectorsSnapshot",
+        "connectorAdded",
+        "connectorUpdated",
       ].sort(),
     );
     expect(SERVER_MESSAGES.silentChanged.carriesNoteContent).toBe(false);
