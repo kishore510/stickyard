@@ -26,8 +26,8 @@ const serverOk = (m: unknown) => serverMessageSchema.safeParse(m).success;
 const SERVER_TYPES = ["reactionCount", "reactionMine", "reactionsSnapshot"] as const;
 
 describe("protocol v20", () => {
-  it("is version 20", () => {
-    expect(PROTOCOL_VERSION).toBe(20);
+  it("is version 20 or later", () => {
+    expect(PROTOCOL_VERSION).toBeGreaterThanOrEqual(20);
   });
 
   it("six fixed reaction keys, never raw emoji", () => {

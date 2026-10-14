@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { SERVER_MESSAGES, serverMessageSchema, type Note, type ServerMessage } from "@stickyard/shared";
+import { SERVER_MESSAGES, serverMessageSchema, type Connector, type Note, type ServerMessage } from "@stickyard/shared";
 import { scrubFor } from "../src/sealed";
 
 /*
@@ -36,6 +36,13 @@ const note = (id: string): Note => ({
   rev: 1,
   authorId: AUTHOR,
 });
+
+/** A connector from a free point to `item` (by its end, or its start). */
+const connector = (id: string, item: string, side: "start" | "end" = "start"): Connector => {
+  const free = { x: 5, y: 5 };
+  const bound = { item, anchor: "auto" as const };
+  return { id, start: side === "start" ? bound : free, end: side === "end" ? bound : free, route: "straight", dash: "solid", width: "medium", ink: "neutral", startHead: "none", endHead: "arrow", rev: 1, authorId: AUTHOR };
+};
 
 /** Every note-carrying type, with the hidden note in it (and the visible one where the message can carry two). */
 const SAMPLES: Record<string, { both: ServerMessage; hiddenOnly: ServerMessage | null }> = {
@@ -86,6 +93,10 @@ const SAMPLES: Record<string, { both: ServerMessage; hiddenOnly: ServerMessage |
     hiddenOnly: null,
   },
   notesRevealed: { both: { type: "notesRevealed", notes: [note(HIDDEN), note(SHOWN)], final: true }, hiddenOnly: { type: "notesRevealed", notes: [note(HIDDEN)], final: true } },
+  // Connectors (protocol v21): the relay never binds one to a sealed note; a connector naming one is dropped whole.
+  connectorsSnapshot: { both: { type: "connectorsSnapshot", connectors: [connector("connHidden000001", HIDDEN), connector("connShown0000001", SHOWN)] }, hiddenOnly: null },
+  connectorAdded: { both: { type: "connectorAdded", connector: connector("connShown0000001", SHOWN) }, hiddenOnly: { type: "connectorAdded", connector: connector("connHidden000001", HIDDEN), clientRef: "r1" } },
+  connectorUpdated: { both: { type: "connectorUpdated", connector: connector("connShown0000001", SHOWN) }, hiddenOnly: { type: "connectorUpdated", connector: connector("connHidden000001", HIDDEN, "end") } },
 };
 
 const carrying = Object.entries(SERVER_MESSAGES)
@@ -125,6 +136,11 @@ describe("scrubFor", () => {
   it("voterGranted drops its reactions field when none of them is visible, and keeps the votes", () => {
     const m: ServerMessage = { type: "voterGranted", remaining: 4, mine: [{ noteId: SHOWN, count: 1 }], reactions: [{ noteId: HIDDEN, key: "heart" }] };
     expect(scrubFor(m, visible)).toEqual({ type: "voterGranted", remaining: 4, mine: [{ noteId: SHOWN, count: 1 }] });
+  });
+
+  it("a connector bound to a frame or shape id (never a note) is always kept", () => {
+    const m: ServerMessage = { type: "connectorUpdated", connector: connector("connShape0000001", "shapeAAAAAAAAAAA") };
+    expect(scrubFor(m, (id) => id.startsWith("shape") || id === SHOWN)).toEqual(m);
   });
 
   it("errors are passed through (they echo only what the sender sent, as for an unknown id)", () => {

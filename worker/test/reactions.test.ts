@@ -118,9 +118,9 @@ async function reactionRoom() {
 }
 
 describe("versions", () => {
-  it("protocol 20 and stored schema 11; a v19 page is asked to reload", async () => {
-    expect(PROTOCOL_VERSION).toBe(20);
-    expect(SCHEMA_VERSION).toBe(11);
+  it("protocol 20 or later and stored schema 11 or later; a v19 page is asked to reload", async () => {
+    expect(PROTOCOL_VERSION).toBeGreaterThanOrEqual(20);
+    expect(SCHEMA_VERSION).toBeGreaterThanOrEqual(11);
     const { code } = await newRoom();
     const c = await TestClient.open(code);
     expect(await c.request({ type: "hello", protocolVersion: 19 })).toMatchObject({ type: "error", code: "version_mismatch" });
@@ -661,7 +661,7 @@ describe(`schema migration 10 -> ${SCHEMA_VERSION}`, () => {
       const before = Object.fromEntries(["notes", "frames", "votes", "shapes"].map((t) => [t, tableRows(sql, t)]));
       const metaBefore = tableRows(sql, "meta").filter((r) => r.key !== "schema_version");
       const store = new NoteStore(sql);
-      expect(version(sql)).toBe(11);
+      expect(version(sql)).toBe(SCHEMA_VERSION);
       for (const [t, rows] of Object.entries(before)) expect(tableRows(sql, t), t).toEqual(rows);
       expect(tableRows(sql, "meta").filter((r) => r.key !== "schema_version")).toEqual(metaBefore);
       const columns = sql.exec<{ name: string; dflt_value: string | null; notnull: number; pk: number }>("SELECT name, dflt_value, \"notnull\", pk FROM pragma_table_info('reactions')").toArray();

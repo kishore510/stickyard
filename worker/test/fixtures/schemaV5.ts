@@ -21,6 +21,8 @@ export function loadSchemaV5(sql: SqlStorage): void {
   sql.exec("DROP TABLE IF EXISTS shapes");
   // ...and no reactions table (schema 11).
   sql.exec("DROP TABLE IF EXISTS reactions");
+  // ...and no connectors table (schema 12).
+  sql.exec("DROP TABLE IF EXISTS connectors");
   // Schema 5 has no frames table.
   sql.exec("DROP TABLE IF EXISTS frames");
   sql.exec("CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value INTEGER NOT NULL)");
