@@ -44,6 +44,9 @@ export function findFrame(board: Board, id: string): BoardFrame | undefined {
 const confirmedEntry = (frame: Frame): BoardFrame => ({ frame, confirmed: frame, clientRef: null, draft: null, dragging: false, resizing: false });
 const isStale = (entry: BoardFrame | undefined, rev: number) => entry?.confirmed != null && rev < entry.confirmed.rev;
 const rectOf = (r: NoteRect): NoteRect => ({ x: r.x, y: r.y, w: r.w, h: r.h });
+/** A held frame: a resize here keeps its whole rect; a drag here keeps only its position (v0.39.1, as notes). */
+const heldRect = (e: BoardFrame, remote: NoteRect): NoteRect =>
+  e.resizing ? rectOf(e.frame) : e.dragging ? { ...clampFramePosition(e.frame.x, e.frame.y, remote), w: remote.w, h: remote.h } : rectOf(remote);
 
 function patch(board: Board, id: string, change: (entry: BoardFrame) => BoardFrame): Board {
   const index = board.frames.findIndex((f) => f.frame.id === id);
@@ -99,7 +102,7 @@ export function applyFrameUpdated(board: Board, frame: Frame): Board {
   const entry = findFrame(board, frame.id);
   if (!entry) return { ...board, frames: [...board.frames, confirmedEntry(frame)] };
   if (isStale(entry, frame.rev)) return board;
-  return patch(board, frame.id, (e) => ({ ...e, confirmed: frame, frame: isFrameHeld(e) ? { ...frame, ...rectOf(e.frame) } : frame }));
+  return patch(board, frame.id, (e) => ({ ...e, confirmed: frame, frame: isFrameHeld(e) ? { ...frame, ...heldRect(e, frame) } : frame }));
 }
 
 export function applyFrameMoved(board: Board, move: { id: string; x: number; y: number; rev: number; final: boolean }): Board {
@@ -118,7 +121,7 @@ export function applyFrameResized(board: Board, resize: NoteRect & { id: string;
   return patch(board, resize.id, (e) => {
     const rect = rectOf(resize);
     const confirmed = resize.final && e.confirmed ? { ...e.confirmed, ...rect, rev: resize.rev } : e.confirmed;
-    return { ...e, confirmed, frame: { ...e.frame, ...(isFrameHeld(e) ? rectOf(e.frame) : rect), rev: Math.max(e.frame.rev, resize.rev) } };
+    return { ...e, confirmed, frame: { ...e.frame, ...heldRect(e, rect), rev: Math.max(e.frame.rev, resize.rev) } };
   });
 }
 

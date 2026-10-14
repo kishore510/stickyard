@@ -19,7 +19,8 @@ import { localId, topZ, type Board } from "../notes/board";
  * - `confirmed` is what the server last sent; `shape` is what's shown. A refusal rolls back.
  * - A stale update (lower rev than confirmed) is ignored.
  * - `draft` is the text being typed in place: remote edits never replace it.
- * - While a shape is dragged or resized here, remote positions and sizes are confirmed but not shown.
+ * - While a shape is resized here, remote positions and sizes are confirmed but not shown; while it
+ *   is dragged here, only its position is held (v0.39.1).
  * - Shapes share the notes' stacking space (z); the kind never changes.
  */
 
@@ -42,6 +43,9 @@ export function findShape(board: Board, id: string): BoardShape | undefined {
 const confirmedEntry = (shape: Shape, draft: string | null = null): BoardShape => ({ shape, confirmed: shape, clientRef: null, draft, dragging: false, resizing: false });
 const isStale = (entry: BoardShape | undefined, rev: number) => entry?.confirmed != null && rev < entry.confirmed.rev;
 const rectOf = (r: NoteRect): NoteRect => ({ x: r.x, y: r.y, w: r.w, h: r.h });
+/** A held shape: a resize here keeps its whole rect; a drag here keeps only its position (v0.39.1, as notes). */
+const heldRect = (e: BoardShape, remote: NoteRect): NoteRect =>
+  e.resizing ? rectOf(e.shape) : e.dragging ? { ...clampShapePosition(e.shape.x, e.shape.y, remote), w: remote.w, h: remote.h } : rectOf(remote);
 
 function patch(board: Board, id: string, change: (entry: BoardShape) => BoardShape): Board {
   const index = board.shapes.findIndex((s) => s.shape.id === id);
@@ -98,7 +102,7 @@ export function applyShapeUpdated(board: Board, shape: Shape): Board {
   const entry = findShape(board, shape.id);
   if (!entry) return { ...board, shapes: [...board.shapes, confirmedEntry(shape)] };
   if (isStale(entry, shape.rev)) return board;
-  return patch(board, shape.id, (e) => ({ ...e, confirmed: shape, shape: isShapeHeld(e) ? { ...shape, ...rectOf(e.shape) } : shape }));
+  return patch(board, shape.id, (e) => ({ ...e, confirmed: shape, shape: isShapeHeld(e) ? { ...shape, ...heldRect(e, shape) } : shape }));
 }
 
 export function applyShapeMoved(board: Board, move: { id: string; x: number; y: number; rev: number; final: boolean }): Board {
@@ -117,7 +121,7 @@ export function applyShapeResized(board: Board, resize: NoteRect & { id: string;
   return patch(board, resize.id, (e) => {
     const rect = rectOf(resize);
     const confirmed = resize.final && e.confirmed ? { ...e.confirmed, ...rect, rev: resize.rev } : e.confirmed;
-    return { ...e, confirmed, shape: { ...e.shape, ...(isShapeHeld(e) ? rectOf(e.shape) : rect), rev: Math.max(e.shape.rev, resize.rev) } };
+    return { ...e, confirmed, shape: { ...e.shape, ...heldRect(e, rect), rev: Math.max(e.shape.rev, resize.rev) } };
   });
 }
 
