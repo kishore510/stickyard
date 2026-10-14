@@ -101,8 +101,20 @@ function ShapePreview({ kind }: { kind: ShapeKind }) {
   );
 }
 
+/** An arrow kind in miniature: straight or elbowed, with its heads (v0.36.0). */
+function ConnectorPreview({ style }: { style: Extract<PalettePreview, { kind: "connector" }>["style"] }) {
+  const d = style.route === "elbow" ? "M12 78 L50 78 L50 22 L88 22" : "M12 78 L88 22";
+  return (
+    <svg aria-hidden="true" data-preview="connector" viewBox="0 0 100 100" className="size-tile-preview overflow-visible">
+      <path d={d} fill="none" style={{ stroke: "var(--sy-shape-neutral-stroke)", strokeWidth: "var(--sy-connector-medium)" }} vectorEffect="non-scaling-stroke" />
+      {style.endHead === "arrow" && <polygon points={style.route === "elbow" ? "92,22 76,13 76,31" : "90,20 72,24 80,36"} style={{ fill: "var(--sy-shape-neutral-stroke)" }} />}
+    </svg>
+  );
+}
+
 function Preview({ preview, size }: { preview: PalettePreview; size: "tile" | "ghost" }) {
   if (preview.kind === "template") return <TemplatePreview template={preview.template} />;
+  if (preview.kind === "connector") return <ConnectorPreview style={preview.style} />;
   if (preview.kind === "shape") return <ShapePreview kind={preview.shape} />;
   if (preview.kind === "icon") {
     const Icon = preview.icon;

@@ -112,9 +112,9 @@ export function AboutPage() {
             it expires or ends.
           </li>
           <li>
-            Arrows (coming in a later version) will be stored the same way: each arrow’s ends (a place on the board, or the note or
-            shape it is attached to), its line style, and the random id the relay gave the visit that added it. Deleting a note or
-            shape leaves its arrows where they were; arrows go with the session when it expires or ends.
+            Arrows are stored the same way: each arrow’s ends (a place on the board, or the note or shape it is attached to), its line
+            style, and the random id the relay gave the visit that added it. Deleting a note or shape leaves its arrows where they were;
+            arrows go with the session when it expires or ends.
           </li>
           <li>
             While you share your cursor (a mouse or pen over the board, on a wider screen), your pointer’s position on the board is passed on live

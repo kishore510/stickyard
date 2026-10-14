@@ -1,7 +1,9 @@
 import {
+  CONNECTOR_DEFAULTS,
   FRAME_DEFAULTS,
   FRAME_STYLE_FIELDS,
   MAX_BATCH_ENTRIES,
+  MAX_CONNECTORS_PER_ROOM,
   MAX_FRAMES_PER_ROOM,
   MAX_NOTES_PER_ROOM,
   MAX_SERVER_MESSAGE_BYTES,
@@ -14,6 +16,10 @@ import {
   VOTE_BUDGET_DEFAULT,
   VOTE_BUDGET_MAX,
   VOTE_BUDGET_MIN,
+  anchorPoint,
+  clampConnectorPoint,
+  endReference,
+  isBound,
   clampFramePosition,
   clampFrameRect,
   clampNoteRect,
@@ -30,6 +36,8 @@ import {
   serverMessageSchema,
   stackOrder,
   type ClientMessage,
+  type Connector,
+  type ConnectorEnd,
   type Frame,
   type FrameColor,
   type FrameItem,
@@ -147,7 +155,29 @@ import {
   type ShapeEdit,
 } from "../shapes/board";
 import { carryPlan } from "../canvas/frameSelect";
-import { DUPLICATE_HINTS, duplicateFrameInput, duplicateNoteInputs, duplicateSelectionInputs } from "../canvas/duplicate";
+import {
+  addConnectorLocal,
+  applyConnectorAdded,
+  applyConnectorDeleted,
+  applyConnectorUpdated,
+  applyConnectorsSnapshot,
+  connectorChanges,
+  connectorContent,
+  deleteConnectorLocal,
+  findConnector,
+  rejectConnectorAdd,
+  renameItemInConnectors,
+  rollbackConnector,
+  updateConnectorLocal,
+  type BoardConnector,
+  type ConnectorContent,
+  type ConnectorPatch,
+} from "../connectors/board";
+import { boxOfBoard, endsProblem, moveFreeArrow, reversedPatch } from "../connectors/geometry";
+import { connectorFields, contentFromFields, decodeEnd, patchFromFields, renameEndRefs } from "../connectors/fields";
+import { ConnectorPacer, type ConnectorMessage } from "../connectors/pace";
+import { CONNECTOR_TEXT } from "../connectors/rules";
+import { DUPLICATE_HINTS, DUPLICATE_OFFSET, duplicateFrameInput, duplicateNoteInputs, duplicateSelectionInputs } from "../canvas/duplicate";
 import { HISTORY_TEXT, History, type Fields, type ItemKind, type Lookup, type Plan } from "../history/history";
 import type { CodeCheck } from "./api";
 import { packItems, type ItemDraft, type ItemsAddMessage } from "./items";
@@ -503,7 +533,34 @@ interface ItemsRun {
   template: number | null;
   /** An undo or redo adding items back (its progress is shown). */
   restore: boolean;
+  /** Arrows that go once the run's items are on the relay (a duplicate's, an undo's): see ArrowPart. */
+  arrows: ArrowPart;
+  /** Items an undo left as they are (someone else changed them): said in the run's last report. */
+  skipped: number;
 }
+
+/**
+ * Arrows of an items run (protocol v21): adds waiting here until the run's items have their
+ * server ids (their ends name the items' local ids until then, renamed as each is confirmed), then
+ * paced; and an undo's arrow changes that name restored items (re-attaching the ends an item's
+ * delete freed), sent with the new ids.
+ */
+interface ArrowPart {
+  /** Each arrow add's clientRef, in order. */
+  refs: string[];
+  /** Adds not answered yet (waiting here or in flight). */
+  pending: Set<string>;
+  /** Adds not sent yet. */
+  waiting: string[];
+  added: number;
+  refused: number;
+  /** Changes to existing arrows, as history fields naming the items' old ids. */
+  updates: { id: string; fields: Fields }[];
+  /** A restored item's old id -> its ref in this run. */
+  idMap: Map<string, string>;
+}
+
+const noArrows = (): ArrowPart => ({ refs: [], pending: new Set(), waiting: [], added: 0, refused: 0, updates: [], idMap: new Map() });
 
 /** One itemsAdd message of a run: queued, then in flight until the relay answers. */
 interface ItemsBatch {
@@ -557,8 +614,10 @@ function itemsNotice({ notesFull, framesFull, shapesFull, invalid, tooQuick, noW
   return parts.join(" ");
 }
 
-/** Items of a run the relay has added. */
-const restoredCount = (run: ItemsRun) => [...run.ids.values()].filter((id) => id !== null).length;
+/** Items (and arrows) of a run the relay has added. */
+const restoredCount = (run: ItemsRun) => [...run.ids.values()].filter((id) => id !== null).length + run.arrows.added;
+/** Items and arrows in a run. */
+const runTotal = (run: ItemsRun) => run.refs.length + run.arrows.refs.length;
 
 const refusedTotal = (r: ItemsRefused) => r.notesFull + r.framesFull + r.shapesFull + r.invalid + r.tooQuick + r.noWriter + r.sealedFull;
 
@@ -612,6 +671,8 @@ interface ClearRun {
   frames: ClearPart & { queue: string[] };
   /** Shapes (protocol v15): deleted in shapeBatch chunks, like notes. */
   shapes: ClearPart;
+  /** Arrows (protocol v21): deleted first, paced, so no end is freed for nothing. */
+  connectors: ClearPart;
 }
 interface ClearPart {
   total: number;
@@ -628,8 +689,8 @@ const word = (n: number, kind: string) => `${n} ${kind}${n === 1 ? "" : "s"}`;
 type RemovalPart = { total: number; refused: number; lost: number; tooQuick: boolean };
 
 /** Clear board's outcome, once every note, frame and shape in it is accounted for (or the connection was lost). */
-export function clearReportFor(notes: RemovalPart, frames: RemovalPart, shapes?: RemovalPart): DeleteReport {
-  return removalReportFor("clear", notes, frames, shapes);
+export function clearReportFor(notes: RemovalPart, frames: RemovalPart, shapes?: RemovalPart, arrows?: RemovalPart): DeleteReport {
+  return removalReportFor("clear", notes, frames, shapes, arrows);
 }
 
 /** "a", "a and b", "a, b and c". */
@@ -637,11 +698,12 @@ const listed = (parts: readonly string[]) => (parts.length < 3 ? parts.join(" an
 const NO_PART: RemovalPart = { total: 0, refused: 0, lost: 0, tooQuick: false };
 
 /** The outcome of a clear or of a delete of a selection with frames or shapes (only the all-done wording differs). */
-export function removalReportFor(kind: "clear" | "delete", notes: RemovalPart, frames: RemovalPart, shapes: RemovalPart = NO_PART): DeleteReport {
+export function removalReportFor(kind: "clear" | "delete", notes: RemovalPart, frames: RemovalPart, shapes: RemovalPart = NO_PART, arrows: RemovalPart = NO_PART): DeleteReport {
   const kinds: [RemovalPart, string][] = [
     [notes, "note"],
     [frames, "frame"],
     [shapes, "shape"],
+    [arrows, "arrow"],
   ];
   const done = (p: RemovalPart) => p.total - p.refused - p.lost;
   if (kinds.every(([p]) => p.refused + p.lost === 0)) {
@@ -664,6 +726,14 @@ export function removalReportFor(kind: "clear" | "delete", notes: RemovalPart, f
   if (kinds.some(([p]) => p.refused > 0)) parts.push("Nothing was retried.");
   return { text: parts.join(" "), partial: true };
 }
+
+/** A free end as the relay will store it (rounded, clamped onto the board); a bound end as it is. */
+const normalEnd = (end: ConnectorEnd): ConnectorEnd => (isBound(end) ? { item: end.item, anchor: end.anchor } : clampConnectorPoint(end.x, end.y));
+const normalPatch = (change: ConnectorPatch): ConnectorPatch => ({
+  ...change,
+  ...(change.start !== undefined ? { start: normalEnd(change.start) } : {}),
+  ...(change.end !== undefined ? { end: normalEnd(change.end) } : {}),
+});
 
 const randomRef = (): string => {
   const bytes = crypto.getRandomValues(new Uint8Array(9));
@@ -706,6 +776,8 @@ export interface SessionOptions {
   onFrameConfirmed?(localId: string, id: string): void;
   /** A shape added here got its server id (protocol v15). */
   onShapeConfirmed?(localId: string, id: string): void;
+  /** An arrow added here got its server id (protocol v21). */
+  onConnectorConfirmed?(localId: string, id: string): void;
   /** The browser's network and visibility (connection/reconnect.ts); always online and visible if not given. */
   env?: ConnectionEnv;
   /** GET /health, asked when sockets keep failing to open: is the relay there at all? */
@@ -761,8 +833,22 @@ interface FrameDrag {
   shapes: Map<string, NoteRect>;
 }
 
+/** A new, empty items run. */
+function newRun(template: number | null, restore: boolean): ItemsRun {
+  return {
+    refs: [],
+    pending: new Set(),
+    ids: new Map(),
+    refused: { notesFull: 0, framesFull: 0, shapesFull: 0, invalid: 0, tooQuick: 0, noWriter: 0, sealedFull: 0 },
+    template,
+    restore,
+    arrows: noArrows(),
+    skipped: 0,
+  };
+}
+
 /** A sent itemsAdd's list for one kind (to find a refused item's ref by its index). */
-function itemList(message: ItemsAddMessage, kind: ItemKind): readonly { ref: string }[] | undefined {
+function itemList(message: ItemsAddMessage, kind: ItemKind | "note" | "frame" | "shape"): readonly { ref: string }[] | undefined {
   return kind === "note" ? message.notes : kind === "frame" ? message.frames : message.shapes;
 }
 
@@ -824,8 +910,19 @@ export class RoomSession {
   private templateSeq = 0;
   /** The delete of several notes being confirmed, if any (a new one joins it). */
   private deleteRun: DeleteRun | null = null;
-  /** Undo and redo of my own actions (history/history.ts); cleared on resync, disconnect and leaving. */
-  private readonly history = new History();
+  /** Undo and redo of my own actions (history/history.ts); cleared on resync, disconnect and leaving. An arrow's ends follow its items' new ids. */
+  private readonly history = new History({ renameRefs: renameEndRefs });
+  /** Protocol v21: every connector message is paced inside the relay's CONNECTOR_LIMITS (connectors/pace.ts). */
+  private readonly pacer = new ConnectorPacer({
+    now: () => Date.now(),
+    setTimer: (fn, ms) => setTimeout(fn, ms),
+    clearTimer: (id) => clearTimeout(id as ReturnType<typeof setTimeout>),
+    send: (message) => this.send(message),
+  });
+  /** Arrow adds deleted here before the relay confirmed them (their clientRefs): deleted once it does. */
+  private readonly abandonedConnectors = new Set<string>();
+  /** The items run an arrow add belongs to, by its clientRef (a duplicate's or an undo's arrows). */
+  private readonly arrowRuns = new Map<string, ItemsRun>();
   /** Items being added back by an undo or redo, if any. */
   private restoreRun: ItemsRun | null = null;
   /** Clear board in flight, and its frame-delete pacing timer. */
@@ -1204,6 +1301,9 @@ export class RoomSession {
     for (const ref of clear?.frames.refs ?? []) excluded.add(`frame:${localId(ref)}`);
     for (const id of clear?.shapes.ids ?? []) excluded.add(`shape:${id}`);
     for (const ref of clear?.shapes.refs ?? []) excluded.add(`shape:${localId(ref)}`);
+    for (const id of clear?.connectors.ids ?? []) excluded.add(`connector:${id}`);
+    for (const ref of clear?.connectors.refs ?? []) excluded.add(`connector:${localId(ref)}`);
+    for (const run of [this.template?.run, this.restoreRun]) for (const ref of run?.arrows.refs ?? []) excluded.add(`connector:${localId(ref)}`);
     const unsaved = unsavedKeys(this.view.board, this.history.pendingKeys(), excluded).size;
 
     this.deleteRun = null;
@@ -1221,6 +1321,10 @@ export class RoomSession {
     this.abandoned.clear();
     this.abandonedFrames.clear();
     this.abandonedShapes.clear();
+    // Arrow messages not sent yet never are (no offline queue).
+    this.pacer.reset();
+    this.abandonedConnectors.clear();
+    this.arrowRuns.clear();
     // Ids and revs can't be trusted after this: the history goes.
     this.history.clear();
     const { board, orphans } = discardUnconfirmed(this.view.board);
@@ -1248,6 +1352,7 @@ export class RoomSession {
               { ...clear.notes, lost: clear.notes.ids.size + clear.notes.refs.size },
               { ...clear.frames, lost: clear.frames.ids.size + clear.frames.refs.size + clear.frames.queue.length },
               { ...clear.shapes, lost: clear.shapes.ids.size + clear.shapes.refs.size },
+              { ...clear.connectors, lost: clear.connectors.ids.size + clear.connectors.refs.size },
             ),
           }
         : {}),
@@ -2234,7 +2339,7 @@ export class RoomSession {
     if (!this.live || !this.view.you || inputs.length === 0) return null;
     if (this.refuseSilentNotes(inputs.filter((i) => i.kind === "note").length)) return null;
     const authorId = this.view.you.id;
-    const run: ItemsRun = { refs: [], pending: new Set(), ids: new Map(), refused: { notesFull: 0, framesFull: 0, shapesFull: 0, invalid: 0, tooQuick: 0, noWriter: 0, sealedFull: 0 }, template, restore };
+    const run = newRun(template, restore);
     let board = this.view.board;
     const drafts: ItemDraft[] = [];
     for (const input of inputs) {
@@ -2352,6 +2457,7 @@ export class RoomSession {
     board = this.refuseUnanswered(board, batch, "invalid");
     this.sealedAdd(message.notes.map(({ note }) => note.id));
     this.update({ rateLimited: false, ...this.itemsDone(run, board), ...this.sealedView() });
+    if (run.pending.size === 0) this.flushArrows(run);
   }
 
   /** The relay refused a whole itemsAdd (nothing added, too quick, not joined): roll back each of its items. */
@@ -2373,6 +2479,7 @@ export class RoomSession {
       // A locked board refused the whole message: say that, once, instead of the item counts.
       ...(message.code === "board_locked" ? { noteNotice: NOTICES.locked } : {}),
     });
+    if (batch.run.pending.size === 0) this.flushArrows(batch.run);
   }
 
   /** Rolls back the batch's items still pending, counting them under `reason`. */
@@ -2411,15 +2518,18 @@ export class RoomSession {
   private itemsDone(run: ItemsRun, board: Board): Partial<RoomView> {
     const refused = refusedTotal(run.refused) > 0;
     if (run.restore) {
-      if (run.pending.size > 0 || this.restoreRun !== run) return { board };
+      if (run.pending.size > 0 || run.arrows.pending.size > 0 || this.restoreRun !== run) return { board };
       this.restoreRun = null;
       const done = restoredCount(run);
-      const total = run.refs.length;
+      const total = runTotal(run);
+      const skipped = run.skipped > 0 ? ` ${HISTORY_TEXT.conflicts(run.skipped)}` : "";
+      const notAdded = refused ? ` ${NOTICES.itemsNotAdded(run.refused)}` : "";
       return {
         board,
-        historyReport: refused
-          ? { text: `${UNDO_TEXT.restoredPartly(done, total)} ${NOTICES.itemsNotAdded(run.refused)}`, partial: true }
-          : { text: UNDO_TEXT.restored(done), partial: false },
+        historyReport:
+          refused || run.arrows.refused > 0
+            ? { text: `${UNDO_TEXT.restoredPartly(done, total)}${notAdded}${skipped}`, partial: true }
+            : { text: `${UNDO_TEXT.restored(done)}${skipped}`, partial: skipped !== "" },
       };
     }
     if (run.template !== null) {
@@ -2500,14 +2610,33 @@ export class RoomSession {
    * locked board, and when the board hasn't room for every copy (a notice gives the counts). The
    * copies' local ids by kind, or null.
    */
-  duplicateSelection(noteIds: readonly string[], frameIds: readonly string[], shapeIds: readonly string[] = []): { notes: string[]; frames: string[]; shapes: string[] } | null {
-    if (!this.live || lockedOut(this.view) || noteIds.length + frameIds.length + shapeIds.length === 0) return null;
+  duplicateSelection(
+    noteIds: readonly string[],
+    frameIds: readonly string[],
+    shapeIds: readonly string[] = [],
+    connectorIds: readonly string[] = [],
+  ): { notes: string[]; frames: string[]; shapes: string[]; connectors: string[] } | null {
+    if (!this.live || lockedOut(this.view) || noteIds.length + frameIds.length + shapeIds.length + connectorIds.length === 0) return null;
     const notes = noteIds.map((id) => findNote(this.view.board, id));
     const frames = frameIds.map((id) => findFrame(this.view.board, id));
     const shapes = shapeIds.map((id) => findShape(this.view.board, id));
     if (notes.some((e) => !e || e.confirmed === null || isLocalId(e.note.id) || isHeld(e))) return null;
     if (frames.some((e) => !e || e.confirmed === null || isLocalId(e.frame.id) || isFrameHeld(e))) return null;
     if (shapes.some((e) => !e || e.confirmed === null || isLocalId(e.shape.id) || isShapeHeld(e))) return null;
+    // Arrows (protocol v21): copied when each end is free or on a selected note or shape (then on its copy).
+    const copied = new Set([...noteIds, ...shapeIds]);
+    const arrows = connectorIds.flatMap((id) => {
+      const entry = findConnector(this.view.board, id);
+      if (!entry || entry.confirmed === null || isLocalId(id)) return [];
+      const inside = (end: ConnectorEnd) => !isBound(end) || copied.has(end.item);
+      return inside(entry.connector.start) && inside(entry.connector.end) ? [entry.connector] : [];
+    });
+    if (arrows.length > 0 && this.refuseSilent()) return null;
+    const freeArrows = Math.max(0, MAX_CONNECTORS_PER_ROOM - this.view.board.connectors.length);
+    if (arrows.length > freeArrows) {
+      this.update({ noteNotice: CONNECTOR_TEXT.duplicateFull(arrows.length, freeArrows) });
+      return null;
+    }
     const freeShapes = Math.max(0, MAX_SHAPES_PER_ROOM - this.view.board.shapes.length);
     if (shapes.length > freeShapes) {
       this.update({ noteNotice: DUPLICATE_HINTS.shapesFull(shapes.length, freeShapes) });
@@ -2524,20 +2653,56 @@ export class RoomSession {
       return null;
     }
     if (this.refuseSilentNotes(notes.length)) return null;
-    if (this.itemBatches.size > 0) return null;
-    const inputs = duplicateSelectionInputs(
-      notes.flatMap((e) => (e ? [e.note] : [])),
-      frames.flatMap((e) => (e ? [e.frame] : [])),
-      undefined,
-      shapes.flatMap((e) => (e ? [e.shape] : [])),
-    );
-    const ids = this.addItems(inputs, "Duplicate");
-    if (!ids) return null;
-    const out = { notes: [] as string[], frames: [] as string[], shapes: [] as string[] };
-    inputs.forEach((input, i) => {
-      const id = ids[i];
-      if (id) (input.kind === "frame" ? out.frames : input.kind === "shape" ? out.shapes : out.notes).push(id);
+    if (this.itemBatches.size > 0 || this.restoreRun || !this.view.you) return null;
+    const noteList = notes.flatMap((e) => (e ? [e.note] : []));
+    const frameList = frames.flatMap((e) => (e ? [e.frame] : []));
+    const shapeList = shapes.flatMap((e) => (e ? [e.shape] : []));
+    const inputs = duplicateSelectionInputs(noteList, frameList, undefined, shapeList);
+    // The originals in the inputs' order (duplicateSelectionInputs: frames, then notes and shapes by stacking).
+    const origins = [...frameList.map((f) => f.id), ...stackOrder<Note | Shape>([...noteList, ...shapeList]).map((i) => i.id)];
+    // Free ends move with the copies: the items' offset, or (arrows alone) one clamped for their free points.
+    const items = [...noteList, ...frameList, ...shapeList];
+    const points = arrows.flatMap((a) => [a.start, a.end].flatMap((e) => (isBound(e) ? [] : [{ x: e.x, y: e.y, w: 0, h: 0 }])));
+    const { dx, dy } = groupOffset(items.length > 0 ? items : points, DUPLICATE_OFFSET, DUPLICATE_OFFSET);
+    const run = inputs.length > 0 ? this.startItems(inputs, null, { defer: true }) : newRun(null, false);
+    if (!run) return null;
+    const localOf = new Map<string, string>();
+    origins.forEach((id, i) => {
+      const ref = run.refs[i];
+      if (ref) localOf.set(id, localId(ref));
     });
+    let board = this.view.board;
+    const arrowIds: string[] = [];
+    for (const a of arrows) {
+      const mapEnd = (end: ConnectorEnd): ConnectorEnd => (isBound(end) ? { item: localOf.get(end.item) ?? end.item, anchor: end.anchor } : clampConnectorPoint(end.x + dx, end.y + dy));
+      const clientRef = randomRef();
+      board = addConnectorLocal(board, { clientRef, content: { ...connectorContent(a), start: mapEnd(a.start), end: mapEnd(a.end) }, authorId: this.view.you.id });
+      this.addArrowToRun(run, clientRef);
+      arrowIds.push(localId(clientRef));
+    }
+    this.update({ board });
+    // One step: the copies and their arrows.
+    this.history.recordAdd(
+      "Duplicate",
+      [
+        ...inputs.flatMap((input, i) => {
+          const ref = run.refs[i];
+          return ref && run.pending.has(ref) ? [{ kind: input.kind, id: localId(ref) }] : [];
+        }),
+        ...arrowIds.map((id) => ({ kind: "connector" as const, id })),
+      ],
+      Date.now(),
+    );
+    const out = { notes: [] as string[], frames: [] as string[], shapes: [] as string[], connectors: arrowIds };
+    inputs.forEach((input, i) => {
+      const ref = run.refs[i];
+      if (ref) (input.kind === "frame" ? out.frames : input.kind === "shape" ? out.shapes : out.notes).push(localId(ref));
+    });
+    if (run.pending.size === 0) {
+      this.update(this.itemsDone(run, this.view.board));
+      this.flushArrows(run);
+    }
+    this.pumpItems();
     return out;
   }
 
@@ -2554,9 +2719,9 @@ export class RoomSession {
   clearBoard(): boolean {
     if (!this.live || this.clearRun || this.restoreRun || this.template || this.itemBatches.size > 0) return false;
     if (this.refuseSilent()) return false;
-    const { notes, frames, shapes } = this.view.board;
-    if (notes.length + frames.length + shapes.length === 0) return false;
-    this.startRemoval("clear", notes, frames, shapes);
+    const { notes, frames, shapes, connectors } = this.view.board;
+    if (notes.length + frames.length + shapes.length + connectors.length === 0) return false;
+    this.startRemoval("clear", notes, frames, shapes, connectors);
     return true;
   }
 
@@ -2568,7 +2733,7 @@ export class RoomSession {
    * connected: nothing is deleted, and the report says so. Refused (false, nothing sent) for a guest
    * on a locked board, while a clear or another such delete runs, or while an add run is being sent.
    */
-  deleteSelection(noteIds: readonly string[], frameIds: readonly string[], shapeIds: readonly string[] = []): boolean {
+  deleteSelection(noteIds: readonly string[], frameIds: readonly string[], shapeIds: readonly string[] = [], connectorIds: readonly string[] = []): boolean {
     if (this.stopped) return false;
     if (!this.live) {
       this.update({ deleteReport: DELETE_OFFLINE });
@@ -2578,16 +2743,35 @@ export class RoomSession {
     const notes = noteIds.flatMap((id) => findNote(this.view.board, id) ?? []);
     const frames = frameIds.flatMap((id) => findFrame(this.view.board, id) ?? []);
     const shapes = shapeIds.flatMap((id) => findShape(this.view.board, id) ?? []);
-    if (notes.length + frames.length + shapes.length === 0) return false;
-    this.startRemoval("delete", notes, frames, shapes);
+    const connectors = connectorIds.flatMap((id) => findConnector(this.view.board, id) ?? []);
+    if (notes.length + frames.length + shapes.length + connectors.length === 0) return false;
+    // Arrows can't change during a silent round (the relay refuses them for everyone).
+    if (connectors.length > 0 && this.refuseSilent()) return false;
+    this.startRemoval("delete", notes, frames, shapes, connectors);
     return true;
   }
 
   /** Starts a clear or a selection delete: notes at once (batches), frames queued and paced. */
-  private startRemoval(kind: ClearRun["kind"], notes: readonly BoardNote[], frames: readonly BoardFrame[], shapes: readonly BoardShape[] = []): void {
+  private startRemoval(kind: ClearRun["kind"], notes: readonly BoardNote[], frames: readonly BoardFrame[], shapes: readonly BoardShape[] = [], connectors: readonly BoardConnector[] = []): void {
     const part = (): ClearPart => ({ total: 0, ids: new Set(), refs: new Set(), refused: 0, tooQuick: false });
-    const run: ClearRun = { kind, notes: part(), frames: { ...part(), queue: [] }, shapes: part() };
+    const run: ClearRun = { kind, notes: part(), frames: { ...part(), queue: [] }, shapes: part(), connectors: part() };
     let board = this.view.board;
+    // Arrows first (protocol v21): sent before any item delete, so the relay frees no end of an
+    // arrow that's going anyway.
+    const removedConnectors: Connector[] = [];
+    for (const entry of connectors) {
+      const id = entry.connector.id;
+      board = deleteConnectorLocal(board, id);
+      run.connectors.total++;
+      if (entry.clientRef !== null) {
+        this.abandonedConnectors.add(entry.clientRef);
+        run.connectors.refs.add(entry.clientRef);
+        this.history.refuse("connector", id);
+      } else {
+        run.connectors.ids.add(id);
+        removedConnectors.push(entry.connector);
+      }
+    }
     const ops: NoteBatchEntry[] = [];
     const removedNotes: Note[] = [];
     for (const entry of notes) {
@@ -2643,10 +2827,15 @@ export class RoomSession {
     this.clearRun = run;
     this.update({ board, noteNotice: null });
     const label = kind === "clear" ? "Clear board" : "Delete";
-    this.recordRemoval(label, removedNotes, removedFrames, removedShapes);
-    this.sendBatch(ops, true);
-    this.sendShapeBatch(shapeOps, true);
-    this.pumpClear();
+    this.recordRemoval(label, removedNotes, removedFrames, removedShapes, removedConnectors);
+    for (const c of removedConnectors) this.pacer.enqueue({ type: "connectorDelete", id: c.id });
+    // The items once every arrow delete is out (at once, unless the arrows' budget is spent).
+    this.pacer.whenSent(() => {
+      if (this.clearRun !== run || !this.live) return;
+      this.sendBatch(ops, true);
+      this.sendShapeBatch(shapeOps, true);
+      this.pumpClear();
+    });
   }
 
   /** Sends the next frameDelete of a clear, then waits CLEAR_FRAME_STEP_MS. */
@@ -2673,10 +2862,296 @@ export class RoomSession {
   private settleClear(): void {
     const run = this.clearRun;
     if (!run) return;
-    const { notes, frames, shapes } = run;
-    if (notes.ids.size + notes.refs.size + frames.ids.size + frames.refs.size + frames.queue.length + shapes.ids.size + shapes.refs.size > 0) return;
+    const { notes, frames, shapes, connectors } = run;
+    const left = notes.ids.size + notes.refs.size + frames.ids.size + frames.refs.size + frames.queue.length + shapes.ids.size + shapes.refs.size;
+    if (left + connectors.ids.size + connectors.refs.size > 0) return;
     this.clearRun = null;
-    this.update({ deleteReport: removalReportFor(run.kind, { ...notes, lost: 0 }, { ...frames, lost: 0 }, { ...shapes, lost: 0 }) });
+    this.update({ deleteReport: removalReportFor(run.kind, { ...notes, lost: 0 }, { ...frames, lost: 0 }, { ...shapes, lost: 0 }, { ...connectors, lost: 0 }) });
+  }
+
+  /* ── Arrows (protocol v21; the UI since v0.36.0) ────────────────── */
+
+  /**
+   * Arrows can't be changed now: not connected, a guest on a locked board (the lock's reason), or
+   * a silent round (for everyone, the host too: the relay refuses every connector message then).
+   */
+  private refuseArrows(): boolean {
+    if (!this.live) return true;
+    if (lockedOut(this.view)) {
+      this.update({ noteNotice: LOCK_TEXT.reason });
+      return true;
+    }
+    return this.refuseSilent();
+  }
+
+  /** A clientRef of one of my arrow adds (waiting here, in flight, or deleted before it was confirmed). */
+  private isConnectorRef(clientRef: string): boolean {
+    return this.arrowRuns.has(clientRef) || this.abandonedConnectors.has(clientRef) || findConnector(this.view.board, localId(clientRef)) !== undefined;
+  }
+
+  /** Why these ends can't be sent (refused here, as the relay would), or null. */
+  private endsReason(start: ConnectorEnd, end: ConnectorEnd): string | null {
+    const unsaved = (e: ConnectorEnd) => isBound(e) && isLocalId(e.item);
+    if (unsaved(start) || unsaved(end)) return DUPLICATE_HINTS.unsaved;
+    const problem = endsProblem(start, end, boxOfBoard(this.view.board));
+    if (problem === "same_item") return CONNECTOR_TEXT.sameItem;
+    if (problem === "zero") return CONNECTOR_TEXT.tooShort;
+    return problem === "missing" ? CONNECTOR_TEXT.missing : null;
+  }
+
+  /**
+   * Adds an arrow (its ends and style; CONNECTOR_DEFAULTS for any style not given), shown at once,
+   * sent paced. Its local id, or null (with the reason) when it can't be added: not connected,
+   * locked, a silent round, the board's 100 arrows, both ends on one item, zero length.
+   */
+  addConnector(input: { start: ConnectorEnd; end: ConnectorEnd } & Partial<Omit<ConnectorContent, "start" | "end">>): string | null {
+    if (!this.live || !this.view.you || this.refuseArrows()) return null;
+    if (this.view.board.connectors.length >= MAX_CONNECTORS_PER_ROOM) {
+      this.update({ noteNotice: CONNECTOR_TEXT.full });
+      return null;
+    }
+    const content = connectorContent({ ...CONNECTOR_DEFAULTS, ...input, start: normalEnd(input.start), end: normalEnd(input.end) });
+    const reason = this.endsReason(content.start, content.end);
+    if (reason !== null) {
+      this.update({ noteNotice: reason });
+      return null;
+    }
+    const clientRef = randomRef();
+    const id = localId(clientRef);
+    this.update({ board: addConnectorLocal(this.view.board, { clientRef, content, authorId: this.view.you.id }), noteNotice: null });
+    this.history.recordAdd("Add arrow", [{ kind: "connector", id }], Date.now());
+    this.pacer.enqueue({ type: "connectorAdd", clientRef, ...content });
+    return id;
+  }
+
+  /** One arrow's ends and/or style (an end dropped, a style picked): only what changed is sent, once. False if refused. */
+  updateConnector(id: string, change: ConnectorPatch): boolean {
+    return this.changeConnectors([{ id, change }], "Edit arrow");
+  }
+
+  /** The same style for several arrows (Properties): one step, one paced connectorUpdate per arrow that changes. */
+  updateConnectors(ids: readonly string[], change: ConnectorPatch): boolean {
+    const { start: _, end: __, ...style } = change;
+    return this.changeConnectors(
+      ids.map((id) => ({ id, change: style })),
+      ids.length === 1 ? "Edit arrow" : "Edit arrows",
+    );
+  }
+
+  /** Reverse: each arrow's ends and heads swapped (one step). */
+  reverseConnectors(ids: readonly string[]): boolean {
+    return this.changeConnectors(
+      ids.flatMap((id) => {
+        const c = findConnector(this.view.board, id)?.connector;
+        return c ? [{ id, change: reversedPatch(c) }] : [];
+      }),
+      "Reverse",
+    );
+  }
+
+  /**
+   * Moves an arrow whose ends are both free (its line dragged) by (dx, dy): one connectorUpdate.
+   * An arrow with an attached end moves with its items: nothing is sent, and the notice says why.
+   */
+  moveConnector(id: string, dx: number, dy: number): boolean {
+    const c = findConnector(this.view.board, id)?.connector;
+    if (!c || !this.live) return false;
+    const change = moveFreeArrow(c, dx, dy);
+    if (!change) {
+      this.update({ noteNotice: CONNECTOR_TEXT.attachedMove });
+      return false;
+    }
+    return this.changeConnectors([{ id, change }], "Move arrow");
+  }
+
+  private changeConnectors(list: readonly { id: string; change: ConnectorPatch }[], label: string): boolean {
+    if (this.refuseArrows()) return false;
+    let board = this.view.board;
+    let reason: string | null = null;
+    const sends: ConnectorMessage[] = [];
+    const changes: { kind: ItemKind; id: string; after: Fields }[] = [];
+    for (const { id, change } of list) {
+      const entry = findConnector(board, id);
+      if (!entry || isLocalId(id)) continue;
+      const next = { ...entry.connector, ...normalPatch(change) };
+      if (change.start !== undefined || change.end !== undefined) {
+        const problem = this.endsReason(next.start, next.end);
+        if (problem !== null) {
+          reason = problem;
+          continue;
+        }
+      }
+      const diff = connectorChanges(entry.connector, next);
+      if (Object.keys(diff).length === 0) continue;
+      board = updateConnectorLocal(board, id, diff);
+      sends.push({ type: "connectorUpdate", id, ...diff });
+      changes.push({ kind: "connector", id, after: connectorFields(diff) });
+    }
+    if (sends.length === 0) {
+      if (reason !== null) this.update({ noteNotice: reason });
+      return reason === null;
+    }
+    this.update({ board, noteNotice: reason });
+    this.record(label, changes);
+    for (const message of sends) this.pacer.enqueue(message);
+    return true;
+  }
+
+  /** Deletes arrows here at once, sent paced; one undo step. */
+  deleteConnectors(ids: readonly string[]): void {
+    if (this.refuseArrows()) return;
+    let board = this.view.board;
+    const removed: Connector[] = [];
+    for (const id of ids) {
+      const entry = findConnector(board, id);
+      if (!entry) continue;
+      board = deleteConnectorLocal(board, id);
+      if (entry.clientRef !== null) {
+        this.abandonedConnectors.add(entry.clientRef);
+        this.history.refuse("connector", id);
+      } else removed.push(entry.connector);
+    }
+    if (board === this.view.board) return;
+    this.update({ board, noteNotice: null });
+    this.recordRemoval(removed.length === 1 ? "Delete arrow" : "Delete arrows", [], [], [], removed);
+    for (const c of removed) this.pacer.enqueue({ type: "connectorDelete", id: c.id });
+  }
+
+  /** An arrow add confirmed: the temporary arrow takes its server id. Deleted here meanwhile: deleted now. */
+  private confirmConnector(connector: Connector, clientRef: string | undefined): void {
+    const temp = clientRef === undefined ? undefined : findConnector(this.view.board, localId(clientRef));
+    let board = applyConnectorAdded(this.view.board, connector, clientRef);
+    let deleteNow = false;
+    if (clientRef !== undefined && this.abandonedConnectors.delete(clientRef)) {
+      board = deleteConnectorLocal(board, connector.id);
+      if (this.clearRun?.connectors.refs.delete(clientRef)) this.clearRun.connectors.ids.add(connector.id);
+      deleteNow = true;
+    } else if (temp) this.history.confirmAdd("connector", temp.connector.id, connector.id, connector.rev);
+    if (temp) this.options.onConnectorConfirmed?.(temp.connector.id, connector.id);
+    const run = clientRef === undefined ? undefined : this.arrowRuns.get(clientRef);
+    if (run && clientRef !== undefined) {
+      this.arrowRuns.delete(clientRef);
+      run.arrows.pending.delete(clientRef);
+      run.arrows.added++;
+    }
+    this.update({ board, ...(clientRef !== undefined ? { rateLimited: false } : {}), ...(run?.restore ? this.itemsDone(run, board) : {}) });
+    if (deleteNow) this.pacer.enqueue({ type: "connectorDelete", id: connector.id });
+  }
+
+  /** The relay refused an arrow add, update or delete: rolled back, with one calm notice (a clear's refusals go in its report). */
+  private connectorRefused(message: Extract<ServerMessage, { type: "error" }>): void {
+    let board = this.view.board;
+    let ours = false;
+    let run: ItemsRun | undefined;
+    const ref = message.clientRef;
+    if (ref !== undefined) {
+      board = rejectConnectorAdd(board, ref);
+      this.history.refuse("connector", localId(ref));
+      if (this.abandonedConnectors.delete(ref) && this.clearRun?.connectors.refs.delete(ref)) ours = true;
+      run = this.arrowRuns.get(ref);
+      if (run) {
+        this.arrowRuns.delete(ref);
+        run.arrows.pending.delete(ref);
+        run.arrows.refused++;
+      }
+    }
+    const id = message.connectorId;
+    if (id !== undefined) {
+      this.history.refuse("connector", id);
+      board = rollbackConnector(board, id);
+      const clear = this.clearRun;
+      if (clear?.connectors.ids.delete(id)) {
+        clear.connectors.refused++;
+        clear.connectors.tooQuick ||= message.code === "rate_limited";
+        ours = true;
+      }
+    }
+    const noteNotice =
+      message.code === "connectors_full"
+        ? CONNECTOR_TEXT.full
+        : message.code === "board_locked"
+          ? NOTICES.locked
+          : message.code === "silent_active"
+            ? SILENT_TEXT.on
+            : message.code === "rate_limited"
+              ? NOTICES.tooQuick
+              : message.code === "unknown_item"
+                ? CONNECTOR_TEXT.unknownItem
+                : NOTICES.refused;
+    this.update({
+      board,
+      ...(ours ? {} : { noteNotice }),
+      ...(message.code === "rate_limited" ? { rateLimited: true } : {}),
+      ...(run?.restore ? this.itemsDone(run, board) : {}),
+    });
+    this.settleClear();
+  }
+
+  /** An arrow add of a run (a duplicate's, an undo's): it waits for the run's items. */
+  private addArrowToRun(run: ItemsRun, clientRef: string): void {
+    run.arrows.refs.push(clientRef);
+    run.arrows.pending.add(clientRef);
+    run.arrows.waiting.push(clientRef);
+    this.arrowRuns.set(clientRef, run);
+  }
+
+  /**
+   * A run's items are all answered: its arrows go now, paced, with their ends on the items'
+   * server ids. An arrow whose item wasn't added (refused, or gone) isn't sent, and counts as not
+   * added. An undo's re-attaches go too, with the restored items' new ids.
+   */
+  private flushArrows(run: ItemsRun): void {
+    const { arrows } = run;
+    if (arrows.waiting.length === 0 && arrows.updates.length === 0) return;
+    let board = this.view.board;
+    const boxOf = boxOfBoard(board);
+    const usable = (end: ConnectorEnd) => !isBound(end) || (!isLocalId(end.item) && boxOf(end.item) !== undefined);
+    const sends: ConnectorMessage[] = [];
+    for (const ref of arrows.waiting) {
+      const entry = findConnector(board, localId(ref));
+      if (!entry) {
+        // Deleted here before it was sent.
+        arrows.pending.delete(ref);
+        this.arrowRuns.delete(ref);
+        this.abandonedConnectors.delete(ref);
+        continue;
+      }
+      const c = entry.connector;
+      if (!usable(c.start) || !usable(c.end) || endsProblem(c.start, c.end, boxOf) !== null) {
+        board = rejectConnectorAdd(board, ref);
+        this.history.refuse("connector", localId(ref));
+        arrows.pending.delete(ref);
+        arrows.refused++;
+        this.arrowRuns.delete(ref);
+        continue;
+      }
+      sends.push({ type: "connectorAdd", clientRef: ref, ...connectorContent(c) });
+    }
+    arrows.waiting = [];
+    for (const { id, fields } of arrows.updates) {
+      const entry = findConnector(board, id);
+      let ok = entry !== undefined;
+      const change = patchFromFields(fields);
+      for (const key of ["start", "end"] as const) {
+        const end = change[key];
+        if (!end || !isBound(end)) continue;
+        const ref = arrows.idMap.get(end.item);
+        const item = ref === undefined ? end.item : (run.ids.get(ref) ?? null);
+        if (item === null || boxOf(item) === undefined) ok = false;
+        else change[key] = { item, anchor: end.anchor };
+      }
+      if (!entry || !ok) {
+        this.history.refuse("connector", id);
+        continue;
+      }
+      const diff = connectorChanges(entry.connector, { ...entry.connector, ...change });
+      if (Object.keys(diff).length === 0) continue;
+      board = updateConnectorLocal(board, id, diff);
+      sends.push({ type: "connectorUpdate", id, ...diff });
+    }
+    arrows.updates = [];
+    this.update({ board, ...(run.restore ? this.itemsDone(run, board) : {}) });
+    for (const message of sends) this.pacer.enqueue(message);
   }
 
   /* ── Undo and redo (history/history.ts) ─────────────────────────── */
@@ -2713,6 +3188,11 @@ export class RoomSession {
       if (!entry?.confirmed) return null;
       return { rev: entry.confirmed.rev, held: isShapeHeld(entry) || entry.draft !== null, state: entry.confirmed as unknown as Fields };
     }
+    if (kind === "connector") {
+      const entry = findConnector(this.view.board, id);
+      if (!entry?.confirmed) return null;
+      return { rev: entry.confirmed.rev, held: false, state: connectorFields(connectorContent(entry.confirmed)) };
+    }
     const entry = findFrame(this.view.board, id);
     if (!entry?.confirmed) return null;
     return { rev: entry.confirmed.rev, held: isFrameHeld(entry) || entry.draft !== null, state: entry.confirmed as unknown as Fields };
@@ -2733,12 +3213,20 @@ export class RoomSession {
       this.history.applied(plan, new Map(), now);
       return this.update({ noteNotice: null, historyReport: { text: plan.message, partial: false } });
     }
+    const arrowsTouched =
+      plan.changes.some((c) => c.kind === "connector" && !c.byRelay) || plan.deletes.some((d) => d.kind === "connector") || plan.restores.some((r) => r.kind === "connector");
     if (this.view.silent.active) {
       // During a silent round: no frame moves (the relay refuses them), and notes added back count
       // towards the board's cap and mine. Refused as a whole, before the history moves on.
       const framesMove = plan.changes.some(({ kind, values }) => kind === "frame" && ("x" in values || "y" in values) && !("w" in values || "h" in values));
-      if (framesMove && this.refuseSilent()) return;
+      // Arrows can't change during a round, for anyone.
+      if ((framesMove || arrowsTouched) && this.refuseSilent()) return;
     }
+    // Arrows added back must fit under the cap, all of them, or nothing is done (said up front).
+    const arrowRestores = plan.restores.filter((r) => r.kind === "connector");
+    const itemRestores = plan.restores.filter((r) => r.kind !== "connector");
+    const freeArrows = Math.max(0, MAX_CONNECTORS_PER_ROOM - this.view.board.connectors.length);
+    if (arrowRestores.length > freeArrows) return this.update({ noteNotice: CONNECTOR_TEXT.restoreFull(arrowRestores.length, freeArrows) });
     // During a round this page can't see every note, so the board's cap is checked here (outside
     // a round a restore that doesn't fit is added in part, as the relay allows).
     const restoredNotes = plan.restores.filter((r) => r.kind === "note").length;
@@ -2749,22 +3237,66 @@ export class RoomSession {
     let board = this.view.board;
     // Items to add back: shown at once (local ids); sent once the history knows them.
     const newIds = new Map<string, string>();
+    const arrowChanges = plan.changes.filter((c) => c.kind === "connector" && !c.byRelay);
+    const namesRestored = (values: Fields) =>
+      (["start", "end"] as const).some((k) => {
+        const end = decodeEnd(values[k]);
+        return end !== null && isBound(end) && itemRestores.some((r) => r.id === end.item);
+      });
+    const deferred = arrowChanges.filter((c) => namesRestored(c.values));
     let restore: ItemsRun | null = null;
-    if (plan.restores.length > 0) {
-      const inputs = plan.restores.map((r) => itemInput(r.kind, r.content));
+    if (itemRestores.length > 0) {
+      const inputs = itemRestores.map((r) => itemInput(r.kind, r.content));
       restore = this.startItems(inputs, null, { restore: true, defer: true });
       board = this.view.board;
-      plan.restores.forEach((r, i) => {
+      itemRestores.forEach((r, i) => {
         const ref = restore?.refs[i];
-        if (ref) newIds.set(`${r.kind}:${r.id}`, localId(ref));
+        if (!ref) return;
+        newIds.set(`${r.kind}:${r.id}`, localId(ref));
+        restore?.arrows.idMap.set(r.id, ref);
       });
     }
+    if (!restore && (arrowRestores.length > 0 || deferred.length > 0)) {
+      restore = newRun(null, true);
+      this.restoreRun = restore;
+    }
+    // Arrows added back: shown at once with their ends on the items' local ids; sent once the items are on the relay.
+    for (const r of arrowRestores) {
+      const content = contentFromFields(r.content);
+      if (!content || !restore || !this.view.you) continue;
+      const mapEnd = (end: ConnectorEnd): ConnectorEnd => {
+        if (!isBound(end)) return end;
+        const local = newIds.get(`note:${end.item}`) ?? newIds.get(`shape:${end.item}`);
+        return local ? { item: local, anchor: end.anchor } : end;
+      };
+      const clientRef = randomRef();
+      board = addConnectorLocal(board, { clientRef, content: { ...content, start: mapEnd(content.start), end: mapEnd(content.end) }, authorId: this.view.you.id });
+      newIds.set(`connector:${r.id}`, localId(clientRef));
+      this.addArrowToRun(restore, clientRef);
+    }
+    if (restore) restore.skipped = plan.skipped;
     this.history.applied(plan, newIds, now);
 
     const ops: NoteBatchEntry[] = [];
     const shapeOps: ShapeBatchEntry[] = [];
     const sends: ClientMessage[] = [];
-    for (const { kind, id, values } of plan.changes) {
+    const arrowSends: ConnectorMessage[] = [];
+    for (const { kind, id, values, byRelay } of plan.changes) {
+      if (kind === "connector") {
+        // The relay frees the ends itself (redo of an item delete): nothing to send.
+        if (byRelay) continue;
+        if (deferred.some((d) => d.id === id)) {
+          restore?.arrows.updates.push({ id, fields: values });
+          continue;
+        }
+        const entry = findConnector(board, id);
+        if (!entry) continue;
+        const diff = connectorChanges(entry.connector, { ...entry.connector, ...patchFromFields(values) });
+        if (Object.keys(diff).length === 0) continue;
+        board = updateConnectorLocal(board, id, diff);
+        arrowSends.push({ type: "connectorUpdate", id, ...diff });
+        continue;
+      }
       const { x, y, w, h, ...fields } = values as Fields & Partial<NoteRect>;
       const hasRect = x !== undefined || y !== undefined || w !== undefined || h !== undefined;
       if (kind === "note") {
@@ -2813,7 +3345,10 @@ export class RoomSession {
       }
     }
     for (const { kind, id } of plan.deletes) {
-      if (kind === "note") {
+      if (kind === "connector") {
+        board = deleteConnectorLocal(board, id);
+        arrowSends.push({ type: "connectorDelete", id });
+      } else if (kind === "note") {
         this.stopMove(id);
         this.stopResize(id);
         board = deleteLocal(board, id);
@@ -2835,11 +3370,19 @@ export class RoomSession {
       noteNotice: null,
       historyReport: plan.skipped > 0 ? { text: HISTORY_TEXT.conflicts(plan.skipped), partial: true } : null,
     });
-    this.sendBatch(ops, true);
-    this.sendShapeBatch(shapeOps, true);
-    for (const message of sends) this.send(message);
+    // Arrows first, so an item's delete never frees an end of an arrow that's going (or changing) too.
+    for (const message of arrowSends) this.pacer.enqueue(message);
+    this.pacer.whenSent(() => {
+      if (!this.live) return;
+      this.sendBatch(ops, true);
+      this.sendShapeBatch(shapeOps, true);
+      for (const message of sends) this.send(message);
+    });
     if (restore) {
-      if (restore.pending.size === 0) this.update(this.itemsDone(restore, this.view.board));
+      if (restore.pending.size === 0) {
+        this.update(this.itemsDone(restore, this.view.board));
+        this.flushArrows(restore);
+      }
       this.pumpItems();
     }
   }
@@ -2865,8 +3408,17 @@ export class RoomSession {
 
   /** What the relay has (or will have, from my changes in flight) for these fields; null for an unconfirmed item. */
   private storedFields(kind: ItemKind, id: string, keys: readonly string[]): Fields | null {
+    const arrow = kind === "connector" ? findConnector(this.view.board, id)?.confirmed : undefined;
     const confirmed = (
-      kind === "note" ? findNote(this.view.board, id)?.confirmed : kind === "shape" ? findShape(this.view.board, id)?.confirmed : findFrame(this.view.board, id)?.confirmed
+      kind === "connector"
+        ? arrow
+          ? connectorFields(connectorContent(arrow))
+          : null
+        : kind === "note"
+          ? findNote(this.view.board, id)?.confirmed
+          : kind === "shape"
+            ? findShape(this.view.board, id)?.confirmed
+            : findFrame(this.view.board, id)?.confirmed
     ) as unknown as Fields | null | undefined;
     if (!confirmed) return null;
     const pending = this.history.pendingValues(kind, id);
@@ -2877,23 +3429,64 @@ export class RoomSession {
   }
 
   /** Records items I deleted (confirmed only), with their content and z, to add them back on undo. */
-  private recordRemoval(label: string, notes: readonly Note[], frames: readonly Frame[], shapes: readonly Shape[] = []): void {
+  private recordRemoval(label: string, notes: readonly Note[], frames: readonly Frame[], shapes: readonly Shape[] = [], connectors: readonly Connector[] = []): void {
     const board = this.view.board;
     const rev = (kind: ItemKind, id: string) =>
       (kind === "note"
         ? (findNote(board, id) ?? board.removed.find((n) => n.note.id === id))?.confirmed?.rev
         : kind === "shape"
           ? (findShape(board, id) ?? board.shapesRemoved.find((s) => s.shape.id === id))?.confirmed?.rev
-          : (findFrame(board, id) ?? board.framesRemoved.find((f) => f.frame.id === id))?.confirmed?.rev) ?? 1;
+          : kind === "connector"
+            ? (findConnector(board, id) ?? board.connectorsRemoved.find((c) => c.connector.id === id))?.confirmed?.rev
+            : (findFrame(board, id) ?? board.framesRemoved.find((f) => f.frame.id === id))?.confirmed?.rev) ?? 1;
+    const items = [...notes, ...shapes].filter((i) => !isLocalId(i.id)).map((i) => i.id);
     this.history.recordRemove(
       label,
       [
         ...notes.filter((n) => !isLocalId(n.id)).map((n) => ({ kind: "note" as const, id: n.id, content: n as unknown as Fields, z: n.z, rev: rev("note", n.id) })),
         ...frames.filter((f) => !isLocalId(f.id)).map((f) => ({ kind: "frame" as const, id: f.id, content: f as unknown as Fields, z: 0, rev: rev("frame", f.id) })),
         ...shapes.filter((x) => !isLocalId(x.id)).map((x) => ({ kind: "shape" as const, id: x.id, content: x as unknown as Fields, z: x.z, rev: rev("shape", x.id) })),
+        ...connectors
+          .filter((c) => !isLocalId(c.id))
+          .map((c) => ({ kind: "connector" as const, id: c.id, content: connectorFields(connectorContent(c)), z: 0, rev: rev("connector", c.id) })),
       ],
       Date.now(),
+      this.detachRecords(items),
     );
+  }
+
+  /**
+   * The arrows whose ends the relay frees when these notes and shapes go (the delete rule, protocol
+   * v21): undo puts the ends back on the items it adds back. `after` is where each end is
+   * expected to be left (the item's anchor point, as the relay works it out from the boxes before
+   * the delete); the record takes what the relay stores, whatever the point.
+   */
+  private detachRecords(itemIds: readonly string[]): { kind: ItemKind; id: string; before: Fields; after: Fields; matches: (state: Fields) => boolean }[] {
+    if (itemIds.length === 0) return [];
+    const gone = new Set(itemIds);
+    const board = this.view.board;
+    const boxOf = boxOfBoard(board);
+    return board.connectors.flatMap((entry) => {
+      const c = entry.confirmed;
+      if (!c) return [];
+      const before: ConnectorPatch = {};
+      const after: ConnectorPatch = {};
+      for (const [key, other] of [["start", c.end], ["end", c.start]] as const) {
+        const end = c[key];
+        if (!isBound(end) || !gone.has(end.item)) continue;
+        const box = boxOf(end.item);
+        const point = box ? anchorPoint(box, end.anchor, endReference(other, boxOf) ?? { x: 0, y: 0 }) : { x: 0, y: 0 };
+        before[key] = end;
+        after[key] = clampConnectorPoint(point.x, point.y);
+      }
+      const keys = Object.keys(before);
+      if (keys.length === 0) return [];
+      const matches = (state: Fields) => keys.every((k) => {
+        const end = decodeEnd(state[k]);
+        return end !== null && !isBound(end);
+      });
+      return [{ kind: "connector" as const, id: c.id, before: connectorFields(before), after: connectorFields(after), matches }];
+    });
   }
 
   /**
@@ -2928,6 +3521,17 @@ export class RoomSession {
       this.history.observe("shape", id, prev.rev, confirmed.rev, confirmed as unknown as Fields, zOnly);
     }
     for (const id of shapesBefore.keys()) if (!shapesAfter.has(id) && !isLocalId(id)) this.history.deleted("shape", id);
+    // Arrows (protocol v21): no z, so any stored change is a change.
+    if (before.connectors !== after.connectors || before.connectorsRemoved !== after.connectorsRemoved) {
+      const arrowsBefore = new Map([...before.connectors, ...before.connectorsRemoved].map((c) => [c.connector.id, c.confirmed] as const));
+      const arrowsAfter = new Map([...after.connectors, ...after.connectorsRemoved].map((c) => [c.connector.id, c.confirmed] as const));
+      for (const [id, confirmed] of arrowsAfter) {
+        const prev = arrowsBefore.get(id);
+        if (!confirmed || !prev || prev === confirmed) continue;
+        this.history.observe("connector", id, prev.rev, confirmed.rev, connectorFields(connectorContent(confirmed)), false);
+      }
+      for (const id of arrowsBefore.keys()) if (!arrowsAfter.has(id) && !isLocalId(id)) this.history.deleted("connector", id);
+    }
     // A change confirmed may make undo or redo possible.
     this.refreshHistory();
   }
@@ -3275,6 +3879,7 @@ export class RoomSession {
     this.clearRun = null;
     clearTimeout(this.clearTimer);
     this.history.clear();
+    this.pacer.reset();
     this.stopAllMoves();
     this.forgetCursors();
     this.forgetFollow();
@@ -3319,9 +3924,6 @@ export class RoomSession {
     // Follow and Bring to me (protocol v19) go straight to the follow sink, never a view update.
     const v = parsed.value;
     if (v.type === "viewportUpdate" || v.type === "followersChanged" || v.type === "followEnded" || v.type === "broughtToMe") return this.onFollow(v);
-    // Connectors (protocol v21, arrows part 1): validated like every message, then ignored until the
-    // arrows UI (part 2). Never a view update, an error or a notice.
-    if (v.type === "connectorsSnapshot" || v.type === "connectorAdded" || v.type === "connectorUpdated" || v.type === "connectorDeleted") return;
     const before = this.view.board;
     this.handle(parsed.value);
     this.pruneVotes();
@@ -3344,6 +3946,8 @@ export class RoomSession {
         this.options.cursors?.clear();
         // Protocol v19: a new participant follows nobody and has no followers.
         this.forgetFollow();
+        // Protocol v21: a new socket's connector bucket is full on the relay, so it is here too.
+        this.pacer.reset();
         for (const p of message.participants) this.known.set(p.id, p);
         this.known.set(message.you.id, message.you);
         this.yourIds.add(message.you.id);
@@ -3705,6 +4309,21 @@ export class RoomSession {
         });
       }
 
+      case "connectorsSnapshot":
+        // Every join, right after reactionsSnapshot: the relay's arrows replace this page's.
+        return this.update({ board: applyConnectorsSnapshot(this.view.board, message.connectors) });
+
+      case "connectorAdded":
+        return this.confirmConnector(message.connector, message.clientRef);
+
+      case "connectorUpdated":
+        // By rev; an id this page doesn't know is ignored. After an item's delete, its freed ends.
+        return this.update({ board: applyConnectorUpdated(this.view.board, message.connector) });
+
+      case "connectorDeleted":
+        this.clearRun?.connectors.ids.delete(message.id);
+        return this.update({ board: applyConnectorDeleted(this.view.board, message.id), ...this.deleteSettled() });
+
       case "error": {
         // The host's Start or Reveal refused (silent_active, not_host, rate_limited...): not waiting any more.
         if (this.view.silentPending !== null && message.clientRef === undefined && message.noteId === undefined && message.frameId === undefined) {
@@ -3726,6 +4345,8 @@ export class RoomSession {
           this.reactPending.clear();
           return this.update({ isVoter: false, votersFull: true, ...this.reactionView() });
         }
+        // Protocol v21: a refused arrow add, update or delete.
+        if (message.connectorId !== undefined || (message.clientRef !== undefined && this.isConnectorRef(message.clientRef))) return this.connectorRefused(message);
         const batch = message.clientRef === undefined ? undefined : this.itemBatches.get(message.clientRef);
         if (batch) return this.itemsErrored(message, batch);
         if (
@@ -3807,7 +4428,11 @@ export class RoomSession {
         this.send({ type: "noteEdit", id: note.id, ...edit });
       }
     }
-    if (temp) this.options.onNoteConfirmed?.(temp.note.id, note.id);
+    if (temp) {
+      // Arrows waiting here for this note (a duplicate's, an undo's) follow its server id.
+      next = renameItemInConnectors(next, temp.note.id, note.id);
+      this.options.onNoteConfirmed?.(temp.note.id, note.id);
+    }
     return next;
   }
 
@@ -3849,7 +4474,10 @@ export class RoomSession {
         this.send({ type: "shapeEdit", id: shape.id, ...edit });
       }
     }
-    if (temp) this.options.onShapeConfirmed?.(temp.shape.id, shape.id);
+    if (temp) {
+      next = renameItemInConnectors(next, temp.shape.id, shape.id);
+      this.options.onShapeConfirmed?.(temp.shape.id, shape.id);
+    }
     return next;
   }
 
@@ -4013,6 +4641,9 @@ export class RoomSession {
     this.abandoned.clear();
     this.abandonedFrames.clear();
     this.abandonedShapes.clear();
+    this.pacer.reset();
+    this.abandonedConnectors.clear();
+    this.arrowRuns.clear();
     clearTimeout(this.presenceTimer);
     clearTimeout(this.toastTimer);
     this.history.clear();
@@ -4413,7 +5044,7 @@ export class RoomSession {
       clearing: this.clearRun?.kind === "clear",
       deleting: this.clearRun?.kind === "delete",
       reconnect: this.retryView(),
-      ...(restore ? { historyReport: { text: UNDO_TEXT.restoring(restoredCount(restore), restore.refs.length), partial: false } } : {}),
+      ...(restore ? { historyReport: { text: UNDO_TEXT.restoring(restoredCount(restore), runTotal(restore)), partial: false } } : {}),
     };
     // Not connected: the host's Start or Reveal can't be answered any more.
     if (this.view.status !== "joined" && this.view.silentPending !== null) this.view = { ...this.view, silentPending: null };

@@ -1,5 +1,5 @@
 import type { Shape } from "@stickyard/shared";
-import { truncate } from "../notes/label";
+import { freedSuffix, truncate } from "../notes/label";
 import { SHAPE_KIND_NAMES } from "./style";
 
 /** e.g. "Rectangle: Step 1", or "Text, empty". Text is untrusted and only ever used as text. */
@@ -8,10 +8,10 @@ export function shapeLabel(shape: Pick<Shape, "kind" | "text">): string {
   return shape.text.trim() ? `${kind}: ${truncate(shape.text)}` : `${kind}, empty`;
 }
 
-/** Asks before deleting a shape that has text. Empty ones go straight away. */
-export function confirmShapeDelete(shape: Pick<Shape, "kind" | "text">, confirm: (message: string) => boolean = (m) => window.confirm(m)): boolean {
+/** Asks before deleting a shape that has text or attached arrows (they keep a free end). Empty ones without arrows go straight away. */
+export function confirmShapeDelete(shape: Pick<Shape, "kind" | "text">, confirm: (message: string) => boolean = (m) => window.confirm(m), freed = 0): boolean {
   const what = shape.kind === "text" ? "text box" : "shape";
-  return !shape.text.trim() || confirm(`Delete this ${what}? It’s removed for everyone in the session.`);
+  return (!shape.text.trim() && freed === 0) || confirm(`Delete this ${what}? It’s removed for everyone in the session.${freedSuffix(freed)}`);
 }
 
 /** The placeholder an empty shape shows so it can be found (never stored or sent). */

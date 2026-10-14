@@ -217,7 +217,7 @@ describe("palette", () => {
 
   it("a tile adds its kind at the view centre or where it was dropped, drops at its size, and is off with the reason", () => {
     const addShape = vi.fn();
-    const actions: PaletteActions = { addNote: vi.fn(), addFrame: vi.fn(), applyTemplate: vi.fn(), openTimer: vi.fn(), addShape };
+    const actions: PaletteActions = { addNote: vi.fn(), addFrame: vi.fn(), applyTemplate: vi.fn(), openTimer: vi.fn(), addShape, startArrow: vi.fn() };
     SHAPE_TILES[3]!.create(actions);
     SHAPE_TILES[0]!.create(actions, { x: 5, y: 6 });
     expect(addShape.mock.calls).toEqual([["diamond", undefined], ["text", { x: 5, y: 6 }]]);

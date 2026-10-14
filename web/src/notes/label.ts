@@ -1,5 +1,9 @@
 import type { Note, Participant } from "@stickyard/shared";
 import { NOTE_COLOR_NAMES } from "./colours";
+import { freedLine } from "../connectors/rules";
+
+/** The confirm's line about arrows that keep a free end (v0.36.0), with a leading space; empty for none. */
+export const freedSuffix = (freed: number) => (freed > 0 ? ` ${freedLine(freed)}` : "");
 
 /** Characters of note text in its accessible name. */
 export const LABEL_TEXT_LENGTH = 40;
@@ -17,14 +21,17 @@ export function noteLabel(note: Pick<Note, "text" | "color">): string {
   return note.text.trim() ? `${colour} note: ${truncate(note.text)}` : `${colour} note, empty`;
 }
 
-/** Asks before deleting a note that has text. Empty notes go straight away. */
-export function confirmDelete(text: string, confirm: (message: string) => boolean = (m) => window.confirm(m)): boolean {
-  return !text.trim() || confirm("Delete this note? It’s removed for everyone in the session.");
+/**
+ * Asks before deleting a note that has text, or that has arrows attached (`freed`: they keep a
+ * free end, and the confirm says so). Empty notes without arrows go straight away.
+ */
+export function confirmDelete(text: string, confirm: (message: string) => boolean = (m) => window.confirm(m), freed = 0): boolean {
+  return (!text.trim() && freed === 0) || confirm(`Delete this note? It’s removed for everyone in the session.${freedSuffix(freed)}`);
 }
 
-/** Asks before deleting several notes, always (even empty ones), with the count. */
-export function confirmDeleteNotes(count: number, confirm: (message: string) => boolean = (m) => window.confirm(m)): boolean {
-  return confirm(`Delete ${count} notes? They’re removed for everyone in the session.`);
+/** Asks before deleting several notes, always (even empty ones), with the count and the arrows that keep a free end. */
+export function confirmDeleteNotes(count: number, confirm: (message: string) => boolean = (m) => window.confirm(m), freed = 0): boolean {
+  return confirm(`Delete ${count} notes? They’re removed for everyone in the session.${freedSuffix(freed)}`);
 }
 
 /**

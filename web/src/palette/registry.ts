@@ -1,5 +1,6 @@
 import { Frame as FrameIcon, Timer as TimerIcon, type LucideIcon } from "lucide-react";
 import { FRAME_DEFAULT_H, FRAME_DEFAULT_W, NOTE_COLORS, SHAPE_KINDS, shapeDefaults, type FrameColor, type NoteColor, type ShapeKind } from "@stickyard/shared";
+import type { DrawStyle } from "../connectors/connectorUi";
 import { SHAPE_KIND_NAMES } from "../shapes/style";
 import type { Size, XY } from "../canvas/geometry";
 import { NOTE_COLOR_NAMES } from "../notes/colours";
@@ -23,7 +24,8 @@ export type PalettePreview =
   | { kind: "note"; color: NoteColor }
   | { kind: "icon"; icon: LucideIcon }
   | { kind: "template"; template: Template }
-  | { kind: "shape"; shape: ShapeKind };
+  | { kind: "shape"; shape: ShapeKind }
+  | { kind: "connector"; style: DrawStyle };
 
 /** What a drag carries (shown under the pointer while dragging). */
 export type PalettePayload =
@@ -31,7 +33,8 @@ export type PalettePayload =
   | { kind: "frame"; color: FrameColor }
   | { kind: "template"; id: string }
   | { kind: "timer" }
-  | { kind: "shape"; shape: ShapeKind };
+  | { kind: "shape"; shape: ShapeKind }
+  | { kind: "connector"; style: DrawStyle };
 
 /**
  * What tiles can do, with plain data. `at` is a board position (a drop: the top-left of the
@@ -45,6 +48,8 @@ export interface PaletteActions {
   openTimer(): void;
   /** Adds a shape of a kind (protocol v15), its text ready to type. */
   addShape(kind: ShapeKind, at?: XY): void;
+  /** Arms the arrow draw tool with this style (v0.36.0); a drop starts the arrow where it lands. */
+  startArrow(style: DrawStyle, at?: XY): void;
 }
 
 /** What tiles need to know to be enabled. */
@@ -59,6 +64,8 @@ export interface PaletteContext {
   timerReason: string | null;
   /** Why shapes can't be added right now (disconnected, the board has its shapes, locked), or null. */
   shapeReason: string | null;
+  /** Why arrows can't be drawn right now (disconnected, 100 arrows, locked, a silent round), or null. */
+  connectorReason?: string | null;
 }
 
 /** Where tiles are listed: the palette panel (md and up, also its collapsed strip) or the phone add drawer. */
@@ -162,6 +169,24 @@ export const SHAPE_TILES: readonly PaletteItem[] = SHAPE_KINDS.map((kind) => {
   };
 });
 
+/** One tile per kind of arrow (v0.36.0): a click (or a drop) arms the draw tool; then drag or click-click on the board. */
+export const CONNECTOR_TILES: readonly PaletteItem[] = (
+  [
+    { id: "connector-arrow", label: "Arrow", style: { route: "straight", startHead: "none", endHead: "arrow" }, keywords: ["arrow", "connector", "link", "flow"] },
+    { id: "connector-line", label: "Line", style: { route: "straight", startHead: "none", endHead: "none" }, keywords: ["line", "connector", "link"] },
+    { id: "connector-elbow", label: "Elbow arrow", style: { route: "elbow", startHead: "none", endHead: "arrow" }, keywords: ["elbow", "arrow", "connector", "step", "flowchart"] },
+  ] as const
+).map((t) => ({
+  id: t.id,
+  label: t.label,
+  keywords: t.keywords,
+  preview: { kind: "connector", style: t.style },
+  payload: { kind: "connector", style: t.style },
+  create: (actions, at) => actions.startArrow(t.style, at),
+  dropSize: { width: 0, height: 0 },
+  disabled: (ctx) => ctx.connectorReason ?? null,
+}));
+
 /** A template's tile (templates/registry.ts): a drop centres the whole template on the pointer. */
 const templateTile = (template: Template): PaletteItem => ({
   id: `template-${template.id}`,
@@ -207,6 +232,8 @@ export const PALETTE_CATEGORIES: readonly PaletteCategory[] = [
   { id: "frames", label: "Frames", order: 2, tab: "add", items: FRAME_TILES, surfaces: ["panel"] },
   // Shapes and text (protocol v15): edited from md up only, so not in the phone drawer.
   { id: "shapes", label: "Shapes", order: 2.5, tab: "add", items: SHAPE_TILES, surfaces: ["panel"] },
+  // Arrows (v0.36.0): drawn and changed from md up only; phones show them read-only.
+  { id: "connectors", label: "Connectors", order: 2.7, tab: "add", items: CONNECTOR_TILES, surfaces: ["panel"] },
   // Templates are frames, so md and up only too: one category per template group, headed by its name (v0.29.0).
   ...TEMPLATE_GROUPS.map(
     (group, i): PaletteCategory => ({

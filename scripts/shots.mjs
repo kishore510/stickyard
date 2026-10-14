@@ -1,4 +1,4 @@
-// npm run shots: screenshots of the welcome page, a seeded room (with reactions and the reaction picker) and its Share session sheet at 360, 768 and 1280 px,
+// npm run shots: screenshots of the welcome page, a seeded room (with reactions, the reaction picker and arrows: attached, free, dashed, elbow, one selected with its handles, one being drawn; phones read-only) and its Share session sheet at 360, 768 and 1280 px,
 // in light and dark, into shots/ (gitignored). Starts a local relay (wrangler dev, fake
 // secrets, throwaway storage) and the Vite dev server, then drives Chromium.
 //
@@ -124,6 +124,18 @@ async function seedRoom(page) {
       for (const [ref, key] of [["n1", "thumbs_up"], ["n1", "heart"], ["n1", "plus"], ["n2", "celebrate"], ["n2", "laugh"]]) {
         ws.send(JSON.stringify({ type: "reactionSet", noteId: ids[ref], key, on: true }));
         await next("reactionMine");
+      }
+      // Arrows (v0.36.0): attached, free, dashed and elbow.
+      const sids = Object.fromEntries((added.shapes ?? []).map((x) => [x.ref, x.shape.id]));
+      const arrow = (ref, start, end, style = {}) => ({ type: "connectorAdd", clientRef: ref, start, end, ...p.CONNECTOR_DEFAULTS, ...style });
+      for (const m of [
+        arrow("a1", { item: ids.n1, anchor: "auto" }, { item: ids.n2, anchor: "auto" }),
+        arrow("a2", { item: ids.n3, anchor: "bottom" }, { item: sids.s3, anchor: "top" }, { dash: "dashed", ink: "pink" }),
+        arrow("a3", { item: sids.s2, anchor: "right" }, { item: sids.s4, anchor: "left" }, { route: "elbow", width: "thick" }),
+        arrow("a4", { x: 1700, y: 1300 }, { x: 2000, y: 1300 }, { dash: "dotted", startHead: "arrow" }),
+      ]) {
+        ws.send(JSON.stringify(m));
+        await next("connectorAdded");
       }
       ws.close();
       return { code, hostToken, roomId: code.split(".")[0] };
@@ -256,6 +268,44 @@ async function main() {
             }
             await page.waitForTimeout(400);
             await shot("reactions-zoomed-out");
+          }
+          // Arrows (v0.36.0): fit, then (md and up) a selected arrow with its handles and a drawing in progress.
+          await page.keyboard.press("f");
+          await page.waitForTimeout(600);
+          if ((await page.locator("[data-connector-id]").count()) < 4) throw new Error(`arrows missing at ${size.name} ${theme}`);
+          await shot("arrows");
+          if (size.width >= 768) {
+            // The dashed arrow (a long vertical one: its box's middle is on the line).
+            const hit = page.locator('[data-connector-id] [data-connector-hit]').nth(1);
+            const box = await page.locator("[data-connector-id]").nth(1).boundingBox();
+            if (box) await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+            await page.waitForTimeout(300);
+            if ((await page.locator("[data-connector-handle]").count()) === 0) {
+              await hit.dispatchEvent("click");
+              await page.waitForTimeout(300);
+            }
+            await shot("arrow-selected");
+            // No arrow handle may sit over the overview map or the view bar.
+            const overlaps = await page.evaluate(() => {
+              const rects = (sel) => [...document.querySelectorAll(sel)].map((e) => e.getBoundingClientRect());
+              const ui = [...rects(".react-flow__minimap"), ...rects('[role="toolbar"][aria-label="View"]')];
+              return rects("[data-connector-handle] .sy-connector-handle-dot").filter((h) =>
+                ui.some((u) => h.left < u.right && h.right > u.left && h.top < u.bottom && h.bottom > u.top),
+              ).length;
+            });
+            if (overlaps > 0) throw new Error(`an arrow handle overlaps the minimap or view bar at ${size.name} ${theme}: ${overlaps}`);
+            await page.keyboard.press("Escape");
+            await page.locator('aside[aria-label="Palette"] button[aria-label="Arrow"]').click();
+            const pane = await page.locator(".react-flow__pane").boundingBox();
+            if (pane) {
+              await page.mouse.move(pane.x + pane.width * 0.3, pane.y + pane.height * 0.75);
+              await page.mouse.down();
+              await page.mouse.move(pane.x + pane.width * 0.55, pane.y + pane.height * 0.6, { steps: 8 });
+              await page.waitForTimeout(300);
+              await shot("arrow-drawing");
+              await page.keyboard.press("Escape");
+              await page.mouse.up();
+            }
           }
           // Share session (v0.32.0): the QR sheet from the menu, then Large.
           await page.getByRole("button", { name: /^Menu/ }).click();

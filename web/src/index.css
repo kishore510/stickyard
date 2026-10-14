@@ -187,6 +187,86 @@
   pointer-events: none;
 }
 
+/* Arrows (v0.36.0): one SVG layer in the viewport between the frames and the notes (z-index from
+   connectors/ConnectorLayer.tsx). Strokes keep their screen width at any zoom. Only the wide hit
+   path takes presses (md and up); the rest lets presses through to the board. The overlay (handles,
+   snap points, a drawing in progress) sits above every note and never takes presses itself. */
+.sy-connector-layer,
+.sy-connector-overlay {
+  position: absolute;
+  left: 0;
+  top: 0;
+  overflow: visible;
+  pointer-events: none;
+}
+.sy-connector-line,
+.sy-connector-halo,
+.sy-connector-focus,
+.sy-connector-hit,
+.sy-connector-hit-off,
+.sy-connector-preview {
+  fill: none;
+  vector-effect: non-scaling-stroke;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.sy-connector-hit {
+  stroke: transparent;
+  pointer-events: stroke;
+  cursor: pointer;
+}
+.sy-connector-hit-off {
+  stroke: none;
+}
+.sy-connector-halo {
+  stroke: var(--sy-accent);
+  opacity: 0.45;
+}
+.sy-connector-focus {
+  stroke: var(--sy-focus);
+  display: none;
+}
+.sy-connector:focus {
+  outline: none;
+}
+.sy-connector:focus-visible .sy-connector-focus {
+  display: inline;
+}
+.sy-connector-preview {
+  stroke: var(--sy-accent);
+  stroke-width: var(--sy-connector-medium);
+  stroke-dasharray: 6 4;
+}
+.sy-connector-snap {
+  fill: var(--sy-surface);
+  stroke: var(--sy-accent);
+  stroke-width: 2px;
+  vector-effect: non-scaling-stroke;
+}
+.sy-connector-snap-on {
+  fill: var(--sy-accent);
+}
+.sy-connector-handle {
+  pointer-events: all;
+  cursor: grab;
+}
+.sy-connector-handle-target {
+  fill: transparent;
+}
+.sy-connector-handle-dot {
+  fill: var(--sy-surface);
+  stroke: var(--sy-accent);
+  stroke-width: 2px;
+  vector-effect: non-scaling-stroke;
+}
+.sy-connector-handle-out {
+  fill: var(--sy-accent);
+}
+.sy-exporting .sy-connector-halo,
+.sy-exporting .sy-connector-focus {
+  display: none;
+}
+
 /* Live cursors (v0.19.0): other people's pointers in the viewport, above every note (z-index past
    NOTE_Z_LIMIT). Each mark sits at its board point, counter-scaled (the transform comes from
    cursors/CursorLayer.tsx) and eases there; idle ones fade. Both timings are tokens, 0 under

@@ -17,3 +17,6 @@ Architecture notes, moved out of CLAUDE.md on 7 October 2026 so they load only w
 
 ## Clear board (v0.12.0, part 3)
 - Web only. Properties' board summary (nothing selected, md up) has Clear board (`properties/clearBoard.ts`: `clearBoardReason`, `CLEAR_HINTS`, `confirmClearBoard` = one confirm with counts). `RoomSession.clearBoard()`: notes as final batch deletes (unconfirmed ones abandoned, as in delete polish), then one `frameDelete` every `CLEAR_FRAME_STEP_MS` (50); frames leave the board as they're sent. `ClearRun` tracks ids/refs/refused per kind; refusals that only touch it go in its report, not a notice. Outcome: `deleteReport` via `clearReportFor` (also on disconnect: unsent frames stay, counted as lost). Nothing retried. One history step ("Clear board") with what was actually deleted, so one undo restores it. `view.clearing` blocks a second clear; `adding` blocks it too.
+
+## Arrows in undo and Clear board (v0.36.0)
+- History kind `connector` (ends as JSON strings, renamed with their items' new ids); an item delete records the arrows the relay frees, so undo re-attaches them; Clear board deletes arrows first and its undo restores items, then arrows. Details in connectors.md "Arrows: the UI".

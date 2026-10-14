@@ -1,6 +1,8 @@
 import { MAX_BATCH_ENTRIES } from "@stickyard/shared";
 import { findFrame, framedNotes } from "../frames/board";
 import type { Board } from "../notes/board";
+import { freedArrows } from "../connectors/geometry";
+import { freedSuffix } from "../notes/label";
 import type { Box, Selection } from "./selection";
 
 /*
@@ -10,22 +12,27 @@ import type { Box, Selection } from "./selection";
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
-/** What a selection holds, in words: "3 notes, 2 frames, 1 shape". Empty parts are left out. */
-export function itemsLabel(notes: number, frames: number, shapes = 0): string {
-  return [notes > 0 ? plural(notes, "note") : null, frames > 0 ? plural(frames, "frame") : null, shapes > 0 ? plural(shapes, "shape") : null]
+/** What a selection holds, in words: "3 notes, 2 frames, 1 shape, 2 arrows". Empty parts are left out. */
+export function itemsLabel(notes: number, frames: number, shapes = 0, arrows = 0): string {
+  return [
+    notes > 0 ? plural(notes, "note") : null,
+    frames > 0 ? plural(frames, "frame") : null,
+    shapes > 0 ? plural(shapes, "shape") : null,
+    arrows > 0 ? plural(arrows, "arrow") : null,
+  ]
     .filter((p) => p !== null)
     .join(", ");
 }
 
 /** "3 notes and 2 frames", "3 notes, 2 frames and 1 shape": a list of parts in a sentence. */
-export function itemsInWords(notes: number, frames: number, shapes = 0): string {
-  const parts = itemsLabel(notes, frames, shapes).split(", ");
+export function itemsInWords(notes: number, frames: number, shapes = 0, arrows = 0): string {
+  const parts = itemsLabel(notes, frames, shapes, arrows).split(", ");
   return parts.length < 3 ? parts.join(" and ") : `${parts.slice(0, -1).join(", ")} and ${parts.at(-1)}`;
 }
 
 /** Properties' heading for several items: "3 notes, 2 frames selected". */
-export function selectionLabel(notes: number, frames: number, shapes = 0): string {
-  return `${itemsLabel(notes, frames, shapes)} selected`;
+export function selectionLabel(notes: number, frames: number, shapes = 0, arrows = 0): string {
+  return `${itemsLabel(notes, frames, shapes, arrows)} selected`;
 }
 
 /**
@@ -60,10 +67,14 @@ export interface DeleteCounts {
   staying: number;
   /** Unselected shapes inside a selected frame, likewise. */
   stayingShapes?: number;
+  /** Arrows selected (v0.36.0). */
+  arrows?: number;
+  /** Arrows not selected that keep a free end because their note or shape goes. */
+  freed?: number;
 }
 
 /** Counts for the delete confirmation: selected items still on the board, and the notes and shapes left inside the frames. */
-export function deleteCounts(board: Board, noteIds: readonly string[], frameIds: readonly string[], shapeIds: readonly string[] = []): DeleteCounts {
+export function deleteCounts(board: Board, noteIds: readonly string[], frameIds: readonly string[], shapeIds: readonly string[] = [], connectorIds: readonly string[] = []): DeleteCounts {
   const selected = new Set(noteIds);
   const selectedShapes = new Set(shapeIds);
   const notes = board.notes.filter((n) => selected.has(n.note.id)).length;
@@ -75,12 +86,20 @@ export function deleteCounts(board: Board, noteIds: readonly string[], frameIds:
     for (const n of framedNotes(f, board.notes.map((e) => e.note))) if (!selected.has(n.id)) staying.add(n.id);
     for (const x of framedNotes(f, board.shapes.map((e) => e.shape))) if (!selectedShapes.has(x.id)) stayingShapes.add(x.id);
   }
-  return { notes, frames: frames.length, ...(shapeIds.length > 0 || stayingShapes.size > 0 ? { shapes, stayingShapes: stayingShapes.size } : {}), staying: staying.size };
+  const arrows = board.connectors.filter((c) => connectorIds.includes(c.connector.id)).length;
+  const freed = freedArrows(board, [...noteIds, ...shapeIds], connectorIds);
+  return {
+    notes,
+    frames: frames.length,
+    ...(shapeIds.length > 0 || stayingShapes.size > 0 ? { shapes, stayingShapes: stayingShapes.size } : {}),
+    staying: staying.size,
+    ...(arrows > 0 || freed > 0 ? { arrows, freed } : {}),
+  };
 }
 
 /** Asks once before deleting a selection of several items: the counts, and the notes and shapes inside frames that stay. */
 export function confirmDeleteSelection(counts: DeleteCounts, confirm: (message: string) => boolean = (m) => window.confirm(m)): boolean {
-  const what = itemsInWords(counts.notes, counts.frames, counts.shapes ?? 0);
+  const what = itemsInWords(counts.notes, counts.frames, counts.shapes ?? 0, counts.arrows ?? 0);
   const stay =
     counts.staying === 0
       ? ""
@@ -88,7 +107,7 @@ export function confirmDeleteSelection(counts: DeleteCounts, confirm: (message: 
   const left = counts.stayingShapes ?? 0;
   const stayShapes =
     left === 0 ? "" : ` ${left === 1 ? "1 shape inside the frames isn’t selected and stays" : `${left} shapes inside the frames aren’t selected and stay`} on the board.`;
-  return confirm(`Delete ${what}? They’re removed for everyone in the session.${stay}${stayShapes}`);
+  return confirm(`Delete ${what}? They’re removed for everyone in the session.${stay}${stayShapes}${freedSuffix(counts.freed ?? 0)}`);
 }
 
 type Rect = { id: string; x: number; y: number; w: number; h: number };

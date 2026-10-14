@@ -367,6 +367,14 @@
   --sy-shape-stroke-medium: 4px;
   --sy-shape-stroke-thick: 6px;
   --sy-shape-dash: 8px;
+  /* Arrows (v0.36.0): stroke widths and sizes in screen pixels at any zoom; inks are the shape borders (3:1 on the board, tested). */
+  --sy-connector-thin: 2px;
+  --sy-connector-medium: 3px;
+  --sy-connector-thick: 5px;
+  --sy-connector-head: 12px;
+  --sy-connector-dash: 10px;
+  --sy-connector-hit: 16px;
+  --sy-connector-dot: 10px;
   --sy-shape-pad: 8px;
   --sy-shape-inset-oval: 15%;
   --sy-shape-inset-diamond: 25%;

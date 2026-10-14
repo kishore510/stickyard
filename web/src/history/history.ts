@@ -20,7 +20,7 @@
  *   (renameId), so earlier steps still work on the restored items.
  */
 
-export type ItemKind = "note" | "frame" | "shape";
+export type ItemKind = "note" | "frame" | "shape" | "connector";
 export type Value = string | number | boolean;
 /** Some of an item's fields (a change's before or after, or everything the relay stored). */
 export type Fields = Readonly<Record<string, Value>>;
@@ -51,6 +51,11 @@ interface ChangeRecord {
   after: Fields;
   beforeRev: number | null;
   afterRev: number | null;
+  /**
+   * The relay makes the `after` change itself (an arrow's end freed by its item's delete): do and
+   * redo send nothing for it and wait for any state this accepts; `after` becomes what was stored.
+   */
+  relay?: (state: Fields) => boolean;
 }
 
 interface PresenceRecord {
@@ -86,6 +91,8 @@ interface Expect {
   mode: Mode;
   values: Fields;
   at: number;
+  /** Matched by this instead of by value (a change the relay makes itself). */
+  matches?: (state: Fields) => boolean;
 }
 
 /** What the item is now, as the relay last stored it; null if it isn't on the board (or not confirmed). */
@@ -100,6 +107,8 @@ export interface ChangeStep {
   kind: ItemKind;
   id: string;
   values: Fields;
+  /** The relay makes this change itself (redo of an item delete freeing an arrow's end): send nothing. */
+  byRelay?: true;
 }
 export interface DeleteStep {
   kind: ItemKind;
@@ -126,7 +135,7 @@ export type Plan =
       label: string;
       changes: ChangeStep[];
       deletes: DeleteStep[];
-      /** Notes and shapes in stacking order (bottom first), then frames. */
+      /** Notes and shapes in stacking order (bottom first), then frames, then arrows. */
       restores: RestoreStep[];
       /** Items left as they are because someone else changed (or deleted) them. */
       skipped: number;
@@ -137,6 +146,9 @@ const without = (state: Fields, keys: readonly string[]): Fields => Object.fromE
 /** Fields an item's content never carries: the server assigns them, and z travels apart. */
 const SERVER_FIELDS = ["id", "rev", "authorId", "z"] as const;
 
+/** Rewrites references to an item id inside some fields (an arrow's bound ends); the same object when there are none. */
+export type RenameRefs = (fields: Fields, from: string, to: string) => Fields;
+
 export class History {
   private undo: Entry[] = [];
   private redo: Entry[] = [];
@@ -144,10 +156,12 @@ export class History {
   private seq = 0;
   private readonly depth: number;
   private readonly maxBytes: number;
+  private readonly renameRefs: RenameRefs | null;
 
-  constructor({ depth = HISTORY_DEPTH, maxBytes = HISTORY_MAX_BYTES }: { depth?: number; maxBytes?: number } = {}) {
+  constructor({ depth = HISTORY_DEPTH, maxBytes = HISTORY_MAX_BYTES, renameRefs = null }: { depth?: number; maxBytes?: number; renameRefs?: RenameRefs | null } = {}) {
     this.depth = depth;
     this.maxBytes = maxBytes;
+    this.renameRefs = renameRefs;
   }
 
   get sizes(): { undo: number; redo: number } {
@@ -204,11 +218,22 @@ export class History {
     this.push(entry);
   }
 
-  /** Items I deleted (sent, waiting for the relay), with their content and z: undo adds them back. */
-  recordRemove(label: string, items: readonly { kind: ItemKind; id: string; content: Fields; z: number; rev: number }[], now: number): void {
+  /**
+   * Items I deleted (sent, waiting for the relay), with their content and z: undo adds them back.
+   * `relayChanges`: what the relay changes itself because of the delete (arrows whose ends it
+   * frees), each waiting for a state `matches` accepts; undo puts `before` back.
+   */
+  recordRemove(
+    label: string,
+    items: readonly { kind: ItemKind; id: string; content: Fields; z: number; rev: number }[],
+    now: number,
+    relayChanges: readonly { kind: ItemKind; id: string; before: Fields; after: Fields; matches: (state: Fields) => boolean }[] = [],
+  ): void {
     if (items.length === 0) return;
     const entry = this.newEntry(label, now, null);
     entry.items = items.map((i) => ({ kind: i.kind, id: i.id, content: without(i.content, SERVER_FIELDS), z: i.z, rev: i.rev, present: false, pending: "delete" }));
+    entry.changes = relayChanges.map((c) => ({ kind: c.kind, id: c.id, before: { ...c.before }, after: { ...c.after }, beforeRev: null, afterRev: null, relay: c.matches }));
+    for (const c of relayChanges) this.expect(c.kind, c.id, entry.seq, "do", c.after, now, c.matches);
     this.push(entry);
   }
 
@@ -256,7 +281,7 @@ export class History {
    * Anything else is someone else's, and makes my records for that item stale.
    */
   observe(kind: ItemKind, id: string, prevRev: number, rev: number, state: Fields, zOnly: boolean): void {
-    const index = this.expects.findIndex((e) => e.kind === kind && e.id === id && sameValues(state, e.values));
+    const index = this.expects.findIndex((e) => e.kind === kind && e.id === id && (e.matches ? e.matches(state) : sameValues(state, e.values)));
     const expect = this.expects[index];
     if (!expect) {
       if (zOnly && prevRev !== rev) this.remap(kind, id, prevRev, rev);
@@ -268,6 +293,8 @@ export class History {
       if (prevRev !== rev) this.remap(kind, id, prevRev, rev);
       return;
     }
+    // A change the relay made itself: what it stored is the record's after.
+    if (expect.matches && (expect.mode === "do" || expect.mode === "redo")) record.after = Object.fromEntries(Object.keys(record.after).map((k) => [k, state[k] ?? record.after[k]!]));
     if (expect.mode === "do") {
       if (prevRev === rev && record.afterRev === null) return this.dropRecord(expect.seq, kind, id);
       record.beforeRev ??= prevRev;
@@ -315,6 +342,17 @@ export class History {
       for (const r of entry.items) if (r.kind === kind && r.id === from) r.id = to;
     }
     for (const e of this.expects) if (e.kind === kind && e.id === from) e.id = to;
+    // References inside fields (an arrow's ends name notes and shapes).
+    const refs = this.renameRefs;
+    if (!refs || kind === "frame" || kind === "connector") return;
+    for (const entry of [...this.undo, ...this.redo]) {
+      for (const r of entry.changes) {
+        r.before = refs(r.before, from, to);
+        r.after = refs(r.after, from, to);
+      }
+      for (const r of entry.items) if (r.content) r.content = refs(r.content, from, to);
+    }
+    for (const e of this.expects) e.values = refs(e.values, from, to);
   }
 
   /* ── Undo and redo ───────────────────────────────────────────────── */
@@ -345,7 +383,7 @@ export class History {
       if (current?.held) return { type: "none", reason: HISTORY_TEXT.held };
       const want = direction === "undo" ? r.afterRev : r.beforeRev;
       if (!current || want === null || current.rev !== want) skipped++;
-      else changes.push({ kind: r.kind, id: r.id, values: direction === "undo" ? r.before : r.after });
+      else changes.push({ kind: r.kind, id: r.id, values: direction === "undo" ? r.before : r.after, ...(direction === "redo" && r.relay ? { byRelay: true as const } : {}) });
     }
     const deletes: DeleteStep[] = [];
     const restores: RestoreStep[] = [];
@@ -359,8 +397,9 @@ export class History {
       if (!current || current.rev !== r.rev) skipped++;
       else deletes.push({ kind: r.kind, id: r.id, content: without(current.state, SERVER_FIELDS), z: typeof current.state.z === "number" ? current.state.z : r.z });
     }
-    // Notes and shapes share one stacking space (bottom first), then frames (in their order).
-    restores.sort((a, b) => (a.kind === "frame" || b.kind === "frame" ? (a.kind === b.kind ? 0 : a.kind === "frame" ? 1 : -1) : a.z - b.z));
+    // Notes and shapes share one stacking space (bottom first), then frames (in their order), then arrows.
+    const band = (kind: ItemKind) => (kind === "frame" ? 1 : kind === "connector" ? 2 : 0);
+    restores.sort((a, b) => band(a.kind) - band(b.kind) || (band(a.kind) === 0 ? a.z - b.z : 0));
     return { type: "apply", direction, seq: entry.seq, label: entry.label, changes, deletes, restores, skipped };
   }
 
@@ -385,7 +424,10 @@ export class History {
     const changed = new Set(plan.changes.map((c) => `${c.kind}:${c.id}`));
     const deleted = new Map(plan.deletes.map((d) => [`${d.kind}:${d.id}`, d]));
     entry.changes = entry.changes.filter((r) => changed.has(`${r.kind}:${r.id}`));
-    for (const c of plan.changes) this.expect(c.kind, c.id, entry.seq, plan.direction, c.values, now);
+    for (const c of plan.changes) {
+      const record = entry.changes.find((r) => r.kind === c.kind && r.id === c.id);
+      this.expect(c.kind, c.id, entry.seq, plan.direction, c.values, now, c.byRelay ? record?.relay : undefined);
+    }
     entry.items = entry.items.filter((r) => !r.present || deleted.has(`${r.kind}:${r.id}`));
     for (const r of entry.items) {
       if (r.present) {
@@ -455,8 +497,8 @@ export class History {
     return [...this.undo, ...this.redo].flatMap((e) => e.items.filter((r) => r.kind === kind && r.id === id));
   }
 
-  private expect(kind: ItemKind, id: string, seq: number | null, mode: Mode, values: Fields, at: number): void {
-    this.expects.push({ kind, id, seq, mode, values: { ...values }, at });
+  private expect(kind: ItemKind, id: string, seq: number | null, mode: Mode, values: Fields, at: number, matches?: (state: Fields) => boolean): void {
+    this.expects.push({ kind, id, seq, mode, values: { ...values }, at, ...(matches ? { matches } : {}) });
   }
 
   private dropRecord(seq: number | null, kind: ItemKind, id: string): void {

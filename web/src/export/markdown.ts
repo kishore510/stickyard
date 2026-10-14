@@ -1,4 +1,4 @@
-import type { ShapeKind } from "@stickyard/shared";
+import { isBound, type ConnectorEnd, type ShapeKind } from "@stickyard/shared";
 import { readingOrder } from "../canvas/arrange";
 import { framedNotes } from "../frames/board";
 import { splitTitleBody } from "../notes/titleBody";
@@ -19,6 +19,8 @@ export interface ExportBoard {
   shapes: readonly { id: string; kind: ShapeKind; x: number; y: number; w: number; h: number; text: string }[];
   /** Revealed totals (voting closed), sorted most first; null while voting is open, off or never run. */
   results: readonly ResultRow[] | null;
+  /** Arrows (v0.36.0), in creation order: only their ends, never their style. */
+  connectors?: readonly { start: ConnectorEnd; end: ConnectorEnd }[];
 }
 
 export const EXPORT_TEXT = {
@@ -32,6 +34,9 @@ export const EXPORT_TEXT = {
   results: "Results",
   noVotes: "No votes were cast.",
   topVoted: "Top voted",
+  connections: "Connections",
+  freeEnd: "(free end)",
+  emptyShape: "Empty shape",
 } as const;
 
 /** YYYY-MM-DD in local time. */
@@ -107,6 +112,26 @@ export function boardToMarkdown(board: ExportBoard, date: Date): string {
     return text === "" ? [] : [`- ${SHAPE_KIND_NAMES[s.kind]}: ${text}`];
   });
   if (shapes.length) section(EXPORT_TEXT.shapes, shapes);
+
+  // Arrows: "A → B" from each end's item text (one line, escaped), or "(free end)". An arrow whose
+  // item isn't on the board is left out.
+  const textOf = new Map<string, string>([
+    ...board.notes.map((n) => {
+      const t = plain(n.text);
+      return [n.id, t === "" ? `*${EXPORT_TEXT.emptyNote}*` : t] as const;
+    }),
+    ...board.shapes.map((s) => {
+      const t = plain(s.text);
+      return [s.id, t === "" ? `*${EXPORT_TEXT.emptyShape}*` : t] as const;
+    }),
+  ]);
+  const endText = (end: ConnectorEnd) => (isBound(end) ? textOf.get(end.item) : EXPORT_TEXT.freeEnd);
+  const connections = (board.connectors ?? []).flatMap((c) => {
+    const a = endText(c.start);
+    const b = endText(c.end);
+    return a === undefined || b === undefined ? [] : [`- ${a} → ${b}`];
+  });
+  if (connections.length) section(EXPORT_TEXT.connections, connections);
 
   if (board.results) {
     section(

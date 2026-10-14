@@ -464,7 +464,7 @@ describe("palette: Templates", () => {
   it("is one category per template group on the panel (md and up) only, headed by the group's name, entries in registry order", () => {
     const panel = paletteSections(PALETTE_CATEGORIES, "add", state, "", "panel");
     const drawer = paletteSections(PALETTE_CATEGORIES, "add", state, "", "drawer");
-    expect(panel.map((s) => s.category.label)).toEqual(["Notes", "Frames", "Shapes", "Retros", "Planning and facilitation", "Architecture and analysis"]);
+    expect(panel.map((s) => s.category.label)).toEqual(["Notes", "Frames", "Shapes", "Connectors", "Retros", "Planning and facilitation", "Architecture and analysis"]);
     for (const group of TEMPLATE_GROUPS) {
       expect(panel.find((s) => s.category.id === group.categoryId)?.items.map((i) => i.label)).toEqual(TEMPLATES.filter((t) => t.group === group.label).map((t) => t.label));
     }
@@ -499,7 +499,7 @@ describe("palette: Templates", () => {
   it("each tile applies its template through plain actions, drops at its own size, and is off with the template reason", () => {
     const items = templateItems;
     const applyTemplate = vi.fn();
-    items[0]?.create({ addNote: vi.fn(), addFrame: vi.fn(), applyTemplate, openTimer: vi.fn(), addShape: vi.fn() }, { x: 10, y: 20 });
+    items[0]?.create({ addNote: vi.fn(), addFrame: vi.fn(), applyTemplate, openTimer: vi.fn(), addShape: vi.fn(), startArrow: vi.fn() }, { x: 10, y: 20 });
     expect(applyTemplate).toHaveBeenCalledWith(TEMPLATES[0], { x: 10, y: 20 });
     const { width, height } = templateBounds(TEMPLATES[0]!);
     expect(items[0]?.dropSize).toEqual({ width, height });

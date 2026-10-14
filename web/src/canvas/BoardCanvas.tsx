@@ -33,6 +33,14 @@ import { CursorLayer } from "../cursors/CursorLayer";
 import { useCursorSharing } from "../cursors/useCursorSharing";
 import { showFitNotice } from "./ViewNotices";
 import { viewFromCentre, type View } from "../follow/follow";
+import { ConnectorLayer, ConnectorOverlay, DrawHandles, type ConnectorLayerActions, type OverlayActions } from "../connectors/ConnectorLayer";
+import { useConnectorDrawing } from "../connectors/useConnectorDrawing";
+import { useConnectorUi } from "../connectors/connectorUi";
+import { boxOfBoard, freedArrows, resolveShown } from "../connectors/geometry";
+import { CONNECTOR_TEXT } from "../connectors/rules";
+import type { ConnectorPatch } from "../connectors/board";
+import type { ConnectorEnd } from "@stickyard/shared";
+import type { DrawStyle } from "../connectors/connectorUi";
 
 /** The board's bounded area under the notes: the dot grid, with a visible edge. */
 function BoardSurface() {
@@ -88,8 +96,8 @@ export interface BoardRoom {
   startFrameResize(id: string): boolean;
   resizeFrame(id: string, rect: NoteRect, final: boolean): void;
   deleteFrame(id: string): void;
-  /** Deletes notes and frames together (v0.20.0): one paced run, one report, one undo step. False if it couldn't start. */
-  deleteSelection(noteIds: readonly string[], frameIds: readonly string[], shapeIds?: readonly string[]): boolean;
+  /** Deletes notes and frames together (v0.20.0; shapes, arrows since): one paced run, one report, one undo step. False if it couldn't start. */
+  deleteSelection(noteIds: readonly string[], frameIds: readonly string[], shapeIds?: readonly string[], connectorIds?: readonly string[]): boolean;
   /** A selection with frames or shapes dragged together (v0.20.0); moveSelection returns the delta applied (clamped for the group). */
   startSelectionDrag(frameIds: readonly string[], noteIds: readonly string[], carry: boolean, shapeIds?: readonly string[]): boolean;
   moveSelection(dx: number, dy: number, final: boolean): { dx: number; dy: number };
@@ -106,12 +114,25 @@ export interface BoardRoom {
   setShapeDraft(id: string, draft: string | null): void;
   editShape(id: string, change: { text?: string }): boolean;
   deleteShape(id: string): void;
+  /** Arrows (protocol v21; v0.36.0). */
+  addConnector?(input: { start: ConnectorEnd; end: ConnectorEnd } & DrawStyle): string | null;
+  updateConnector?(id: string, change: ConnectorPatch): boolean;
+  moveConnector?(id: string, dx: number, dy: number): boolean;
+  deleteConnectors?(ids: readonly string[]): void;
+}
+
+/** Deletes arrows (no confirm: they hold no text) and says so politely; clears the selection. */
+export function deleteArrows(room: Pick<BoardRoom, "deleteConnectors" | "live">, ids: readonly string[]): void {
+  if (ids.length === 0 || !room.live) return;
+  room.deleteConnectors?.(ids);
+  useConnectorUi.getState().say(CONNECTOR_TEXT.deleted(ids.length));
+  useBoardUi.getState().clearSelection();
 }
 
 /** Deletes a shape, asking first when it has text, and clears the selection. */
 export function deleteShapeAsking(room: Pick<BoardRoom, "board" | "deleteShape">, id: string): void {
   const entry = findShape(room.board, id);
-  if (!entry || !confirmShapeDelete(entry.shape)) return;
+  if (!entry || !confirmShapeDelete(entry.shape, undefined, freedArrows(room.board, [id]))) return;
   room.deleteShape(id);
   useBoardUi.getState().clearSelection();
 }
@@ -124,11 +145,12 @@ export function deleteSelected(room: Pick<BoardRoom, "board" | "live" | "deleteN
   const [only] = ids;
   if (only === undefined) return;
   if (!room.live) return room.deleteNotes(ids);
+  const freed = freedArrows(room.board, ids);
   if (ids.length === 1) {
-    if (!confirmDelete(findNote(room.board, only)?.note.text ?? "")) return;
+    if (!confirmDelete(findNote(room.board, only)?.note.text ?? "", undefined, freed)) return;
     room.deleteNote(only);
   } else {
-    if (!confirmDeleteNotes(ids.length)) return;
+    if (!confirmDeleteNotes(ids.length, undefined, freed)) return;
     room.deleteNotes(ids);
   }
   useBoardUi.getState().clearSelection();
@@ -153,12 +175,16 @@ export function deleteSelectionAsking(
   noteIds: readonly string[],
   frameIds: readonly string[],
   shapeIds: readonly string[] = [],
+  connectorIds: readonly string[] = [],
 ): void {
-  if (noteIds.length + frameIds.length + shapeIds.length === 0) return;
-  if (!room.live) return void room.deleteSelection(noteIds, frameIds, shapeIds);
-  const counts = deleteCounts(room.board, noteIds, frameIds, shapeIds);
+  if (noteIds.length + frameIds.length + shapeIds.length + connectorIds.length === 0) return;
+  if (!room.live) return void room.deleteSelection(noteIds, frameIds, shapeIds, connectorIds);
+  const counts = deleteCounts(room.board, noteIds, frameIds, shapeIds, connectorIds);
   if (!confirmDeleteSelection(counts)) return;
-  if (room.deleteSelection(noteIds, frameIds, shapeIds)) useBoardUi.getState().clearSelection();
+  if (room.deleteSelection(noteIds, frameIds, shapeIds, connectorIds)) {
+    if (connectorIds.length > 0) useConnectorUi.getState().say(CONNECTOR_TEXT.deleted(connectorIds.length));
+    useBoardUi.getState().clearSelection();
+  }
 }
 
 /**
@@ -173,11 +199,13 @@ export function deleteWholeSelection(room: BoardRoom): boolean {
   const notes = orderedIds(ui.selection);
   const frames = orderedIds(ui.frames);
   const shapes = orderedIds(ui.shapes);
-  const total = notes.length + frames.length + shapes.length;
+  const arrows = orderedIds(ui.connectors);
+  const total = notes.length + frames.length + shapes.length + arrows.length;
   const [frame] = frames;
   const [shape] = shapes;
   if (total === 0) return false;
-  if (frames.length + shapes.length > 0 && total > 1) deleteSelectionAsking(room, notes, frames, shapes);
+  if (arrows.length === total) deleteArrows(room, arrows);
+  else if (frames.length + shapes.length + arrows.length > 0 && total > 1) deleteSelectionAsking(room, notes, frames, shapes, arrows);
   else if (frame !== undefined) deleteFrameAsking(room, frame);
   else if (shape !== undefined) deleteShapeAsking(room, shape);
   else deleteSelected(room, notes);
@@ -187,7 +215,7 @@ export function deleteWholeSelection(room: BoardRoom): boolean {
 /** Whether a focused item's Delete is its own: one-item selection, nothing else selected, or phones. */
 function deletesItself(multi: boolean, isSelected: boolean): boolean {
   const ui = useBoardUi.getState();
-  const total = ui.selection.size + ui.frames.size + ui.shapes.size;
+  const total = ui.selection.size + ui.frames.size + ui.shapes.size + ui.connectors.size;
   return !multi || total === 0 || (total === 1 && isSelected);
 }
 
@@ -205,9 +233,12 @@ export function BoardCanvas({
   minimapLifted,
   view,
   onShortcut,
+  arrowsEditable = editable,
 }: {
   room: BoardRoom;
   editable: boolean;
+  /** Arrows can be drawn and changed (editable, and no silent round: the relay refuses every arrow then). */
+  arrowsEditable?: boolean;
   /** Several notes can be selected (md and up): marquee, Shift/Ctrl-click, Ctrl+A, group moves. */
   multiSelect: boolean;
   /** The snapshot has arrived: fit to the notes once. */
@@ -224,6 +255,11 @@ export function BoardCanvas({
   const selection = useBoardUi((s) => s.selection);
   const frameSelection = useBoardUi((s) => s.frames);
   const shapeSelection = useBoardUi((s) => s.shapes);
+  const connectorSelection = useBoardUi((s) => s.connectors);
+  const connectorSelected = useBoardUi((s) => s.connectorSelected);
+  const soleNote = useBoardUi((s) => (s.selection.size === 1 && s.frames.size + s.shapes.size + s.connectors.size === 0 ? [...s.selection][0]! : null));
+  const soleShape = useBoardUi((s) => s.shapeSelected);
+  const armed = useConnectorUi((s) => s.draw !== null);
   const [spaceHeld, setSpaceHeld] = useState(false);
   const panOnly = tool === "hand" || spaceHeld;
   const latest = useRef(room);
@@ -235,6 +271,8 @@ export function BoardCanvas({
   useEffect(() => () => clearTimeout(keyCommit.current), []);
   const editableRef = useRef(editable);
   editableRef.current = editable;
+  const arrowsEditableRef = useRef(arrowsEditable);
+  arrowsEditableRef.current = arrowsEditable;
   // Arrow keys on a selection with frames: one selection drag per run of presses, committed shortly after the last.
   const keyNudge = useRef<{ dx: number; dy: number } | null>(null);
   const nudgeSelection = useRef((dx: number, dy: number) => {
@@ -501,17 +539,19 @@ export function BoardCanvas({
           board.notes.map((n) => n.note.id),
           board.frames.map((f) => f.frame.id),
           board.shapes.map((x) => x.shape.id),
+          board.connectors.map((c) => c.connector.id),
         );
         return;
       }
       const ui = useBoardUi.getState();
-      if (e.key === "Escape" && (ui.selection.size > 0 || ui.frames.size > 0 || ui.shapes.size > 0)) ui.clearSelection();
+      if (e.key === "Escape" && (ui.selection.size > 0 || ui.frames.size > 0 || ui.shapes.size > 0 || ui.connectors.size > 0)) ui.clearSelection();
       const target = deleteKeyTarget(e, {
         multi: multi.current,
         selection: ui.selection.size,
         frameSelected: ui.frameSelected !== null,
         frames: ui.frames.size,
         shapes: ui.shapes.size,
+        connectors: ui.connectors.size,
         modal: document.querySelector('[aria-modal="true"]') !== null,
         board: sectionRef.current,
       });
@@ -529,10 +569,17 @@ export function BoardCanvas({
         ui.requestFrameEdit(ui.frameSelected);
         return;
       }
+      // Arrows alone (v0.36.0): deleted at once, no confirm (paced by the session).
+      if (target === "connectors") {
+        e.preventDefault();
+        if (!arrowsEditableRef.current) return;
+        deleteArrows(latest.current, orderedIds(ui.connectors));
+        return;
+      }
       // Frames with notes, or several frames: one confirm with the counts, then one paced delete.
       if (target === "selection") {
         e.preventDefault();
-        deleteSelectionAsking(latest.current, orderedIds(ui.selection), orderedIds(ui.frames), orderedIds(ui.shapes));
+        deleteSelectionAsking(latest.current, orderedIds(ui.selection), orderedIds(ui.frames), orderedIds(ui.shapes), orderedIds(ui.connectors));
         return;
       }
       // One shape selected alone: delete it, asking first when it has text.
@@ -593,7 +640,46 @@ export function BoardCanvas({
     notes: () => latest.current.board.notes.map((n) => n.note),
     frames: () => latest.current.board.frames.map((f) => f.frame),
     shapes: () => latest.current.board.shapes.map((x) => x.shape),
+    connectors: () => {
+      const board = latest.current.board;
+      const boxOf = boxOfBoard(board);
+      return board.connectors.flatMap((c) => {
+        const points = resolveShown(c.connector, boxOf);
+        return points ? [{ id: c.connector.id, ...points }] : [];
+      });
+    },
   });
+  // Arrows (v0.36.0): drawing from a Connectors tile or a selected item's side handle.
+  const drawing = useConnectorDrawing({
+    section: sectionRef,
+    enabled: multiSelect && arrowsEditable,
+    board: () => latest.current.board,
+    add: (input) => latest.current.addConnector?.(input) ?? null,
+  });
+  const layerActions = useMemo<ConnectorLayerActions>(
+    () => ({
+      select: (id) => useBoardUi.getState().selectConnector(id),
+      toggle: (id) => {
+        if (multi.current) useBoardUi.getState().toggleConnector(id);
+        else useBoardUi.getState().selectConnector(id);
+      },
+      removeFromKey: (id) => {
+        if (deletesItself(multi.current, useBoardUi.getState().connectors.has(id))) deleteArrows(latest.current, [id]);
+        else deleteWholeSelection(latest.current);
+      },
+      clearSelection: () => useBoardUi.getState().clearSelection(),
+      moveLine: (id, dx, dy) => void latest.current.moveConnector?.(id, dx, dy),
+      update: (id, change) => void latest.current.updateConnector?.(id, change),
+    }),
+    [],
+  );
+  const overlayActions = useMemo<OverlayActions>(
+    () => ({
+      drawFrom: (item, anchor, e) => drawing.drawFrom(item, anchor, e),
+      update: (id, change) => void latest.current.updateConnector?.(id, change),
+    }),
+    [drawing],
+  );
   // My pointer, shared from md up with a mouse or a hovering pen (phones only receive).
   useCursorSharing(sectionRef, multiSelect, room);
   // A press on the minimap that moves past the drag threshold is a drag (pannable): its click is ignored.
@@ -712,6 +798,14 @@ export function BoardCanvas({
                   }}
                 />
               </ViewportPortal>
+            )}
+            {/* The side handles first, so an arrow attached at that side stays clickable over them. */}
+            {multiSelect && arrowsEditable && !panOnly && !armed && (soleNote ?? soleShape) && (
+              <DrawHandles board={room.board} item={(soleNote ?? soleShape)!} actions={overlayActions} />
+            )}
+            <ConnectorLayer board={room.board} selected={connectorSelection} interactive={multiSelect} editable={arrowsEditable && !panOnly} actions={layerActions} />
+            {multiSelect && (
+              <ConnectorOverlay board={room.board} arrow={connectorSelected} editable={arrowsEditable && !panOnly} actions={overlayActions} />
             )}
             <CursorLayer compact={!multiSelect} />
             {minimap && (

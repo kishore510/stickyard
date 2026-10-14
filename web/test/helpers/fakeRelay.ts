@@ -1,11 +1,18 @@
 import { expect } from "vitest";
 import {
+  CONNECTOR_DEFAULTS,
   FRAME_DEFAULTS,
   NOTE_DEFAULTS,
   PROTOCOL_VERSION,
   REACTION_KEYS,
+  anchorPoint,
+  clampConnectorPoint,
   clientMessageSchema,
+  endReference,
+  isBound,
   shapeDefaults,
+  type Connector,
+  type ConnectorEnd,
   type Frame,
   type FrameItem,
   type Note,
@@ -38,8 +45,24 @@ export const shape = (i: number, extra: Partial<Shape> = {}): Shape => {
   return { id: sid(i), kind, x: 300 + 10 * i, y: 300, ...shapeDefaults(kind), text: `Step ${i}`, z: 100 + i, rev: 1, authorId: sam.id, ...extra };
 };
 
+export const cid = (i: number) => `conn${String(i).padStart(12, "0")}`;
+/** A connector by Sam (protocol v21): CONNECTOR_DEFAULTS unless said. */
+export const connector = (i: number, start: ConnectorEnd, end: ConnectorEnd, extra: Partial<Connector> = {}): Connector => ({
+  id: cid(i),
+  start,
+  end,
+  ...CONNECTOR_DEFAULTS,
+  rev: 1,
+  authorId: sam.id,
+  ...extra,
+});
+
 export class Relay {
   notes = new Map<string, Note>();
+  /** Protocol v21: connectors, in creation order. */
+  connectors = new Map<string, Connector>();
+  /** Connector messages to refuse with this error code (once each): board_locked, connectors_full, silent_active, rate_limited, unknown_item. */
+  refuseConnectors: string | null = null;
   frames = new Map<string, Frame>();
   shapes = new Map<string, Shape>();
   /** Shape messages to refuse with this error code (once each), e.g. board_locked, shapes_full. */
@@ -214,7 +237,91 @@ export class Relay {
     this.notes.set(id, n);
     this.out({ type: "noteUpdated", note: n });
   }
+  /** A note's or shape's box (the relay's boxOf). */
+  boxOf = (id: string) => {
+    const item = this.notes.get(id) ?? this.shapes.get(id);
+    return item ? { x: item.x, y: item.y, w: item.w, h: item.h } : undefined;
+  };
+  /**
+   * The Worker's delete rule: ends bound to deleted items turn free where they met the items (from
+   * the boxes before the delete), one rev each; connectorUpdated after the items' delete message.
+   */
+  private detach(ids: readonly string[], before: (id: string) => { x: number; y: number; w: number; h: number } | undefined): unknown[] {
+    const gone = new Set(ids);
+    const out: unknown[] = [];
+    for (const c of this.connectors.values()) {
+      const free = (end: ConnectorEnd, other: ConnectorEnd): ConnectorEnd => {
+        if (!isBound(end) || !gone.has(end.item)) return end;
+        const box = before(end.item)!;
+        const ref = endReference(other, before) ?? { x: 0, y: 0 };
+        return clampConnectorPoint(anchorPoint(box, end.anchor, ref).x, anchorPoint(box, end.anchor, ref).y);
+      };
+      const start = free(c.start, c.end);
+      const end = free(c.end, c.start);
+      if (start === c.start && end === c.end) continue;
+      const next = { ...c, start, end, rev: c.rev + 1 };
+      this.connectors.set(c.id, next);
+      out.push({ type: "connectorUpdated", connector: next });
+    }
+    return out;
+  }
+  /** Boxes as they are now (call before deleting). */
+  private snapshotBoxes(): (id: string) => { x: number; y: number; w: number; h: number } | undefined {
+    const boxes = new Map<string, { x: number; y: number; w: number; h: number }>();
+    for (const n of this.notes.values()) boxes.set(n.id, { x: n.x, y: n.y, w: n.w, h: n.h });
+    for (const x of this.shapes.values()) boxes.set(x.id, { x: x.x, y: x.y, w: x.w, h: x.h });
+    return (id) => boxes.get(id);
+  }
+  /** Sam stores a change to a connector: broadcast like the Worker. */
+  samEditConnector(id: string, change: Partial<Connector>) {
+    const current = this.connectors.get(id)!;
+    const c = { ...current, ...change, rev: current.rev + 1 };
+    this.connectors.set(id, c);
+    this.out({ type: "connectorUpdated", connector: c });
+  }
+  /** Sam deletes a note (the Worker's single delete, with its connector rule). */
+  samDeleteNote(id: string) {
+    const boxes = this.snapshotBoxes();
+    this.notes.delete(id);
+    this.out({ type: "noteDeleted", id });
+    for (const m of this.detach([id], boxes)) this.out(m);
+  }
+  private connectorMessage(m: Record<string, unknown>) {
+    const refused = this.refuseConnectors;
+    if (refused) {
+      this.refuseConnectors = null;
+      return this.out({ type: "error", code: refused, message: "No.", ...(m.type === "connectorAdd" ? { clientRef: m.clientRef } : { connectorId: m.id }) });
+    }
+    const unknownEnd = (end: unknown) => end !== undefined && isBound(end as ConnectorEnd) && !this.boxOf((end as { item: string }).item);
+    const clamp = (end: unknown): ConnectorEnd | undefined => {
+      if (end === undefined) return undefined;
+      const e = end as ConnectorEnd;
+      return isBound(e) ? { item: e.item, anchor: e.anchor } : clampConnectorPoint(e.x, e.y);
+    };
+    if (m.type === "connectorAdd") {
+      if (unknownEnd(m.start) || unknownEnd(m.end)) return this.out({ type: "error", code: "unknown_item", message: "No.", clientRef: m.clientRef });
+      if (this.connectors.size >= 100) return this.out({ type: "error", code: "connectors_full", message: "No.", clientRef: m.clientRef });
+      const { type: _, clientRef, start, end, ...style } = m;
+      const c = { id: this.newId("conn"), start: clamp(start)!, end: clamp(end)!, ...style, rev: 1, authorId: alex.id } as Connector;
+      this.connectors.set(c.id, c);
+      return this.out({ type: "connectorAdded", connector: c, clientRef });
+    }
+    if (m.type === "connectorUpdate") {
+      const current = this.connectors.get(m.id as string);
+      if (!current) return;
+      if (unknownEnd(m.start) || unknownEnd(m.end)) return this.out({ type: "error", code: "unknown_item", message: "No.", connectorId: m.id });
+      const { type: _, id: __, start, end, ...style } = m;
+      const next = { ...current, ...style, ...(start !== undefined ? { start: clamp(start) } : {}), ...(end !== undefined ? { end: clamp(end) } : {}) } as Connector;
+      if (JSON.stringify(next) === JSON.stringify(current)) return;
+      const c = { ...next, rev: current.rev + 1 };
+      this.connectors.set(c.id, c);
+      return this.out({ type: "connectorUpdated", connector: c });
+    }
+    if (!this.connectors.delete(m.id as string)) return;
+    return this.out({ type: "connectorDeleted", id: m.id });
+  }
   private handle(m: Record<string, unknown>) {
+    if (m.type === "connectorAdd" || m.type === "connectorUpdate" || m.type === "connectorDelete") return this.connectorMessage(m);
     if (typeof m.type === "string" && m.type.startsWith("shape") && this.refuseShapes) {
       const code = this.refuseShapes;
       this.refuseShapes = null;
@@ -257,11 +364,16 @@ export class Relay {
         this.shapes.set(x.id, x);
         return this.out({ type: "shapeResized", id: x.id, x: x.x, y: x.y, w: x.w, h: x.h, rev: x.rev, final: true });
       }
-      case "shapeDelete":
+      case "shapeDelete": {
+        const boxes = this.snapshotBoxes();
         if (!this.shapes.delete(m.id as string)) return;
-        return this.out({ type: "shapeDeleted", id: m.id });
+        this.out({ type: "shapeDeleted", id: m.id });
+        for (const u of this.detach([m.id as string], boxes)) this.out(u);
+        return;
+      }
       case "shapeBatch": {
         if (!m.final) return;
+        const boxes = this.snapshotBoxes();
         const results: unknown[] = [];
         for (const op of m.ops as { op: string; id: string; x: number; y: number; w: number; h: number }[]) {
           const c = this.shapes.get(op.id);
@@ -278,6 +390,8 @@ export class Relay {
           results.push(op.op === "move" ? { type: "shapeMoved", id: x.id, x: x.x, y: x.y, rev: x.rev, final: true } : { type: "shapeResized", id: x.id, x: x.x, y: x.y, w: x.w, h: x.h, rev: x.rev, final: true });
         }
         if (results.length > 0) this.out({ type: "shapesBatchApplied", results, final: true });
+        const deleted = (m.ops as { op: string; id: string }[]).filter((o) => o.op === "delete").map((o) => o.id);
+        for (const u of this.detach(deleted, boxes)) this.out(u);
         return;
       }
       case "hello":
@@ -291,8 +405,8 @@ export class Relay {
         this.out({ type: "framesSnapshot", frames: [...this.frames.values()] });
         this.out({ type: "shapesSnapshot", shapes: [...this.shapes.values()] });
         this.out({ type: "reactionsSnapshot", counts: this.reactionCounts() });
-        // Protocol v21: the connectors, as the Worker sends them (the page ignores them until part 2).
-        this.out({ type: "connectorsSnapshot", connectors: [] });
+        // Protocol v21: the connectors, as the Worker sends them.
+        this.out({ type: "connectorsSnapshot", connectors: [...this.connectors.values()] });
         if (this.voting.state === "closed") this.out({ type: "votesRevealed", round: this.voting.round, totals: this.totals() });
         return;
       }
@@ -378,15 +492,20 @@ export class Relay {
         this.notes.set(n.id, n);
         return this.out({ type: "noteUpdated", note: n });
       }
-      case "noteDelete":
+      case "noteDelete": {
+        const boxes = this.snapshotBoxes();
         if (!this.notes.delete(m.id as string)) return;
         this.dropReactions(m.id as string);
-        return this.out({ type: "noteDeleted", id: m.id });
+        this.out({ type: "noteDeleted", id: m.id });
+        for (const u of this.detach([m.id as string], boxes)) this.out(u);
+        return;
+      }
       case "noteBatch": {
         if (!m.final) return;
         if (this.refuseBatches.has(this.batches++)) {
           return this.out({ type: "error", code: "rate_limited", message: "Too quick.", noteIds: (m.ops as { id: string }[]).map((o) => o.id) });
         }
+        const boxes = this.snapshotBoxes();
         const results: unknown[] = [];
         for (const op of m.ops as { op: string; id: string; x: number; y: number; w: number; h: number }[]) {
           const c = this.notes.get(op.id);
@@ -403,7 +522,10 @@ export class Relay {
           this.notes.set(n.id, n);
           results.push(op.op === "move" ? { type: "noteMoved", id: n.id, x: n.x, y: n.y, rev: n.rev, final: true } : { type: "noteResized", id: n.id, x: n.x, y: n.y, w: n.w, h: n.h, rev: n.rev, final: true });
         }
-        return this.out({ type: "notesBatchApplied", results, final: true });
+        this.out({ type: "notesBatchApplied", results, final: true });
+        const deleted = (m.ops as { op: string; id: string }[]).filter((o) => o.op === "delete").map((o) => o.id);
+        for (const u of this.detach(deleted, boxes)) this.out(u);
+        return;
       }
       case "noteAdd": {
         const n: Note = { id: this.newId("note"), x: m.x as number, y: m.y as number, ...NOTE_DEFAULTS, text: m.text as string, color: m.color as Note["color"], z: this.topZ(), rev: 1, authorId: alex.id };
@@ -501,8 +623,9 @@ export class Relay {
   }
 }
 
-export function room(notes: Note[] = [], frames: Frame[] = [], options: Partial<SessionOptions> = {}, setup?: (relay: Relay) => void, shapes: Shape[] = []) {
+export function room(notes: Note[] = [], frames: Frame[] = [], options: Partial<SessionOptions> = {}, setup?: (relay: Relay) => void, shapes: Shape[] = [], connectors: Connector[] = []) {
   const relay = new Relay(notes, frames, shapes);
+  for (const c of connectors) relay.connectors.set(c.id, c);
   setup?.(relay);
   const views: RoomView[] = [];
   const createSocket: SocketFactory = (_url, handlers) => relay.socket(handlers);
@@ -518,5 +641,7 @@ export function room(notes: Note[] = [], frames: Frame[] = [], options: Partial<
   const view = () => views.at(-1)!;
   const sent = (type: string) => relay.received.filter((m) => m.type === type);
   const shown = (id: string) => findNote(view().board, id)?.note;
-  return { session, relay, view, views, sent, shown };
+  /** A connector as this page shows it (protocol v21). */
+  const arrow = (id: string) => view().board.connectors.find((c) => c.connector.id === id)?.connector;
+  return { session, relay, view, views, sent, shown, arrow };
 }

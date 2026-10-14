@@ -4,7 +4,7 @@ import { Button } from "../components/ui/button";
 import type { Board } from "../notes/board";
 import type { ResultRow } from "../voting/voting";
 import { boardToMarkdown, exportFileName, type ExportBoard } from "./markdown";
-import { EXPORT_NOTICES, downloadBlob, exportBounds, renderPng } from "./png";
+import { EXPORT_NOTICES, downloadBlob, exportBounds, exportItems, renderPng } from "./png";
 import { SILENT_TEXT } from "../silent/silent";
 
 /*
@@ -21,6 +21,7 @@ export function exportBoardOf(board: Board, results: readonly ResultRow[] | null
     frames: board.frames.map((e) => e.frame),
     shapes: board.shapes.map((e) => e.shape),
     results,
+    connectors: board.connectors.map((e) => ({ start: e.connector.start, end: e.connector.end })),
   };
 }
 
@@ -61,7 +62,7 @@ export function ExportSection({
         const text = boardToMarkdown(exportBoardOf(board, results), now);
         downloadBlob(new Blob([text], { type: "text/markdown;charset=utf-8" }), exportFileName("md", now));
       } else {
-        const bounds = exportBounds(items);
+        const bounds = exportBounds(exportItems(board));
         const element = viewport();
         if (!bounds || !element) throw new Error("nothing to draw");
         downloadBlob(await renderPng(element, bounds), exportFileName("png", now));
