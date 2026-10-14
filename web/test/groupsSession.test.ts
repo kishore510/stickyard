@@ -17,7 +17,7 @@ import { connector, gid, group, nid, note, room, shape, sid } from "./helpers/fa
 beforeEach(() => vi.useFakeTimers());
 afterEach(() => vi.useRealTimers());
 
-const notes = (n: number) => Array.from({ length: n }, (_, i) => note(i + 1, { x: 100 + 250 * i, y: 100 }));
+const notes = (n: number) => Array.from({ length: n }, (_, i) => note(i + 1, { x: 100 + 250 * (i % 20), y: 100 + 300 * Math.floor(i / 20) }));
 const withGroups = (groups: Group[], ns = notes(4), shapes = [shape(1)]) => room(ns, [], {}, undefined, shapes, [], groups);
 const groupIds = (t: ReturnType<typeof room>) => t.view().board.groups.map((g) => g.group.id);
 const groupMsgs = (t: ReturnType<typeof room>) => t.relay.received.filter((m) => typeof m.type === "string" && m.type.startsWith("group"));
@@ -36,6 +36,7 @@ describe("session state from the relay", () => {
 
   it("groupCreated, groupUpdated (by rev) and groupDeleted from someone else; unknown ids ignored; membership is exclusive", () => {
     const t = withGroups([group(1, [nid(1), nid(2), nid(3)])]);
+    t.relay.groups.set(gid(2), group(2, [nid(3), nid(4)]));
     t.relay.emit({ type: "groupCreated", group: group(2, [nid(3), nid(4)], { rev: 1 }) });
     expect(t.shownGroup(gid(1))?.members).toEqual([nid(1), nid(2)]);
     t.relay.samEditGroup(gid(2), { label: "Themes" });
@@ -126,10 +127,10 @@ describe("rules up front (nothing sent, the reason said)", () => {
     const t = withGroups([group(1, [nid(1), nid(2), nid(3)])]);
     expect(t.session.createGroup([nid(4)])).toBeNull();
     expect(t.view().noteNotice).toBe(GROUP_TEXT.few);
-    const added = t.session.addNote({ x: 5, y: 5, color: "yellow" })!;
     t.relay.paused = true;
-    const local = t.session.addNote({ x: 9, y: 9, color: "yellow" })!;
-    expect(t.session.createGroup([added, local])).toBeNull();
+    const one = t.session.addNote({ x: 5, y: 5, color: "yellow" })!;
+    const two = t.session.addNote({ x: 9, y: 9, color: "yellow" })!;
+    expect(t.session.createGroup([one, two])).toBeNull();
     expect(t.view().noteNotice).toBe(GROUP_TEXT.unsaved);
     t.relay.resume();
     expect(t.session.removeFromGroup(gid(1), [nid(1), nid(2)])).toBe(false);

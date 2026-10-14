@@ -1,5 +1,4 @@
 // @vitest-environment happy-dom
-import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { NOTE_DEFAULTS, shapeDefaults, type Group, type Note, type Shape } from "@stickyard/shared";
 import { EMPTY_BOARD, applySnapshot, type Board } from "../src/notes/board";
@@ -20,7 +19,6 @@ import {
 import { GROUP_PAD, chipText, groupBox, groupEffects, groupName, groupOfSelection, itemBoxes, labelMode, ungroupedBy, wholeGroups } from "../src/groups/geometry";
 import { GROUP_TEXT, createReason, groupKey, groupReason, ungroupedLine } from "../src/groups/rules";
 import { decodeMembers, groupFields, renameMemberRefs } from "../src/groups/fields";
-import { GROUP_PACE, GroupPacer, membersOf, type GroupMessage } from "../src/groups/pace";
 import { confirmDelete, confirmDeleteNotes } from "../src/notes/label";
 import { confirmShapeDelete } from "../src/shapes/label";
 import { confirmDeleteSelection } from "../src/canvas/frameSelect";
@@ -30,7 +28,7 @@ import { SILENT_TEXT } from "../src/silent/silent";
 /*
  * Groups part 2 (web only): the pure parts. Reducers by rev with exclusive membership, the box
  * from the members' live boxes, label zoom levels, the delete effects, G and Shift+G, the
- * dissolve line in delete confirms, and pacing under the relay's own GROUP_LIMITS.
+ * dissolve line in delete confirms (pacing is in groupsPace.test.ts).
  */
 
 const note = (i: number, x: number, y: number, extra: Partial<Note> = {}): Note => ({ id: `N${i}`, x, y, ...NOTE_DEFAULTS, text: `n${i}`, color: "yellow", z: i, rev: 1, authorId: "A", ...extra });
@@ -181,92 +179,3 @@ describe("rules and texts", () => {
   });
 });
 
-/** The relay's GROUP_LIMITS, read from the Worker's source (the page can't import it). */
-function relayLimits() {
-  const source = readFileSync(new URL("../../worker/src/limits.ts", import.meta.url), "utf8");
-  const block = /GROUP_LIMITS = \{([^}]*)\}/.exec(source)?.[1] ?? "";
-  const n = (k: string) => Number(new RegExp(`${k}:\\s*([\\d.]+)`).exec(block)?.[1]);
-  return { refillPerSecond: n("refillPerSecond"), burst: n("burst"), membersPerSecond: n("membersPerSecond"), membersBurst: n("membersBurst") };
-}
-
-function clock() {
-  let now = 0;
-  let timers: { at: number; fn: () => void; id: number }[] = [];
-  let next = 1;
-  return {
-    now: () => now,
-    setTimer: (fn: () => void, ms: number) => {
-      const id = next++;
-      timers.push({ at: now + ms, fn, id });
-      return id;
-    },
-    clearTimer: (id: unknown) => {
-      timers = timers.filter((t) => t.id !== id);
-    },
-    advance(ms: number) {
-      const until = now + ms;
-      for (;;) {
-        const due = timers.filter((t) => t.at <= until).sort((a, b) => a.at - b.at)[0];
-        if (!due) break;
-        timers = timers.filter((t) => t !== due);
-        now = due.at;
-        due.fn();
-      }
-      now = until;
-    },
-  };
-}
-
-/** Replays sends through the relay's own two buckets: false if any message would be refused. */
-function relayAccepts(sends: readonly { at: number; members: number }[], l: ReturnType<typeof relayLimits>): boolean {
-  let tokens = l.burst;
-  let members = l.membersBurst;
-  let at = 0;
-  for (const s of sends) {
-    tokens = Math.min(l.burst, tokens + ((s.at - at) / 1000) * l.refillPerSecond);
-    members = Math.min(l.membersBurst, members + ((s.at - at) / 1000) * l.membersPerSecond);
-    at = s.at;
-    if (tokens < 1 || members < s.members) return false;
-    tokens -= 1;
-    members -= s.members;
-  }
-  return true;
-}
-
-describe("GroupPacer", () => {
-  it("stays inside the relay's GROUP_LIMITS (read from the Worker)", () => {
-    const l = relayLimits();
-    expect(GROUP_PACE.burst).toBeLessThan(l.burst);
-    expect(GROUP_PACE.perSecond).toBeLessThan(l.refillPerSecond);
-    expect(GROUP_PACE.membersBurst).toBeLessThan(l.membersBurst);
-    expect(GROUP_PACE.membersPerSecond).toBeLessThan(l.membersPerSecond);
-  });
-
-  it("Clear board's 30 ungroups go at once; 100 creates of 10 members each are paced so the relay accepts every one", () => {
-    const c = clock();
-    const sends: { at: number; members: number }[] = [];
-    const pacer = new GroupPacer({ ...c, send: (m) => sends.push({ at: c.now(), members: membersOf(m) }) });
-    for (let i = 0; i < 30; i++) pacer.enqueue({ type: "groupDelete", id: `G${i}` } as GroupMessage);
-    expect(sends).toHaveLength(30);
-    const members = Array.from({ length: 10 }, (_, i) => `M${i}`);
-    for (let i = 0; i < 100; i++) pacer.enqueue({ type: "groupCreate", clientRef: `r${i}`, label: "", color: "neutral", members });
-    let done = false;
-    pacer.whenSent(() => (done = true));
-    c.advance(5 * 60_000);
-    expect(sends).toHaveLength(130);
-    expect(done).toBe(true);
-    expect(relayAccepts(sends, relayLimits())).toBe(true);
-  });
-
-  it("a reset drops what's queued and fills both buckets", () => {
-    const c = clock();
-    const sends: GroupMessage[] = [];
-    const pacer = new GroupPacer({ ...c, send: (m) => sends.push(m), pace: { burst: 1, perSecond: 1, membersBurst: 10, membersPerSecond: 1 } });
-    pacer.enqueue({ type: "groupDelete", id: "a" });
-    pacer.enqueue({ type: "groupDelete", id: "b" });
-    expect(pacer.queued).toBe(1);
-    pacer.reset();
-    c.advance(5000);
-    expect(sends.map((m) => (m as { id: string }).id)).toEqual(["a"]);
-  });
-});

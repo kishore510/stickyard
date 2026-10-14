@@ -2,6 +2,7 @@ import { MAX_BATCH_ENTRIES } from "@stickyard/shared";
 import { findFrame, framedNotes } from "../frames/board";
 import type { Board } from "../notes/board";
 import { freedArrows } from "../connectors/geometry";
+import { ungroupedBy } from "../groups/geometry";
 import { freedSuffix } from "../notes/label";
 import type { Box, Selection } from "./selection";
 
@@ -71,6 +72,8 @@ export interface DeleteCounts {
   arrows?: number;
   /** Arrows not selected that keep a free end because their note or shape goes. */
   freed?: number;
+  /** Groups left with fewer than 2 items by the delete: ungrouped (v0.38.0). */
+  ungrouped?: number;
 }
 
 /** Counts for the delete confirmation: selected items still on the board, and the notes and shapes left inside the frames. */
@@ -88,12 +91,14 @@ export function deleteCounts(board: Board, noteIds: readonly string[], frameIds:
   }
   const arrows = board.connectors.filter((c) => connectorIds.includes(c.connector.id)).length;
   const freed = freedArrows(board, [...noteIds, ...shapeIds], connectorIds);
+  const ungrouped = ungroupedBy(board, [...noteIds, ...shapeIds]);
   return {
     notes,
     frames: frames.length,
     ...(shapeIds.length > 0 || stayingShapes.size > 0 ? { shapes, stayingShapes: stayingShapes.size } : {}),
     staying: staying.size,
     ...(arrows > 0 || freed > 0 ? { arrows, freed } : {}),
+    ...(ungrouped > 0 ? { ungrouped } : {}),
   };
 }
 
@@ -107,7 +112,7 @@ export function confirmDeleteSelection(counts: DeleteCounts, confirm: (message: 
   const left = counts.stayingShapes ?? 0;
   const stayShapes =
     left === 0 ? "" : ` ${left === 1 ? "1 shape inside the frames isn’t selected and stays" : `${left} shapes inside the frames aren’t selected and stay`} on the board.`;
-  return confirm(`Delete ${what}? They’re removed for everyone in the session.${stay}${stayShapes}${freedSuffix(counts.freed ?? 0)}`);
+  return confirm(`Delete ${what}? They’re removed for everyone in the session.${stay}${stayShapes}${freedSuffix(counts.freed ?? 0, counts.ungrouped ?? 0)}`);
 }
 
 type Rect = { id: string; x: number; y: number; w: number; h: number };

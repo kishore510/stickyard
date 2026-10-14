@@ -27,7 +27,8 @@ import { SHAPE_KIND_NAMES } from "../shapes/style";
 import type { ResultRow } from "../voting/voting";
 import { LOCK_TEXT, confirmEndSession, endSessionReason, withLock } from "../facilitation/lock";
 import { ConnectorFields } from "../connectors/ConnectorFields";
-import { connectorKindName } from "../connectors/geometry";
+import { connectorKindName, freedArrows } from "../connectors/geometry";
+import { ungroupedBy } from "../groups/geometry";
 import { CONNECTOR_TEXT } from "../connectors/rules";
 import { useConnectorUi } from "../connectors/connectorUi";
 import type { ConnectorPatch } from "../connectors/board";
@@ -303,7 +304,7 @@ export function PropertiesContent({ room, collapse }: { room: PropertiesRoom; co
             title="Delete (Del)"
             disabled={!editable}
             onClick={() => {
-              if (!confirmShapeDelete(shape.shape)) return;
+              if (!confirmShapeDelete(shape.shape, undefined, freedArrows(room.board, [shape.shape.id]), ungroupedBy(room.board, [shape.shape.id]))) return;
               room.deleteShape?.(shape.shape.id);
               useBoardUi.getState().clearSelection();
             }}
@@ -338,7 +339,7 @@ export function PropertiesContent({ room, collapse }: { room: PropertiesRoom; co
             title={`Delete ${many.length} notes (Del)`}
             disabled={!editable}
             onClick={() => {
-              if (!confirmDeleteNotes(many.length)) return;
+              if (!confirmDeleteNotes(many.length, undefined, freedArrows(room.board, many.map((n) => n.id)), ungroupedBy(room.board, many.map((n) => n.id)))) return;
               room.deleteNotes(many.map((n) => n.id));
               useBoardUi.getState().clearSelection();
             }}
@@ -354,7 +355,7 @@ export function PropertiesContent({ room, collapse }: { room: PropertiesRoom; co
             title="Delete note (Del)"
             disabled={!editable}
             onClick={() => {
-              if (confirmDelete(text)) room.deleteNote(entry.note.id);
+              if (confirmDelete(text, undefined, freedArrows(room.board, [entry.note.id]), ungroupedBy(room.board, [entry.note.id]))) room.deleteNote(entry.note.id);
             }}
             className="text-status-error"
           >

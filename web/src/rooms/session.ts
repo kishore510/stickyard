@@ -5,6 +5,10 @@ import {
   MAX_BATCH_ENTRIES,
   MAX_CONNECTORS_PER_ROOM,
   MAX_FRAMES_PER_ROOM,
+  MAX_GROUP_LABEL,
+  MAX_GROUP_MEMBERS,
+  MAX_GROUPS_PER_ROOM,
+  MIN_GROUP_MEMBERS,
   MAX_NOTES_PER_ROOM,
   MAX_SERVER_MESSAGE_BYTES,
   MAX_SHAPES_PER_ROOM,
@@ -25,6 +29,7 @@ import {
   clampNoteRect,
   clampShapeRect,
   cleanFrameTitle,
+  cleanGroupLabel,
   cleanName,
   cleanNoteText,
   cleanShapeText,
@@ -41,6 +46,8 @@ import {
   type Frame,
   type FrameColor,
   type FrameItem,
+  type Group,
+  type GroupColor,
   type ItemRefusalReason,
   type Note,
   type NoteBatchEntry,
@@ -57,6 +64,7 @@ import {
   type ShapeKind,
   type TimerState,
   type VotingState,
+  truncateCodePoints,
 } from "@stickyard/shared";
 import {
   LIMIT_MAX_PROBES,
@@ -177,6 +185,26 @@ import { boxOfBoard, endsProblem, moveFreeArrow, reversedPatch } from "../connec
 import { connectorFields, contentFromFields, decodeEnd, patchFromFields, renameEndRefs } from "../connectors/fields";
 import { ConnectorPacer, type ConnectorMessage } from "../connectors/pace";
 import { CONNECTOR_TEXT } from "../connectors/rules";
+import {
+  addGroupLocal,
+  applyGroupCreated,
+  applyGroupDeleted,
+  applyGroupUpdated,
+  applyGroupsSnapshot,
+  deleteGroupLocal,
+  findGroup,
+  rejectGroupCreate,
+  renameItemInGroups,
+  rollbackGroup,
+  sortIds,
+  takeOutLocal,
+  updateGroupLocal,
+  type BoardGroup,
+} from "../groups/board";
+import { groupEffects, groupOfSelection, wholeGroups } from "../groups/geometry";
+import { decodeMembers, groupFields, groupFromFields, renameMemberRefs } from "../groups/fields";
+import { GroupPacer, type GroupMessage } from "../groups/pace";
+import { GROUP_TEXT } from "../groups/rules";
 import { DUPLICATE_HINTS, DUPLICATE_OFFSET, duplicateFrameInput, duplicateNoteInputs, duplicateSelectionInputs } from "../canvas/duplicate";
 import { HISTORY_TEXT, History, type Fields, type ItemKind, type Lookup, type Plan } from "../history/history";
 import type { CodeCheck } from "./api";
@@ -535,6 +563,8 @@ interface ItemsRun {
   restore: boolean;
   /** Arrows that go once the run's items are on the relay (a duplicate's, an undo's): see ArrowPart. */
   arrows: ArrowPart;
+  /** Groups that go once the run's items are on the relay (a duplicate's, an undo's): see GroupPart. */
+  groups: GroupPart;
   /** Items an undo left as they are (someone else changed them): said in the run's last report. */
   skipped: number;
 }
@@ -561,6 +591,26 @@ interface ArrowPart {
 }
 
 const noArrows = (): ArrowPart => ({ refs: [], pending: new Set(), waiting: [], added: 0, refused: 0, updates: [], idMap: new Map() });
+
+/**
+ * Groups of an items run (protocol v22; v0.38.0): creates waiting here until the run's items have
+ * their server ids (members name the items' local ids until then, renamed as each is confirmed),
+ * then paced; and an undo's member changes that name restored items, sent with the new ids. Old
+ * ids map to the run's refs through the arrows' idMap.
+ */
+interface GroupPart {
+  refs: string[];
+  pending: Set<string>;
+  waiting: string[];
+  added: number;
+  refused: number;
+  updates: { id: string; fields: Fields }[];
+}
+
+const noGroups = (): GroupPart => ({ refs: [], pending: new Set(), waiting: [], added: 0, refused: 0, updates: [] });
+
+/** A label as the relay will store it: one line, cleaned, at most MAX_GROUP_LABEL characters. */
+const cleanLabel = (raw: string): string => cleanGroupLabel(truncateCodePoints(raw.replace(/\s+/g, " ").trim(), MAX_GROUP_LABEL)) ?? "";
 
 /** One itemsAdd message of a run: queued, then in flight until the relay answers. */
 interface ItemsBatch {
@@ -615,9 +665,9 @@ function itemsNotice({ notesFull, framesFull, shapesFull, invalid, tooQuick, noW
 }
 
 /** Items (and arrows) of a run the relay has added. */
-const restoredCount = (run: ItemsRun) => [...run.ids.values()].filter((id) => id !== null).length + run.arrows.added;
+const restoredCount = (run: ItemsRun) => [...run.ids.values()].filter((id) => id !== null).length + run.arrows.added + run.groups.added;
 /** Items and arrows in a run. */
-const runTotal = (run: ItemsRun) => run.refs.length + run.arrows.refs.length;
+const runTotal = (run: ItemsRun) => run.refs.length + run.arrows.refs.length + run.groups.refs.length;
 
 const refusedTotal = (r: ItemsRefused) => r.notesFull + r.framesFull + r.shapesFull + r.invalid + r.tooQuick + r.noWriter + r.sealedFull;
 
@@ -778,6 +828,8 @@ export interface SessionOptions {
   onShapeConfirmed?(localId: string, id: string): void;
   /** An arrow added here got its server id (protocol v21). */
   onConnectorConfirmed?(localId: string, id: string): void;
+  /** A group created here got its server id (protocol v22). */
+  onGroupConfirmed?(localId: string, id: string): void;
   /** The browser's network and visibility (connection/reconnect.ts); always online and visible if not given. */
   env?: ConnectionEnv;
   /** GET /health, asked when sockets keep failing to open: is the relay there at all? */
@@ -843,6 +895,7 @@ function newRun(template: number | null, restore: boolean): ItemsRun {
     template,
     restore,
     arrows: noArrows(),
+    groups: noGroups(),
     skipped: 0,
   };
 }
@@ -911,7 +964,7 @@ export class RoomSession {
   /** The delete of several notes being confirmed, if any (a new one joins it). */
   private deleteRun: DeleteRun | null = null;
   /** Undo and redo of my own actions (history/history.ts); cleared on resync, disconnect and leaving. An arrow's ends follow its items' new ids. */
-  private readonly history = new History({ renameRefs: renameEndRefs });
+  private readonly history = new History({ renameRefs: (fields, from, to) => renameMemberRefs(renameEndRefs(fields, from, to), from, to) });
   /** Protocol v21: every connector message is paced inside the relay's CONNECTOR_LIMITS (connectors/pace.ts). */
   private readonly pacer = new ConnectorPacer({
     now: () => Date.now(),
@@ -919,6 +972,23 @@ export class RoomSession {
     clearTimer: (id) => clearTimeout(id as ReturnType<typeof setTimeout>),
     send: (message) => this.send(message),
   });
+  /** Protocol v22: every group message is paced inside the relay's GROUP_LIMITS (groups/pace.ts). */
+  private readonly groupPacer = new GroupPacer({
+    now: () => Date.now(),
+    setTimer: (fn, ms) => setTimeout(fn, ms),
+    clearTimer: (id) => clearTimeout(id as ReturnType<typeof setTimeout>),
+    send: (message) => this.send(message),
+  });
+  /** Group creates deleted here before the relay confirmed them (their clientRefs): ungrouped once it does. */
+  private readonly abandonedGroups = new Set<string>();
+  /** The items run a group create belongs to, by its clientRef (a duplicate's or an undo's groups). */
+  private readonly groupRuns = new Map<string, ItemsRun>();
+  /** Other groups a create ("ref:<clientRef>") or a member change (the group's id) took items from here: rolled back with it. */
+  private readonly groupTouched = new Map<string, string[]>();
+  /** Groups an item delete of mine should dissolve, with the items going (a record waits for their groupDeleted). */
+  private readonly dissolving = new Map<string, Set<string>>();
+  /** Groups Clear board ungroups: a refusal goes quietly (the items' deletes dissolve them anyway). */
+  private readonly clearGroups = new Set<string>();
   /** Arrow adds deleted here before the relay confirmed them (their clientRefs): deleted once it does. */
   private readonly abandonedConnectors = new Set<string>();
   /** The items run an arrow add belongs to, by its clientRef (a duplicate's or an undo's arrows). */
@@ -1304,6 +1374,7 @@ export class RoomSession {
     for (const id of clear?.connectors.ids ?? []) excluded.add(`connector:${id}`);
     for (const ref of clear?.connectors.refs ?? []) excluded.add(`connector:${localId(ref)}`);
     for (const run of [this.template?.run, this.restoreRun]) for (const ref of run?.arrows.refs ?? []) excluded.add(`connector:${localId(ref)}`);
+    for (const run of [this.template?.run, this.restoreRun]) for (const ref of run?.groups.refs ?? []) excluded.add(`group:${localId(ref)}`);
     const unsaved = unsavedKeys(this.view.board, this.history.pendingKeys(), excluded).size;
 
     this.deleteRun = null;
@@ -1325,6 +1396,12 @@ export class RoomSession {
     this.pacer.reset();
     this.abandonedConnectors.clear();
     this.arrowRuns.clear();
+    this.groupPacer.reset();
+    this.abandonedGroups.clear();
+    this.groupRuns.clear();
+    this.groupTouched.clear();
+    this.dissolving.clear();
+    this.clearGroups.clear();
     // Ids and revs can't be trusted after this: the history goes.
     this.history.clear();
     const { board, orphans } = discardUnconfirmed(this.view.board);
@@ -2457,7 +2534,7 @@ export class RoomSession {
     board = this.refuseUnanswered(board, batch, "invalid");
     this.sealedAdd(message.notes.map(({ note }) => note.id));
     this.update({ rateLimited: false, ...this.itemsDone(run, board), ...this.sealedView() });
-    if (run.pending.size === 0) this.flushArrows(run);
+    if (run.pending.size === 0) this.flushRun(run);
   }
 
   /** The relay refused a whole itemsAdd (nothing added, too quick, not joined): roll back each of its items. */
@@ -2479,7 +2556,7 @@ export class RoomSession {
       // A locked board refused the whole message: say that, once, instead of the item counts.
       ...(message.code === "board_locked" ? { noteNotice: NOTICES.locked } : {}),
     });
-    if (batch.run.pending.size === 0) this.flushArrows(batch.run);
+    if (batch.run.pending.size === 0) this.flushRun(batch.run);
   }
 
   /** Rolls back the batch's items still pending, counting them under `reason`. */
@@ -2518,7 +2595,7 @@ export class RoomSession {
   private itemsDone(run: ItemsRun, board: Board): Partial<RoomView> {
     const refused = refusedTotal(run.refused) > 0;
     if (run.restore) {
-      if (run.pending.size > 0 || run.arrows.pending.size > 0 || this.restoreRun !== run) return { board };
+      if (run.pending.size > 0 || run.arrows.pending.size > 0 || run.groups.pending.size > 0 || this.restoreRun !== run) return { board };
       this.restoreRun = null;
       const done = restoredCount(run);
       const total = runTotal(run);
@@ -2527,7 +2604,7 @@ export class RoomSession {
       return {
         board,
         historyReport:
-          refused || run.arrows.refused > 0
+          refused || run.arrows.refused > 0 || run.groups.refused > 0
             ? { text: `${UNDO_TEXT.restoredPartly(done, total)}${notAdded}${skipped}`, partial: true }
             : { text: `${UNDO_TEXT.restored(done)}${skipped}`, partial: skipped !== "" },
       };
@@ -2637,6 +2714,14 @@ export class RoomSession {
       this.update({ noteNotice: CONNECTOR_TEXT.duplicateFull(arrows.length, freeArrows) });
       return null;
     }
+    // Groups (protocol v22): copied only when every member is selected (then onto the copies).
+    const groups = wholeGroups(this.view.board, [...noteIds, ...shapeIds]);
+    if (groups.length > 0 && this.refuseSilent()) return null;
+    const freeGroups = Math.max(0, MAX_GROUPS_PER_ROOM - this.view.board.groups.length);
+    if (groups.length > freeGroups) {
+      this.update({ noteNotice: GROUP_TEXT.duplicateFull(groups.length, freeGroups) });
+      return null;
+    }
     const freeShapes = Math.max(0, MAX_SHAPES_PER_ROOM - this.view.board.shapes.length);
     if (shapes.length > freeShapes) {
       this.update({ noteNotice: DUPLICATE_HINTS.shapesFull(shapes.length, freeShapes) });
@@ -2680,8 +2765,15 @@ export class RoomSession {
       this.addArrowToRun(run, clientRef);
       arrowIds.push(localId(clientRef));
     }
+    const groupIds: string[] = [];
+    for (const g of groups) {
+      const clientRef = randomRef();
+      board = addGroupLocal(board, { clientRef, label: g.label, color: g.color, members: g.members.map((m) => localOf.get(m) ?? m) }).board;
+      this.addGroupToRun(run, clientRef);
+      groupIds.push(localId(clientRef));
+    }
     this.update({ board });
-    // One step: the copies and their arrows.
+    // One step: the copies, their arrows and their groups.
     this.history.recordAdd(
       "Duplicate",
       [
@@ -2690,6 +2782,7 @@ export class RoomSession {
           return ref && run.pending.has(ref) ? [{ kind: input.kind, id: localId(ref) }] : [];
         }),
         ...arrowIds.map((id) => ({ kind: "connector" as const, id })),
+        ...groupIds.map((id) => ({ kind: "group" as const, id })),
       ],
       Date.now(),
     );
@@ -2700,7 +2793,7 @@ export class RoomSession {
     });
     if (run.pending.size === 0) {
       this.update(this.itemsDone(run, this.view.board));
-      this.flushArrows(run);
+      this.flushRun(run);
     }
     this.pumpItems();
     return out;
@@ -2719,9 +2812,9 @@ export class RoomSession {
   clearBoard(): boolean {
     if (!this.live || this.clearRun || this.restoreRun || this.template || this.itemBatches.size > 0) return false;
     if (this.refuseSilent()) return false;
-    const { notes, frames, shapes, connectors } = this.view.board;
+    const { notes, frames, shapes, connectors, groups } = this.view.board;
     if (notes.length + frames.length + shapes.length + connectors.length === 0) return false;
-    this.startRemoval("clear", notes, frames, shapes, connectors);
+    this.startRemoval("clear", notes, frames, shapes, connectors, groups);
     return true;
   }
 
@@ -2752,10 +2845,31 @@ export class RoomSession {
   }
 
   /** Starts a clear or a selection delete: notes at once (batches), frames queued and paced. */
-  private startRemoval(kind: ClearRun["kind"], notes: readonly BoardNote[], frames: readonly BoardFrame[], shapes: readonly BoardShape[] = [], connectors: readonly BoardConnector[] = []): void {
+  private startRemoval(
+    kind: ClearRun["kind"],
+    notes: readonly BoardNote[],
+    frames: readonly BoardFrame[],
+    shapes: readonly BoardShape[] = [],
+    connectors: readonly BoardConnector[] = [],
+    groups: readonly BoardGroup[] = [],
+  ): void {
     const part = (): ClearPart => ({ total: 0, ids: new Set(), refs: new Set(), refused: 0, tooQuick: false });
     const run: ClearRun = { kind, notes: part(), frames: { ...part(), queue: [] }, shapes: part(), connectors: part() };
     let board = this.view.board;
+    // Groups first (Clear board, protocol v22): one groupDelete each, paced, so the relay has
+    // nothing to dissolve as the items go. The items stay until their own deletes.
+    const removedGroups: Group[] = [];
+    for (const entry of groups) {
+      const id = entry.group.id;
+      board = deleteGroupLocal(board, id);
+      if (entry.clientRef !== null) {
+        this.abandonedGroups.add(entry.clientRef);
+        this.history.refuse("group", id);
+      } else {
+        removedGroups.push(entry.confirmed ?? entry.group);
+        this.clearGroups.add(id);
+      }
+    }
     // Arrows first (protocol v21): sent before any item delete, so the relay frees no end of an
     // arrow that's going anyway.
     const removedConnectors: Connector[] = [];
@@ -2827,14 +2941,19 @@ export class RoomSession {
     this.clearRun = run;
     this.update({ board, noteNotice: null });
     const label = kind === "clear" ? "Clear board" : "Delete";
-    this.recordRemoval(label, removedNotes, removedFrames, removedShapes, removedConnectors);
-    for (const c of removedConnectors) this.pacer.enqueue({ type: "connectorDelete", id: c.id });
-    // The items once every arrow delete is out (at once, unless the arrows' budget is spent).
-    this.pacer.whenSent(() => {
+    this.recordRemoval(label, removedNotes, removedFrames, removedShapes, removedConnectors, removedGroups);
+    for (const g of removedGroups) this.groupPacer.enqueue({ type: "groupDelete", id: g.id });
+    // Then the arrows once every ungroup is out, then the items once every arrow delete is out
+    // (each at once, unless its budget is spent).
+    this.groupPacer.whenSent(() => {
       if (this.clearRun !== run || !this.live) return;
-      this.sendBatch(ops, true);
-      this.sendShapeBatch(shapeOps, true);
-      this.pumpClear();
+      for (const c of removedConnectors) this.pacer.enqueue({ type: "connectorDelete", id: c.id });
+      this.pacer.whenSent(() => {
+        if (this.clearRun !== run || !this.live) return;
+        this.sendBatch(ops, true);
+        this.sendShapeBatch(shapeOps, true);
+        this.pumpClear();
+      });
     });
   }
 
@@ -3154,6 +3273,338 @@ export class RoomSession {
     for (const message of sends) this.pacer.enqueue(message);
   }
 
+  /** A run's items are all answered: its arrows go, then its groups (each paced). */
+  private flushRun(run: ItemsRun): void {
+    this.flushArrows(run);
+    this.flushGroups(run);
+  }
+
+  /* ── Groups (protocol v22; the UI since v0.38.0) ────────────────── */
+
+  /**
+   * Groups can't be changed now: not connected, a guest on a locked board (the lock's reason), or
+   * a silent round (for everyone, the host too: the relay refuses every group message then).
+   */
+  private refuseGroups(): boolean {
+    if (!this.live) return true;
+    if (lockedOut(this.view)) {
+      this.update({ noteNotice: LOCK_TEXT.reason });
+      return true;
+    }
+    return this.refuseSilent();
+  }
+
+  /** A clientRef of one of my group creates (waiting here, in flight, or ungrouped before it was confirmed). */
+  private isGroupRef(clientRef: string): boolean {
+    return this.groupTouched.has(`ref:${clientRef}`) || this.groupRuns.has(clientRef) || this.abandonedGroups.has(clientRef) || findGroup(this.view.board, localId(clientRef)) !== undefined;
+  }
+
+  /** The notes and shapes among these ids (frames, arrows and unknown ids left out), in id order. */
+  private groupable(ids: readonly string[]): string[] {
+    const board = this.view.board;
+    return sortIds(ids.filter((id) => findNote(board, id) !== undefined || findShape(board, id) !== undefined));
+  }
+
+  private groupNotice(text: string): false {
+    this.update({ noteNotice: text });
+    return false;
+  }
+
+  /**
+   * Undo records for what taking `items` out of their groups does to the other groups (the relay
+   * does it itself): a group left below 2 is dissolved (undo creates it again), a bigger one shrinks
+   * (undo puts the items back, unless someone else changed it since).
+   */
+  private groupEffectRecords(
+    items: readonly string[],
+    keep: string | null,
+  ): {
+    removed: { kind: ItemKind; id: string; content: Fields; z: number; rev: number }[];
+    relayChanges: { kind: ItemKind; id: string; before: Fields; after: Fields; matches: (state: Fields) => boolean }[];
+  } {
+    const { dissolved, shrunk } = groupEffects(this.view.board, items, keep);
+    const gone = new Set(items);
+    for (const g of dissolved) this.dissolving.set(g.id, gone);
+    return {
+      removed: dissolved.map((g) => ({ kind: "group" as const, id: g.id, content: groupFields(g), z: 0, rev: g.rev })),
+      relayChanges: shrunk.map(({ group, members }) => ({
+        kind: "group" as const,
+        id: group.id,
+        before: groupFields({ members: group.members }),
+        after: groupFields({ members }),
+        matches: (state: Fields) => !(decodeMembers(state.members) ?? []).some((m) => gone.has(m)),
+      })),
+    };
+  }
+
+  /**
+   * Groups these notes and shapes (frames and arrows among the ids are left out; the caller says
+   * so). Shown at once, sent paced; items in other groups move into it. Its local id, or null with
+   * the reason: not connected, locked, a silent round, fewer than 2 or more than 100 items, an
+   * unsaved item, already exactly one group, or the board's 30 groups.
+   */
+  createGroup(ids: readonly string[], { label = "", color = "neutral" }: { label?: string; color?: GroupColor } = {}): string | null {
+    if (!this.view.you || this.refuseGroups()) return null;
+    const items = this.groupable(ids);
+    if (items.length < MIN_GROUP_MEMBERS) return this.groupNotice(GROUP_TEXT.few) || null;
+    if (items.length > MAX_GROUP_MEMBERS) return this.groupNotice(GROUP_TEXT.tooMany) || null;
+    if (items.some(isLocalId)) return this.groupNotice(GROUP_TEXT.unsaved) || null;
+    if (groupOfSelection(this.view.board, items) !== null) return this.groupNotice(GROUP_TEXT.already) || null;
+    if (this.view.board.groups.length >= MAX_GROUPS_PER_ROOM) return this.groupNotice(GROUP_TEXT.full) || null;
+    const clean = cleanLabel(label);
+    const effects = this.groupEffectRecords(items, null);
+    const clientRef = randomRef();
+    const { board, touched } = addGroupLocal(this.view.board, { clientRef, label: clean, color, members: items });
+    this.groupTouched.set(`ref:${clientRef}`, touched);
+    this.update({ board, noteNotice: null });
+    this.history.recordStep("Group", { added: [{ kind: "group", id: localId(clientRef) }], ...effects }, Date.now());
+    this.groupPacer.enqueue({ type: "groupCreate", clientRef, label: clean, color, members: items });
+    return localId(clientRef);
+  }
+
+  /** A group's label and/or colour: only what changed is sent, once. False if refused. */
+  updateGroup(id: string, change: { label?: string; color?: GroupColor }): boolean {
+    if (this.refuseGroups()) return false;
+    const entry = findGroup(this.view.board, id);
+    if (!entry || isLocalId(id)) return false;
+    const diff: { label?: string; color?: GroupColor } = {};
+    if (change.label !== undefined && cleanLabel(change.label) !== entry.group.label) diff.label = cleanLabel(change.label);
+    if (change.color !== undefined && change.color !== entry.group.color) diff.color = change.color;
+    if (diff.label === undefined && diff.color === undefined) return true;
+    this.update({ board: updateGroupLocal(this.view.board, id, diff), noteNotice: null });
+    this.record("Edit group", [{ kind: "group", id, after: groupFields(diff) }]);
+    this.groupPacer.enqueue({ type: "groupUpdate", id, ...diff });
+    return true;
+  }
+
+  /** Adds notes and shapes to a group (taking them out of any other). One step. False if refused (with the reason). */
+  addToGroup(id: string, ids: readonly string[]): boolean {
+    if (this.refuseGroups()) return false;
+    const entry = findGroup(this.view.board, id);
+    if (!entry || isLocalId(id)) return false;
+    const add = this.groupable(ids).filter((m) => !entry.group.members.includes(m));
+    if (add.length === 0) return this.groupNotice(GROUP_TEXT.noneToAdd);
+    if (add.some(isLocalId)) return this.groupNotice(GROUP_TEXT.unsaved);
+    if (entry.group.members.length + add.length > MAX_GROUP_MEMBERS) return this.groupNotice(GROUP_TEXT.tooMany);
+    const before = this.storedFields("group", id, ["members"]);
+    if (!before) return false;
+    const members = sortIds([...entry.group.members, ...add]);
+    const effects = this.groupEffectRecords(add, id);
+    const out = takeOutLocal(this.view.board, add, id);
+    this.groupTouched.set(id, out.touched);
+    this.update({ board: updateGroupLocal(out.board, id, { members }), noteNotice: null });
+    this.history.recordStep("Add to group", { changes: [{ kind: "group", id, before, after: groupFields({ members }) }], ...effects }, Date.now());
+    this.groupPacer.enqueue({ type: "groupMembers", id, add, remove: [] });
+    return true;
+  }
+
+  /** Takes notes and shapes out of a group (they stay on the board). Refused if fewer than 2 would stay (Ungroup instead). */
+  removeFromGroup(id: string, ids: readonly string[]): boolean {
+    if (this.refuseGroups()) return false;
+    const entry = findGroup(this.view.board, id);
+    if (!entry || isLocalId(id)) return false;
+    const remove = sortIds(ids.filter((m) => entry.group.members.includes(m)));
+    if (remove.length === 0) return this.groupNotice(GROUP_TEXT.noneToRemove);
+    const members = entry.group.members.filter((m) => !remove.includes(m));
+    if (members.length < MIN_GROUP_MEMBERS) return this.groupNotice(GROUP_TEXT.removeAll);
+    this.update({ board: updateGroupLocal(this.view.board, id, { members }), noteNotice: null });
+    this.record("Remove from group", [{ kind: "group", id, after: groupFields({ members }) }]);
+    this.groupPacer.enqueue({ type: "groupMembers", id, add: [], remove });
+    return true;
+  }
+
+  /** Ungroups: the groups go, their items stay. One step. False if refused or none of them is here. */
+  ungroup(ids: readonly string[]): boolean {
+    if (this.refuseGroups()) return false;
+    const entries = ids.flatMap((id) => findGroup(this.view.board, id) ?? []);
+    if (entries.length === 0) return this.groupNotice(GROUP_TEXT.noneToUngroup);
+    let board = this.view.board;
+    const removed: Group[] = [];
+    for (const entry of entries) {
+      board = deleteGroupLocal(board, entry.group.id);
+      if (entry.clientRef !== null) {
+        this.abandonedGroups.add(entry.clientRef);
+        this.history.refuse("group", entry.group.id);
+      } else removed.push(entry.confirmed ?? entry.group);
+    }
+    this.update({ board, noteNotice: null });
+    this.history.recordRemove(
+      "Ungroup",
+      removed.map((g) => ({ kind: "group" as const, id: g.id, content: groupFields(g), z: 0, rev: g.rev })),
+      Date.now(),
+    );
+    for (const g of removed) this.groupPacer.enqueue({ type: "groupDelete", id: g.id });
+    return true;
+  }
+
+  /** A group create confirmed: the temporary group takes its server id. Ungrouped here meanwhile: ungrouped now. */
+  private confirmGroup(group: Group, clientRef: string | undefined): void {
+    const temp = clientRef === undefined ? undefined : findGroup(this.view.board, localId(clientRef));
+    let board = applyGroupCreated(this.view.board, group, clientRef);
+    let deleteNow = false;
+    if (clientRef !== undefined && this.abandonedGroups.delete(clientRef)) {
+      board = deleteGroupLocal(board, group.id);
+      deleteNow = true;
+    } else if (temp) this.history.confirmAdd("group", temp.group.id, group.id, group.rev);
+    if (temp) this.options.onGroupConfirmed?.(temp.group.id, group.id);
+    if (clientRef !== undefined) this.groupTouched.delete(`ref:${clientRef}`);
+    const run = clientRef === undefined ? undefined : this.groupRuns.get(clientRef);
+    if (run && clientRef !== undefined) {
+      this.groupRuns.delete(clientRef);
+      run.groups.pending.delete(clientRef);
+      run.groups.added++;
+    }
+    this.update({ board, ...(clientRef !== undefined ? { rateLimited: false } : {}), ...(run?.restore ? this.itemsDone(run, board) : {}) });
+    if (deleteNow) this.groupPacer.enqueue({ type: "groupDelete", id: group.id });
+  }
+
+  /** The relay refused a group message: rolled back (with the groups it took items from), with one calm notice. */
+  private groupRefused(message: Extract<ServerMessage, { type: "error" }>): void {
+    let board = this.view.board;
+    let run: ItemsRun | undefined;
+    const back = (key: string) => {
+      for (const other of this.groupTouched.get(key) ?? []) {
+        board = rollbackGroup(board, other);
+        this.history.refuse("group", other);
+        this.dissolving.delete(other);
+      }
+      this.groupTouched.delete(key);
+    };
+    const ref = message.clientRef;
+    if (ref !== undefined) {
+      board = rejectGroupCreate(board, ref);
+      this.history.refuse("group", localId(ref));
+      this.abandonedGroups.delete(ref);
+      back(`ref:${ref}`);
+      run = this.groupRuns.get(ref);
+      if (run) {
+        this.groupRuns.delete(ref);
+        run.groups.pending.delete(ref);
+        run.groups.refused++;
+      }
+    }
+    const id = message.groupId;
+    let quiet = false;
+    if (id !== undefined) {
+      this.history.refuse("group", id);
+      board = rollbackGroup(board, id);
+      back(id);
+      quiet = this.clearGroups.delete(id);
+    }
+    const noteNotice =
+      message.code === "groups_full"
+        ? GROUP_TEXT.full
+        : message.code === "group_size"
+          ? GROUP_TEXT.size
+          : message.code === "unknown_item"
+            ? GROUP_TEXT.unknownItem
+            : message.code === "unknown_group"
+              ? GROUP_TEXT.unknownGroup
+              : message.code === "board_locked"
+                ? NOTICES.locked
+                : message.code === "silent_active"
+                  ? SILENT_TEXT.on
+                  : message.code === "rate_limited"
+                    ? NOTICES.tooQuick
+                    : NOTICES.refused;
+    this.update({
+      board,
+      ...(quiet ? {} : { noteNotice }),
+      ...(message.code === "rate_limited" ? { rateLimited: true } : {}),
+      ...(run?.restore ? this.itemsDone(run, board) : {}),
+    });
+  }
+
+  /** A group create of a run (a duplicate's, an undo's): it waits for the run's items. */
+  private addGroupToRun(run: ItemsRun, clientRef: string): void {
+    run.groups.refs.push(clientRef);
+    run.groups.pending.add(clientRef);
+    run.groups.waiting.push(clientRef);
+    this.groupRuns.set(clientRef, run);
+  }
+
+  /**
+   * What makes group `id` look like `target` (label, colour, members) from what's shown: the board
+   * with it shown, and the messages (groupUpdate, groupMembers). Members not on the board are left out.
+   */
+  private groupTarget(from: Board, id: string, target: { label?: string; color?: GroupColor; members?: readonly string[] }): { board: Board; sends: GroupMessage[] } {
+    const entry = findGroup(from, id);
+    if (!entry) return { board: from, sends: [] };
+    let board = from;
+    const sends: GroupMessage[] = [];
+    const diff: { label?: string; color?: GroupColor } = {};
+    if (target.label !== undefined && target.label !== entry.group.label) diff.label = target.label;
+    if (target.color !== undefined && target.color !== entry.group.color) diff.color = target.color;
+    if (diff.label !== undefined || diff.color !== undefined) {
+      board = updateGroupLocal(board, id, diff);
+      sends.push({ type: "groupUpdate", id, ...diff });
+    }
+    if (target.members !== undefined) {
+      const want = sortIds(target.members.filter((m) => !isLocalId(m) && (findNote(board, m) !== undefined || findShape(board, m) !== undefined)));
+      const add = want.filter((m) => !entry.group.members.includes(m));
+      const remove = entry.group.members.filter((m) => !want.includes(m));
+      if (add.length + remove.length > 0) {
+        board = updateGroupLocal(takeOutLocal(board, add, id).board, id, { members: want });
+        sends.push({ type: "groupMembers", id, add, remove });
+      }
+    }
+    return { board, sends };
+  }
+
+  /**
+   * A run's items are all answered: its groups go now, paced, with their members' server ids. A
+   * group left with fewer than 2 members here (items refused, or gone) isn't sent, and counts as
+   * not added. An undo's member changes naming restored items go too, with their new ids.
+   */
+  private flushGroups(run: ItemsRun): void {
+    const part = run.groups;
+    if (part.waiting.length === 0 && part.updates.length === 0) return;
+    let board = this.view.board;
+    const here = (id: string) => !isLocalId(id) && (findNote(board, id) !== undefined || findShape(board, id) !== undefined);
+    const sends: GroupMessage[] = [];
+    for (const ref of part.waiting) {
+      const id = localId(ref);
+      const entry = findGroup(board, id);
+      if (!entry) {
+        // Ungrouped here before it was sent.
+        part.pending.delete(ref);
+        this.groupRuns.delete(ref);
+        this.abandonedGroups.delete(ref);
+        continue;
+      }
+      const members = entry.group.members.filter(here);
+      if (members.length < MIN_GROUP_MEMBERS) {
+        board = rejectGroupCreate(board, ref);
+        this.history.refuse("group", id);
+        part.pending.delete(ref);
+        part.refused++;
+        this.groupRuns.delete(ref);
+        continue;
+      }
+      board = updateGroupLocal(board, id, { members });
+      sends.push({ type: "groupCreate", clientRef: ref, label: entry.group.label, color: entry.group.color, members });
+    }
+    part.waiting = [];
+    for (const { id, fields } of part.updates) {
+      if (!findGroup(board, id)) {
+        this.history.refuse("group", id);
+        continue;
+      }
+      const target = groupFromFields(fields);
+      const members = target.members?.flatMap((m) => {
+        const ref = run.arrows.idMap.get(m);
+        const item = ref === undefined ? m : (run.ids.get(ref) ?? null);
+        return item === null ? [] : [item];
+      });
+      const out = this.groupTarget(board, id, { ...target, ...(members ? { members } : {}) });
+      board = out.board;
+      sends.push(...out.sends);
+    }
+    part.updates = [];
+    this.update({ board, ...(run.restore ? this.itemsDone(run, board) : {}) });
+    for (const message of sends) this.groupPacer.enqueue(message);
+  }
+
   /* ── Undo and redo (history/history.ts) ─────────────────────────── */
 
   /** Undoes my last action (what someone else changed since is left as it is). */
@@ -3193,6 +3644,11 @@ export class RoomSession {
       if (!entry?.confirmed) return null;
       return { rev: entry.confirmed.rev, held: false, state: connectorFields(connectorContent(entry.confirmed)) };
     }
+    if (kind === "group") {
+      const entry = findGroup(this.view.board, id);
+      if (!entry?.confirmed) return null;
+      return { rev: entry.confirmed.rev, held: false, state: groupFields(entry.confirmed) };
+    }
     const entry = findFrame(this.view.board, id);
     if (!entry?.confirmed) return null;
     return { rev: entry.confirmed.rev, held: isFrameHeld(entry) || entry.draft !== null, state: entry.confirmed as unknown as Fields };
@@ -3215,18 +3671,24 @@ export class RoomSession {
     }
     const arrowsTouched =
       plan.changes.some((c) => c.kind === "connector" && !c.byRelay) || plan.deletes.some((d) => d.kind === "connector") || plan.restores.some((r) => r.kind === "connector");
+    const groupsTouched =
+      plan.changes.some((c) => c.kind === "group" && !c.byRelay) || plan.deletes.some((d) => d.kind === "group") || plan.restores.some((r) => r.kind === "group");
     if (this.view.silent.active) {
       // During a silent round: no frame moves (the relay refuses them), and notes added back count
       // towards the board's cap and mine. Refused as a whole, before the history moves on.
       const framesMove = plan.changes.some(({ kind, values }) => kind === "frame" && ("x" in values || "y" in values) && !("w" in values || "h" in values));
       // Arrows can't change during a round, for anyone.
-      if ((framesMove || arrowsTouched) && this.refuseSilent()) return;
+      if ((framesMove || arrowsTouched || groupsTouched) && this.refuseSilent()) return;
     }
     // Arrows added back must fit under the cap, all of them, or nothing is done (said up front).
     const arrowRestores = plan.restores.filter((r) => r.kind === "connector");
-    const itemRestores = plan.restores.filter((r) => r.kind !== "connector");
+    const groupRestores = plan.restores.filter((r) => r.kind === "group");
+    const itemRestores = plan.restores.filter((r) => r.kind !== "connector" && r.kind !== "group");
     const freeArrows = Math.max(0, MAX_CONNECTORS_PER_ROOM - this.view.board.connectors.length);
     if (arrowRestores.length > freeArrows) return this.update({ noteNotice: CONNECTOR_TEXT.restoreFull(arrowRestores.length, freeArrows) });
+    // Groups too (protocol v22): all of them fit, or nothing is done.
+    const freeGroups = Math.max(0, MAX_GROUPS_PER_ROOM - this.view.board.groups.length);
+    if (groupRestores.length > freeGroups) return this.update({ noteNotice: GROUP_TEXT.restoreFull(groupRestores.length, freeGroups) });
     // During a round this page can't see every note, so the board's cap is checked here (outside
     // a round a restore that doesn't fit is added in part, as the relay allows).
     const restoredNotes = plan.restores.filter((r) => r.kind === "note").length;
@@ -3244,6 +3706,9 @@ export class RoomSession {
         return end !== null && isBound(end) && itemRestores.some((r) => r.id === end.item);
       });
     const deferred = arrowChanges.filter((c) => namesRestored(c.values));
+    // Group member changes naming items added back wait for their ids, like arrows.
+    const restoredIds = new Set(itemRestores.map((r) => r.id));
+    const deferredGroups = plan.changes.filter((c) => c.kind === "group" && !c.byRelay && (decodeMembers(c.values.members) ?? []).some((m) => restoredIds.has(m)));
     let restore: ItemsRun | null = null;
     if (itemRestores.length > 0) {
       const inputs = itemRestores.map((r) => itemInput(r.kind, r.content));
@@ -3256,7 +3721,7 @@ export class RoomSession {
         restore?.arrows.idMap.set(r.id, ref);
       });
     }
-    if (!restore && (arrowRestores.length > 0 || deferred.length > 0)) {
+    if (!restore && (arrowRestores.length > 0 || deferred.length > 0 || groupRestores.length > 0 || deferredGroups.length > 0)) {
       restore = newRun(null, true);
       this.restoreRun = restore;
     }
@@ -3274,6 +3739,16 @@ export class RoomSession {
       newIds.set(`connector:${r.id}`, localId(clientRef));
       this.addArrowToRun(restore, clientRef);
     }
+    // Groups added back: shown at once with their members' local ids; sent once the items are on the relay.
+    for (const r of groupRestores) {
+      const content = groupFromFields(r.content);
+      if (!restore) continue;
+      const members = (content.members ?? []).map((m) => newIds.get(`note:${m}`) ?? newIds.get(`shape:${m}`) ?? m);
+      const clientRef = randomRef();
+      board = addGroupLocal(board, { clientRef, label: content.label ?? "", color: content.color ?? "neutral", members }).board;
+      newIds.set(`group:${r.id}`, localId(clientRef));
+      this.addGroupToRun(restore, clientRef);
+    }
     if (restore) restore.skipped = plan.skipped;
     this.history.applied(plan, newIds, now);
 
@@ -3281,7 +3756,21 @@ export class RoomSession {
     const shapeOps: ShapeBatchEntry[] = [];
     const sends: ClientMessage[] = [];
     const arrowSends: ConnectorMessage[] = [];
+    const groupDeletes: GroupMessage[] = [];
+    const groupSends: GroupMessage[] = [];
     for (const { kind, id, values, byRelay } of plan.changes) {
+      if (kind === "group") {
+        // The relay changes it itself (redo of an item delete or a move into another group): nothing to send.
+        if (byRelay) continue;
+        if (deferredGroups.some((d) => d.id === id)) {
+          restore?.groups.updates.push({ id, fields: values });
+          continue;
+        }
+        const out = this.groupTarget(board, id, groupFromFields(values));
+        board = out.board;
+        groupSends.push(...out.sends);
+        continue;
+      }
       if (kind === "connector") {
         // The relay frees the ends itself (redo of an item delete): nothing to send.
         if (byRelay) continue;
@@ -3345,7 +3834,10 @@ export class RoomSession {
       }
     }
     for (const { kind, id } of plan.deletes) {
-      if (kind === "connector") {
+      if (kind === "group") {
+        board = deleteGroupLocal(board, id);
+        groupDeletes.push({ type: "groupDelete", id });
+      } else if (kind === "connector") {
         board = deleteConnectorLocal(board, id);
         arrowSends.push({ type: "connectorDelete", id });
       } else if (kind === "note") {
@@ -3370,7 +3862,9 @@ export class RoomSession {
       noteNotice: null,
       historyReport: plan.skipped > 0 ? { text: HISTORY_TEXT.conflicts(plan.skipped), partial: true } : null,
     });
-    // Arrows first, so an item's delete never frees an end of an arrow that's going (or changing) too.
+    // Groups first (ungroups, then changes), then arrows, so an item's delete never frees an end of
+    // an arrow that's going (or changing) too.
+    for (const message of [...groupDeletes, ...groupSends]) this.groupPacer.enqueue(message);
     for (const message of arrowSends) this.pacer.enqueue(message);
     this.pacer.whenSent(() => {
       if (!this.live) return;
@@ -3381,7 +3875,7 @@ export class RoomSession {
     if (restore) {
       if (restore.pending.size === 0) {
         this.update(this.itemsDone(restore, this.view.board));
-        this.flushArrows(restore);
+        this.flushRun(restore);
       }
       this.pumpItems();
     }
@@ -3409,8 +3903,13 @@ export class RoomSession {
   /** What the relay has (or will have, from my changes in flight) for these fields; null for an unconfirmed item. */
   private storedFields(kind: ItemKind, id: string, keys: readonly string[]): Fields | null {
     const arrow = kind === "connector" ? findConnector(this.view.board, id)?.confirmed : undefined;
+    const grouped = kind === "group" ? findGroup(this.view.board, id)?.confirmed : undefined;
     const confirmed = (
-      kind === "connector"
+      kind === "group"
+        ? grouped
+          ? groupFields(grouped)
+          : null
+        : kind === "connector"
         ? arrow
           ? connectorFields(connectorContent(arrow))
           : null
@@ -3429,7 +3928,14 @@ export class RoomSession {
   }
 
   /** Records items I deleted (confirmed only), with their content and z, to add them back on undo. */
-  private recordRemoval(label: string, notes: readonly Note[], frames: readonly Frame[], shapes: readonly Shape[] = [], connectors: readonly Connector[] = []): void {
+  private recordRemoval(
+    label: string,
+    notes: readonly Note[],
+    frames: readonly Frame[],
+    shapes: readonly Shape[] = [],
+    connectors: readonly Connector[] = [],
+    groups: readonly Group[] = [],
+  ): void {
     const board = this.view.board;
     const rev = (kind: ItemKind, id: string) =>
       (kind === "note"
@@ -3440,6 +3946,10 @@ export class RoomSession {
             ? (findConnector(board, id) ?? board.connectorsRemoved.find((c) => c.connector.id === id))?.confirmed?.rev
             : (findFrame(board, id) ?? board.framesRemoved.find((f) => f.frame.id === id))?.confirmed?.rev) ?? 1;
     const items = [...notes, ...shapes].filter((i) => !isLocalId(i.id)).map((i) => i.id);
+    // Groups (protocol v22): ungrouped here (Clear board), and the ones the relay dissolves or
+    // shrinks because their items go (undo creates them again, or puts the items back in).
+    const effects = this.groupEffectRecords(items, null);
+    const groupRev = (id: string) => (findGroup(board, id) ?? board.groupsRemoved.find((g) => g.group.id === id))?.confirmed?.rev ?? 1;
     this.history.recordRemove(
       label,
       [
@@ -3449,9 +3959,11 @@ export class RoomSession {
         ...connectors
           .filter((c) => !isLocalId(c.id))
           .map((c) => ({ kind: "connector" as const, id: c.id, content: connectorFields(connectorContent(c)), z: 0, rev: rev("connector", c.id) })),
+        ...groups.filter((g) => !isLocalId(g.id)).map((g) => ({ kind: "group" as const, id: g.id, content: groupFields(g), z: 0, rev: groupRev(g.id) })),
+        ...effects.removed,
       ],
       Date.now(),
-      this.detachRecords(items),
+      [...this.detachRecords(items), ...effects.relayChanges],
     );
   }
 
@@ -3531,6 +4043,17 @@ export class RoomSession {
         this.history.observe("connector", id, prev.rev, confirmed.rev, connectorFields(connectorContent(confirmed)), false);
       }
       for (const id of arrowsBefore.keys()) if (!arrowsAfter.has(id) && !isLocalId(id)) this.history.deleted("connector", id);
+    }
+    // Groups (protocol v22): no z either.
+    if (before.groups !== after.groups || before.groupsRemoved !== after.groupsRemoved) {
+      const groupsBefore = new Map([...before.groups, ...before.groupsRemoved].map((g) => [g.group.id, g.confirmed] as const));
+      const groupsAfter = new Map([...after.groups, ...after.groupsRemoved].map((g) => [g.group.id, g.confirmed] as const));
+      for (const [id, confirmed] of groupsAfter) {
+        const prev = groupsBefore.get(id);
+        if (!confirmed || !prev || prev === confirmed) continue;
+        this.history.observe("group", id, prev.rev, confirmed.rev, groupFields(confirmed), false);
+      }
+      for (const id of groupsBefore.keys()) if (!groupsAfter.has(id) && !isLocalId(id)) this.history.deleted("group", id);
     }
     // A change confirmed may make undo or redo possible.
     this.refreshHistory();
@@ -3880,6 +4403,12 @@ export class RoomSession {
     clearTimeout(this.clearTimer);
     this.history.clear();
     this.pacer.reset();
+    this.groupPacer.reset();
+    this.abandonedGroups.clear();
+    this.groupRuns.clear();
+    this.groupTouched.clear();
+    this.dissolving.clear();
+    this.clearGroups.clear();
     this.stopAllMoves();
     this.forgetCursors();
     this.forgetFollow();
@@ -3924,8 +4453,6 @@ export class RoomSession {
     // Follow and Bring to me (protocol v19) go straight to the follow sink, never a view update.
     const v = parsed.value;
     if (v.type === "viewportUpdate" || v.type === "followersChanged" || v.type === "followEnded" || v.type === "broughtToMe") return this.onFollow(v);
-    // Groups (protocol v22) are validated above and ignored until the groups UI: never a view update.
-    if (v.type === "groupsSnapshot" || v.type === "groupCreated" || v.type === "groupUpdated" || v.type === "groupDeleted") return;
     const before = this.view.board;
     this.handle(parsed.value);
     this.pruneVotes();
@@ -3950,6 +4477,8 @@ export class RoomSession {
         this.forgetFollow();
         // Protocol v21: a new socket's connector bucket is full on the relay, so it is here too.
         this.pacer.reset();
+        // Protocol v22: and its group buckets.
+        this.groupPacer.reset();
         for (const p of message.participants) this.known.set(p.id, p);
         this.known.set(message.you.id, message.you);
         this.yourIds.add(message.you.id);
@@ -4326,6 +4855,29 @@ export class RoomSession {
         this.clearRun?.connectors.ids.delete(message.id);
         return this.update({ board: applyConnectorDeleted(this.view.board, message.id), ...this.deleteSettled() });
 
+      case "groupsSnapshot":
+        // Every join, right after connectorsSnapshot: the relay's groups replace this page's.
+        return this.update({ board: applyGroupsSnapshot(this.view.board, message.groups) });
+
+      case "groupCreated":
+        return this.confirmGroup(message.group, message.clientRef);
+
+      case "groupUpdated": {
+        // By rev; an id this page doesn't know is ignored. A group my delete should have dissolved
+        // that the relay kept (someone added to it meanwhile): that undo record goes.
+        const going = this.dissolving.get(message.group.id);
+        if (going && !message.group.members.some((m) => going.has(m))) {
+          this.dissolving.delete(message.group.id);
+          this.history.refuse("group", message.group.id);
+        }
+        return this.update({ board: applyGroupUpdated(this.view.board, message.group) });
+      }
+
+      case "groupDeleted":
+        this.dissolving.delete(message.id);
+        this.clearGroups.delete(message.id);
+        return this.update({ board: applyGroupDeleted(this.view.board, message.id) });
+
       case "error": {
         // The host's Start or Reveal refused (silent_active, not_host, rate_limited...): not waiting any more.
         if (this.view.silentPending !== null && message.clientRef === undefined && message.noteId === undefined && message.frameId === undefined) {
@@ -4347,6 +4899,8 @@ export class RoomSession {
           this.reactPending.clear();
           return this.update({ isVoter: false, votersFull: true, ...this.reactionView() });
         }
+        // Protocol v22: a refused group create, update, member change or ungroup.
+        if (message.groupId !== undefined || (message.clientRef !== undefined && this.isGroupRef(message.clientRef))) return this.groupRefused(message);
         // Protocol v21: a refused arrow add, update or delete.
         if (message.connectorId !== undefined || (message.clientRef !== undefined && this.isConnectorRef(message.clientRef))) return this.connectorRefused(message);
         const batch = message.clientRef === undefined ? undefined : this.itemBatches.get(message.clientRef);
@@ -4432,7 +4986,7 @@ export class RoomSession {
     }
     if (temp) {
       // Arrows waiting here for this note (a duplicate's, an undo's) follow its server id.
-      next = renameItemInConnectors(next, temp.note.id, note.id);
+      next = renameItemInGroups(renameItemInConnectors(next, temp.note.id, note.id), temp.note.id, note.id);
       this.options.onNoteConfirmed?.(temp.note.id, note.id);
     }
     return next;
@@ -4477,7 +5031,7 @@ export class RoomSession {
       }
     }
     if (temp) {
-      next = renameItemInConnectors(next, temp.shape.id, shape.id);
+      next = renameItemInGroups(renameItemInConnectors(next, temp.shape.id, shape.id), temp.shape.id, shape.id);
       this.options.onShapeConfirmed?.(temp.shape.id, shape.id);
     }
     return next;
@@ -4646,6 +5200,12 @@ export class RoomSession {
     this.pacer.reset();
     this.abandonedConnectors.clear();
     this.arrowRuns.clear();
+    this.groupPacer.reset();
+    this.abandonedGroups.clear();
+    this.groupRuns.clear();
+    this.groupTouched.clear();
+    this.dissolving.clear();
+    this.clearGroups.clear();
     clearTimeout(this.presenceTimer);
     clearTimeout(this.toastTimer);
     this.history.clear();

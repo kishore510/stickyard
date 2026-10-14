@@ -50,20 +50,17 @@ function patch(board: Board, id: string, change: (entry: BoardGroup) => BoardGro
   return { ...board, groups };
 }
 
-/** Items named by `group` leave every other group, shown and confirmed (the relay's word on membership). */
+/**
+ * Items named by `group` leave every other group as shown (the relay's word on membership). Their
+ * confirmed versions wait for the relay's own groupUpdated or groupDeleted, which carry the rev.
+ */
 function exclusive(board: Board, group: Group): Board {
   const taken = new Set(group.members);
   let changed = false;
-  const strip = (g: Group | null): Group | null => {
-    if (!g || g.id === group.id || !g.members.some((m) => taken.has(m))) return g;
-    changed = true;
-    return { ...g, members: g.members.filter((m) => !taken.has(m)) };
-  };
   const groups = board.groups.map((e) => {
-    if (e.group.id === group.id) return e;
-    const shown = strip(e.group)!;
-    const confirmed = strip(e.confirmed);
-    return shown === e.group && confirmed === e.confirmed ? e : { ...e, group: shown, confirmed };
+    if (e.group.id === group.id || !e.group.members.some((m) => taken.has(m))) return e;
+    changed = true;
+    return { ...e, group: { ...e.group, members: e.group.members.filter((m) => !taken.has(m)) } };
   });
   return changed ? { ...board, groups } : board;
 }

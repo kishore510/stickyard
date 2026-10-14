@@ -38,6 +38,7 @@ import { useConnectorDrawing } from "../connectors/useConnectorDrawing";
 import { useConnectorUi } from "../connectors/connectorUi";
 import { boxOfBoard, freedArrows, resolveShown } from "../connectors/geometry";
 import { CONNECTOR_TEXT } from "../connectors/rules";
+import { ungroupedBy } from "../groups/geometry";
 import type { ConnectorPatch } from "../connectors/board";
 import type { ConnectorEnd } from "@stickyard/shared";
 import type { DrawStyle } from "../connectors/connectorUi";
@@ -132,7 +133,7 @@ export function deleteArrows(room: Pick<BoardRoom, "deleteConnectors" | "live">,
 /** Deletes a shape, asking first when it has text, and clears the selection. */
 export function deleteShapeAsking(room: Pick<BoardRoom, "board" | "deleteShape">, id: string): void {
   const entry = findShape(room.board, id);
-  if (!entry || !confirmShapeDelete(entry.shape, undefined, freedArrows(room.board, [id]))) return;
+  if (!entry || !confirmShapeDelete(entry.shape, undefined, freedArrows(room.board, [id]), ungroupedBy(room.board, [id]))) return;
   room.deleteShape(id);
   useBoardUi.getState().clearSelection();
 }
@@ -146,11 +147,12 @@ export function deleteSelected(room: Pick<BoardRoom, "board" | "live" | "deleteN
   if (only === undefined) return;
   if (!room.live) return room.deleteNotes(ids);
   const freed = freedArrows(room.board, ids);
+  const ungrouped = ungroupedBy(room.board, ids);
   if (ids.length === 1) {
-    if (!confirmDelete(findNote(room.board, only)?.note.text ?? "", undefined, freed)) return;
+    if (!confirmDelete(findNote(room.board, only)?.note.text ?? "", undefined, freed, ungrouped)) return;
     room.deleteNote(only);
   } else {
-    if (!confirmDeleteNotes(ids.length, undefined, freed)) return;
+    if (!confirmDeleteNotes(ids.length, undefined, freed, ungrouped)) return;
     room.deleteNotes(ids);
   }
   useBoardUi.getState().clearSelection();
