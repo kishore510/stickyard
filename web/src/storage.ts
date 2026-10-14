@@ -36,6 +36,12 @@ export const STORAGE_KEYS = {
    * of it), removed when the session ends or expires. Clearing browser data makes a new voter.
    */
   voterKeyPrefix: storageKey("voter:"),
+  /**
+   * Stencils saved in this browser (v0.39.0): `{ version, stencils }`, each a name and the saved
+   * items' content and text. Never sent anywhere until one is placed on a board; read back as
+   * untrusted data (stencils/storage.ts).
+   */
+  stencils: storageKey("stencils"),
 } as const;
 
 /** The key holding a room's host token on this device. */

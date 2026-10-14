@@ -28,6 +28,7 @@ import {
   Vote,
   EyeOff,
   Group,
+  BookmarkPlus,
 } from "lucide-react";
 import { clampFrameRect, type NoteRect, type OrderAction } from "@stickyard/shared";
 import { Button } from "../components/ui/button";
@@ -367,6 +368,8 @@ export interface BoardBarProps {
   arrows?: number;
   /** Group the selected notes and shapes (v0.38.0; G): why it's off (null: it works), and the action. */
   grouping?: { reason: string | null; run: () => void } | null;
+  /** Save as stencil (v0.39.0): why it's off (null: it works), and the action (opens its dialog). */
+  stencil?: { reason: string | null; run: () => void } | null;
   /** The host's Session group (Lock / Unlock); null for guests, who get no dead buttons. */
   session?: { locked: boolean; pending: boolean | null; setLock: (locked: boolean) => boolean } | null;
 }
@@ -405,6 +408,7 @@ export function BoardBar({
   session = null,
   arrows = 0,
   grouping = null,
+  stencil = null,
 }: BoardBarProps) {
   // Arrange works on notes and shapes together (protocol v15; each clamped to its own limits), or
   // (v0.20.0) on the frames when only frames are selected; a mix with frames is refused with a reason.
@@ -454,6 +458,8 @@ export function BoardBar({
     </span>
   ) : null;
   const moveOff = arrangeOff ?? frameMoveReason;
+  // Save as stencil (v0.39.0): in Edit from xl; below xl in the Arrange panel, so the bar keeps one row at 768.
+  const stencilCommands: BarCommand[] = stencil ? [{ title: "Save as stencil", icon: <BookmarkPlus />, ...off(stencil.reason), run: stencil.run }] : [];
   const distributeReason = moveOff ?? (items.length < 3 ? (onFrames ? ARRANGE_HINTS.fewFramesDistribute : DISTRIBUTE_HINT) : null);
   return (
     <FloatingBar
@@ -473,6 +479,7 @@ export function BoardBar({
             { title: "Delete", icon: <Trash2 />, ...off(deleteReason), run: remove },
             // Groups (v0.38.0): one button (G); Ungroup is in Properties and Shift+G, so the top bar keeps one row at 768.
             ...(grouping ? [{ title: "Group", icon: <Group />, ...off(grouping.reason), run: grouping.run }] : []),
+            ...(full ? stencilCommands : []),
           ],
         },
         ...(full ? [{ label: "Order", commands: orderCommands }] : []),
@@ -482,6 +489,7 @@ export function BoardBar({
           commands: [
             // Below xl, Order folds in here so the top bar keeps one row.
             ...(full ? [] : orderCommands),
+            ...(full ? [] : stencilCommands),
             ...ALIGN.map((a) => ({ ...a, ...off(moveOff), run: () => send(align(items, a.mode, clamp)) })),
             ...DISTRIBUTE.map((d) => ({ ...d, ...off(distributeReason), run: () => send(distribute(items, d.axis, clamp)) })),
             ...MATCH.map((m) => ({ ...m, ...off(arrangeOff), run: () => send(matchSize(items, m.mode, clamp)) })),

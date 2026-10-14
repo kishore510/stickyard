@@ -6,6 +6,8 @@ import type { Size, XY } from "../canvas/geometry";
 import { NOTE_COLOR_NAMES } from "../notes/colours";
 import { templateBounds } from "../templates/place";
 import { TEMPLATE_GROUPS, TEMPLATES, type Template } from "../templates/registry";
+import { BUILTIN_STENCILS } from "../stencils/builtins";
+import { stencilBounds, type Stencil } from "../stencils/data";
 
 /*
  * The palette: everything you can add to the board, in one registry. The desktop palette
@@ -25,7 +27,8 @@ export type PalettePreview =
   | { kind: "icon"; icon: LucideIcon }
   | { kind: "template"; template: Template }
   | { kind: "shape"; shape: ShapeKind }
-  | { kind: "connector"; style: DrawStyle };
+  | { kind: "connector"; style: DrawStyle }
+  | { kind: "stencil"; stencil: Stencil };
 
 /** What a drag carries (shown under the pointer while dragging). */
 export type PalettePayload =
@@ -34,7 +37,8 @@ export type PalettePayload =
   | { kind: "template"; id: string }
   | { kind: "timer" }
   | { kind: "shape"; shape: ShapeKind }
-  | { kind: "connector"; style: DrawStyle };
+  | { kind: "connector"; style: DrawStyle }
+  | { kind: "stencil"; id: string };
 
 /**
  * What tiles can do, with plain data. `at` is a board position (a drop: the top-left of the
@@ -50,6 +54,8 @@ export interface PaletteActions {
   addShape(kind: ShapeKind, at?: XY): void;
   /** Arms the arrow draw tool with this style (v0.36.0); a drop starts the arrow where it lands. */
   startArrow(style: DrawStyle, at?: XY): void;
+  /** Places a stencil (v0.39.0) centred on the viewport, or with its top-left at a drop's `at`. */
+  placeStencil?(stencil: Stencil, at?: XY): void;
 }
 
 /** What tiles need to know to be enabled. */
@@ -66,6 +72,8 @@ export interface PaletteContext {
   shapeReason: string | null;
   /** Why arrows can't be drawn right now (disconnected, 100 arrows, locked, a silent round), or null. */
   connectorReason?: string | null;
+  /** Why stencils can't be placed right now (disconnected, locked, a silent round, adding), or null. */
+  stencilReason?: string | null;
 }
 
 /** Where tiles are listed: the palette panel (md and up, also its collapsed strip) or the phone add drawer. */
@@ -80,6 +88,8 @@ export interface PaletteRoomState {
   noteCount: number;
   /** This visit has host powers (facilitation tiles are the host's only). */
   isHost: boolean;
+  /** Stencils saved in this browser (v0.39.0), already checked (stencils/storage.ts). */
+  stencils?: readonly Stencil[];
 }
 
 export interface PaletteItem {
@@ -199,6 +209,23 @@ const templateTile = (template: Template): PaletteItem => ({
   disabled: (ctx) => ctx.templateReason,
 });
 
+/** A stencil's tile (v0.39.0): a click places it at the view centre, a drop centres it on the pointer. */
+export const stencilTile = (stencil: Stencil, saved = false): PaletteItem => ({
+  id: `${saved ? "saved" : "stencil"}-${stencil.id}`,
+  label: stencil.name,
+  keywords: ["stencil", saved ? "saved" : "built-in"],
+  preview: { kind: "stencil", stencil },
+  payload: { kind: "stencil", id: stencil.id },
+  create: (actions, at) => actions.placeStencil?.(stencil, at),
+  dropSize: stencilBounds(stencil),
+  disabled: (ctx) => ctx.stencilReason ?? null,
+});
+
+/** Stencils saved in this browser, from the room board's state (they change as you save and delete). */
+export function savedStencilTiles(state: PaletteRoomState): readonly PaletteItem[] {
+  return (state.stencils ?? []).map((s) => stencilTile(s, true));
+}
+
 /** The host's Timer tile: opens the duration picker (the timer is the room's, not a thing on the board). */
 export const TIMER_TILE: PaletteItem = {
   id: "timer",
@@ -222,7 +249,7 @@ export function roomNoteTiles(_state: PaletteRoomState): readonly PaletteItem[] 
 
 export const PALETTE_TABS: readonly PaletteTab[] = [
   { id: "add", label: "Add", order: 1 },
-  // Shown once a category in it has an item (slice 7 registers the first stencils).
+  // Shown once a category in it has an item: the built-in stencils (v0.39.0), md and up.
   { id: "stencils", label: "Stencils", order: 2 },
 ];
 
@@ -247,6 +274,9 @@ export const PALETTE_CATEGORIES: readonly PaletteCategory[] = [
   ),
   // Host only, md and up (phones: the Participants sheet's Session section).
   { id: "facilitation", label: "Facilitation", order: 4, tab: "add", items: [], fromRoom: facilitationTiles, surfaces: ["panel"] },
+  // Stencils (v0.39.0): md and up only (phones show the board's items but don't place stencils).
+  { id: "stencils-builtin", label: "Built-in", order: 1, tab: "stencils", items: BUILTIN_STENCILS.map((s) => stencilTile(s)), surfaces: ["panel"] },
+  { id: "stencils-saved", label: "Saved in this browser", order: 2, tab: "stencils", items: [], fromRoom: savedStencilTiles, surfaces: ["panel"] },
 ];
 
 export interface PaletteSection {

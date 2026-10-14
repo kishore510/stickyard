@@ -11,6 +11,8 @@ import { NOTE_COLOR_CLASSES } from "../notes/colours";
 import { tileColumns } from "../panels/layout";
 import { frameSwatchStyle } from "../frames/style";
 import { templateBounds } from "../templates/place";
+import { stencilBounds, type Stencil } from "../stencils/data";
+import { StencilManager } from "../stencils/StencilUi";
 import type { Template } from "../templates/registry";
 import {
   PALETTE_CATEGORIES,
@@ -77,6 +79,29 @@ function TemplatePreview({ template }: { template: Template }) {
   );
 }
 
+/** A stencil in miniature (v0.39.0): its frames, notes and shapes as boxes, in their colours. */
+function StencilPreview({ stencil }: { stencil: Stencil }) {
+  const { width, height } = stencilBounds(stencil);
+  const longest = Math.max(width, height, 1);
+  const box = { width: width / longest, height: height / longest };
+  const at = (r: { x: number; y: number; w: number; h: number }) => ({ left: percent(r.x / width), top: percent(r.y / height), width: percent(r.w / width), height: percent(r.h / height) });
+  return (
+    <span aria-hidden="true" data-preview="stencil" className="relative block size-tile-preview">
+      <span className="absolute" style={{ left: percent((1 - box.width) / 2), top: percent((1 - box.height) / 2), width: percent(box.width), height: percent(box.height) }}>
+        {stencil.frames.map((f) => (
+          <span key={f.ref} className="absolute rounded-sm border" style={{ ...at(f), ...frameSwatchStyle(f.color) }} />
+        ))}
+        {stencil.shapes.map((x) => (
+          <span key={x.ref} className={cn("absolute border border-border-strong bg-surface", x.kind === "oval" ? "rounded-full" : "rounded-xs")} style={at(x)} />
+        ))}
+        {stencil.notes.map((n) => (
+          <span key={n.ref} className={cn("absolute rounded-xs border border-border", NOTE_COLOR_CLASSES[n.color])} style={at(n)} />
+        ))}
+      </span>
+    </span>
+  );
+}
+
 /** A shape kind in miniature, in its default look (protocol v15). */
 function ShapePreview({ kind }: { kind: ShapeKind }) {
   if (kind === "text") {
@@ -114,6 +139,7 @@ function ConnectorPreview({ style }: { style: Extract<PalettePreview, { kind: "c
 
 function Preview({ preview, size }: { preview: PalettePreview; size: "tile" | "ghost" }) {
   if (preview.kind === "template") return <TemplatePreview template={preview.template} />;
+  if (preview.kind === "stencil") return <StencilPreview stencil={preview.stencil} />;
   if (preview.kind === "connector") return <ConnectorPreview style={preview.style} />;
   if (preview.kind === "shape") return <ShapePreview kind={preview.shape} />;
   if (preview.kind === "icon") {
@@ -386,7 +412,14 @@ export function PaletteContent({ host, width, collapse }: { host: PaletteHost; w
           {reason}
         </p>
       )}
+      {current === "stencils" && host.ctx.stencilReason && (
+        <p role="status" data-stencil-reason="" className="text-sm text-fg-muted">
+          {host.ctx.stencilReason}
+        </p>
+      )}
       <Sections host={host} tab={current} query={query} columns={tileColumns(width)} tileProps={tileProps} />
+      {/* Stencils (v0.39.0): what storage allows, and the saved ones' Rename, Delete and Delete all. */}
+      {current === "stencils" && <StencilManager />}
       <p className="text-xs text-fg-muted">Click a tile to add it in the middle of the view, or drag it onto the board.</p>
       {ghostElement}
     </div>

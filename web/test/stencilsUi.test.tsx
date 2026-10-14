@@ -23,7 +23,7 @@ const tile = (label: string) => palette()?.querySelector<HTMLButtonElement>(`but
 const saved = (name: string) => ({
   id: "saved1",
   name,
-  notes: [{ ref: "n1", x: 0, y: 0, w: 160, h: 160, text: HOSTILE, ...NOTE_DEFAULTS, color: "yellow" }],
+  notes: [{ ref: "n1", x: 0, y: 0, text: HOSTILE, ...NOTE_DEFAULTS, color: "yellow" }],
   shapes: [],
   frames: [],
   arrows: [],
@@ -63,10 +63,10 @@ describe("the Stencils tab", () => {
     expect(palette()!.querySelector("img")).toBeNull();
     const manage = palette()!.querySelector<HTMLElement>("[data-stencil-manager]")!;
     expect(manage.textContent).toContain(HOSTILE);
-    vi.spyOn(window, "prompt").mockReturnValue("Renamed");
+    vi.stubGlobal("prompt", vi.fn(() => "Renamed"));
     await click(named(`Rename ${HOSTILE}`, manage));
     expect(JSON.parse(localStorage.getItem(KEY)!).stencils[0].name).toBe("Renamed");
-    vi.spyOn(window, "confirm").mockReturnValue(true);
+    vi.stubGlobal("confirm", vi.fn(() => true));
     await click(named("Delete Second", palette()!.querySelector<HTMLElement>("[data-stencil-manager]")!));
     expect(JSON.parse(localStorage.getItem(KEY)!).stencils.map((s: { id: string }) => s.id)).toEqual(["saved1"]);
     await click(named("Delete all saved stencils", palette()!));
@@ -83,12 +83,10 @@ describe("the Stencils tab", () => {
 
   it("with storage blocked the tab says so and the built-ins still work", async () => {
     await inRoom();
-    vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
+    const blocked = () => {
       throw new Error("blocked");
-    });
-    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
-      throw new Error("blocked");
-    });
+    };
+    vi.stubGlobal("localStorage", { getItem: blocked, setItem: blocked, removeItem: blocked });
     await openStencils();
     expect(palette()!.textContent).toContain(STENCIL_TEXT.blocked);
     expect(tile(BUILTIN_STENCILS[0]!.name)?.disabled).toBe(false);

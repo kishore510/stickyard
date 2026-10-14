@@ -36,7 +36,7 @@ function memory(blocked = false): KeyValueStore & { data: Map<string, string> } 
 const valid = (extra: Partial<Stencil> = {}): Stencil => ({
   id: "mine1",
   name: "Mine",
-  notes: [{ ref: "n1", x: 0, y: 0, w: 160, h: 160, text: "One", ...NOTE_DEFAULTS, color: "yellow" }, { ref: "n2", x: 200, y: 0, w: 160, h: 160, text: "Two", ...NOTE_DEFAULTS, color: "blue" }],
+  notes: [{ ref: "n1", x: 0, y: 0, text: "One", ...NOTE_DEFAULTS, color: "yellow" }, { ref: "n2", x: 200, y: 0, text: "Two", ...NOTE_DEFAULTS, color: "blue" }],
   shapes: [],
   frames: [],
   arrows: [{ start: { ref: "n1", anchor: "right" }, end: { ref: "n2", anchor: "left" }, route: "straight", dash: "solid", width: "medium", ink: "neutral", startHead: "none", endHead: "arrow" }],

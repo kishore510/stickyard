@@ -66,7 +66,7 @@ describe("placing a stencil", () => {
 
   it("text and names stay text: a hostile saved stencil places plain strings through the normal add messages", () => {
     const HOSTILE = "<img src=x onerror=alert(1)>";
-    const s: Stencil = { id: "evil", name: HOSTILE, notes: [{ ref: "n1", x: 0, y: 0, w: 160, h: 160, text: HOSTILE, ...NOTE_DEFAULTS, color: "pink" }], shapes: [], frames: [], arrows: [], groups: [] };
+    const s: Stencil = { id: "evil", name: HOSTILE, notes: [{ ref: "n1", x: 0, y: 0, text: HOSTILE, ...NOTE_DEFAULTS, color: "pink" }], shapes: [], frames: [], arrows: [], groups: [] };
     const t = room();
     t.session.placeStencil(s, { x: 500, y: 500 });
     vi.advanceTimersByTime(1000);

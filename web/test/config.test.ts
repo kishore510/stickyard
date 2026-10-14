@@ -44,6 +44,8 @@ describe("storage keys", () => {
       hostTokenPrefix: "stickyard:host:",
       // Protocol v13: one random voter key per room, stickyard:voter:<room id>.
       voterKeyPrefix: "stickyard:voter:",
+      // Stencils (v0.39.0): saved in this browser only, { version, stencils }.
+      stencils: "stickyard:stencils",
     });
   });
 });
