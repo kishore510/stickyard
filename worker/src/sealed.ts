@@ -1,4 +1,4 @@
-import type { Connector, NoteCarryingType, ServerMessage } from "@stickyard/shared";
+import { MIN_GROUP_MEMBERS, type Connector, type Group, type NoteCarryingType, type ServerMessage } from "@stickyard/shared";
 
 /*
  * Silent brainstorm (protocol v17): what one recipient may see of an outbound message. Every
@@ -28,6 +28,13 @@ type Scrubber<K extends NoteCarryingType> = (message: Of<K>, visible: Visible) =
 const one = <M extends { id: string }>(m: M, visible: Visible): M | null => (visible(m.id) ? m : null);
 /** A connector is visible when neither end is bound to a note the recipient can't see. */
 const connectorVisible = (k: Connector, visible: Visible): boolean => [k.start, k.end].every((end) => !("item" in end) || visible(end.item));
+
+/** A group as the recipient may see it: hidden members left out, or null when fewer than MIN_GROUP_MEMBERS are left. */
+const groupFor = (g: Group, visible: Visible): Group | null => {
+  const members = g.members.filter(visible);
+  if (members.length === g.members.length) return g;
+  return members.length >= MIN_GROUP_MEMBERS ? { ...g, members } : null;
+};
 
 /** One entry per note-carrying type (the compiler checks every one is here). null: send nothing. */
 const SCRUB: { [K in NoteCarryingType]: Scrubber<K> } = {
@@ -85,6 +92,17 @@ const SCRUB: { [K in NoteCarryingType]: Scrubber<K> } = {
   connectorsSnapshot: (m, visible) => ({ ...m, connectors: m.connectors.filter((k) => connectorVisible(k, visible)) }),
   connectorAdded: (m, visible) => (connectorVisible(m.connector, visible) ? m : null),
   connectorUpdated: (m, visible) => (connectorVisible(m.connector, visible) ? m : null),
+  // Groups (v22): the relay never puts a sealed note in a group (naming one is unknown_item), so
+  // these only ever back that up: a hidden member is left out, and a group left below 2 whole.
+  groupsSnapshot: (m, visible) => ({ ...m, groups: m.groups.flatMap((g) => groupFor(g, visible) ?? []) }),
+  groupCreated: (m, visible) => {
+    const group = groupFor(m.group, visible);
+    return group ? { ...m, group } : null;
+  },
+  groupUpdated: (m, visible) => {
+    const group = groupFor(m.group, visible);
+    return group ? { ...m, group } : null;
+  },
 };
 
 const carries = (message: ServerMessage): message is Of<NoteCarryingType> => message.type in SCRUB;

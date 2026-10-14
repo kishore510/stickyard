@@ -61,3 +61,6 @@ Architecture notes, moved out of CLAUDE.md on 7 October 2026 so they load only w
 
 ## Connectors in the join step (protocol v21, v0.35.0, arrows part 1 of 2)
 - Every join (first join, reconnect, second tab, after a wake) ends its snapshots with `connectorsSnapshot` right after `reactionsSnapshot` (then `silentMine` during a round, then `votesRevealed` while closed). The web (part 1) validates the four connector messages and ignores them (`RoomSession.onMessage` returns before `handle`: no view update); part 2 applies the snapshot as a full replace on each join, like the other snapshots. Details in connectors.md.
+
+## Groups in the join step (protocol v22, v0.37.0, structure part 1 of 3)
+- Every join now ends its snapshots with `groupsSnapshot` right after `connectorsSnapshot` (then `silentMine` during a round, then `votesRevealed` while closed). The web (part 1) validates the four group messages and ignores them (`RoomSession.onMessage` returns before `handle`: no view update); part 2 applies the snapshot as a full replace on each join. Details in groups.md.

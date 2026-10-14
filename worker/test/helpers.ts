@@ -162,8 +162,8 @@ export class TestClient {
    * hello + join; returns the `joined` message. The notes snapshot that follows it is kept in
    * `snapshot`, the frames snapshot right after that (protocol v9) in `frames`, and the shapes
    * snapshot after that (protocol v15) in `shapes`, the reaction counts after that (protocol v20)
-   * in `reactions`, and the connectors after that (protocol v21) in `connectors`. `key` (protocol
-   * v17) names this page's writer.
+   * in `reactions`, the connectors after that (protocol v21) in `connectors`, and the groups after
+   * that (protocol v22) in `groups`. `key` (protocol v17) names this page's writer.
    */
   async enter(name: string, key?: string): Promise<Extract<ServerMessage, { type: "joined" }>> {
     const welcome = await this.request({ type: "hello", protocolVersion: PROTOCOL_VERSION });
@@ -188,6 +188,10 @@ export class TestClient {
     const connectors = await this.next();
     if (connectors.type !== "connectorsSnapshot") throw new Error(`expected connectorsSnapshot, got ${JSON.stringify(connectors)}`);
     this.connectors = connectors;
+    // Protocol v22: the groups, right after the connectors, on every join.
+    const groups = await this.next();
+    if (groups.type !== "groupsSnapshot") throw new Error(`expected groupsSnapshot, got ${JSON.stringify(groups)}`);
+    this.groups = groups;
     return joined;
   }
 
@@ -196,6 +200,7 @@ export class TestClient {
   shapes: Extract<ServerMessage, { type: "shapesSnapshot" }> | null = null;
   reactions: Extract<ServerMessage, { type: "reactionsSnapshot" }> | null = null;
   connectors: Extract<ServerMessage, { type: "connectorsSnapshot" }> | null = null;
+  groups: Extract<ServerMessage, { type: "groupsSnapshot" }> | null = null;
 }
 
 /**

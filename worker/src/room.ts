@@ -10,6 +10,9 @@ import {
   MAX_BATCH_ENTRIES,
   MAX_CONNECTORS_PER_ROOM,
   MAX_FRAMES_PER_ROOM,
+  MAX_GROUP_MEMBERS,
+  MAX_GROUPS_PER_ROOM,
+  MIN_GROUP_MEMBERS,
   MAX_NOTES_PER_ROOM,
   MAX_FOLLOWERS,
   MAX_PARTICIPANTS,
@@ -47,6 +50,7 @@ import {
   checkShapeBatch,
   clientMessageSchema,
   cleanFrameTitle,
+  cleanGroupLabel,
   cleanName,
   cleanNoteText,
   cleanShapeText,
@@ -65,6 +69,7 @@ import {
   type ConnectorEnd,
   type ErrorCode,
   type Frame,
+  type Group,
   type ItemRefusal,
   type Note,
   type NoteBatchResult,
@@ -82,8 +87,9 @@ import { randomBase64url } from "./crypto";
 import type { Secrets } from "./env";
 import { ENDED_REASON, EXPIRED_REASON, clearToTombstone, nextExpiryAlarm, readTombstone, writeTombstone, type Tombstone, type TombstoneKind } from "./expiry";
 import { verifyHostToken } from "./hostToken";
-import { BATCH_LIMITS, BRING_LIMITS, CONNECTOR_LIMITS, CURSOR_LIMITS, REACTION_LIMITS, SOCKET_LIMITS, VIEWPORT_LIMITS } from "./limits";
-import { NoteStore } from "./noteStore";
+import { memberIndex, regroup, type GroupChange } from "./groups";
+import { BATCH_LIMITS, BRING_LIMITS, CONNECTOR_LIMITS, CURSOR_LIMITS, GROUP_LIMITS, REACTION_LIMITS, SOCKET_LIMITS, VIEWPORT_LIMITS } from "./limits";
+import { NoteStore, type DeleteEffects } from "./noteStore";
 import { canSee, scrubFor } from "./sealed";
 import { voterIdFor } from "./voterId";
 import { writerIdFor } from "./writerId";
@@ -152,6 +158,11 @@ const socketStateSchema = z.object({
   /** Connectors token bucket (CONNECTOR_LIMITS), protocol v21. Defaults keep older attachments readable. */
   connectorTokens: z.number().default(CONNECTOR_LIMITS.burst),
   connectorAt: z.number().default(0),
+  /** Groups token buckets (GROUP_LIMITS: messages, and the member ids they name), protocol v22. Defaults keep older attachments readable. */
+  groupTokens: z.number().default(GROUP_LIMITS.burst),
+  groupAt: z.number().default(0),
+  groupMemberTokens: z.number().default(GROUP_LIMITS.membersBurst),
+  groupMemberAt: z.number().default(0),
 });
 type SocketState = z.infer<typeof socketStateSchema>;
 
@@ -164,6 +175,7 @@ type ErrorRef =
   | { shapeIds: string[] }
   | { frameId: string; noteIds?: string[]; shapeIds?: string[] }
   | { connectorId: string }
+  | { groupId: string }
   | Record<string, never>;
 
 const error = (code: ErrorCode, message: string, ref: ErrorRef = {}): ServerMessage => ({ type: "error", code, message, ...ref });
@@ -192,7 +204,12 @@ function refOf(message: ClientMessage): ErrorRef {
     case "itemsAdd":
     case "shapeAdd":
     case "connectorAdd":
+    case "groupCreate":
       return { clientRef: message.clientRef };
+    case "groupUpdate":
+    case "groupMembers":
+    case "groupDelete":
+      return { groupId: message.id };
     case "connectorUpdate":
     case "connectorDelete":
       return { connectorId: message.id };
@@ -239,6 +256,7 @@ type SilentMessage = Extract<ClientMessage, { type: "silentStart" | "silentRevea
 type ViewMessage = Extract<ClientMessage, { type: "viewport" | "bringToMe" }>;
 type ReactionMessage = Extract<ClientMessage, { type: "reactionSet" }>;
 type ConnectorMessage = Extract<ClientMessage, { type: "connectorAdd" | "connectorUpdate" | "connectorDelete" }>;
+type GroupMessage = Extract<ClientMessage, { type: "groupCreate" | "groupUpdate" | "groupMembers" | "groupDelete" }>;
 
 /** The silent round's meta keys (protocol v17): 1 while a round runs, and rounds started. */
 const SILENT_KEYS = { active: "silent_active", round: "silent_round" } as const;
@@ -246,6 +264,11 @@ const isCursor = (message: ClientMessage): message is CursorMessage => message.t
 const isView = (message: ClientMessage): message is ViewMessage => message.type === "viewport" || message.type === "bringToMe";
 const isConnector = (message: ClientMessage): message is ConnectorMessage =>
   message.type === "connectorAdd" || message.type === "connectorUpdate" || message.type === "connectorDelete";
+const isGroup = (message: ClientMessage): message is GroupMessage =>
+  message.type === "groupCreate" || message.type === "groupUpdate" || message.type === "groupMembers" || message.type === "groupDelete";
+/** Member ids a group message names (GROUP_LIMITS.membersBurst budget): a create's members, a member change's adds and removes. */
+const membersNamed = (message: GroupMessage): number =>
+  message.type === "groupCreate" ? message.members.length : message.type === "groupMembers" ? message.add.length + message.remove.length : 0;
 /** Two ends are the same: the same item and anchor, or the same point. */
 const sameEnd = (a: ConnectorEnd, b: ConnectorEnd) =>
   isBound(a) ? isBound(b) && a.item === b.item && a.anchor === b.anchor : !isBound(b) && a.x === b.x && a.y === b.y;
@@ -418,6 +441,10 @@ export class Room extends DurableObject<Env> {
       reactAt: Date.now(),
       connectorTokens: CONNECTOR_LIMITS.burst,
       connectorAt: Date.now(),
+      groupTokens: GROUP_LIMITS.burst,
+      groupAt: Date.now(),
+      groupMemberTokens: GROUP_LIMITS.membersBurst,
+      groupMemberAt: Date.now(),
     };
     pair[1].serializeAttachment(state);
     return new Response(null, { status: 101, webSocket: pair[0] });
@@ -452,6 +479,8 @@ export class Room extends DurableObject<Env> {
     if (parsed.ok && parsed.value.type === "reactionSet") return this.reaction(ws, state, now, parsed.value);
     // Connectors (protocol v21) too.
     if (parsed.ok && isConnector(parsed.value)) return this.connector(ws, state, now, parsed.value);
+    // Groups (protocol v22) too.
+    if (parsed.ok && isGroup(parsed.value)) return this.group(ws, state, now, parsed.value);
     state.tokens = Math.min(SOCKET_LIMITS.burst, state.tokens + ((now - state.at) / 1000) * SOCKET_LIMITS.refillPerSecond);
     state.at = now;
     if (state.tokens < 1) {
@@ -579,6 +608,25 @@ export class Room extends DurableObject<Env> {
     state.connectorAt = now;
     if (state.connectorTokens < 1) return this.overLimit(ws, state, now, refOf(message));
     state.connectorTokens -= 1;
+    await this.handle(ws, state, message);
+  }
+
+  /**
+   * A group message (protocol v22) spends GROUP_LIMITS, never SOCKET_LIMITS: one message token, and
+   * one member token per id it names. Over either budget it is dropped with rate_limited naming its
+   * group (or clientRef), as a violation, and spends nothing; otherwise it is handled in order like
+   * any other message (handle: the lock and a silent round first).
+   */
+  private async group(ws: WebSocket, state: SocketState, now: number, message: GroupMessage): Promise<void> {
+    // A clock that went backwards refills nothing.
+    state.groupTokens = Math.min(GROUP_LIMITS.burst, state.groupTokens + (Math.max(0, now - state.groupAt) / 1000) * GROUP_LIMITS.refillPerSecond);
+    state.groupAt = now;
+    state.groupMemberTokens = Math.min(GROUP_LIMITS.membersBurst, state.groupMemberTokens + (Math.max(0, now - state.groupMemberAt) / 1000) * GROUP_LIMITS.membersPerSecond);
+    state.groupMemberAt = now;
+    const members = membersNamed(message);
+    if (state.groupTokens < 1 || state.groupMemberTokens < members) return this.overLimit(ws, state, now, refOf(message));
+    state.groupTokens -= 1;
+    state.groupMemberTokens -= members;
     await this.handle(ws, state, message);
   }
 
@@ -743,6 +791,11 @@ export class Room extends DurableObject<Env> {
       ws.serializeAttachment(state);
       return this.send(ws, error("silent_active", "Arrows can't be changed during a silent round.", refOf(message)));
     }
+    // Groups (protocol v22) likewise, host included: a group could name notes other people can't see.
+    if (isGroup(message) && this.silent.active && state.participant) {
+      ws.serializeAttachment(state);
+      return this.send(ws, error("silent_active", "Groups can't be changed during a silent round.", refOf(message)));
+    }
     const viewer = state.writerId;
 
     switch (message.type) {
@@ -841,6 +894,16 @@ export class Room extends DurableObject<Env> {
         return;
       }
 
+      case "groupCreate":
+      case "groupUpdate":
+      case "groupMembers":
+      case "groupDelete": {
+        ws.serializeAttachment(state);
+        if (!state.participant) return this.send(ws, error("not_joined", "Join the room first.", refOf(message)));
+        this.handleGroup(ws, message);
+        return;
+      }
+
       case "claimHost":
         return this.claimHost(ws, state, message.token);
 
@@ -902,7 +965,7 @@ export class Room extends DurableObject<Env> {
   /**
    * join: a participant with a server-assigned id and colour, then (in one step, so nothing can land
    * between them) joined with the room's lock, timer, voting and silent state, and the notes,
-   * frames and shapes snapshots, (protocol v20) the reaction counts and (protocol v21) the connectors. Since v17 a join may carry the page's client key: its writer id
+   * frames and shapes snapshots, (protocol v20) the reaction counts, (protocol v21) the connectors and (protocol v22) the groups. Since v17 a join may carry the page's client key: its writer id
    * (writerId.ts) is worked out first, so the snapshot already holds that writer's sealed notes on
    * every join, reconnect and second tab, and nobody else's. The key is never stored or echoed.
    */
@@ -950,6 +1013,8 @@ export class Room extends DurableObject<Env> {
     this.send(ws, { type: "reactionsSnapshot", counts: this.notes.reactionCounts() });
     // Protocol v21: every connector (never one bound to a sealed note: refused at the source), in this same step.
     this.send(ws, { type: "connectorsSnapshot", connectors: this.notes.allConnectors() });
+    // Protocol v22: every group (never naming a sealed note: refused at the source), in this same step.
+    this.send(ws, { type: "groupsSnapshot", groups: this.notes.allGroups() });
     // Protocol v18: during a round, which of the snapshot's notes are this socket's own sealed ones.
     if (this.silent.active) this.send(ws, { type: "silentMine", ids: writerId === null ? [] : this.notes.sealedIdsOf(writerId) });
     // A closed round's totals, so a late joiner sees the results. While open, nothing about anyone's votes.
@@ -1592,9 +1657,9 @@ export class Room extends DurableObject<Env> {
           : { type: "noteResized", id: note.id, x: note.x, y: note.y, w: note.w, h: note.h, rev: note.rev, final: true },
       );
     }
-    const detached = this.notes.applyBatch(updates, deletes);
+    const effects = this.notes.applyBatch(updates, deletes);
     if (results.length > 0) this.broadcast({ type: "notesBatchApplied", results, final: true });
-    this.broadcastDetached(detached);
+    this.broadcastEffects(effects);
     if (this.notes.sealedCount !== sealedBefore) this.broadcastSilent();
   }
 
@@ -1720,9 +1785,9 @@ export class Room extends DurableObject<Env> {
       case "noteDelete": {
         if (!this.noteFor(viewer, message.id)) return;
         const sealed = this.notes.writerOf(message.id) !== null;
-        const detached = this.notes.delete(message.id);
+        const effects = this.notes.delete(message.id);
         this.broadcast({ type: "noteDeleted", id: message.id });
-        this.broadcastDetached(detached);
+        this.broadcastEffects(effects);
         if (sealed) this.broadcastSilent();
         return;
       }
@@ -1817,9 +1882,9 @@ export class Room extends DurableObject<Env> {
 
       case "shapeDelete": {
         if (!this.notes.getShape(message.id)) return;
-        const detached = this.notes.deleteShape(message.id);
+        const effects = this.notes.deleteShape(message.id);
         this.broadcast({ type: "shapeDeleted", id: message.id });
-        this.broadcastDetached(detached);
+        this.broadcastEffects(effects);
         return;
       }
     }
@@ -1880,9 +1945,9 @@ export class Room extends DurableObject<Env> {
           : { type: "shapeResized", id: shape.id, x: shape.x, y: shape.y, w: shape.w, h: shape.h, rev: shape.rev, final: true },
       );
     }
-    const detached = this.notes.applyShapeBatch(updates, deletes);
+    const effects = this.notes.applyShapeBatch(updates, deletes);
     if (results.length > 0) this.broadcast({ type: "shapesBatchApplied", results, final: true });
-    this.broadcastDetached(detached);
+    this.broadcastEffects(effects);
   }
 
   /**
@@ -1891,6 +1956,91 @@ export class Room extends DurableObject<Env> {
    */
   private broadcastDetached(detached: readonly Connector[]): void {
     for (const connector of detached) this.broadcast({ type: "connectorUpdated", connector });
+  }
+
+  /**
+   * After a note or shape delete (single, batch, Clear board's batches): the connectors it freed,
+   * then (protocol v22) the groups it shrank (groupUpdated) or dissolved (groupDeleted), in
+   * creation order, all after the item's delete message.
+   */
+  private broadcastEffects(effects: DeleteEffects): void {
+    this.broadcastDetached(effects.connectors);
+    this.broadcastGroups(effects.groups);
+  }
+
+  /** One groupUpdated (the whole group) or groupDeleted per group a change touched, in order. */
+  private broadcastGroups(changes: readonly GroupChange[]): void {
+    for (const { id, group } of changes) this.broadcast(group ? { type: "groupUpdated", group } : { type: "groupDeleted", id });
+  }
+
+  /**
+   * Groups (protocol v22): last write wins in arrival order, every stored change bumps rev, and an
+   * unchanged update or member change writes and sends nothing. A member must be a note or shape on
+   * the board (unknown_item otherwise: an unknown or deleted id, a frame, a connector, a group, and
+   * someone's sealed note, word for word); an unknown or deleted group is unknown_group. An item
+   * is in at most one group: adding it moves it, and every group a change leaves below
+   * MIN_GROUP_MEMBERS (the one changed included) is dissolved in the same transaction. The sender
+   * hears the group it changed first, then the other groups touched, in creation order.
+   */
+  private handleGroup(ws: WebSocket, message: GroupMessage): void {
+    switch (message.type) {
+      case "groupCreate": {
+        if (this.notes.groupCount >= MAX_GROUPS_PER_ROOM) {
+          return this.send(ws, error("groups_full", `This board has the maximum of ${MAX_GROUPS_PER_ROOM} groups.`, refOf(message)));
+        }
+        if (message.members.length < MIN_GROUP_MEMBERS) return this.send(ws, error("group_size", `A group needs ${MIN_GROUP_MEMBERS} to ${MAX_GROUP_MEMBERS} items.`, refOf(message)));
+        if (message.members.some((id) => !this.notes.canGroup(id))) return this.send(ws, error("unknown_item", "Groups can only hold notes and shapes on the board.", refOf(message)));
+        const label = cleanGroupLabel(message.label);
+        if (label === null) return this.send(ws, error("bad_message", "Group labels need at most 40 characters.", refOf(message)));
+        const fresh: Group = { id: randomBase64url(12), label, color: message.color, members: [], rev: 1 };
+        const { next, changes } = regroup(this.notes.groupMap, new Map(message.members.map((id) => [id, fresh.id])), fresh);
+        const group = next.get(fresh.id);
+        if (!group) return;
+        this.notes.saveGroups([...next.values()]);
+        this.send(ws, { type: "groupCreated", group, clientRef: message.clientRef });
+        this.broadcast({ type: "groupCreated", group }, ws);
+        this.broadcastGroups(changes.filter((c) => c.id !== fresh.id));
+        return;
+      }
+
+      case "groupUpdate": {
+        const current = this.notes.getGroup(message.id);
+        if (!current) return this.send(ws, error("unknown_group", "That group is no longer on the board.", refOf(message)));
+        const label = message.label === undefined ? current.label : cleanGroupLabel(message.label);
+        if (label === null) return this.send(ws, error("bad_message", "Group labels need at most 40 characters.", refOf(message)));
+        const color = message.color ?? current.color;
+        if (label === current.label && color === current.color) return;
+        const group: Group = { ...current, label, color, rev: current.rev + 1 };
+        this.notes.saveGroups(this.notes.allGroups().map((g) => (g.id === group.id ? group : g)));
+        this.broadcast({ type: "groupUpdated", group });
+        return;
+      }
+
+      case "groupMembers": {
+        const current = this.notes.getGroup(message.id);
+        if (!current) return this.send(ws, error("unknown_group", "That group is no longer on the board.", refOf(message)));
+        if (message.add.some((id) => !this.notes.canGroup(id))) return this.send(ws, error("unknown_item", "Groups can only hold notes and shapes on the board.", refOf(message)));
+        const index = memberIndex(this.notes.groupMap);
+        const moves = new Map<string, string | null>();
+        for (const id of message.add) if (index.get(id) !== current.id) moves.set(id, current.id);
+        for (const id of message.remove) if (index.get(id) === current.id) moves.set(id, null);
+        if (moves.size === 0) return;
+        const size = current.members.length + [...moves.values()].reduce((n, to) => n + (to === null ? -1 : 1), 0);
+        if (size > MAX_GROUP_MEMBERS) return this.send(ws, error("group_size", `A group needs ${MIN_GROUP_MEMBERS} to ${MAX_GROUP_MEMBERS} items.`, refOf(message)));
+        const { next, changes } = regroup(this.notes.groupMap, moves);
+        this.notes.saveGroups([...next.values()]);
+        this.broadcastGroups([...changes.filter((c) => c.id === current.id), ...changes.filter((c) => c.id !== current.id)]);
+        return;
+      }
+
+      case "groupDelete": {
+        if (!this.notes.getGroup(message.id)) return this.send(ws, error("unknown_group", "That group is no longer on the board.", refOf(message)));
+        // Only the group: its items stay where they are.
+        this.notes.saveGroups(this.notes.allGroups().filter((g) => g.id !== message.id));
+        this.broadcast({ type: "groupDeleted", id: message.id });
+        return;
+      }
+    }
   }
 
   /**

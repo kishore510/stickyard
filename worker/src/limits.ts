@@ -115,6 +115,25 @@ export const CONNECTOR_LIMITS = {
 } as const;
 
 /**
+ * Groups (protocol v22) spend these per-socket buckets instead of SOCKET_LIMITS, so grouping can
+ * never starve edits or chat. One message is one gesture (group a selection, rename, recolour, add
+ * or take out items, ungroup): 2 a second is faster than anyone groups. The burst of 60 lets the
+ * page ungroup every group (MAX_GROUPS_PER_ROOM) before a Clear board and re-add them all (its
+ * undo) at once. Each member id a message names (a create's members, a member change's adds and
+ * removes) also spends one member token: the burst of 250 is every note and shape on a full board
+ * (MAX_NOTES_PER_ROOM + MAX_SHAPES_PER_ROOM), and the refill of 10 a second keeps a script's
+ * member writes near one row each per id, about 10 a second. Over either budget a message is
+ * dropped with rate_limited (naming the group or clientRef, so the page can roll back), as a
+ * violation, and spends nothing.
+ */
+export const GROUP_LIMITS = {
+  refillPerSecond: 2,
+  burst: 60,
+  membersPerSecond: 10,
+  membersBurst: 250,
+} as const;
+
+/**
  * Idle room expiry (worker/src/expiry.ts). When the last socket of a room closes, its alarm is
  * set this far ahead; when it fires with nobody connected, the room's data is deleted and a
  * tombstone kept. An existing alarm within ALARM_RESET_SLACK_MS of the new time is left alone,

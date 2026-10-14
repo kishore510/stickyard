@@ -63,7 +63,8 @@ const allRows = (stub: Stub) =>
       .toArray()
       .map((t) => t.name);
     const rows: Record<string, Row[]> = {};
-    for (const t of tables) rows[t] = state.storage.sql.exec<Row>(`SELECT * FROM ${t} ORDER BY rowid`).toArray();
+    // group_members (schema 13) is WITHOUT ROWID.
+    for (const t of tables) rows[t] = state.storage.sql.exec<Row>(`SELECT * FROM ${t}${t === "group_members" ? "" : " ORDER BY rowid"}`).toArray();
     return rows;
   });
 const connectorRows = async (stub: Stub) => (await allRows(stub)).connectors ?? [];
@@ -169,9 +170,9 @@ async function connectorRoom() {
 }
 
 describe("versions", () => {
-  it("protocol 21 and stored schema 12; a v20 page is asked to reload", async () => {
-    expect(PROTOCOL_VERSION).toBe(21);
-    expect(SCHEMA_VERSION).toBe(12);
+  it("protocol 21 or later and stored schema 12 or later; a v20 page is asked to reload", async () => {
+    expect(PROTOCOL_VERSION).toBeGreaterThanOrEqual(21);
+    expect(SCHEMA_VERSION).toBeGreaterThanOrEqual(12);
     const { code } = await newRoom();
     const c = await TestClient.open(code);
     expect(await c.request({ type: "hello", protocolVersion: 20 })).toMatchObject({ type: "error", code: "version_mismatch" });
@@ -485,7 +486,8 @@ describe("join", () => {
     const raw = recorded(c);
     await c.enter("Jo");
     const kinds = raw.map((r) => (JSON.parse(r) as { type: string }).type);
-    expect(kinds).toEqual(["welcome", "joined", "snapshot", "framesSnapshot", "shapesSnapshot", "reactionsSnapshot", "connectorsSnapshot"]);
+    // Protocol v22: groupsSnapshot follows.
+    expect(kinds).toEqual(["welcome", "joined", "snapshot", "framesSnapshot", "shapesSnapshot", "reactionsSnapshot", "connectorsSnapshot", "groupsSnapshot"]);
     expect(c.connectors).toEqual({ type: "connectorsSnapshot", connectors: [k1, k2] });
     await evictDurableObject(stub);
     const d = await TestClient.open(code);
@@ -680,11 +682,12 @@ describe("the delete rule", () => {
       for (const [id, item] of [["connA0000000000a", "noteA0000000000a"], ["connB0000000000b", "noteB0000000000b"], ["connC0000000000c", "shapeA000000000a"], ["connD0000000000d", "shapeB000000000b"]] as const) {
         store.insertConnector(conn(id, { item, anchor: "auto" }));
       }
+      // Since schema 13 each path returns its effects: the detached connectors (and group changes).
       const paths: [string, () => Connector[]][] = [
-        ["delete", () => store.delete("noteA0000000000a")],
-        ["applyBatch", () => store.applyBatch([], ["noteB0000000000b"])],
-        ["deleteShape", () => store.deleteShape("shapeA000000000a")],
-        ["applyShapeBatch", () => store.applyShapeBatch([], ["shapeB000000000b"])],
+        ["delete", () => store.delete("noteA0000000000a").connectors],
+        ["applyBatch", () => store.applyBatch([], ["noteB0000000000b"]).connectors],
+        ["deleteShape", () => store.deleteShape("shapeA000000000a").connectors],
+        ["applyShapeBatch", () => store.applyShapeBatch([], ["shapeB000000000b"]).connectors],
       ];
       for (const [name, run] of paths) {
         outside.length = 0;
@@ -852,7 +855,7 @@ describe(`schema migration 11 -> ${SCHEMA_VERSION}`, () => {
       const before = Object.fromEntries(["notes", "frames", "votes", "shapes", "reactions"].map((t) => [t, tableRows(sql, t)]));
       const metaBefore = tableRows(sql, "meta").filter((r) => r.key !== "schema_version");
       const store = new NoteStore(sql);
-      expect(version(sql)).toBe(12);
+      expect(version(sql)).toBe(SCHEMA_VERSION);
       for (const [t, rows] of Object.entries(before)) expect(tableRows(sql, t), t).toEqual(rows);
       expect(tableRows(sql, "meta").filter((r) => r.key !== "schema_version")).toEqual(metaBefore);
       const columns = sql.exec<{ name: string; dflt_value: string | null; notnull: number; pk: number }>("SELECT name, dflt_value, \"notnull\", pk FROM pragma_table_info('connectors')").toArray();

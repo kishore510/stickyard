@@ -17,6 +17,9 @@ export function loadSchemaV10(sql: SqlStorage): void {
   sql.exec("DROP TABLE IF EXISTS reactions");
   // ...nor a connectors table (schema 12).
   sql.exec("DROP TABLE IF EXISTS connectors");
+  // ...nor the groups tables (schema 13).
+  sql.exec("DROP TABLE IF EXISTS groups");
+  sql.exec("DROP TABLE IF EXISTS group_members");
   sql.exec("ALTER TABLE notes ADD COLUMN sealed INTEGER NOT NULL DEFAULT 0");
   sql.exec("ALTER TABLE notes ADD COLUMN writer TEXT DEFAULT NULL");
   sql.exec(V10_NOTE_INSERT, V10_SEALED.id, 40, 40, 160, 160, "Hidden idea", "pink", "m", 0, 0, "auto", "left", "left", "m", 0, 0, "auto", 12, 1, "authorAAAAAAAAAA", 1, V10_SEALED.writer);

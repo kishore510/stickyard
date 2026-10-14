@@ -13,6 +13,7 @@ import {
   clampShapeRect,
   clampZ,
   connectorSchema,
+  groupSchema,
   endReference,
   frameSchema,
   isBound,
@@ -23,10 +24,12 @@ import {
   type Connector,
   type ConnectorEnd,
   type Frame,
+  type Group,
   type Note,
   type ReactionKey,
   type Shape,
 } from "@stickyard/shared";
+import { memberIndex, regroup, type GroupChange } from "./groups";
 
 /**
  * A room's notes, in its Durable Object's SQLite. Written only on commits (add, edit, final
@@ -84,8 +87,47 @@ import {
  *     ends bound to it free, in the same transaction. A connector that version 11 code leaves bound
  *     to an item it deleted (after a rollback) is skipped on load (ids are random: it never
  *     comes back), as are rows that don't validate.
+ *  13 (groups): a new groups table (id, label, color, rev) and a group_members table (item_id as
+ *     the primary key, so an item is in at most one group; group_id), every column but the keys
+ *     with a DEFAULT. group_members is WITHOUT ROWID: a member is one row write, and members are
+ *     read in id order. No box is stored. Additive: every other table is untouched, and version 12
+ *     code never reads them. Deleting a note or shape takes it out of its group in the same
+ *     transaction (and dissolves a group left below 2). A member that version 12 code deleted
+ *     (after a rollback) is skipped on load, and a group left with fewer than 2 members is dropped
+ *     (in memory: its rows stay until it is written again or the room is buried), as are rows
+ *     that don't validate.
  */
-export const SCHEMA_VERSION = 12;
+export const SCHEMA_VERSION = 13;
+
+/** The groups tables (schema 13). */
+const GROUPS_TABLE = `CREATE TABLE IF NOT EXISTS groups (
+          id TEXT PRIMARY KEY,
+          label TEXT NOT NULL DEFAULT '',
+          color TEXT NOT NULL DEFAULT 'neutral',
+          rev INTEGER NOT NULL DEFAULT 1
+        )`;
+const GROUP_MEMBERS_TABLE = `CREATE TABLE IF NOT EXISTS group_members (
+          item_id TEXT NOT NULL PRIMARY KEY,
+          group_id TEXT NOT NULL DEFAULT ''
+        ) WITHOUT ROWID`;
+
+interface GroupRow extends Record<string, SqlStorageValue> {
+  id: string;
+  label: string;
+  color: string;
+  rev: number;
+}
+
+/**
+ * What a note or shape delete did besides the delete (protocol v21, v22): the connectors whose
+ * ends it turned free, and the groups it took the items out of (in creation order; a null group
+ * was dissolved). Written in the delete's transaction.
+ */
+export interface DeleteEffects {
+  connectors: Connector[];
+  groups: GroupChange[];
+}
+const NO_EFFECTS: DeleteEffects = { connectors: [], groups: [] };
 
 /** The connectors table (schema 12). */
 const CONNECTORS_TABLE = `CREATE TABLE IF NOT EXISTS connectors (
@@ -286,6 +328,8 @@ export class NoteStore {
   private reactionTotal = 0;
   /** Connectors (schema 12) by id, in creation order. */
   private connectorCache: Map<string, Connector> | null = null;
+  /** Groups (schema 13) by id, in creation order; members in id order. */
+  private groupCache: Map<string, Group> | null = null;
   /**
    * Sealed notes (schema 10) and their writer ids, filled with the notes. Never on a Note: a note
    * on the wire has no seal or writer. A sealed row without a writer (never written by us) gets
@@ -394,6 +438,10 @@ export class NoteStore {
     }
     if (version < 11) this.sql.exec(REACTIONS_TABLE);
     if (version < 12) this.sql.exec(CONNECTORS_TABLE);
+    if (version < 13) {
+      this.sql.exec(GROUPS_TABLE);
+      this.sql.exec(GROUP_MEMBERS_TABLE);
+    }
     this.write("INSERT OR REPLACE INTO meta (key, value) VALUES ('schema_version', ?)", SCHEMA_VERSION);
   }
 
@@ -534,16 +582,18 @@ export class NoteStore {
    * A final batch (or a restack): every update and delete in one transaction, so it lands whole or not at all.
    * The cache changes only once it has committed.
    */
-  applyBatch(updates: readonly Note[], deletes: readonly string[], shapeUpdates: readonly Shape[] = []): Connector[] {
-    if (updates.length === 0 && deletes.length === 0 && shapeUpdates.length === 0) return [];
-    // Connectors bound to a deleted note turn free (schema 12), in the same transaction.
+  applyBatch(updates: readonly Note[], deletes: readonly string[], shapeUpdates: readonly Shape[] = []): DeleteEffects {
+    if (updates.length === 0 && deletes.length === 0 && shapeUpdates.length === 0) return NO_EFFECTS;
+    // Connectors bound to a deleted note turn free (schema 12), and deleted notes leave their groups (schema 13), in the same transaction.
     const detached = this.detachFrom(deletes);
+    const ungrouped = this.ungroup(deletes);
     this.transact(() => {
       for (const note of updates) this.writeUpdate(note);
       for (const id of deletes) this.writeNoteDelete(id);
       // A restack over notes and shapes (one stacking space since v15) lands whole too.
       for (const shape of shapeUpdates) this.writeShapeUpdate(shape);
       for (const connector of detached) this.writeConnectorUpdate(connector);
+      this.writeGroupDiff(this.groupMap, ungrouped.next);
     });
     this.transactions += 1;
     const shapes = this.shapes();
@@ -557,7 +607,8 @@ export class NoteStore {
       this.forgetWriter(id);
     }
     this.keepConnectors(detached);
-    return detached;
+    this.groupCache = ungrouped.next;
+    return { connectors: detached, groups: ungrouped.changes };
   }
 
   /**
@@ -603,21 +654,25 @@ export class NoteStore {
   }
 
   /**
-   * Deletes a note, its votes (the dots go back to their voters) and its reactions, and turns the
-   * connector ends bound to it free, in one transaction. Returns the connectors that changed.
+   * Deletes a note, its votes (the dots go back to their voters) and its reactions, turns the
+   * connector ends bound to it free and takes it out of its group, in one transaction. Returns
+   * the connectors and groups that changed.
    */
-  delete(id: string): Connector[] {
+  delete(id: string): DeleteEffects {
     const detached = this.detachFrom([id]);
+    const ungrouped = this.ungroup([id]);
     this.transact(() => {
       this.writeNoteDelete(id);
       for (const connector of detached) this.writeConnectorUpdate(connector);
+      this.writeGroupDiff(this.groupMap, ungrouped.next);
     });
     this.notes().delete(id);
     this.forgetVotesOn(id);
     this.forgetReactionsOn(id);
     this.forgetWriter(id);
     this.keepConnectors(detached);
-    return detached;
+    this.groupCache = ungrouped.next;
+    return { connectors: detached, groups: ungrouped.changes };
   }
 
   /** Every note delete (single, batch, Clear board) goes through here: the note, its votes and its reactions. */
@@ -773,36 +828,46 @@ export class NoteStore {
     this.shapes().set(shape.id, shape);
   }
 
-  /** Deletes a shape and turns the connector ends bound to it free, in one transaction. Returns the connectors that changed. */
-  deleteShape(id: string): Connector[] {
+  /**
+   * Deletes a shape, turns the connector ends bound to it free and takes it out of its group, in
+   * one transaction. Returns the connectors and groups that changed.
+   */
+  deleteShape(id: string): DeleteEffects {
     const detached = this.detachFrom([id]);
+    const ungrouped = this.ungroup([id]);
     this.transact(() => {
       this.writeShapeDelete(id);
       for (const connector of detached) this.writeConnectorUpdate(connector);
+      this.writeGroupDiff(this.groupMap, ungrouped.next);
     });
     this.shapes().delete(id);
     this.keepConnectors(detached);
-    return detached;
+    this.groupCache = ungrouped.next;
+    return { connectors: detached, groups: ungrouped.changes };
   }
 
   /**
-   * A final shapeBatch: every update and delete, and the connector ends bound to a deleted shape
-   * turned free, in one transaction. Caches change once it has committed. Returns the connectors that changed.
+   * A final shapeBatch: every update and delete, the connector ends bound to a deleted shape turned
+   * free and deleted shapes taken out of their groups, in one transaction. Caches change once it
+   * has committed. Returns the connectors and groups that changed.
    */
-  applyShapeBatch(updates: readonly Shape[], deletes: readonly string[]): Connector[] {
-    if (updates.length === 0 && deletes.length === 0) return [];
+  applyShapeBatch(updates: readonly Shape[], deletes: readonly string[]): DeleteEffects {
+    if (updates.length === 0 && deletes.length === 0) return NO_EFFECTS;
     const detached = this.detachFrom(deletes);
+    const ungrouped = this.ungroup(deletes);
     this.transact(() => {
       for (const shape of updates) this.writeShapeUpdate(shape);
       for (const id of deletes) this.writeShapeDelete(id);
       for (const connector of detached) this.writeConnectorUpdate(connector);
+      this.writeGroupDiff(this.groupMap, ungrouped.next);
     });
     this.transactions += 1;
     const cache = this.shapes();
     for (const shape of updates) cache.set(shape.id, shape);
     for (const id of deletes) cache.delete(id);
     this.keepConnectors(detached);
-    return detached;
+    this.groupCache = ungrouped.next;
+    return { connectors: detached, groups: ungrouped.changes };
   }
 
   private writeShapeInsert(shape: Shape): void {
@@ -943,6 +1008,97 @@ export class NoteStore {
     if (connectors.length === 0) return;
     const cache = this.connectors();
     for (const connector of connectors) cache.set(connector.id, connector);
+  }
+
+  /* ── Groups (schema 13, protocol v22) ────────────────────────────────────────────────── */
+
+  /**
+   * Every group, in creation order, members in id order. A member that isn't a note (not sealed)
+   * or shape here is skipped (version 12 code deleted it after a rollback, or a row we never
+   * wrote), and a group left with fewer than 2 members, or a row that doesn't validate, is dropped:
+   * in memory only, so loading writes nothing.
+   */
+  private groups(): Map<string, Group> {
+    if (this.groupCache) return this.groupCache;
+    const byGroup = new Map<string, string[]>();
+    for (const row of this.sql.exec<{ item_id: string; group_id: string }>("SELECT item_id, group_id FROM group_members")) {
+      if (!this.boxOf(row.item_id)) continue;
+      byGroup.set(row.group_id, [...(byGroup.get(row.group_id) ?? []), row.item_id]);
+    }
+    const cache = new Map<string, Group>();
+    for (const row of this.sql.exec<GroupRow>("SELECT id, label, color, rev FROM groups ORDER BY rowid")) {
+      const parsed = groupSchema.safeParse({ id: row.id, label: row.label, color: row.color, members: (byGroup.get(row.id) ?? []).sort(), rev: row.rev });
+      if (parsed.success) cache.set(parsed.data.id, parsed.data);
+    }
+    this.groupCache = cache;
+    return cache;
+  }
+
+  /** The groups as the room works on them (regroup in groups.ts); change them only through saveGroups. */
+  get groupMap(): ReadonlyMap<string, Group> {
+    return this.groups();
+  }
+
+  allGroups(): Group[] {
+    return [...this.groups().values()];
+  }
+
+  getGroup(id: string): Group | undefined {
+    return this.groups().get(id);
+  }
+
+  get groupCount(): number {
+    return this.groups().size;
+  }
+
+  /** The group an item is in, if any. */
+  groupOf(item: string): string | undefined {
+    for (const group of this.groups().values()) if (group.members.includes(item)) return group.id;
+    return undefined;
+  }
+
+  /** Whether an item may be a member: a note (not sealed, for anyone) or a shape on the board. Never a frame, connector or group. */
+  canGroup(item: string): boolean {
+    return this.boxOf(item) !== undefined;
+  }
+
+  /**
+   * Replaces the room's groups with `next` (every group, in creation order), writing only the
+   * difference, in one transaction: a new group's row, a changed group's row, a gone group's row,
+   * and one row per member that joined, moved or left.
+   */
+  saveGroups(next: readonly Group[]): void {
+    const map = new Map(next.map((g) => [g.id, g]));
+    this.transact(() => this.writeGroupDiff(this.groups(), map));
+    this.groupCache = map;
+  }
+
+  /** The groups after these items are deleted (pure over the caches; the caller writes it in its delete's transaction). */
+  private ungroup(items: readonly string[]): { next: Map<string, Group>; changes: GroupChange[] } {
+    const groups = this.groups();
+    const index = memberIndex(groups);
+    const moves = new Map<string, null>(items.filter((id) => index.has(id)).map((id) => [id, null]));
+    if (moves.size === 0) return { next: new Map(groups), changes: [] };
+    return regroup(groups, moves);
+  }
+
+  private writeGroupDiff(prev: ReadonlyMap<string, Group>, next: ReadonlyMap<string, Group>): void {
+    for (const [id, group] of next) {
+      const before = prev.get(id);
+      if (!before) this.write("INSERT INTO groups (id, label, color, rev) VALUES (?, ?, ?, ?)", id, group.label, group.color, group.rev);
+      else if (before.rev !== group.rev || before.label !== group.label || before.color !== group.color) {
+        this.write("UPDATE groups SET label = ?, color = ?, rev = ? WHERE id = ?", group.label, group.color, group.rev, id);
+      }
+    }
+    for (const id of prev.keys()) if (!next.has(id)) this.write("DELETE FROM groups WHERE id = ?", id);
+    const was = memberIndex(prev);
+    const now = memberIndex(next);
+    for (const [item, group] of now) {
+      if (was.get(item) !== group) {
+        this.write("INSERT INTO group_members (item_id, group_id) VALUES (?, ?) ON CONFLICT(item_id) DO UPDATE SET group_id = excluded.group_id", item, group);
+      }
+    }
+    for (const item of was.keys()) if (!now.has(item)) this.write("DELETE FROM group_members WHERE item_id = ?", item);
   }
 
   /* ── Room settings in meta (protocol v12: locked, timer_started_at, timer_duration_ms) ── */

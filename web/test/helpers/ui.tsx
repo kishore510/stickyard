@@ -204,6 +204,8 @@ export async function inRoom({
   await server(socket, { data: { type: "reactionsSnapshot", counts: reactions } });
   // Protocol v21: the connectors come next in the join step.
   await server(socket, { data: { type: "connectorsSnapshot", connectors } });
+  // Protocol v22: then the groups (the page ignores them until the groups UI).
+  await server(socket, { data: { type: "groupsSnapshot", groups: [] } });
   if (mine) await server(socket, { data: { type: "silentMine", ids: mine } });
   // The board is lazy-loaded (RoomScreen): load the same module here so a cold import on a busy
   // runner is waited for, not raced; then wait for it to render, by condition, not a fixed count.

@@ -1,4 +1,4 @@
-import { MAX_FRAME_TITLE, MAX_NAME_LENGTH, MAX_NOTE_TEXT, MAX_SHAPE_TEXT, MAX_TEXT_LENGTH } from "./protocol";
+import { MAX_FRAME_TITLE, MAX_GROUP_LABEL, MAX_NAME_LENGTH, MAX_NOTE_TEXT, MAX_SHAPE_TEXT, MAX_TEXT_LENGTH } from "./protocol";
 
 /*
  * Cleaning for untrusted display text (names, echoed messages and note text). Both sides use it:
@@ -92,6 +92,18 @@ export function truncateCodePoints(value: string, max: number): string {
  * characters after cleaning.
  */
 export function cleanFrameTitle(raw: string): string | null {
+  return cleanLine(raw, MAX_FRAME_TITLE);
+}
+
+/**
+ * A group's label (protocol v22): cleaned exactly like a frame title (one line, may be empty), up
+ * to MAX_GROUP_LABEL characters. Null if longer after cleaning.
+ */
+export function cleanGroupLabel(raw: string): string | null {
+  return cleanLine(raw, MAX_GROUP_LABEL);
+}
+
+function cleanLine(raw: string, maxLength: number): string | null {
   const value = raw.replace(INVISIBLE, "").replace(WHITESPACE, " ").replace(CONTROLS, "").replace(WHITESPACE, " ").trim();
-  return codePointLength(value) > MAX_FRAME_TITLE ? null : value;
+  return codePointLength(value) > maxLength ? null : value;
 }
