@@ -328,8 +328,14 @@
   pointer-events: auto;
   cursor: grab;
 }
+/* Below 25% zoom the label is hidden and the outline alone selects the group; the chip stays a
+   keyboard stop and shows while it has keyboard focus. */
 .sy-group-chip[data-mode="hidden"] {
-  min-width: calc(var(--sy-touch-min) / 2);
+  opacity: 0;
+  pointer-events: none;
+}
+.sy-group-chip[data-mode="hidden"]:focus-visible {
+  opacity: 1;
 }
 .sy-group-chip[aria-pressed="true"] {
   background: var(--sy-accent-subtle);

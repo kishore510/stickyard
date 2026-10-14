@@ -211,7 +211,7 @@ const GroupBox = memo(function GroupBox({
           >
             {text}
           </button>
-        ) : (
+        ) : mode === "hidden" ? null : (
           <span data-group-chip="" data-mode={mode} className="sy-group-chip sy-group-chip-static">
             {text}
           </span>

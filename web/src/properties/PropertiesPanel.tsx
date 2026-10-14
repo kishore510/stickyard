@@ -383,7 +383,8 @@ export function PropertiesContent({ room, collapse }: { room: PropertiesRoom; co
         )}
       </div>
       <div className="flex flex-col gap-md pb-md">
-        {room.live && room.locked && (selection.size > 0 || frameSet.size > 0 || shapeSet.size > 0) && (
+        {/* A group says the lock's reason in its own fields (groups/GroupFields.tsx). */}
+        {room.live && room.locked && !boardGroup && (selection.size > 0 || frameSet.size > 0 || shapeSet.size > 0) && (
           <p data-locked-reason="" className="rounded-md bg-surface-muted p-ms text-sm">
             {LOCK_TEXT.reason}
           </p>

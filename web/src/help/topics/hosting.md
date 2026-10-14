@@ -2,7 +2,7 @@
 title: Running a session
 order: 9
 summary: What the host can do (timer, lock the board, dot voting, silent brainstorm, bring everyone to your view, end the session) and what everyone else sees, reactions included.
-keywords: reaction, reactions, host, hosting, facilitate, facilitator, qr, invite, share, projector, timer, countdown, time, timebox, lock, locked, unlock, end, end session, delete, crown, badge, silent, brainstorm, reveal, bring to me, gather, follow
+keywords: affinity, affinity grouping, group, groups, reaction, reactions, host, hosting, facilitate, facilitator, qr, invite, share, projector, timer, countdown, time, timebox, lock, locked, unlock, end, end session, delete, crown, badge, silent, brainstorm, reveal, bring to me, gather, follow
 ---
 ## Inviting people
 
@@ -49,6 +49,10 @@ keywords: reaction, reactions, host, hosting, facilitate, facilitator, qr, invit
 - **Reveal notes** asks first, with the number of hidden notes: everyone sees them all at once, and it can't be undone.
 - Each button waits for the relay ("Waiting for the relay…") and is off with the reason while you're not connected, while a round already runs (Start) or when none does (Reveal).
 - See [Silent brainstorm](help:silent-brainstorm) for what everyone sees.
+
+## Sorting ideas into groups
+
+After a silent brainstorm's reveal (or any time), ask everyone to drag related notes into clusters, then select each cluster, press **G** and name it: that's affinity grouping. Nothing is grouped automatically. Groups can't change during a silent round, and a locked board stops guests changing them (you still can). See [Groups and affinity grouping](help:groups).
 
 ## Bring to me
 
