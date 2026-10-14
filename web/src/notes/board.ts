@@ -25,8 +25,9 @@ import type { BoardGroup } from "../groups/board";
  *   local changes). A rejected change rolls `note` back to `confirmed`.
  * - A server update whose rev is lower than the confirmed rev is stale and ignored.
  * - A local draft (text being typed) is kept apart from `note`, so remote updates never clobber it.
- * - While a note is being dragged or resized here, remote positions and sizes are confirmed but
- *   not shown (its rect stays where this page put it until release).
+ * - While a note is being resized here, remote positions and sizes are confirmed but not shown
+ *   (its rect stays where this page put it until release); while it is dragged here, only its
+ *   position is held, and a remote size still shows (v0.39.1).
  * - Stacking is each note's z (protocol v8), never the array order or what's held or selected.
  */
 
@@ -50,6 +51,13 @@ const STYLE_KEYS = NOTE_STYLE_FIELDS;
 /** Being moved or resized here: its rect is this page's until release. */
 export const isHeld = (entry: BoardNote) => entry.dragging || entry.resizing;
 const rectOf = (n: NoteRect): NoteRect => ({ x: n.x, y: n.y, w: n.w, h: n.h });
+/**
+ * What a note held here shows of a remote rect: a resize here keeps its whole rect; a drag here
+ * keeps only its position and takes the remote size (v0.39.1: a size changed by someone else
+ * during my drag used to stay stale on this page for good).
+ */
+const heldRect = (e: BoardNote, remote: NoteRect): NoteRect =>
+  e.resizing ? rectOf(e.note) : e.dragging ? { ...clampNotePosition(e.note.x, e.note.y, remote), w: remote.w, h: remote.h } : rectOf(remote);
 
 export interface Board {
   /** In creation order. Stacking comes from each note's z, not from this order. */
@@ -147,7 +155,7 @@ export function applyUpdated(board: Board, note: Note): Board {
   return patch(board, note.id, (e) => ({
     ...e,
     confirmed: note,
-    note: isHeld(e) ? { ...note, ...rectOf(e.note) } : note,
+    note: isHeld(e) ? { ...note, ...heldRect(e, note) } : note,
   }));
 }
 
@@ -170,7 +178,7 @@ export function applyResized(board: Board, resize: NoteRect & { id: string; rev:
   return patch(board, resize.id, (e) => {
     const rect = rectOf(resize);
     const confirmed = resize.final && e.confirmed ? { ...e.confirmed, ...rect, rev: resize.rev } : e.confirmed;
-    const shown = isHeld(e) ? rectOf(e.note) : rect;
+    const shown = heldRect(e, rect);
     return { ...e, confirmed, note: { ...e.note, ...shown, rev: Math.max(e.note.rev, resize.rev) } };
   });
 }

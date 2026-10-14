@@ -99,11 +99,11 @@ describe("remote resize", () => {
     expect(findNote(board, N1)?.confirmed).toMatchObject({ x: 700, y: 700, w: 400, h: 400, rev: 5 });
   });
 
-  it("while dragging here, remote resizes don't move or resize the note", () => {
+  it("while dragging here, remote resizes don't move the note but do resize it (v0.39.1)", () => {
     let board = setDragging(withNotes(one), N1, true);
     board = moveLocal(board, N1, 500, 500);
     board = applyResized(board, { id: N1, x: 0, y: 0, w: 400, h: 400, rev: 4, final: false });
-    expect(shown(board)).toMatchObject({ x: 500, y: 500, w: one.w, h: one.h });
+    expect(shown(board)).toMatchObject({ x: 500, y: 500, w: 400, h: 400 });
   });
 
   it("a remote text/style update while resizing keeps the local rect", () => {

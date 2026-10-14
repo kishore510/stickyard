@@ -123,6 +123,10 @@
 
 .react-flow__attribution a {
   color: inherit;
+  /* A full touch target (v0.39.1, accessibility pass): it was 15px tall. */
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--sy-touch-min);
 }
 
 /* Notes moved or resized by someone else ease to each new position and size; ones you drag or

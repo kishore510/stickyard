@@ -2,6 +2,17 @@
 
 All notable changes to Stickyard, newest first. The format follows Keep a Changelog. Versions are 0.x: a minor bump for each slice and a patch bump for each follow-up fix. This file is shown in the app under **What’s new**, so entries are written for the people using it.
 
+## [0.39.1] - 2026-10-14
+
+### Fixed
+- If someone resized a note, shape or frame while you were dragging it, your board kept showing its old size after you let go. It now shows the new size while you drag.
+- If someone deleted a frame while you were dragging it, the notes and shapes inside could stay stuck under your pointer, and everyone else saw them where your drag last was. They now stay where you dropped them, and everyone sees the same.
+- Small grey text on the area around the board is a little darker in the light theme, so it is easier to read.
+- The React Flow credit link on the board and the Stickyard link in the top bar are now full-size touch targets.
+
+### Changed
+- Behind the scenes: a check of how the board holds up with a dozen people at once (busy editing, silent rounds, following, voting, a locked board, everyone reconnecting together, a misbehaving connection, a completely full board) and an accessibility check at three screen sizes in both themes. Nothing else changes for you.
+
 ## [0.39.0] - 2026-10-14
 
 ### Added

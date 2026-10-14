@@ -44,3 +44,6 @@ Architecture notes, moved out of CLAUDE.md on 7 October 2026 so they load only w
 
 ## Board size (v0.23.0)
 - Frames on the 6400 x 4000 board (protocol v16, see canvas.md "Board size, protocol v16"): limits unchanged (240 x 160 to 2400 x 1600, 30 a room). The worst-case framesSnapshot is 18,366 bytes (positions now 4 digits), 66 bytes under its 90% tripwire: a new per-frame field needs a decision first.
+
+## Hardening: a frame deleted mid-drag (v0.39.1)
+- Found by the load harness: when someone else deleted a frame being dragged here, `moveFrame` found no entry and returned, so the notes and shapes it carried stayed held here and no final move was sent: every other page kept this page's last live preview of them, which the relay never stored. Now `frameDeleted` for the frame in `frameDrag` calls `frameDragGone`: the carried items are released where they are and sent as final `noteBatch` / `shapeBatch` moves (ordinary drop rows), and the canvas's later drop for the gone frame sends nothing. A selection drag (`moveSelection` final) sends a gone frame's carried notes and shapes with the loose ones. Tests: `web/test/frameDeletedMidDrag.test.ts`.

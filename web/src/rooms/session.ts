@@ -2000,6 +2000,10 @@ export class RoomSession {
     this.stopSelectionDrag();
     this.update({ board });
     const frames = drag.frames.filter((f) => findFrame(board, f.id));
+    // A frame someone else deleted meanwhile (v0.39.1): what it carried goes with the loose items.
+    const gone = drag.frames.filter((f) => !findFrame(board, f.id));
+    const loose = [...drag.loose, ...gone.flatMap((f) => f.noteIds)];
+    const looseShapes = [...drag.looseShapes, ...gone.flatMap((f) => f.shapeIds)];
     const notes = [...drag.notes.keys()].filter((id) => findNote(board, id));
     const shapes = [...drag.shapes.keys()].filter((id) => findShape(board, id));
     const ids = [...frames.map((f) => f.id), ...notes, ...shapes];
@@ -2011,8 +2015,8 @@ export class RoomSession {
       `move:${[...ids].sort().join(",")}`,
     );
     for (const f of frames) this.sendFrameMove(f.id, f.noteIds.filter((id) => findNote(board, id)), true, f.shapeIds.filter((id) => findShape(board, id)));
-    this.sendBatch(this.moveEntries(drag.loose), true);
-    this.sendShapeBatch(this.shapeMoveEntries(drag.looseShapes), true);
+    this.sendBatch(this.moveEntries(loose), true);
+    this.sendShapeBatch(this.shapeMoveEntries(looseShapes), true);
     return offset;
   }
 
@@ -4241,6 +4245,26 @@ export class RoomSession {
     this.send({ type: "frameResize", id, x: frame.x, y: frame.y, w: frame.w, h: frame.h, final });
   }
 
+  /**
+   * Someone else deleted the frame I'm dragging (v0.39.1, found by the load harness): the notes
+   * and shapes it carried are released where they are and their final positions sent. Without
+   * this they stayed held here, and every other page kept my last live preview of them, which
+   * the relay never stored.
+   */
+  private frameDragGone(id: string): void {
+    const drag = this.frameDrag;
+    if (!drag || drag.id !== id) return;
+    this.frameDrag = null;
+    let board = this.view.board;
+    const notes = [...drag.notes.keys()].filter((n) => findNote(board, n));
+    const shapes = [...drag.shapes.keys()].filter((n) => findShape(board, n));
+    for (const n of notes) board = setDragging(board, n, false);
+    for (const n of shapes) board = setShapeDragging(board, n, false);
+    this.update({ board });
+    this.sendBatch(this.moveEntries(notes), true);
+    this.sendShapeBatch(this.shapeMoveEntries(shapes), true);
+  }
+
   private stopFrameMove(id: string): void {
     clearTimeout(this.frameMoves.get(id)?.timer);
     this.frameMoves.delete(id);
@@ -4916,6 +4940,7 @@ export class RoomSession {
 
       case "frameDeleted":
         this.clearRun?.frames.ids.delete(message.id);
+        this.frameDragGone(message.id);
         this.stopFrameMove(message.id);
         this.stopFrameResize(message.id);
         return this.update({ board: applyFrameDeleted(this.view.board, message.id) });

@@ -89,7 +89,7 @@ export function TopBar() {
   return (
     <header className="sy-safe-top sticky top-0 z-40 shrink-0 border-b border-border bg-surface">
       <div className="sy-safe-x flex h-header items-center justify-between gap-toolbar">
-        <a href="#/" className="flex min-h-touch items-center rounded-md text-fg" aria-label="Stickyard, start page">
+        <a href="#/" className="flex min-h-touch min-w-touch items-center rounded-md text-fg" aria-label="Stickyard, start page">
           <Logo />
         </a>
         <div ref={setSlot} data-topbar-slot="" className="flex min-w-0 flex-1 justify-center" />
