@@ -20,7 +20,7 @@
  *   (renameId), so earlier steps still work on the restored items.
  */
 
-export type ItemKind = "note" | "frame" | "shape" | "connector";
+export type ItemKind = "note" | "frame" | "shape" | "connector" | "group";
 export type Value = string | number | boolean;
 /** Some of an item's fields (a change's before or after, or everything the relay stored). */
 export type Fields = Readonly<Record<string, Value>>;
@@ -135,7 +135,7 @@ export type Plan =
       label: string;
       changes: ChangeStep[];
       deletes: DeleteStep[];
-      /** Notes and shapes in stacking order (bottom first), then frames, then arrows. */
+      /** Notes and shapes in stacking order (bottom first), then frames, then arrows, then groups. */
       restores: RestoreStep[];
       /** Items left as they are because someone else changed (or deleted) them. */
       skipped: number;
@@ -234,6 +234,41 @@ export class History {
     entry.items = items.map((i) => ({ kind: i.kind, id: i.id, content: without(i.content, SERVER_FIELDS), z: i.z, rev: i.rev, present: false, pending: "delete" }));
     entry.changes = relayChanges.map((c) => ({ kind: c.kind, id: c.id, before: { ...c.before }, after: { ...c.after }, beforeRev: null, afterRev: null, relay: c.matches }));
     for (const c of relayChanges) this.expect(c.kind, c.id, entry.seq, "do", c.after, now, c.matches);
+    this.push(entry);
+  }
+
+  /**
+   * One step of several kinds (groups, v0.38.0): items I added (local ids until confirmed: undo
+   * deletes them), items gone because of it (sent or made by the relay, waiting: undo adds them
+   * back), changes I sent, and changes the relay makes itself (each waiting for a state `matches`
+   * accepts). A group made from items in other groups, or items added to a group, is one step.
+   */
+  recordStep(
+    label: string,
+    step: {
+      added?: readonly { kind: ItemKind; id: string }[];
+      removed?: readonly { kind: ItemKind; id: string; content: Fields; z: number; rev: number }[];
+      changes?: readonly { kind: ItemKind; id: string; before: Fields; after: Fields }[];
+      relayChanges?: readonly { kind: ItemKind; id: string; before: Fields; after: Fields; matches: (state: Fields) => boolean }[];
+    },
+    now: number,
+  ): void {
+    const changes = (step.changes ?? []).filter((c) => !sameValues(c.before, c.after));
+    const relay = step.relayChanges ?? [];
+    const added = step.added ?? [];
+    const removed = step.removed ?? [];
+    if (added.length + removed.length + changes.length + relay.length === 0) return;
+    const entry = this.newEntry(label, now, null);
+    entry.items = [
+      ...added.map((i): PresenceRecord => ({ kind: i.kind, id: i.id, content: null, z: 0, rev: null, present: true, pending: "add" })),
+      ...removed.map((i): PresenceRecord => ({ kind: i.kind, id: i.id, content: without(i.content, SERVER_FIELDS), z: i.z, rev: i.rev, present: false, pending: "delete" })),
+    ];
+    entry.changes = [
+      ...changes.map((c): ChangeRecord => ({ kind: c.kind, id: c.id, before: { ...c.before }, after: { ...c.after }, beforeRev: null, afterRev: null })),
+      ...relay.map((c): ChangeRecord => ({ kind: c.kind, id: c.id, before: { ...c.before }, after: { ...c.after }, beforeRev: null, afterRev: null, relay: c.matches })),
+    ];
+    for (const c of changes) this.expect(c.kind, c.id, entry.seq, "do", c.after, now);
+    for (const c of relay) this.expect(c.kind, c.id, entry.seq, "do", c.after, now, c.matches);
     this.push(entry);
   }
 
@@ -344,7 +379,7 @@ export class History {
     for (const e of this.expects) if (e.kind === kind && e.id === from) e.id = to;
     // References inside fields (an arrow's ends name notes and shapes).
     const refs = this.renameRefs;
-    if (!refs || kind === "frame" || kind === "connector") return;
+    if (!refs || kind === "frame" || kind === "connector" || kind === "group") return;
     for (const entry of [...this.undo, ...this.redo]) {
       for (const r of entry.changes) {
         r.before = refs(r.before, from, to);
@@ -397,8 +432,8 @@ export class History {
       if (!current || current.rev !== r.rev) skipped++;
       else deletes.push({ kind: r.kind, id: r.id, content: without(current.state, SERVER_FIELDS), z: typeof current.state.z === "number" ? current.state.z : r.z });
     }
-    // Notes and shapes share one stacking space (bottom first), then frames (in their order), then arrows.
-    const band = (kind: ItemKind) => (kind === "frame" ? 1 : kind === "connector" ? 2 : 0);
+    // Notes and shapes share one stacking space (bottom first), then frames (in their order), then arrows, then groups.
+    const band = (kind: ItemKind) => (kind === "frame" ? 1 : kind === "connector" ? 2 : kind === "group" ? 3 : 0);
     restores.sort((a, b) => band(a.kind) - band(b.kind) || (band(a.kind) === 0 ? a.z - b.z : 0));
     return { type: "apply", direction, seq: entry.seq, label: entry.label, changes, deletes, restores, skipped };
   }

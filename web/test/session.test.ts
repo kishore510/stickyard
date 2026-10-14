@@ -307,7 +307,7 @@ describe("a v21 relay: connectors (applied since arrows part 2, v0.36.0)", () =>
   });
 });
 
-describe("a v22 relay: groups (ignored by the page until the groups UI)", () => {
+describe("a v22 relay: groups", () => {
   const HOSTILE = "<img src=x onerror=alert(1)>";
   const group = { id: "GGGGGGGGGGGGGGG1", label: HOSTILE, color: "blue", members: ["NNNNNNNNNNNNNNN1", "SSSSSSSSSSSSSSS1"], rev: 1 };
 
@@ -319,7 +319,7 @@ describe("a v22 relay: groups (ignored by the page until the groups UI)", () => 
     expect(t.sock().sent[0]).toEqual({ type: "hello", protocolVersion: 22 });
   });
 
-  it("the four group messages parse and are ignored: no crash, no error, no notice, no view change, nothing sent", () => {
+  it("the four group messages are applied (v0.38.0): hostile labels stay plain text, nothing is sent back", () => {
     const t = joined();
     const note: Note = { id: "NNNNNNNNNNNNNNN1", x: 100, y: 100, ...NOTE_DEFAULTS, text: HOSTILE, color: "yellow", z: 0, rev: 1, authorId: sam.id };
     t.sock().receive({ type: "snapshot", notes: [note] });
@@ -327,19 +327,14 @@ describe("a v22 relay: groups (ignored by the page until the groups UI)", () => 
     t.sock().receive({ type: "shapesSnapshot", shapes: [] });
     t.sock().receive({ type: "reactionsSnapshot", counts: [] });
     t.sock().receive({ type: "connectorsSnapshot", connectors: [] });
-    const before = t.view();
     const sent = t.sock().sent.length;
-    for (const m of [
-      { type: "groupsSnapshot", groups: [group] },
-      { type: "groupCreated", group: { ...group, id: "GGGGGGGGGGGGGGG2" }, clientRef: "g1" },
-      { type: "groupUpdated", group: { ...group, rev: 2, label: "", members: [...group.members, "NNNNNNNNNNNNNNN2"].sort() } },
-      { type: "groupDeleted", id: "GGGGGGGGGGGGGGG2" },
-    ]) {
-      expect(() => t.sock().receive(m)).not.toThrow();
-    }
-    expect(t.view()).toBe(before);
+    t.sock().receive({ type: "groupsSnapshot", groups: [group] });
+    expect(t.view().board.groups.map((g) => g.group.label)).toEqual([HOSTILE]);
+    t.sock().receive({ type: "groupCreated", group: { ...group, id: "GGGGGGGGGGGGGGG2", members: ["NNNNNNNNNNNNNNN2", "NNNNNNNNNNNNNNN3"] } });
+    t.sock().receive({ type: "groupUpdated", group: { ...group, rev: 2, label: "", members: [...group.members, "NNNNNNNNNNNNNNN4"].sort() } });
+    t.sock().receive({ type: "groupDeleted", id: "GGGGGGGGGGGGGGG2" });
+    expect(t.view().board.groups.map((g) => [g.group.id, g.group.label, g.group.members.length])).toEqual([["GGGGGGGGGGGGGGG1", "", 3]]);
     expect(t.view().status).toBe("joined");
-    expect(t.sock().closed).toBe(false);
     expect(t.sock().sent.length).toBe(sent);
   });
 

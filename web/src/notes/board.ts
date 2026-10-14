@@ -14,6 +14,7 @@ import {
 import type { BoardFrame } from "../frames/board";
 import type { BoardShape } from "../shapes/board";
 import type { BoardConnector } from "../connectors/board";
+import type { BoardGroup } from "../groups/board";
 
 /*
  * The board as this page sees it: the server's notes plus optimistic local changes.
@@ -67,9 +68,13 @@ export interface Board {
   connectors: BoardConnector[];
   /** Arrows deleted here, waiting for the relay; restored (at `index`) if it refuses. */
   connectorsRemoved: (BoardConnector & { index: number })[];
+  /** Groups (protocol v22; groups/board.ts), in creation order, drawn as one layer above frames and below arrows. */
+  groups: BoardGroup[];
+  /** Groups deleted here (ungrouped, or emptied below 2), waiting for the relay; restored (at `index`) if it refuses. */
+  groupsRemoved: (BoardGroup & { index: number })[];
 }
 
-export const EMPTY_BOARD: Board = { notes: [], removed: [], frames: [], framesRemoved: [], shapes: [], shapesRemoved: [], connectors: [], connectorsRemoved: [] };
+export const EMPTY_BOARD: Board = { notes: [], removed: [], frames: [], framesRemoved: [], shapes: [], shapesRemoved: [], connectors: [], connectorsRemoved: [], groups: [], groupsRemoved: [] };
 
 /** The id a note has until the server assigns one. Never sent to the server. */
 export const localId = (clientRef: string) => `local:${clientRef}`;
