@@ -179,7 +179,7 @@ async function main() {
   start("npx", ["wrangler", "dev", "--ip", "127.0.0.1", "--port", "8797", "--persist-to", persist, "--var", "CREATE_PASSCODE:a11y-passcode", "--var", `ROOM_SIGNING_KEY:${SIGNING_KEY}`, "--var", "CREATION_ENABLED:true"], join(ROOT, "worker"));
   // The dev page talks to this local relay (web/src/config.ts reads VITE_WORKER_URL).
   start("npx", ["vite", "--host", "127.0.0.1", "--port", "5174", "--strictPort"], join(ROOT, "web"), { VITE_WORKER_URL: RELAY });
-  const report = { violations: [], keyboard: {}, smallTargets: {}, reducedMotion: {}, announcements: {} };
+  const report = { violations: [], keyboard: {}, smallTargets: {}, reducedMotion: {}, announcements: {}, followStrip: {} };
   try {
     await waitFor(`${RELAY}/health`);
     await waitFor(`${WEB}/`);
@@ -280,6 +280,7 @@ async function main() {
           }
           await page.keyboard.press("Escape");
           await page.waitForTimeout(300);
+          report.followStrip[tag] = await page.getByText(/^Following /).count();
           v.push(...(await axe(page, `following ${tag}`)));
           await page.getByRole("button", { name: /^Menu/ }).click();
           await page.getByRole("menuitem", { name: "Share session" }).click();
@@ -352,6 +353,7 @@ async function main() {
     console.log(`\nkeyboard ${tag}: ${walk.filter(Boolean).length} stops, without visible focus: ${[...new Set(hidden)].join(", ") || "none"}`);
   }
   for (const [tag, list] of Object.entries(report.reducedMotion)) console.log(`reduced motion ${tag}: ${list.length ? list.join("; ") : "nothing animates"}`);
+  console.log(`follow strip shown: ${JSON.stringify(report.followStrip)}`);
   for (const [tag, list] of Object.entries(report.announcements)) console.log(`announcements ${tag}: ${list.map((a) => `[${a.politeness}] ${a.text}`).join(" / ")}`);
 }
 
