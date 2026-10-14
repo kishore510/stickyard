@@ -976,9 +976,8 @@ describe("the palette (md up)", () => {
     ]);
     expect(tiles()[1]?.querySelector('[data-preview]')?.className).toContain("bg-note-pink");
     expect(tiles()[1]?.textContent).toContain("Pink");
-    // No Stencils tab until a stencil exists.
-    expect(palette()?.querySelector('[role="tablist"]')).toBeNull();
-    expect(palette()?.textContent).not.toMatch(/stencil/i);
+    // Stencils (v0.39.0): a second tab beside Add, from md up.
+    expect([...(palette()?.querySelectorAll('[role="tab"]') ?? [])].map((t) => t.textContent)).toEqual(["Add", "Stencils"]);
   });
 
   it("clicking a tile adds a note of that colour at the viewport centre, selects it, and edits it in place", async () => {
