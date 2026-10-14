@@ -122,6 +122,11 @@ export function AboutPage() {
             when it expires or ends. A group’s label is shown to everyone in the session, like note text.
           </li>
           <li>
+            Stencils you save are kept in this browser only (local storage), with their name and the selected items’ text, sizes and
+            colours. Nothing is sent until you place one on a board; then its notes, shapes, frames, arrows and groups are added like any
+            others. Delete them from the palette’s Stencils tab (one by one, or Delete all), or by clearing this site’s data.
+          </li>
+          <li>
             While you share your cursor (a mouse or pen over the board, on a wider screen), your pointer’s position on the board is passed on live
             to the others in the session, with the relay’s random id for your visit so their page can show your name beside it. It is never stored,
             and nothing is sent while your pointer is still, off the board, in a hidden tab, or when you’re the only one there. Phones never share a

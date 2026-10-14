@@ -165,7 +165,7 @@ describe("Help", () => {
     await mount("#/help");
     expect(button(/Quick start/)).toBeDefined();
     const topics = [...(dialog()?.querySelectorAll('[aria-labelledby="help-topics"] li') ?? [])].map((li) => li.textContent);
-    expect(topics).toEqual(["Starting and joining a session", "Notes", "Text and shapes", "Arrows", "Groups and affinity grouping", "Participants", "Chat", "Names and identity", "Connection", "Touch and keyboard tips", "Running a session", "Dot voting", "Reactions", "Silent brainstorm", "Follow and Bring to me", "Joining by QR code"]);
+    expect(topics).toEqual(["Starting and joining a session", "Notes", "Text and shapes", "Arrows", "Groups and affinity grouping", "Participants", "Stencils", "Chat", "Names and identity", "Connection", "Touch and keyboard tips", "Running a session", "Dot voting", "Reactions", "Silent brainstorm", "Follow and Bring to me", "Joining by QR code"]);
   });
 
   it("search filters topics", async () => {
