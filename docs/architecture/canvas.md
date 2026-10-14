@@ -72,3 +72,5 @@ Architecture notes, moved out of CLAUDE.md on 7 October 2026 so they load only w
 ## Follow: programmatic moves versus mine (v0.31.0)
 - `useCanvasView({ onUserMove })`: my own view commands call `onUserMove` (following stops); `follow` and `showView` are programmatic (inside `MoveGuard`); `moved(event)` from React Flow `onMove` and `userGesture()` from the overview map. `fitItems(items, animate, user)`: the first fit passes `user` false. `view()` is my view on the wire (`viewFromCentre`). Details in connection.md "Follow and Bring to me: the UI".
 
+## Reactions on the canvas (v0.34.0)
+- `NoteNode` adds `BoardReactions` below the note (board units, `nodrag nopan nowheel`, events stopped at the row; a chip press never selects or drags the note) and the zoom mode from React Flow's store (chips from 50%, a summary from 25%). `VoteControls` moves down by the reaction row's height. Export: PNG keeps the counts, never Add reaction or which are mine; Markdown unchanged. Details in notes.md "Reactions on notes: the UI".

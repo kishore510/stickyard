@@ -1,8 +1,8 @@
 ---
 title: Running a session
 order: 9
-summary: What the host can do (timer, lock the board, dot voting, silent brainstorm, bring everyone to your view, end the session) and what everyone else sees.
-keywords: host, hosting, facilitate, facilitator, qr, invite, share, projector, timer, countdown, time, timebox, lock, locked, unlock, end, end session, delete, crown, badge, silent, brainstorm, reveal, bring to me, gather, follow
+summary: What the host can do (timer, lock the board, dot voting, silent brainstorm, bring everyone to your view, end the session) and what everyone else sees, reactions included.
+keywords: reaction, reactions, host, hosting, facilitate, facilitator, qr, invite, share, projector, timer, countdown, time, timebox, lock, locked, unlock, end, end session, delete, crown, badge, silent, brainstorm, reveal, bring to me, gather, follow
 ---
 ## Inviting people
 
@@ -36,6 +36,11 @@ keywords: host, hosting, facilitate, facilitator, qr, invite, share, projector, 
 - The host votes like everyone else, and sees only totals too: not who voted, or how many people have voted so far.
 - These controls aren't available while you're not connected, or while something is still being added or the board is being cleared.
 - See [Dot voting](help:dot-voting) for what everyone else sees.
+
+## Reactions
+
+- Everyone can react to notes at any time; there's nothing for the host to start or stop. Reactions are a quick, light signal beside dot voting: they keep counting through a vote, a new round and **Clear votes**, and on a locked board.
+- Like everyone, the host sees only the counts, never who reacted. During a silent round hidden notes take no reactions until you reveal them. See [Reactions](help:reactions).
 
 ## Silent brainstorm
 

@@ -1,4 +1,4 @@
-// npm run shots: screenshots of the welcome page, a seeded room and its Share session sheet at 360, 768 and 1280 px,
+// npm run shots: screenshots of the welcome page, a seeded room (with reactions and the reaction picker) and its Share session sheet at 360, 768 and 1280 px,
 // in light and dark, into shots/ (gitignored). Starts a local relay (wrangler dev, fake
 // secrets, throwaway storage) and the Vite dev server, then drives Chromium.
 //
@@ -116,7 +116,15 @@ async function seedRoom(page) {
           ],
         }),
       );
-      await next("itemsAdded");
+      const added = await next("itemsAdded");
+      // Reactions (v0.34.0): Sam claims a voter (a fake key) and reacts to two notes.
+      const ids = Object.fromEntries(added.notes.map((n) => [n.ref, n.note.id]));
+      ws.send(JSON.stringify({ type: "claimVoter", key: "shotsVoterKeySam0000000" }));
+      await next("voterGranted");
+      for (const [ref, key] of [["n1", "thumbs_up"], ["n1", "heart"], ["n1", "plus"], ["n2", "celebrate"], ["n2", "laugh"]]) {
+        ws.send(JSON.stringify({ type: "reactionSet", noteId: ids[ref], key, on: true }));
+        await next("reactionMine");
+      }
       ws.close();
       return { code, hostToken, roomId: code.split(".")[0] };
     },
@@ -193,6 +201,62 @@ async function main() {
           await page.locator(".react-flow__node").first().waitFor({ timeout: 20_000 });
           await page.waitForTimeout(1500); // first fit and fonts
           await shot("room");
+          // Reactions (v0.34.0): no chip may overlap its note's text or the note itself.
+          const overlaps = await page.evaluate(() =>
+            [...document.querySelectorAll("[data-reactions], [data-reaction-summary]")].flatMap((row) => {
+              const card = row.parentElement?.querySelector('[aria-roledescription="note"]');
+              if (!card) return [];
+              const r = row.getBoundingClientRect();
+              const c = card.getBoundingClientRect();
+              return r.top < c.bottom && r.bottom > c.top && r.left < c.right && r.right > c.left ? [card.getAttribute("aria-label")] : [];
+            }),
+          );
+          if (overlaps.length > 0) throw new Error(`reaction chips overlap a note at ${size.name} ${theme}: ${overlaps.length}`);
+          // Close enough for the chips (they collapse below 50% zoom): wheel-zoom in on the first reacted note.
+          for (let i = 0; i < 12 && (await page.locator("[data-reaction]").count()) === 0; i++) {
+            const box = await page.locator('[aria-roledescription="note"]').first().boundingBox();
+            if (box) await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+            // Ctrl+wheel is a pinch (a plain wheel pans the board).
+            await page.keyboard.down("Control");
+            await page.mouse.wheel(0, -200);
+            await page.keyboard.up("Control");
+            await page.waitForTimeout(250);
+          }
+          await page.waitForTimeout(400);
+          await shot("reactions-board");
+          // Mine on a note, then the picker from Add reaction (popover from md up, the editor's bottom sheet on phones).
+          await page.locator("[data-reaction]").first().click();
+          await page.waitForTimeout(300);
+          if (size.width >= 768) {
+            await page.locator('[aria-roledescription="note"]').first().click();
+            await page.locator("[data-reactions] [data-reaction-add]").first().click();
+          } else {
+            // A finger tap opens the editor sheet; its Reactions section has the same row.
+            await page.locator('[aria-roledescription="note"]').first().tap();
+            await page.locator("[data-reactions-section]").first().scrollIntoViewIfNeeded();
+            await page.waitForTimeout(300);
+            await shot("reactions-editor");
+            await page.locator("[data-reactions-section] [data-reaction-add]").first().tap();
+          }
+          await page.locator("[data-reaction-picker]").waitFor({ timeout: 5_000 });
+          await page.waitForTimeout(400);
+          await shot("reactions");
+          await page.keyboard.press("Escape");
+          if (size.width < 768) await page.keyboard.press("Escape");
+          await page.waitForTimeout(300);
+          if (size.width === 1280) {
+            // Zoomed out: the quiet summary (below 50%), then nothing (below 25%).
+            const pane = await page.locator(".react-flow__pane").boundingBox();
+            if (pane) await page.mouse.move(pane.x + pane.width / 2, pane.y + pane.height / 2);
+            for (let i = 0; i < 12 && (await page.locator("[data-reaction-summary]").count()) === 0; i++) {
+              await page.keyboard.down("Control");
+              await page.mouse.wheel(0, 120);
+              await page.keyboard.up("Control");
+              await page.waitForTimeout(250);
+            }
+            await page.waitForTimeout(400);
+            await shot("reactions-zoomed-out");
+          }
           // Share session (v0.32.0): the QR sheet from the menu, then Large.
           await page.getByRole("button", { name: /^Menu/ }).click();
           await page.getByRole("menuitem", { name: "Share session" }).click();

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { FrameColor, NoteColor, NoteRect, OrderAction, ShapeKind } from "@stickyard/shared";
+import type { FrameColor, NoteColor, NoteRect, OrderAction, ReactionKey, ShapeKind } from "@stickyard/shared";
 import { WORKER_URL, healthUrl, toWebSocketUrl } from "../config";
 import { probeHealth } from "../connection/connectionCheck";
 import { browserConnectionEnv } from "../connection/reconnect";
@@ -136,6 +136,7 @@ export function useRoom(code: string) {
     clearVotes: () => session.current?.clearVotes() ?? false,
     startSilent: () => session.current?.startSilent() ?? false,
     revealSilent: () => session.current?.revealSilent() ?? false,
+    reactionSet: (noteId: string, key: ReactionKey, on: boolean) => session.current?.reactionSet(noteId, key, on) ?? false,
     shareCursor: (x: number, y: number) => session.current?.shareCursor(x, y) ?? false,
     hideCursor: () => session.current?.hideCursor(),
     startFollow: (id: string) => session.current?.startFollow(id) ?? false,

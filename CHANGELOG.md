@@ -2,6 +2,21 @@
 
 All notable changes to Stickyard, newest first. The format follows Keep a Changelog. Versions are 0.x: a minor bump for each slice and a patch bump for each follow-up fix. This file is shown in the app under **What’s new**, so entries are written for the people using it.
 
+## [0.34.0] - 2026-10-13
+
+### Added
+- **Reactions on notes.** Select a note and choose **Add reaction** under it to give it a thumbs up, heart, laugh, celebrate, thinking or plus one. Each reaction a note has shows under it as a small chip with the emoji and how many people chose it; yours have a thicker outline. Choose a chip to add yours or take it off. Choosing a chip never selects or moves the note.
+- On a phone, tap a note: its editor has the same **Reactions** row at the top, and the picker opens from the bottom of the screen. On a wider screen the row is in **Properties** too.
+- Reactions work in any session, with or without a vote, and on a locked board. During a silent round, hidden notes take no reactions until the host reveals them.
+- Zoomed out below 50%, a note's chips turn into one small summary so the board stays readable; below 25% they're hidden.
+- With the keyboard, **Tab** reaches the chips and **Add reaction**, **Enter** chooses, and **Esc** closes the picker. Screen readers hear your own reactions, never other people's. With reduced motion, chips don't pop.
+- If a reaction can't be saved (you're not connected, or a limit is reached), its chip goes back and a short message says why.
+- A new Help topic, **Reactions**, and updates to **Running a session** and **Touch and keyboard tips**.
+
+### Changed
+- About > Privacy: reactions are stored with the same scrambled voting key as your votes; the counts are shared, who reacted is not.
+- An exported PNG shows the reaction counts, never which are yours; the Markdown export is unchanged.
+
 ## [0.33.0] - 2026-10-13
 
 ### Changed

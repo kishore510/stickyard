@@ -1,9 +1,10 @@
-import type { Participant, SilentState, VotingState } from "@stickyard/shared";
+import type { Participant, ReactionKey, SilentState, VotingState } from "@stickyard/shared";
 import { create } from "zustand";
 import { countUnread } from "../chat/unread";
 import type { EchoEntry, RoomTimer, VoteTotal } from "./session";
 import type { ResultRow } from "../voting/voting";
 import type { View } from "../follow/follow";
+import type { MyReactions, ReactionCounts } from "../reactions/reactions";
 
 /*
  * The room the page is in, published by RoomScreen for things outside it: the top bar
@@ -59,6 +60,10 @@ export interface PublishedRoom {
   /** Host only (the session refuses them for guests, while disconnected, or in the wrong state). */
   startSilent(): boolean;
   revealSilent(): boolean;
+  /** Reactions on notes (protocol v20; the UI since v0.34.0): counts by note and key, my own set, and setting one of mine. */
+  reactionCounts: ReactionCounts;
+  myReactions: MyReactions;
+  reactionSet(noteId: string, key: ReactionKey, on: boolean): boolean;
   /** Follow (v0.31.0): starts or stops following someone here (false: nothing sent). */
   startFollow(id: string): boolean;
   stopFollow(): boolean;

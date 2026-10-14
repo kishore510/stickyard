@@ -3,6 +3,7 @@ import {
   FRAME_DEFAULTS,
   NOTE_DEFAULTS,
   PROTOCOL_VERSION,
+  REACTION_KEYS,
   clientMessageSchema,
   shapeDefaults,
   type Frame,
@@ -75,6 +76,12 @@ export class Relay {
   voterKey: string | null = null;
   /** An error code to refuse the next voteSet with (over_budget, voting_closed, no_voter, rate_limited...). */
   refuseVote: string | null = null;
+  /** Protocol v20: reactions by voter key (the real relay keys them by the voter id), then note, then keys. */
+  reactions = new Map<string, Map<string, Set<string>>>();
+  /** An error code to refuse the next reactionSet with (no_voter, reactions_full, reactor_full, rate_limited, unknown_note). */
+  refuseReaction: string | null = null;
+  /** Answer claimVoter with voters_full instead of a grant. */
+  refuseClaim = false;
   /** Sockets opened so far, and how many of them this page closed. */
   sockets = 0;
   closes = 0;
@@ -94,6 +101,37 @@ export class Relay {
     const sums = new Map<string, number>();
     for (const votes of this.votes.values()) for (const [id, c] of votes) if (this.notes.has(id) && c > 0) sums.set(id, (sums.get(id) ?? 0) + c);
     return [...this.notes.keys()].flatMap((noteId) => (sums.get(noteId) ? [{ noteId, count: sums.get(noteId)! }] : []));
+  }
+  /** Every voter's reactions on a note and key: the count everyone sees. */
+  reactionCount(noteId: string, key: string): number {
+    let n = 0;
+    for (const notes of this.reactions.values()) if (notes.get(noteId)?.has(key)) n++;
+    return n;
+  }
+  /** Non-zero counts, in note creation order then key order (as reactionsSnapshot carries them). */
+  reactionCounts() {
+    return [...this.notes.keys()].flatMap((noteId) =>
+      REACTION_KEYS.flatMap((key) => {
+        const count = this.reactionCount(noteId, key);
+        return count > 0 ? [{ noteId, key, count }] : [];
+      }),
+    );
+  }
+  private myReactions = (key: string) =>
+    [...this.notes.keys()].flatMap((noteId) => REACTION_KEYS.filter((k) => this.reactions.get(key)?.get(noteId)?.has(k)).map((k) => ({ noteId, key: k })));
+  /** Sam (another voter) sets a reaction: everyone hears the new count. */
+  samReact(noteId: string, key: string, on: boolean) {
+    const notes = this.reactions.get("sam") ?? new Map<string, Set<string>>();
+    this.reactions.set("sam", notes);
+    const keys = notes.get(noteId) ?? new Set<string>();
+    notes.set(noteId, keys);
+    if (on) keys.add(key);
+    else keys.delete(key);
+    this.out({ type: "reactionCount", noteId, key, count: this.reactionCount(noteId, key) });
+  }
+  /** A note goes: its reactions go with it, nothing broadcast about them (as the Worker). */
+  private dropReactions(noteId: string) {
+    for (const notes of this.reactions.values()) notes.delete(noteId);
   }
   private topZ = () => Math.max(-1, ...[...this.notes.values()].map((n) => n.z), ...[...this.shapes.values()].map((x) => x.z)) + 1;
   socket = (handlers: SocketHandlers) => {
@@ -252,12 +290,36 @@ export class Relay {
         if (this.holdFrames) return;
         this.out({ type: "framesSnapshot", frames: [...this.frames.values()] });
         this.out({ type: "shapesSnapshot", shapes: [...this.shapes.values()] });
+        this.out({ type: "reactionsSnapshot", counts: this.reactionCounts() });
         if (this.voting.state === "closed") this.out({ type: "votesRevealed", round: this.voting.round, totals: this.totals() });
         return;
       }
-      case "claimVoter":
+      case "claimVoter": {
+        if (this.refuseClaim) return this.out({ type: "error", code: "voters_full", message: "No." });
         this.voterKey = m.key as string;
-        return this.out({ type: "voterGranted", remaining: this.remaining(this.voterKey), mine: this.mine(this.voterKey) });
+        const reactions = this.myReactions(this.voterKey);
+        return this.out({ type: "voterGranted", remaining: this.remaining(this.voterKey), mine: this.mine(this.voterKey), ...(reactions.length > 0 ? { reactions } : {}) });
+      }
+      case "reactionSet": {
+        const noteId = m.noteId as string;
+        const key = m.key as string;
+        const on = m.on as boolean;
+        const refused = this.refuseReaction;
+        this.refuseReaction = null;
+        if (refused) return this.out({ type: "error", code: refused, message: "No.", noteId });
+        const voter = this.voterKey;
+        if (!voter) return this.out({ type: "error", code: "no_voter", message: "No.", noteId });
+        if (!this.notes.has(noteId)) return this.out({ type: "error", code: "unknown_note", message: "No.", noteId });
+        const notes = this.reactions.get(voter) ?? new Map<string, Set<string>>();
+        this.reactions.set(voter, notes);
+        const keys = notes.get(noteId) ?? new Set<string>();
+        notes.set(noteId, keys);
+        if (keys.has(key) === on) return;
+        if (on) keys.add(key);
+        else keys.delete(key);
+        this.out({ type: "reactionCount", noteId, key, count: this.reactionCount(noteId, key) });
+        return this.out({ type: "reactionMine", noteId, key, on });
+      }
       case "voteSet": {
         const noteId = m.noteId as string;
         const count = m.count as number;
@@ -316,6 +378,7 @@ export class Relay {
       }
       case "noteDelete":
         if (!this.notes.delete(m.id as string)) return;
+        this.dropReactions(m.id as string);
         return this.out({ type: "noteDeleted", id: m.id });
       case "noteBatch": {
         if (!m.final) return;
@@ -328,6 +391,7 @@ export class Relay {
           if (!c) continue;
           if (op.op === "delete") {
             this.notes.delete(op.id);
+            this.dropReactions(op.id);
             results.push({ type: "noteDeleted", id: op.id });
             continue;
           }

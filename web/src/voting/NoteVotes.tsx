@@ -1,10 +1,11 @@
-import { NodeToolbar, Position } from "@xyflow/react";
-import { useMemo } from "react";
+import { NodeToolbar, Position, useStore } from "@xyflow/react";
+import { useLayoutEffect, useMemo, useState } from "react";
 import { Circle, Trophy } from "lucide-react";
 import { readPxToken } from "../lib/cssVar";
 import { useRoomUi } from "../rooms/roomStore";
 import { VoteButtons } from "./VoteButtons";
 import { VOTE_TEXT, totalsOf, voteLabel } from "./voting";
+import { useNoteChips } from "../reactions/NoteReactions";
 
 /*
  * Voting on the board's notes (v0.18.0). Badges in a row just above the note (index.css
@@ -73,11 +74,20 @@ const TOOLBAR_STYLE = { zIndex: 4 } as const;
 /** The selected note's − / + while a round is open. `nodrag nopan nowheel`: React Flow leaves presses here alone. */
 export function VoteControls({ id, confirmed }: { id: string; confirmed: boolean }) {
   const offset = useMemo(() => readPxToken("--sy-vote-controls-offset", 16), []);
+  // Reactions (v0.34.0): the controls go below the note's reaction row (board units, so scaled
+  // by the zoom), never over it.
+  const zoom = useStore((s) => s.transform[2]);
+  const chips = useNoteChips(id);
+  const [below, setBelow] = useState(0);
+  useLayoutEffect(() => {
+    const row = document.querySelector(`.react-flow__node[data-id="${id}"] [data-reactions]`);
+    setBelow(row instanceof HTMLElement ? Math.max(0, row.offsetTop + row.offsetHeight - (row.parentElement?.offsetHeight ?? 0)) : 0);
+  }, [id, chips, zoom]);
   return (
     <NodeToolbar
       isVisible
       position={Position.Bottom}
-      offset={offset}
+      offset={offset + below * zoom}
       style={TOOLBAR_STYLE}
       data-vote-controls=""
       className="nodrag nopan nowheel max-w-content rounded-md border border-border bg-surface p-xs shadow-md"
