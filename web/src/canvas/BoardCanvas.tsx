@@ -33,7 +33,7 @@ import { CursorLayer } from "../cursors/CursorLayer";
 import { useCursorSharing } from "../cursors/useCursorSharing";
 import { showFitNotice } from "./ViewNotices";
 import { viewFromCentre, type View } from "../follow/follow";
-import { ConnectorLayer, ConnectorOverlay, type ConnectorLayerActions, type OverlayActions } from "../connectors/ConnectorLayer";
+import { ConnectorLayer, ConnectorOverlay, DrawHandles, type ConnectorLayerActions, type OverlayActions } from "../connectors/ConnectorLayer";
 import { useConnectorDrawing } from "../connectors/useConnectorDrawing";
 import { useConnectorUi } from "../connectors/connectorUi";
 import { boxOfBoard, freedArrows, resolveShown } from "../connectors/geometry";
@@ -799,15 +799,13 @@ export function BoardCanvas({
                 />
               </ViewportPortal>
             )}
+            {/* The side handles first, so an arrow attached at that side stays clickable over them. */}
+            {multiSelect && arrowsEditable && !panOnly && !armed && (soleNote ?? soleShape) && (
+              <DrawHandles board={room.board} item={(soleNote ?? soleShape)!} actions={overlayActions} />
+            )}
             <ConnectorLayer board={room.board} selected={connectorSelection} interactive={multiSelect} editable={arrowsEditable && !panOnly} actions={layerActions} />
             {multiSelect && (
-              <ConnectorOverlay
-                board={room.board}
-                arrow={connectorSelected}
-                item={armed ? null : (soleNote ?? soleShape)}
-                editable={arrowsEditable && !panOnly}
-                actions={overlayActions}
-              />
+              <ConnectorOverlay board={room.board} arrow={connectorSelected} editable={arrowsEditable && !panOnly} actions={overlayActions} />
             )}
             <CursorLayer compact={!multiSelect} />
             {minimap && (
@@ -832,11 +830,6 @@ export function BoardCanvas({
           </FrameActionsContext.Provider>
         </NoteActionsContext.Provider>
       </NoteHelpContext.Provider>
-      {armed && (
-        <p data-connector-drawing="" role="status" className="pointer-events-none absolute inset-x-0 bottom-above-bar z-10 mx-auto w-fit max-w-content rounded-md bg-surface px-ms py-xs text-center text-sm shadow-md">
-          {CONNECTOR_TEXT.drawHint}
-        </p>
-      )}
       {marquee.box && (
         <div
           data-marquee

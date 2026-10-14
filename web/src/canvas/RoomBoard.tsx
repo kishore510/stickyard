@@ -50,7 +50,7 @@ import { createPortal } from "react-dom";
 import type { Placed } from "./arrange";
 import { BoardCanvas, deleteArrows, deleteFrameAsking, deleteSelected, deleteSelectionAsking, deleteShapeAsking, type BoardRoom } from "./BoardCanvas";
 import { useConnectorUi, type DrawStyle } from "../connectors/connectorUi";
-import { ConnectorAnnouncer } from "../connectors/ConnectorAnnouncer";
+import { ConnectorAnnouncer, ConnectorDrawHint } from "../connectors/ConnectorAnnouncer";
 import { connectorToolReason } from "../connectors/rules";
 import { endAt, snapEnd } from "../connectors/geometry";
 import { snapItems } from "../connectors/ConnectorLayer";
@@ -718,6 +718,7 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
         <ReactionAnnouncer />
         {/* Arrows (v0.36.0): my own adds and deletes only, politely. */}
         <ConnectorAnnouncer />
+        <ConnectorDrawHint />
       </>
     ),
     [view.locked, isHost, view.voting, view.remaining, closed, showResults, view.silent, view.mySealed, wide, stopFollow, goThere],

@@ -245,15 +245,12 @@ export interface OverlayActions {
 export const ConnectorOverlay = memo(function ConnectorOverlay({
   board,
   arrow,
-  item,
   editable,
   actions,
 }: {
   board: Board;
   /** The one selected arrow (handles on its ends), or null. */
   arrow: string | null;
-  /** The one selected note or shape (draw handles on its sides), or null. */
-  item: string | null;
   editable: boolean;
   actions: OverlayActions;
 }) {
@@ -269,7 +266,6 @@ export const ConnectorOverlay = memo(function ConnectorOverlay({
   const entry = arrow ? board.connectors.find((c) => c.connector.id === arrow) : undefined;
   const ends = entry ? resolveShown(entry.connector, boxOf) : null;
   const shown = entry && ends ? shownEnds(entry.connector, ends, drag) : null;
-  const itemBox = item && !isLocalId(item) && !drawing ? boxOf(item) : undefined;
   const snap = drawing?.snap ?? (drag?.kind === "end" ? drag.snap : null);
   const snapBox = snap ? boxOf(snap.item) : undefined;
 
@@ -328,20 +324,39 @@ export const ConnectorOverlay = memo(function ConnectorOverlay({
             ))}
           </>
         )}
-        {editable &&
-          itemBox &&
-          item &&
-          SIDES.map((side) => {
-            const p = anchorPoints(itemBox)[side];
-            const out = 18 * scale;
-            const at = side === "top" ? { x: p.x, y: p.y - out } : side === "bottom" ? { x: p.x, y: p.y + out } : side === "left" ? { x: p.x - out, y: p.y } : { x: p.x + out, y: p.y };
-            return (
-              <g key={side} data-connector-handle={`out-${side}`} className="sy-connector-handle nopan nodrag" onPointerDown={(e) => actions.drawFrom(item, side, e)}>
-                <circle className="sy-connector-handle-target" cx={at.x} cy={at.y} r={target} />
-                <circle className="sy-connector-handle-dot sy-connector-handle-out" cx={at.x} cy={at.y} r={dot} />
-              </g>
-            );
-          })}
+      </svg>
+    </ViewportPortal>
+  );
+});
+
+/**
+ * The four "draw from here" handles of one selected note or shape (md and up). In the arrows'
+ * layer, under every note, so the item's own controls (reactions, votes) and its neighbours stay
+ * on top; the 44 px targets reach out past the item's edge.
+ */
+export const DrawHandles = memo(function DrawHandles({ board, item, actions }: { board: Board; item: string; actions: Pick<OverlayActions, "drawFrom"> }) {
+  const zoom = useStore((s) => s.transform[2]);
+  const drawing = useConnectorUi((s) => s.drawing);
+  const sizes = useSizes();
+  const scale = zoom > 0 ? 1 / zoom : 1;
+  const box = useMemo(() => (isLocalId(item) ? undefined : boxOfBoard(board)(item)), [board, item]);
+  if (!box || drawing) return null;
+  const target = (sizes.touch / 2) * scale;
+  const dot = (sizes.dot / 2) * scale;
+  const out = target;
+  return (
+    <ViewportPortal>
+      <svg data-connector-overlay="" aria-hidden="true" className="sy-connector-overlay" width={BOARD_WIDTH} height={BOARD_HEIGHT} style={{ zIndex: CONNECTOR_Z_INDEX }}>
+        {SIDES.map((side) => {
+          const p = anchorPoints(box)[side];
+          const at = side === "top" ? { x: p.x, y: p.y - out } : side === "bottom" ? { x: p.x, y: p.y + out } : side === "left" ? { x: p.x - out, y: p.y } : { x: p.x + out, y: p.y };
+          return (
+            <g key={side} data-connector-handle={`out-${side}`} className="sy-connector-handle nopan nodrag" onPointerDown={(e) => actions.drawFrom(item, side, e)}>
+              <circle className="sy-connector-handle-target" cx={at.x} cy={at.y} r={target} />
+              <circle className="sy-connector-handle-dot sy-connector-handle-out" cx={at.x} cy={at.y} r={dot} />
+            </g>
+          );
+        })}
       </svg>
     </ViewportPortal>
   );
