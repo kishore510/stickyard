@@ -291,6 +291,8 @@ export class Relay {
         this.out({ type: "framesSnapshot", frames: [...this.frames.values()] });
         this.out({ type: "shapesSnapshot", shapes: [...this.shapes.values()] });
         this.out({ type: "reactionsSnapshot", counts: this.reactionCounts() });
+        // Protocol v21: the connectors, as the Worker sends them (the page ignores them until part 2).
+        this.out({ type: "connectorsSnapshot", connectors: [] });
         if (this.voting.state === "closed") this.out({ type: "votesRevealed", round: this.voting.round, totals: this.totals() });
         return;
       }

@@ -3319,6 +3319,9 @@ export class RoomSession {
     // Follow and Bring to me (protocol v19) go straight to the follow sink, never a view update.
     const v = parsed.value;
     if (v.type === "viewportUpdate" || v.type === "followersChanged" || v.type === "followEnded" || v.type === "broughtToMe") return this.onFollow(v);
+    // Connectors (protocol v21, arrows part 1): validated like every message, then ignored until the
+    // arrows UI (part 2). Never a view update, an error or a notice.
+    if (v.type === "connectorsSnapshot" || v.type === "connectorAdded" || v.type === "connectorUpdated" || v.type === "connectorDeleted") return;
     const before = this.view.board;
     this.handle(parsed.value);
     this.pruneVotes();

@@ -272,7 +272,7 @@ describe("connectorAdd", () => {
     await c.waitClose();
     await runInDurableObject(stub, (_r, state) => {
       for (let i = 0; i < MAX_CONNECTORS_PER_ROOM; i++) {
-        state.storage.sql.exec("INSERT INTO connectors (id, start_x, start_y, end_x, end_y) VALUES (?, ?, ?, ?, ?)", `full${String(i).padStart(12, "0")}`, i, 10, i, 20);
+        state.storage.sql.exec("INSERT INTO connectors (id, start_x, start_y, end_x, end_y, author_id) VALUES (?, ?, ?, ?, ?, ?)", `full${String(i).padStart(12, "0")}`, i, 10, i, 20, "AAAAAAAAAAAAAAAA");
       }
     });
     await evictDurableObject(stub, { webSockets: "close" });
@@ -305,7 +305,7 @@ describe("connectorUpdate", () => {
     expect((await nextOfType(alex, "connectorUpdated")).connector).toMatchObject({ start: { item: sh.id, anchor: "auto" }, startHead: "arrow", rev: 4 });
     await drain(sam);
     // A free end again, clamped.
-    alex.send({ type: "connectorUpdate", id: k.id, start: free(6500, -5) });
+    alex.send({ type: "connectorUpdate", id: k.id, start: free(6460, -5) });
     expect((await nextOfType(sam, "connectorUpdated")).connector).toMatchObject({ start: { x: 6400, y: 0 }, rev: 5 });
     closeAll(alex, sam);
   });
@@ -927,7 +927,7 @@ describe(`schema migration 11 -> ${SCHEMA_VERSION}`, () => {
     c.close();
   });
 
-  it("bad stored rows are skipped, never fatal: unknown keys, half an endpoint, off-board points are clamped", async () => {
+  it("bad stored rows are skipped, never fatal: unknown keys, half an endpoint, a bad anchor, no author; off-board points are clamped", async () => {
     const { code, stub } = await newRoom();
     const c = await TestClient.open(code);
     await c.enter("Sam");
@@ -936,10 +936,13 @@ describe(`schema migration 11 -> ${SCHEMA_VERSION}`, () => {
     await c.waitClose();
     await runInDurableObject(stub, (_r, state) => {
       const sql = state.storage.sql;
-      sql.exec("INSERT INTO connectors (id, start_x, start_y, end_x, end_y, ink) VALUES ('bad0000000000001', 1, 1, 2, 2, ?)", HOSTILE);
-      sql.exec("INSERT INTO connectors (id, start_x, end_x, end_y) VALUES ('bad0000000000002', 1, 2, 2)");
-      sql.exec("INSERT INTO connectors (id, start_item, start_anchor, end_x, end_y) VALUES ('bad0000000000003', ?, 'middle', 2, 2)", note.id);
-      sql.exec("INSERT INTO connectors (id, start_x, start_y, end_x, end_y) VALUES ('ok00000000000004', -50, 9000, 2, 2)");
+      const author = "AAAAAAAAAAAAAAAA";
+      sql.exec("INSERT INTO connectors (id, start_x, start_y, end_x, end_y, ink, author_id) VALUES ('bad0000000000001', 1, 1, 2, 2, ?, ?)", HOSTILE, author);
+      sql.exec("INSERT INTO connectors (id, start_x, end_x, end_y, author_id) VALUES ('bad0000000000002', 1, 2, 2, ?)", author);
+      sql.exec("INSERT INTO connectors (id, start_item, start_anchor, end_x, end_y, author_id) VALUES ('bad0000000000003', ?, 'middle', 2, 2, ?)", note.id, author);
+      // A row with no author (every column defaulted) doesn't validate either, as for shapes.
+      sql.exec("INSERT INTO connectors (id, start_x, start_y, end_x, end_y) VALUES ('bad0000000000005', 1, 1, 2, 2)");
+      sql.exec("INSERT INTO connectors (id, start_x, start_y, end_x, end_y, author_id) VALUES ('ok00000000000004', -50, 9000, 2, 2, ?)", author);
     });
     await evictDurableObject(stub, { webSockets: "close" });
     const d = await TestClient.open(code);

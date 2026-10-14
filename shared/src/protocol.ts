@@ -54,8 +54,15 @@ import { NOTE_Z_LIMIT, ORDER_ACTIONS } from "./stack";
  *   (to the reactor's own sockets only), reactionsSnapshot (counts, on every join, right after
  *   shapesSnapshot); voterGranted may carry my own reactions. A reactor is the dot-voting voter
  *   (claimVoter). Never who reacted. v19 pages would refuse the new messages, so they get version_mismatch.
+ * v21 (connectors, arrows part 1): connectorAdd (full content), connectorUpdate (any endpoint or
+ *   style field) and connectorDelete from a page; connectorsSnapshot (on every join, right after
+ *   reactionsSnapshot), connectorAdded, connectorUpdated and connectorDeleted from the relay. Each
+ *   end is a free board point or bound to a note or shape by an anchor (no coordinates: pages work
+ *   it out from the item's box, see connectors.ts). Deleting a bound item turns those ends free
+ *   (connectorUpdated after the item's delete). v20 pages would refuse the new messages, so they
+ *   get version_mismatch.
  */
-export const PROTOCOL_VERSION = 20;
+export const PROTOCOL_VERSION = 21;
 
 /**
  * Hard cap on a single client-to-server WebSocket message, in UTF-8 bytes. Checked before JSON.parse.
@@ -849,6 +856,129 @@ export function checkShapeBatch(ops: readonly unknown[]): ShapeBatchCheck {
 }
 
 
+/* ── Connectors (v21) ────────────────────────────────────────────────── */
+
+/** Connectors (arrows) on one board. Beyond: connectors_full. */
+export const MAX_CONNECTORS_PER_ROOM = 100;
+/**
+ * Where a bound end meets its item's box: the middle of a side, or `auto` (where the line from
+ * the item's centre towards the other end leaves the box; see anchorPoint in connectors.ts).
+ */
+export const CONNECTOR_ANCHORS = ["auto", "top", "right", "bottom", "left"] as const;
+export const connectorAnchorSchema = z.enum(CONNECTOR_ANCHORS);
+export type ConnectorAnchor = z.infer<typeof connectorAnchorSchema>;
+/** Style keys, never CSS values: the web maps each to tokens (part 2). */
+export const CONNECTOR_ROUTES = ["straight", "elbow"] as const;
+export const CONNECTOR_DASHES = ["solid", "dashed", "dotted"] as const;
+export const CONNECTOR_WIDTHS = ["thin", "medium", "thick"] as const;
+/** Inks: the shape border colours (neutral plus the six note hues). */
+export const CONNECTOR_INKS = SHAPE_STROKES;
+export const CONNECTOR_HEADS = ["none", "arrow"] as const;
+export const connectorRouteSchema = z.enum(CONNECTOR_ROUTES);
+export const connectorDashSchema = z.enum(CONNECTOR_DASHES);
+export const connectorWidthSchema = z.enum(CONNECTOR_WIDTHS);
+export const connectorInkSchema = shapeStrokeSchema;
+export const connectorHeadSchema = z.enum(CONNECTOR_HEADS);
+export type ConnectorRoute = z.infer<typeof connectorRouteSchema>;
+export type ConnectorDash = z.infer<typeof connectorDashSchema>;
+export type ConnectorWidth = z.infer<typeof connectorWidthSchema>;
+export type ConnectorInk = ShapeStroke;
+export type ConnectorHead = z.infer<typeof connectorHeadSchema>;
+
+/** A connector's style fields (one head for each end). */
+export const CONNECTOR_STYLE_FIELDS = ["route", "dash", "width", "ink", "startHead", "endHead"] as const;
+export type ConnectorStyleField = (typeof CONNECTOR_STYLE_FIELDS)[number];
+/** The fields a connectorUpdate may change: either end and any style field; at least one. */
+export const CONNECTOR_UPDATE_FIELDS = ["start", "end", ...CONNECTOR_STYLE_FIELDS] as const;
+export type ConnectorUpdateField = (typeof CONNECTOR_UPDATE_FIELDS)[number];
+
+export interface ConnectorStyle {
+  route: ConnectorRoute;
+  dash: ConnectorDash;
+  width: ConnectorWidth;
+  ink: ConnectorInk;
+  startHead: ConnectorHead;
+  endHead: ConnectorHead;
+}
+/**
+ * A plain arrow: what the page will offer first (part 2), and what storage fills in for missing
+ * style columns. connectorAdd still carries every field (full content).
+ */
+export const CONNECTOR_DEFAULTS = {
+  route: "straight",
+  dash: "solid",
+  width: "medium",
+  ink: "neutral",
+  startHead: "none",
+  endHead: "arrow",
+} as const satisfies ConnectorStyle;
+
+/**
+ * How far past the board's edge a free end may be sent (board units): a drag that ends just past
+ * the edge is clamped (clampConnectorPoint), not refused.
+ */
+export const CONNECTOR_TOLERANCE = 64;
+/** The worst-case connectorsSnapshot stays under 90% of this (shared/test/connectors.test.ts checks). */
+export const CONNECTORS_SNAPSHOT_MAX_BYTES = 36 * 1024;
+
+export const connectorIdSchema = serverIdSchema;
+const connectorStyleShape = {
+  route: connectorRouteSchema,
+  dash: connectorDashSchema,
+  width: connectorWidthSchema,
+  ink: connectorInkSchema,
+  startHead: connectorHeadSchema,
+  endHead: connectorHeadSchema,
+} satisfies Record<ConnectorStyleField, z.ZodType>;
+
+/**
+ * A bound end: a note or shape (a server id) and an anchor. No coordinates, ever: every page works
+ * the point out from the item's current box, so moving or resizing the item writes nothing here.
+ */
+const boundEndSchema = z.strictObject({ item: serverIdSchema, anchor: connectorAnchorSchema });
+/** A free end as a page sends it: finite, at most CONNECTOR_TOLERANCE past an edge (the relay rounds and clamps). */
+const freeEndInSchema = z.strictObject({
+  x: z.number().min(-CONNECTOR_TOLERANCE).max(BOARD_WIDTH + CONNECTOR_TOLERANCE),
+  y: z.number().min(-CONNECTOR_TOLERANCE).max(BOARD_HEIGHT + CONNECTOR_TOLERANCE),
+});
+/** A free end as the relay stores and sends it: whole units on the board, edges included. */
+const freeEndSchema = z.strictObject({ x: z.number().int().min(0).max(BOARD_WIDTH), y: z.number().int().min(0).max(BOARD_HEIGHT) });
+/** One end of a connector from a page: free or bound, never both (strict objects). */
+export const connectorEndInSchema = z.union([freeEndInSchema, boundEndSchema]);
+/** One end of a connector as the relay sends it. */
+export const connectorEndSchema = z.union([freeEndSchema, boundEndSchema]);
+export type ConnectorEnd = z.infer<typeof connectorEndSchema>;
+export type BoundEnd = z.infer<typeof boundEndSchema>;
+
+/**
+ * A new connector with its full content. No id, rev or author (the server's). The relay refuses a
+ * zero-length one, both ends on one item, and a bind to anything but a note or shape on the board
+ * (unknown_item; someone's sealed note counts as unknown).
+ */
+export const connectorAddSchema = z.strictObject({
+  type: z.literal("connectorAdd"),
+  clientRef: clientRefSchema,
+  start: connectorEndInSchema,
+  end: connectorEndInSchema,
+  ...connectorStyleShape,
+});
+
+/** Any end or style field, last write wins (in arrival order; every stored change bumps rev). */
+export const connectorUpdateSchema = z
+  .strictObject({
+    type: z.literal("connectorUpdate"),
+    id: connectorIdSchema,
+    start: connectorEndInSchema.optional(),
+    end: connectorEndInSchema.optional(),
+    ...z.object(connectorStyleShape).partial().shape,
+  })
+  .refine((m) => CONNECTOR_UPDATE_FIELDS.some((field) => m[field] !== undefined), { message: "Nothing to change." });
+
+export const connectorDeleteSchema = z.strictObject({
+  type: z.literal("connectorDelete"),
+  id: connectorIdSchema,
+});
+
 /* ── Create with content (v11) ──────────────────────────────────────── */
 
 /**
@@ -1179,6 +1309,9 @@ export const clientMessageSchema = z.discriminatedUnion("type", [
   followStopSchema,
   viewportSchema,
   bringToMeSchema,
+  connectorAddSchema,
+  connectorUpdateSchema,
+  connectorDeleteSchema,
 ]);
 export type ClientMessage = z.infer<typeof clientMessageSchema>;
 export type ClientMessageType = ClientMessage["type"];
@@ -1235,6 +1368,10 @@ export const BOARD_WRITES: Readonly<Record<ClientMessageType, boolean>> = {
   followStop: false,
   viewport: false,
   bringToMe: false,
+  // Connectors (v21) are board content, like shapes: a lock refuses a guest's.
+  connectorAdd: true,
+  connectorUpdate: true,
+  connectorDelete: true,
 };
 
 /** Host-only messages: anyone else gets not_host. */
@@ -1269,6 +1406,9 @@ export const errorCodeSchema = z.enum([
   "unknown_note",
   "reactions_full",
   "reactor_full",
+  // Connectors (v21): the room's cap; a bind to anything but a note or shape on the board.
+  "connectors_full",
+  "unknown_item",
 ]);
 export type ErrorCode = z.infer<typeof errorCodeSchema>;
 
@@ -1310,6 +1450,8 @@ export const errorMessageSchema = z.object({
   shapeIds: z.array(shapeIdSchema).max(MAX_BATCH_ENTRIES).optional(),
   /** An itemsAdd where nothing was added (its `clientRef` names it): each refused item and why. */
   refused: z.array(itemRefusalSchema).max(MAX_BATCH_ENTRIES).optional(),
+  /** The connector a refused update or delete was about (v21). */
+  connectorId: connectorIdSchema.optional(),
 });
 
 /** The whole note on the board at its size. */
@@ -1824,6 +1966,43 @@ export const followEndedSchema = z.strictObject({ type: z.literal("followEnded")
 /** A host brought everyone to their view (protocol v19), to everyone but that host; `from` is the host's id, from their socket. */
 export const broughtToMeSchema = z.strictObject({ type: z.literal("broughtToMe"), from: participantIdSchema, ...sentViewShape });
 
+/** A connector as the server stores and sends it (v21). */
+export const connectorSchema = z.object({
+  id: connectorIdSchema,
+  start: connectorEndSchema,
+  end: connectorEndSchema,
+  ...connectorStyleShape,
+  /** Server-assigned; starts at 1 and goes up by one on every stored change. */
+  rev: z.number().int().min(1),
+  /** The participant who added it, from their socket. */
+  authorId: participantIdSchema,
+});
+export type Connector = z.infer<typeof connectorSchema>;
+
+/** Every connector, in creation order. On every join, right after reactionsSnapshot, in the same step. */
+export const connectorsSnapshotSchema = z.strictObject({
+  type: z.literal("connectorsSnapshot"),
+  connectors: z.array(connectorSchema).max(MAX_CONNECTORS_PER_ROOM),
+});
+
+export const connectorAddedSchema = z.object({
+  type: z.literal("connectorAdded"),
+  connector: connectorSchema,
+  /** Only in the copy sent to the connector's sender. */
+  clientRef: clientRefSchema.optional(),
+});
+
+/** An end or style changed, or (after an item's delete) a bound end turned free. Carries the whole connector. */
+export const connectorUpdatedSchema = z.object({
+  type: z.literal("connectorUpdated"),
+  connector: connectorSchema,
+});
+
+export const connectorDeletedSchema = z.object({
+  type: z.literal("connectorDeleted"),
+  id: connectorIdSchema,
+});
+
 export const serverMessageSchema = z.discriminatedUnion("type", [
   welcomeSchema,
   errorMessageSchema,
@@ -1874,6 +2053,10 @@ export const serverMessageSchema = z.discriminatedUnion("type", [
   followersChangedSchema,
   followEndedSchema,
   broughtToMeSchema,
+  connectorsSnapshotSchema,
+  connectorAddedSchema,
+  connectorUpdatedSchema,
+  connectorDeletedSchema,
 ]);
 export type ServerMessage = z.infer<typeof serverMessageSchema>;
 export type ServerMessageType = ServerMessage["type"];
@@ -1938,6 +2121,12 @@ export const SERVER_MESSAGES = {
   followersChanged: { carriesNoteContent: false },
   followEnded: { carriesNoteContent: false },
   broughtToMe: { carriesNoteContent: false },
+  // Connectors (v21): a bound end can name a note, so the sealed filter sees them (the relay never
+  // binds one to a sealed note). A delete names only the connector.
+  connectorsSnapshot: { carriesNoteContent: true },
+  connectorAdded: { carriesNoteContent: true },
+  connectorUpdated: { carriesNoteContent: true },
+  connectorDeleted: { carriesNoteContent: false },
 } as const satisfies Record<ServerMessageType, { carriesNoteContent: boolean }>;
 
 /** The server message types that can carry note content (the relay filters each one). */

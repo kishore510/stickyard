@@ -3,3 +3,4 @@ export * from "./stack";
 export * from "./parse";
 export * from "./clean";
 export * from "./api";
+export * from "./connectors";

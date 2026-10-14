@@ -2,6 +2,15 @@
 
 All notable changes to Stickyard, newest first. The format follows Keep a Changelog. Versions are 0.x: a minor bump for each slice and a patch bump for each follow-up fix. This file is shown in the app under **What’s new**, so entries are written for the people using it.
 
+## [0.35.0] - 2026-10-14
+
+### Changed
+- Groundwork for **arrows**. Nothing new is visible yet: drawing them comes in a later release. Then you'll be able to join notes and shapes with arrows (straight or elbowed, solid, dashed or dotted, three widths, the shape border colours, a head at either end), and an arrow attached to a note or shape follows it when it moves.
+- The relay can now keep up to 100 arrows a session. An arrow's end is either a spot on the board or attached to a note or shape. Deleting a note or shape leaves its arrows where they were, ending where the note or shape used to be. Ending the session or letting it expire takes the arrows with everything else, as before.
+- Arrows can't be added or changed during a silent round, or by guests on a locked board.
+- About > Privacy describes what arrows will keep.
+- After this update, pages opened before it say **please reload** when they try to join, as with earlier updates.
+
 ## [0.34.0] - 2026-10-13
 
 ### Added

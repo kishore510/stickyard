@@ -255,8 +255,10 @@ describe("the canary leak test", () => {
     const old = await noteAdd(b, "Before the round", { x: 1100, y: 1100 });
     // Protocol v21: connectors from before the round, bound to visible notes and a shape, and one free.
     const bnote = await noteAdd(b, "Bound", { x: 1500, y: 1500 });
+    await drain(host, a, b);
     const vshape = (await host.request({ type: "shapeAdd", clientRef: "v1", kind: "rect", x: 2000, y: 2000 })) as Extract<ServerMessage, { type: "shapeAdded" }>;
     const style = { route: "straight", dash: "solid", width: "medium", ink: "neutral", startHead: "none", endHead: "arrow" };
+    await drain(host, a, b);
     const kA = (await host.request({ type: "connectorAdd", clientRef: "k1", start: { item: old.id, anchor: "auto" }, end: { item: vshape.shape.id, anchor: "auto" }, ...style })) as Extract<ServerMessage, { type: "connectorAdded" }>;
     await drain(host, a, b);
     b.send({ type: "connectorAdd", clientRef: "k2", start: { item: bnote.id, anchor: "right" }, end: { x: 2500, y: 1500 }, ...style });
@@ -275,7 +277,7 @@ describe("the canary leak test", () => {
     // 2. A second socket for A (same key): its snapshot has A's sealed note, and it hears A's changes from now on.
     const a2 = await TestClient.open(code);
     await a2.enter("Ari", keys.a);
-    expect(a2.snapshot?.notes.map((n) => n.id)).toEqual([old.id, s1.id]);
+    expect(a2.snapshot?.notes.map((n) => n.id)).toEqual([old.id, bnote.id, s1.id]);
     await drain(host, a, b);
 
     // 3. Edit text, colour and style.
