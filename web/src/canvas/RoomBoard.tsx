@@ -75,6 +75,11 @@ import { FollowNotices } from "../follow/FollowNotices";
 import { useFollow } from "../follow/followStore";
 import { setViewSource, stopFollowing } from "../follow/actions";
 import type { View } from "../follow/follow";
+import { findGroup } from "../groups/board";
+import { groupOfSelection, groupsTouching, wholeGroups } from "../groups/geometry";
+import { GROUP_TEXT, createReason, groupReason } from "../groups/rules";
+import { GroupAnnouncer } from "../groups/GroupLayer";
+import { useGroupUi } from "../groups/groupUi";
 
 /*
  * The room's board with its tools and panels, loaded on demand (React Flow is only needed in a
@@ -297,6 +302,8 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
   // relay refuses every connector message then); the tiles also stop at 100 arrows.
   const arrowReason = !live ? NOTE_TOOL_REASONS.disconnected : locked ? LOCK_TEXT.reason : silentOn ? SILENT_TEXT.on : null;
   const connectorReason = arrowReason ?? connectorToolReason({ live, count: view.board.connectors.length });
+  // Groups (v0.38.0): off for a guest on a locked board and for everyone during a silent round.
+  const groupBase = groupReason({ live, lockedOut: locked, silent: silentOn });
   const templateReason = withLock(templateToolReason({ live, applying: view.template?.state === "applying", adding: view.adding }), lock);
   const sizes = panelWidths(windowWidth, panels);
 
@@ -334,6 +341,7 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
     useBoardUi.getState().pruneFrame((id) => findFrame(view.board, id) !== undefined);
     useBoardUi.getState().pruneShapes((id) => findShape(view.board, id) !== undefined);
     useBoardUi.getState().pruneConnectors((id) => view.board.connectors.some((c) => c.connector.id === id));
+    useBoardUi.getState().pruneGroup((id) => findGroup(view.board, id) !== undefined);
   }, [view.board]);
   // Nothing can be drawn while arrows can't change (disconnected, locked, a silent round): the tool disarms.
   useEffect(() => {
@@ -560,6 +568,7 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
     updateConnector: room.updateConnector,
     moveConnector: room.moveConnector,
     deleteConnectors: room.deleteConnectors,
+    updateGroup: room.updateGroup,
   };
 
   // The bar: md and up, always there. Notes in selection order (the first is Match size's reference).
@@ -595,10 +604,40 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
     arrows: arrowCount,
   }) ?? (selectedEntries.length > 0 ? silentNote : null) ?? (arrowCount > 0 && silentOn ? SILENT_TEXT.on : null), lock);
 
+  // Groups (v0.38.0): the selected notes and shapes, what a G press would do, and why it can't.
+  const pinnedGroup = useBoardUi((s) => s.group);
+  const groupItems = [...selectedEntries.map((e) => e.note.id), ...selectedShapeEntries.map((e) => e.shape.id)];
+  const groupCreateReason = createReason({
+    base: groupBase,
+    items: groupItems.length,
+    unsaved: groupItems.some(isLocalId),
+    already: groupOfSelection(view.board, groupItems) !== null,
+    count: view.board.groups.length,
+  });
+  /** G: groups the selected notes and shapes (frames and arrows are left out, and the page says so). */
+  const groupSelection = () => {
+    if (groupCreateReason !== null) return room.showNotice(groupCreateReason);
+    const id = room.createGroup(groupItems);
+    if (id === null) return;
+    if (selectedFrameEntries.length + arrowCount > 0) room.showNotice(GROUP_TEXT.ignored);
+    useGroupUi.getState().say(GROUP_TEXT.grouped(groupItems.length));
+    useBoardUi.getState().selectGroup(id, selectedEntries.map((e) => e.note.id), selectedShapeEntries.map((e) => e.shape.id));
+  };
+  /** Shift+G, Properties' Ungroup: the group in Properties, else every group with a selected item. */
+  const ungroupSelection = (ids?: readonly string[]) => {
+    if (groupBase !== null) return room.showNotice(groupBase);
+    const targets = ids ?? (pinnedGroup !== null && findGroup(view.board, pinnedGroup) ? [pinnedGroup] : groupsTouching(view.board, groupItems));
+    if (targets.length === 0) return room.showNotice(GROUP_TEXT.noneToUngroup);
+    if (room.ungroup(targets)) useGroupUi.getState().say(GROUP_TEXT.ungrouped(targets.length));
+  };
+  const groupKeys = useRef({ group: groupSelection, ungroup: ungroupSelection });
+  groupKeys.current = { group: groupSelection, ungroup: ungroupSelection };
+  const onGroupKey = useCallback((command: "group" | "ungroup") => (command === "group" ? groupKeys.current.group() : groupKeys.current.ungroup()), []);
+
   /** Duplicates the selection (notes, the frame alone, shapes, or a mix) and selects the copies. */
   const duplicate = () => {
     if (duplicateReason !== null) return room.showNotice(duplicateReason);
-    if (group || shapeCount > 0 || arrowCount > 0) {
+    if (group || shapeCount > 0 || arrowCount > 0 || wholeGroups(view.board, groupItems).length > 0) {
       const ids = room.duplicateSelection(
         selectedEntries.map((e) => e.note.id),
         selectedFrameEntries.map((e) => e.frame.id),
@@ -718,6 +757,8 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
         <ReactionAnnouncer />
         {/* Arrows (v0.36.0): my own adds and deletes only, politely. */}
         <ConnectorAnnouncer />
+        {/* Groups (v0.38.0): my own group and ungroup only, politely. */}
+        <GroupAnnouncer />
         <ConnectorDrawHint />
       </>
     ),
@@ -750,6 +791,7 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
       lockedReason={live && locked ? LOCK_TEXT.reason : null}
       silentReason={silentOn ? SILENT_TEXT.on : null}
       arrows={arrowCount}
+      grouping={{ reason: groupCreateReason, run: groupSelection }}
       session={isHost ? { locked: view.locked, pending: view.lockPending, setLock: (on: boolean) => room.setLock(on) } : null}
     />
   ) : null;
@@ -795,6 +837,8 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
           room={boardRoom}
           editable={live && !locked}
           arrowsEditable={arrowReason === null}
+          groupsEditable={groupBase === null}
+          onGroupKey={onGroupKey}
           multiSelect={wide}
           synced={view.synced}
           minimap={minimap}
@@ -877,6 +921,11 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
                 reverseConnectors: room.reverseConnectors,
                 deleteConnectors: room.deleteConnectors,
                 arrowReason,
+                groupReason: groupBase,
+                updateGroup: room.updateGroup,
+                addToGroup: room.addToGroup,
+                removeFromGroup: room.removeFromGroup,
+                ungroup: (ids: readonly string[]) => ungroupSelection(ids),
                 clearBoard: room.clearBoard,
                 adding: view.adding,
                 clearing: view.clearing,

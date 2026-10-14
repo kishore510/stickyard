@@ -267,6 +267,102 @@
   display: none;
 }
 
+/* Groups (v0.38.0): one layer in the viewport between the frames and the arrows (z-index from
+   groups/GroupLayer.tsx). Each box is a tinted dashed outline in the group's ink (--sy-group-ink,
+   a shape border token); presses inside it go through to the items and the board. Only the
+   outline's hit band and the chip take presses (md and up). The chip keeps its screen size at any
+   zoom (scaled by 1/zoom from its bottom-left corner, on the box's top edge). */
+.sy-group-layer {
+  position: absolute;
+  left: 0;
+  top: 0;
+  pointer-events: none;
+}
+.sy-group-box {
+  position: absolute;
+  box-sizing: border-box;
+  border-style: dashed;
+  border-color: var(--sy-group-ink);
+  border-radius: var(--sy-radius-md);
+  background-color: color-mix(in srgb, var(--sy-group-ink) var(--sy-group-tint), transparent);
+  pointer-events: none;
+}
+.sy-group-selected {
+  position: absolute;
+  inset: 0;
+  border-style: solid;
+  border-color: var(--sy-accent);
+  border-radius: var(--sy-radius-md);
+  opacity: 0.6;
+}
+.sy-group-hit {
+  position: absolute;
+  pointer-events: auto;
+  cursor: pointer;
+}
+.sy-group-chip-slot {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform-origin: 0 100%;
+  pointer-events: none;
+}
+.sy-group-chip {
+  display: inline-flex;
+  align-items: center;
+  min-width: var(--sy-touch-min);
+  min-height: var(--sy-touch-min);
+  max-width: var(--sy-group-chip-max);
+  padding: 0 var(--sy-space-sm);
+  margin-bottom: var(--sy-space-xs);
+  border: var(--sy-group-outline) solid var(--sy-group-ink);
+  border-radius: var(--sy-radius-md);
+  background: var(--sy-surface);
+  color: var(--sy-fg);
+  font-size: var(--sy-text-sm);
+  font-weight: 600;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: auto;
+  cursor: grab;
+}
+.sy-group-chip[data-mode="hidden"] {
+  min-width: calc(var(--sy-touch-min) / 2);
+}
+.sy-group-chip[aria-pressed="true"] {
+  background: var(--sy-accent-subtle);
+}
+.sy-group-chip:focus-visible,
+.sy-group-edit:focus-visible {
+  outline: 2px solid var(--sy-focus);
+  outline-offset: 2px;
+}
+.sy-group-chip-static {
+  cursor: default;
+  pointer-events: none;
+}
+.sy-group-edit {
+  min-height: var(--sy-touch-min);
+  width: var(--sy-group-edit-w);
+  padding: 0 var(--sy-space-sm);
+  margin-bottom: var(--sy-space-xs);
+  border: var(--sy-group-outline) solid var(--sy-group-ink);
+  border-radius: var(--sy-radius-md);
+  background: var(--sy-surface);
+  color: var(--sy-fg);
+  font-size: var(--sy-text-sm);
+  pointer-events: auto;
+}
+.sy-exporting .sy-group-selected,
+.sy-exporting .sy-group-chip {
+  outline: none;
+}
+.sy-exporting .sy-group-chip[aria-pressed="true"] {
+  background: var(--sy-surface);
+}
+
 /* Live cursors (v0.19.0): other people's pointers in the viewport, above every note (z-index past
    NOTE_Z_LIMIT). Each mark sits at its board point, counter-scaled (the transform comes from
    cursors/CursorLayer.tsx) and eases there; idle ones fade. Both timings are tokens, 0 under

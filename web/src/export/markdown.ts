@@ -113,7 +113,14 @@ export function boardToMarkdown(board: ExportBoard, date: Date): string {
   const shapeById = new Map(board.shapes.map((x) => [x.id, x] as const));
   const grouped = new Set<string>();
   const groups = (board.groups ?? []).flatMap((g, i) => {
-    const items = g.members.flatMap((id) => noteById.get(id) ?? shapeById.get(id) ?? []);
+    // A shape keeps its kind (`shapeKind`); a note has none.
+    type Item = { id: string; x: number; y: number; w: number; h: number; text: string; shapeKind: ShapeKind | null };
+    const items = g.members.flatMap((id): Item[] => {
+      const n = noteById.get(id);
+      if (n) return [{ ...n, shapeKind: null }];
+      const x = shapeById.get(id);
+      return x ? [{ ...x, shapeKind: x.kind }] : [];
+    });
     if (items.length === 0) return [];
     for (const item of items) grouped.add(item.id);
     const left = Math.min(...items.map((r) => r.x));
@@ -126,7 +133,7 @@ export function boardToMarkdown(board: ExportBoard, date: Date): string {
     const label = plain(g.label);
     return [
       `- ${EXPORT_TEXT.group}: ${label === "" ? `*${EXPORT_TEXT.untitledGroup}*` : label}`,
-      ...readingOrder(g.items).map((item) => `  ${"kind" in item ? shapeLine(item) : noteLine(item.text, dotsOf(item.id))}`),
+      ...readingOrder(g.items).map((item) => `  ${item.shapeKind !== null ? shapeLine({ kind: item.shapeKind, text: item.text }) : noteLine(item.text, dotsOf(item.id))}`),
     ];
   };
   const loneNotes = board.notes.filter((n) => !grouped.has(n.id));

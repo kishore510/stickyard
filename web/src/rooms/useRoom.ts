@@ -16,7 +16,8 @@ import type { StylePatch } from "../notes/board";
 import type { ShapeEdit } from "../shapes/board";
 import type { ConnectorContent, ConnectorPatch } from "../connectors/board";
 import { useConnectorUi } from "../connectors/connectorUi";
-import type { ConnectorEnd } from "@stickyard/shared";
+import { useGroupUi } from "../groups/groupUi";
+import type { ConnectorEnd, GroupColor } from "@stickyard/shared";
 import { INITIAL_VIEW, RoomSession, type RoomView, type TemplateFramePlan } from "./session";
 
 /**
@@ -33,6 +34,7 @@ export function useRoom(code: string) {
       session.current?.close();
       useBoardUi.getState().resetRoom();
       useConnectorUi.getState().reset();
+      useGroupUi.setState({ announce: null, dragging: null });
     },
     [],
   );
@@ -67,6 +69,7 @@ export function useRoom(code: string) {
       onFrameConfirmed: (from, to) => useBoardUi.getState().renameFrame(from, to),
       onShapeConfirmed: (from, to) => useBoardUi.getState().renameShape(from, to),
       onConnectorConfirmed: (from, to) => useBoardUi.getState().renameConnector(from, to),
+      onGroupConfirmed: (from, to) => useBoardUi.getState().renameGroup(from, to),
     });
     session.current = next;
     next.join(name);
@@ -125,6 +128,11 @@ export function useRoom(code: string) {
     reverseConnectors: (ids: readonly string[]) => session.current?.reverseConnectors(ids) ?? false,
     moveConnector: (id: string, dx: number, dy: number) => session.current?.moveConnector(id, dx, dy) ?? false,
     deleteConnectors: (ids: readonly string[]) => session.current?.deleteConnectors(ids),
+    createGroup: (ids: readonly string[], options?: { label?: string; color?: GroupColor }) => session.current?.createGroup(ids, options) ?? null,
+    updateGroup: (id: string, change: { label?: string; color?: GroupColor }) => session.current?.updateGroup(id, change) ?? false,
+    addToGroup: (id: string, ids: readonly string[]) => session.current?.addToGroup(id, ids) ?? false,
+    removeFromGroup: (id: string, ids: readonly string[]) => session.current?.removeFromGroup(id, ids) ?? false,
+    ungroup: (ids: readonly string[]) => session.current?.ungroup(ids) ?? false,
     startSelectionDrag: (frameIds: readonly string[], noteIds: readonly string[], carry: boolean, shapeIds: readonly string[] = []) =>
       session.current?.startSelectionDrag(frameIds, noteIds, carry, shapeIds) ?? false,
     applyFrameRects: (rects: readonly (NoteRect & { id: string })[]) => session.current?.applyFrameRects(rects) ?? false,

@@ -21,7 +21,7 @@ export interface MarqueeBox {
 const onEmptyCanvas = (target: EventTarget | null) =>
   target instanceof Element &&
   target.closest(".react-flow__pane") !== null &&
-  target.closest(".react-flow__node, .react-flow__panel, .react-flow__minimap, button, a, input, textarea, select, [data-connector-id], [data-connector-handle]") === null;
+  target.closest(".react-flow__node, .react-flow__panel, .react-flow__minimap, button, a, input, textarea, select, [data-connector-id], [data-connector-handle], [data-group-hit]") === null;
 
 /**
  * Mouse marquee selection, as in Chalkline (Select tool, left-drag on empty canvas; Shift adds

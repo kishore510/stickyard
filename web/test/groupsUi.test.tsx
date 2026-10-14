@@ -60,7 +60,8 @@ describe("group boxes on the canvas", () => {
     expect(z).toBeLessThan(arrowZ);
     expect(z).toBeLessThan(noteZ);
     expect(chipEl(G(1))?.getAttribute("aria-label")).toBe(`Group: ${HOSTILE}, 2 members`);
-    expect(chipEl(G(1))?.textContent).toContain(HOSTILE);
+    // The whole label, or its summary at a low zoom: text either way.
+    expect(chipEl(G(1))?.textContent).toMatch(/^<img src=x/);
     expect(layer()!.querySelector("img")).toBeNull();
     expect(chipEl(G(1))?.getAttribute("tabindex")).toBe("0");
     expect(boxEl(G(1))?.getAttribute("data-color")).toBe("blue");

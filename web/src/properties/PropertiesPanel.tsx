@@ -28,7 +28,11 @@ import type { ResultRow } from "../voting/voting";
 import { LOCK_TEXT, confirmEndSession, endSessionReason, withLock } from "../facilitation/lock";
 import { ConnectorFields } from "../connectors/ConnectorFields";
 import { connectorKindName, freedArrows } from "../connectors/geometry";
-import { ungroupedBy } from "../groups/geometry";
+import { groupOfSelection, ungroupedBy } from "../groups/geometry";
+import { findGroup } from "../groups/board";
+import { GroupFields } from "../groups/GroupFields";
+import { GROUP_TEXT } from "../groups/rules";
+import type { GroupColor } from "@stickyard/shared";
 import { CONNECTOR_TEXT } from "../connectors/rules";
 import { useConnectorUi } from "../connectors/connectorUi";
 import type { ConnectorPatch } from "../connectors/board";
@@ -70,6 +74,12 @@ export interface PropertiesRoom {
   reverseConnectors?(ids: readonly string[]): boolean;
   deleteConnectors?(ids: readonly string[]): void;
   arrowReason?: string | null;
+  /** Groups (v0.38.0): why they can't change now (null: they can), and the group commands. */
+  groupReason?: string | null;
+  updateGroup?(id: string, change: { label?: string; color?: GroupColor }): boolean;
+  addToGroup?(id: string, ids: readonly string[]): boolean;
+  removeFromGroup?(id: string, ids: readonly string[]): boolean;
+  ungroup?(ids: readonly string[]): void;
   /** Deletes every note and frame (asked first here); false if it couldn't start. */
   clearBoard(): boolean;
   /** An add run (template, duplicate, restore) is still being sent. */
@@ -114,7 +124,7 @@ export function mixedFields(notes: readonly Note[]): MixedFields {
 const noop = () => {};
 
 /** Frames with notes: what they do together (arrange and style work on one kind at a time). */
-function GroupFields() {
+function MixedSelectionFields() {
   return (
     <p data-group-summary="" className="rounded-md bg-surface-muted p-ms text-sm text-fg-muted">
       Drag any of them to move them all; each frame brings the notes and shapes inside it. Delete removes what’s selected; items inside a
@@ -161,7 +171,8 @@ function Summary({ room }: { room: PropertiesRoom }) {
       {room.results && <ResultsList rows={room.results} onPick={(id) => room.onPickResult?.(id)} />}
       <p className="text-sm text-fg-muted tabular-nums">
         {noteCountText({ shown: notes, silent: room.silentRound?.silent ?? SILENT_OFF, mine: room.silentRound?.mine ?? 0 })}{shapes > 0 ? `, ${shapes} of ${MAX_SHAPES_PER_ROOM} shapes` : ""}
-        {arrows > 0 ? `, ${CONNECTOR_TEXT.summary(arrows)}` : ""}. Board size {BOARD_WIDTH} × {BOARD_HEIGHT}.
+        {arrows > 0 ? `, ${CONNECTOR_TEXT.summary(arrows)}` : ""}
+        {room.board.groups.length > 0 ? `, ${GROUP_TEXT.summary(room.board.groups.length)}` : ""}. Board size {BOARD_WIDTH} × {BOARD_HEIGHT}.
       </p>
       <p className="text-sm text-fg-muted">Select a note, shape or frame to see and edit it here.</p>
       <div className="flex flex-col gap-xs">
@@ -240,6 +251,11 @@ export function PropertiesContent({ room, collapse }: { room: PropertiesRoom; co
   // One shape selected alone (protocol v15).
   const shapeId = useBoardUi((s) => s.shapeSelected);
   const shape = shapeId === null ? undefined : findShape(room.board, shapeId);
+  // A group (v0.38.0): picked by its chip or outline, or exactly its members selected (no frames or arrows).
+  const pinned = useBoardUi((s) => s.group);
+  const groupItems = [...orderedIds(selection), ...orderedIds(shapeSet)];
+  const groupId = (pinned !== null && findGroup(room.board, pinned) ? pinned : null) ?? (frameSet.size + arrowSet.size === 0 ? groupOfSelection(room.board, groupItems) : null);
+  const boardGroup = groupId === null ? undefined : findGroup(room.board, groupId);
 
   return (
     <div className="px-md">
@@ -250,13 +266,15 @@ export function PropertiesContent({ room, collapse }: { room: PropertiesRoom; co
       <div className="flex min-h-touch items-center gap-xs">
         {/* A selection summary wraps at the panel's narrowest; a note or frame name stays on one line. */}
         <h3 className={cn("min-w-0 flex-1 text-sm font-semibold", group ? "break-words" : "truncate")}>
-          {arrowsOnly && arrowList.length > 0
+          {boardGroup
+            ? "Group"
+            : arrowsOnly && arrowList.length > 0
             ? arrowList.length === 1
               ? connectorKindName(arrowList[0]!)
               : `${arrowList.length} arrows`
             : group ? selectionLabel(groupNotes.length, groupFrames.length, groupShapes.length, groupArrows.length) : shape ? (shape.shape.kind === "text" ? "Text box" : SHAPE_KIND_NAMES[shape.shape.kind]) : frame ? "Frame" : many.length > 1 ? `${many.length} selected` : entry ? `${NOTE_COLOR_NAMES[entry.note.color]} note` : "Board"}
         </h3>
-        {group && (
+        {group && !boardGroup && (
           <Button
             variant="ghost"
             size="icon"
@@ -331,7 +349,7 @@ export function PropertiesContent({ room, collapse }: { room: PropertiesRoom; co
             <Trash2 />
           </Button>
         )}
-        {!group && many.length > 1 && (
+        {!group && !boardGroup && many.length > 1 && (
           <Button
             variant="ghost"
             size="icon"
@@ -370,7 +388,26 @@ export function PropertiesContent({ room, collapse }: { room: PropertiesRoom; co
             {LOCK_TEXT.reason}
           </p>
         )}
-        {arrowsOnly && arrowList.length > 0 ? (
+        {boardGroup ? (
+          <GroupFields
+            entry={boardGroup}
+            reason={room.live ? (room.groupReason ?? null) : (room.groupReason ?? null)}
+            selected={groupItems}
+            onLabel={(label) => room.updateGroup?.(boardGroup.group.id, { label })}
+            onColour={(color) => room.updateGroup?.(boardGroup.group.id, { color })}
+            onAdd={(ids) => room.addToGroup?.(boardGroup.group.id, ids)}
+            onRemove={(ids) => room.removeFromGroup?.(boardGroup.group.id, ids)}
+            onSelectMembers={() => {
+              const members = boardGroup.group.members;
+              useBoardUi.getState().selectGroup(
+                boardGroup.group.id,
+                members.filter((m) => findNote(room.board, m) !== undefined),
+                members.filter((m) => findShape(room.board, m) !== undefined),
+              );
+            }}
+            onUngroup={() => room.ungroup?.([boardGroup.group.id])}
+          />
+        ) : arrowsOnly && arrowList.length > 0 ? (
           <ConnectorFields
             connectors={arrowList}
             live={arrowsEditable}
@@ -383,7 +420,7 @@ export function PropertiesContent({ room, collapse }: { room: PropertiesRoom; co
         ) : group && groupNotes.length === 0 && groupFrames.length === 0 && groupArrows.length === 0 ? (
           <ShapesFields shapes={groupShapes.map((x) => x.shape)} live={editable} onEdit={(change) => room.editShapes?.(groupShapes.map((x) => x.shape.id), change)} />
         ) : group ? (
-          <GroupFields />
+          <MixedSelectionFields />
         ) : shape ? (
           <ShapeFields
             entry={shape}

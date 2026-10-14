@@ -27,6 +27,7 @@ import {
   Undo2,
   Vote,
   EyeOff,
+  Group,
 } from "lucide-react";
 import { clampFrameRect, type NoteRect, type OrderAction } from "@stickyard/shared";
 import { Button } from "../components/ui/button";
@@ -364,6 +365,8 @@ export interface BoardBarProps {
   silentReason?: string | null;
   /** Arrows selected (v0.36.0): Delete and Duplicate work on them too. */
   arrows?: number;
+  /** Group the selected notes and shapes (v0.38.0; G): why it's off (null: it works), and the action. */
+  grouping?: { reason: string | null; run: () => void } | null;
   /** The host's Session group (Lock / Unlock); null for guests, who get no dead buttons. */
   session?: { locked: boolean; pending: boolean | null; setLock: (locked: boolean) => boolean } | null;
 }
@@ -401,6 +404,7 @@ export function BoardBar({
   silentReason = null,
   session = null,
   arrows = 0,
+  grouping = null,
 }: BoardBarProps) {
   // Arrange works on notes and shapes together (protocol v15; each clamped to its own limits), or
   // (v0.20.0) on the frames when only frames are selected; a mix with frames is refused with a reason.
@@ -467,6 +471,8 @@ export function BoardBar({
           commands: [
             { title: "Duplicate", icon: <Copy />, ...off(duplicateReason), run: duplicate },
             { title: "Delete", icon: <Trash2 />, ...off(deleteReason), run: remove },
+            // Groups (v0.38.0): one button (G); Ungroup is in Properties and Shift+G, so the top bar keeps one row at 768.
+            ...(grouping ? [{ title: "Group", icon: <Group />, ...off(grouping.reason), run: grouping.run }] : []),
           ],
         },
         ...(full ? [{ label: "Order", commands: orderCommands }] : []),

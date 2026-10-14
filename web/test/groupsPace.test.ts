@@ -96,3 +96,17 @@ describe("GroupPacer", () => {
     expect(sends.map((m) => (m as { id: string }).id)).toEqual(["a"]);
   });
 });
+
+describe("group tokens", () => {
+  it("--sy-group-pad mirrors GROUP_PAD, and the outline inks are the shape borders (3:1 on the board in both themes, tested with shapes)", async () => {
+    const { GROUP_PAD } = await import("../src/groups/geometry");
+    const { groupInk } = await import("../src/groups/groupUi");
+    const tokens = readFileSync(new URL("../src/styles/tokens.css", import.meta.url), "utf8");
+    expect(Number(/--sy-group-pad:\s*(\d+)px/.exec(tokens)?.[1])).toBe(GROUP_PAD);
+    expect(groupInk("pink")).toBe("var(--sy-shape-pink-stroke)");
+    const css = readFileSync(new URL("../src/index.css", import.meta.url), "utf8");
+    const block = css.slice(css.indexOf(".sy-group-box {"), css.indexOf(".sy-group-selected {"));
+    expect(block).toContain("border-color: var(--sy-group-ink)");
+    expect(block).toContain("border-style: dashed");
+  });
+});
