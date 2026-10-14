@@ -74,3 +74,6 @@ Architecture notes, moved out of CLAUDE.md on 7 October 2026 so they load only w
 
 ## Reactions on the canvas (v0.34.0)
 - `NoteNode` adds `BoardReactions` below the note (board units, `nodrag nopan nowheel`, events stopped at the row; a chip press never selects or drags the note) and the zoom mode from React Flow's store (chips from 50%, a summary from 25%). `VoteControls` moves down by the reaction row's height. Export: PNG keeps the counts, never Add reaction or which are mine; Markdown unchanged. Details in notes.md "Reactions on notes: the UI".
+
+## Arrows on the canvas (v0.36.0)
+- One SVG layer between frames and notes (frames now at -NOTE_Z_LIMIT - 2, the board at -3), the overlay for handles, the arrow draw tool, a fourth selection set (`uiStore.connectors`), the marquee and Delete key for arrows, the Connectors palette category and Properties for arrows. Details in connectors.md "Arrows: the UI".

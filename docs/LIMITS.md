@@ -259,6 +259,8 @@ Part 1 (relay and shared). Row counts measured in `worker/test/reactions.test.ts
 
 ## Connectors (protocol v21, stored schema 12): what arrows cost
 
+Part 2 (v0.36.0, web only) adds no message: the page sends connector messages through its own bucket (`web/src/connectors/pace.ts`, burst 96, 3.5 a second, inside `CONNECTOR_LIMITS`), so Clear board with 100 arrows sends 96 deletes at once and the rest within about 1.2 s, before any item delete (so no row is spent freeing an end of an arrow that's going). Moving items with attached arrows still sends and writes nothing for the arrows.
+
 Part 1 (relay and shared, arrows part 1 of 2). Row counts measured in `worker/test/connectors.test.ts` (`rowsWritten`) on 14 October 2026 (v0.35.0); message sizes from the shared schemas (`shared/test/connectors.test.ts` checks the largest).
 
 - *Rows written:* adding a connector is **2 rows** (the row and its primary-key index entry, like a shape); an update that changes something (any ends and style fields together) **1 row**; an unchanged update **0** and sends nothing; a delete **1 row**. The delete rule: a note or shape delete (single, batch, Clear board's batches) writes **+1 row per connector bound to it**, in the same transaction (0 when none). Moving or resizing a bound item writes **nothing extra** (a bound end stores no coordinates; tested: a final move and a final resize of a note with two connectors cost exactly what they cost without). End session and idle expiry drop the table (not counted as row writes).

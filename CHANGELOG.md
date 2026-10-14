@@ -2,6 +2,23 @@
 
 All notable changes to Stickyard, newest first. The format follows Keep a Changelog. Versions are 0.x: a minor bump for each slice and a patch bump for each follow-up fix. This file is shown in the app under **What’s new**, so entries are written for the people using it.
 
+## [0.36.0] - 2026-10-14
+
+### Added
+- **Arrows.** On a wider screen the palette has a **Connectors** section: **Arrow**, **Line** and **Elbow arrow**. Pick one, then drag from where the arrow starts to where it ends, or click the start and then the end. **Esc** cancels.
+- An end near a note or shape snaps to it (its four connection points show) and attaches when you let go; anywhere else it stays where you put it. Select a note or shape and drag one of the dots beside its sides to draw an arrow straight from there.
+- Attached arrows follow their note or shape when anyone moves, resizes or arranges it.
+- Click an arrow to select it (**Shift** or **Ctrl** adds it to the selection), or draw a selection box round both its ends. Drag a selected arrow's end to move it, free it or attach it somewhere else. An arrow with both ends free can be dragged whole.
+- **Properties** for one or several arrows: route (straight or elbow), solid, dashed or dotted, three widths, the border colours, a head at either end, and **Reverse**. With nothing selected, Properties counts the arrows (up to 100 a session).
+- **Delete** removes selected arrows. Deleting a note or shape with arrows attached says how many will keep a free end where it was.
+- **Clear board**, **Duplicate**, **Undo** and **Redo** include arrows: undoing a delete puts the note back and re-attaches its arrows, unless someone else changed them meanwhile. Duplicate copies the arrows between the copied items.
+- Export: the PNG shows arrows; the Markdown file lists them under **Connections**.
+- On a phone arrows are shown but can't be changed. A locked board (for guests) and a silent round (for everyone) turn the arrow controls off and say why.
+- A new Help topic, **Arrows**, and updates to **Touch and keyboard tips**.
+
+### Changed
+- About > Privacy describes arrows as they are now kept.
+
 ## [0.35.0] - 2026-10-14
 
 ### Changed

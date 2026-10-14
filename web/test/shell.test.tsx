@@ -165,7 +165,7 @@ describe("Help", () => {
     await mount("#/help");
     expect(button(/Quick start/)).toBeDefined();
     const topics = [...(dialog()?.querySelectorAll('[aria-labelledby="help-topics"] li') ?? [])].map((li) => li.textContent);
-    expect(topics).toEqual(["Starting and joining a session", "Notes", "Text and shapes", "Participants", "Chat", "Names and identity", "Connection", "Touch and keyboard tips", "Running a session", "Dot voting", "Reactions", "Silent brainstorm", "Follow and Bring to me", "Joining by QR code"]);
+    expect(topics).toEqual(["Starting and joining a session", "Notes", "Text and shapes", "Arrows", "Participants", "Chat", "Names and identity", "Connection", "Touch and keyboard tips", "Running a session", "Dot voting", "Reactions", "Silent brainstorm", "Follow and Bring to me", "Joining by QR code"]);
   });
 
   it("search filters topics", async () => {
@@ -201,7 +201,7 @@ describe("What's new", () => {
   it("shows the current version with the This version badge", async () => {
     await mount("#/changelog");
     const current = dialog()?.querySelector('[aria-current="true"]');
-    expect(current?.querySelector("h3")?.textContent).toBe("0.35.0");
+    expect(current?.querySelector("h3")?.textContent).toBe("0.36.0");
     expect(current?.textContent).toContain("This version");
     expect(current?.textContent).toMatch(/Added|Changed|Fixed/);
   });
@@ -215,11 +215,11 @@ describe("What's new", () => {
     await openFromMenu("What’s new");
     await press("Escape");
     expect(document.querySelector('[data-testid="unseen-dot"]')).toBeNull();
-    expect(localStorage.getItem("stickyard:last-seen-version")).toBe("0.35.0");
+    expect(localStorage.getItem("stickyard:last-seen-version")).toBe("0.36.0");
   });
 
   it("no dot once this version has been seen", async () => {
-    localStorage.setItem("stickyard:last-seen-version", "0.35.0");
+    localStorage.setItem("stickyard:last-seen-version", "0.36.0");
     await mount();
     expect(document.querySelector('[data-testid="unseen-dot"]')).toBeNull();
   });
@@ -231,7 +231,7 @@ describe("About", () => {
 
   it("shows version, build, protocol and relay", async () => {
     await mount("#/about");
-    expect(detail("Version")).toBe("0.35.0");
+    expect(detail("Version")).toBe("0.36.0");
     expect(detail("Build")).toMatch(/^([0-9a-f]{4,40}|dev)$/);
     expect(detail("Built")).not.toBe("unknown");
     expect(detail("Protocol")).toBe(`v${PROTOCOL_VERSION}`);
@@ -303,7 +303,7 @@ describe("About", () => {
       "The counts are shared: everyone sees how many of each reaction a note has",
       "Who reacted is not: nobody is told, the host included",
       // Arrows (protocol v21, relay only so far): stored like shapes, with the visit's random id.
-      "Arrows (coming in a later version) will be stored the same way",
+      "Arrows are stored the same way",
       // QR join (v0.32.0): the code is made on this device; nothing sent, nothing stored.
       "QR code is drawn on this device",
       "Nothing is sent anywhere to make it",

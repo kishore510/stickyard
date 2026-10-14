@@ -209,14 +209,14 @@ When you're not typing in a box:
 - **+** and **-** zoom in and out, **0** goes back to 100%, **F** fits the view to the notes, and **S** zooms to the selection.
 - **V** is Select, **H** is Hand, **N** adds a note (on a wider screen, in the colour you last added), and **M** shows or hides the overview map.
 - **[** collapses or expands the palette, and **]** collapses or expands Properties.
-- **Ctrl+A** (**Cmd+A**) selects every note, frame and shape, **Delete** deletes them all (asking once), and **Esc** clears the selection.
+- **Ctrl+A** (**Cmd+A**) selects every note, frame, shape and arrow, **Delete** deletes them all (asking once), and **Esc** clears the selection (or cancels an [arrow](help:arrows) being drawn).
 - **Ctrl+D** (**Cmd+D**) duplicates the selection, **Ctrl+Z** (**Cmd+Z**) undoes, and **Ctrl+Shift+Z** (**Cmd+Shift+Z**) or **Ctrl+Y** redoes.
 
 With a note focused: **arrow keys** move it (and the rest of the selection, if several are selected), **Alt+arrow keys** resize it when it's the only one selected (add **Shift** for bigger steps), **Enter** edits it, **Delete** deletes it (or the whole selection) and **Esc** clears the selection.
 
 ## Deleting a note
 
-Select the note and choose the bin (**Delete note**) at the top of Properties (on a phone, **Delete note** in its editor), or focus it and press **Delete**. If the note has text, you're asked first. Deleting removes the note for everyone; **Undo** brings it back as a new copy.
+Select the note and choose the bin (**Delete note**) at the top of Properties (on a phone, **Delete note** in its editor), or focus it and press **Delete**. If the note has text, or arrows attached (they keep a free end), you're asked first. Deleting removes the note for everyone; **Undo** brings it back as a new copy.
 
 ## Clearing the board
 
