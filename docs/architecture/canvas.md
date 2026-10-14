@@ -80,3 +80,6 @@ Architecture notes, moved out of CLAUDE.md on 7 October 2026 so they load only w
 
 ## Groups on the canvas (v0.38.0)
 - One box layer between the frames and the arrows (frames now at -NOTE_Z_LIMIT - 3, the board at - 4), a label chip per group that selects, drags its members with the existing batch moves and renames, G and Shift+G, `uiStore.group` (the group in Properties), Properties for a group, and the Group button in the top bar's Edit group. Details in groups.md "Groups: the UI".
+
+## Stencils in the palette (v0.39.0)
+- The palette's Stencils tab (md and up) lists the built-in stencils and the ones saved in this browser, with their manager under the tiles; Save as stencil is in the top bar and Properties. Details in stencils.md.
