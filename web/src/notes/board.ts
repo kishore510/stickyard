@@ -13,6 +13,7 @@ import {
 } from "@stickyard/shared";
 import type { BoardFrame } from "../frames/board";
 import type { BoardShape } from "../shapes/board";
+import type { BoardConnector } from "../connectors/board";
 
 /*
  * The board as this page sees it: the server's notes plus optimistic local changes.
@@ -62,9 +63,13 @@ export interface Board {
   shapes: BoardShape[];
   /** Shapes deleted here, waiting for the server; restored (at `index`) if it refuses. */
   shapesRemoved: (BoardShape & { index: number })[];
+  /** Arrows (protocol v21; connectors/board.ts), in creation order, in one layer above frames and below notes and shapes. */
+  connectors: BoardConnector[];
+  /** Arrows deleted here, waiting for the relay; restored (at `index`) if it refuses. */
+  connectorsRemoved: (BoardConnector & { index: number })[];
 }
 
-export const EMPTY_BOARD: Board = { notes: [], removed: [], frames: [], framesRemoved: [], shapes: [], shapesRemoved: [] };
+export const EMPTY_BOARD: Board = { notes: [], removed: [], frames: [], framesRemoved: [], shapes: [], shapesRemoved: [], connectors: [], connectorsRemoved: [] };
 
 /** The id a note has until the server assigns one. Never sent to the server. */
 export const localId = (clientRef: string) => `local:${clientRef}`;

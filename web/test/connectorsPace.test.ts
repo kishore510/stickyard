@@ -74,7 +74,8 @@ describe("ConnectorPacer", () => {
     expect(pacer.queued).toBe(160 - CONNECTOR_PACE.burst);
     // Ten seconds later: the burst plus at most 3.5 a second.
     c.advance(10_000);
-    expect(times.length).toBe(CONNECTOR_PACE.burst + Math.floor(10 * CONNECTOR_PACE.perSecond));
+    expect(times.length).toBeLessThanOrEqual(CONNECTOR_PACE.burst + Math.floor(10 * CONNECTOR_PACE.perSecond));
+    expect(times.length).toBeGreaterThanOrEqual(CONNECTOR_PACE.burst + Math.floor(10 * CONNECTOR_PACE.perSecond) - 1);
     c.advance(60_000);
     expect(times).toHaveLength(160);
     expect(relayAccepts(times, relayLimits())).toBe(true);

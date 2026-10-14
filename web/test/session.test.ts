@@ -249,7 +249,7 @@ describe("server messages this page can't parse", () => {
   });
 });
 
-describe("a v21 relay: connectors (arrows part 1, no UI yet)", () => {
+describe("a v21 relay: connectors (applied since arrows part 2, v0.36.0)", () => {
   const HOSTILE = "<img src=x onerror=alert(1)>";
   const connector = {
     id: "KKKKKKKKKKKKKKK1",
@@ -273,7 +273,7 @@ describe("a v21 relay: connectors (arrows part 1, no UI yet)", () => {
     expect(t.sock().sent[0]).toEqual({ type: "hello", protocolVersion: 21 });
   });
 
-  it("the four connector messages parse and are ignored: no crash, no error, no notice, no view update", () => {
+  it("the four connector messages parse and apply: no crash, no error, no notice, nothing sent", () => {
     const t = joined();
     const note: Note = { id: "NNNNNNNNNNNNNNN1", x: 100, y: 100, ...NOTE_DEFAULTS, text: HOSTILE, color: "yellow", z: 0, rev: 1, authorId: sam.id };
     t.sock().receive({ type: "snapshot", notes: [note] });
@@ -290,12 +290,13 @@ describe("a v21 relay: connectors (arrows part 1, no UI yet)", () => {
     ]) {
       expect(() => t.sock().receive(m)).not.toThrow();
     }
-    expect(t.view()).toBe(before);
+    expect(t.view().noteNotice).toBe(before.noteNotice);
+    expect(t.view().board.connectors.map((c) => [c.connector.id, c.connector.dash])).toEqual([["KKKKKKKKKKKKKKK1", "dotted"]]);
     expect(t.view().status).toBe("joined");
     expect(t.sock().closed).toBe(false);
     expect(t.sockets.length).toBe(sockets);
     expect(t.sock().sent.filter((m) => (m as { type: string }).type.startsWith("connector"))).toEqual([]);
-    // The note is untouched (a connector never changes the board in part 1).
+    // The note is untouched (a connector message never changes notes).
     expect(t.view().board.notes.map((n) => n.note.id)).toEqual([note.id]);
   });
 
