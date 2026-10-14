@@ -13,7 +13,7 @@ Detail for each area of Stickyard, one file per area. CLAUDE.md stays short and 
 | [connection.md](connection.md) | Reconnect, resync, presence (avatars, toasts), live cursors, last known pointers, following |
 | [facilitation.md](facilitation.md) | Timer and lock UI, End session, dot voting (relay and UI), silent brainstorm, Bring to me |
 | [shapes.md](shapes.md) | Text labels and shapes, one stacking space with notes, emoji picker |
-| [groups.md](groups.md) | Groups: protocol and storage, membership and moves, dissolving below 2 on every delete path, gating and limits |
+| [groups.md](groups.md) | Groups: protocol and storage, membership and moves, dissolving below 2 on every delete path, gating and limits; the groups UI (box layer, chip, Properties, undo, pacing, export) |
 | [connectors.md](connectors.md) | Connectors (arrows): protocol and storage, endpoints and anchors, `anchorPoint`, the delete rule, gating and limits; the arrows UI (layer, drawing, selection, Properties, pacing, undo, export) |
 
 ## Where each section lives
@@ -76,6 +76,7 @@ Sections are named after the slice that introduced them. Cross-references in quo
 | Connectors, protocol v21 (v0.35.0, arrows part 1 of 2) | connectors.md (pointers in notes.md, rooms.md, connection.md) |
 | Arrows: the UI (v0.36.0, arrows part 2 of 2) | connectors.md (pointers in canvas.md, editing.md) |
 | Groups, protocol v22 (v0.37.0, structure part 1 of 3) | groups.md (pointers in notes.md, rooms.md, connection.md) |
+| Groups: the UI (v0.38.0, structure part 2 of 3) | groups.md (pointers in canvas.md, editing.md) |
 | App shell conventions (slice 0.5) | shell.md |
 | Welcome screen (v0.8.1) | shell.md |
 | Board bar in the top bar (v0.15.1) | shell.md |
