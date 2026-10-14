@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { cleanFrameTitle, cleanName, cleanNoteText, cleanShapeText, cleanText, codePointLength } from "./clean";
+import { cleanFrameTitle, cleanGroupLabel, cleanName, cleanNoteText, cleanShapeText, cleanText, codePointLength } from "./clean";
 import { NOTE_Z_LIMIT, ORDER_ACTIONS } from "./stack";
 
 /**
@@ -61,8 +61,16 @@ import { NOTE_Z_LIMIT, ORDER_ACTIONS } from "./stack";
  *   it out from the item's box, see connectors.ts). Deleting a bound item turns those ends free
  *   (connectorUpdated after the item's delete). v20 pages would refuse the new messages, so they
  *   get version_mismatch.
+ * v22 (group boxes, structure part 1): groupCreate (label, colour key, 2 to 100 members),
+ *   groupUpdate (label and/or colour), groupMembers (ids to add and remove) and groupDelete
+ *   (ungroups; the items stay) from a page; groupsSnapshot (on every join, right after
+ *   connectorsSnapshot), groupCreated, groupUpdated (the whole group, members included) and
+ *   groupDeleted from the relay. Members are notes and shapes; an item is in at most one group
+ *   (adding it elsewhere moves it), and a group below 2 members is dissolved by the relay (after
+ *   any change, a member's delete included). No box is sent or stored. v21 pages would refuse the
+ *   new messages, so they get version_mismatch.
  */
-export const PROTOCOL_VERSION = 21;
+export const PROTOCOL_VERSION = 22;
 
 /**
  * Hard cap on a single client-to-server WebSocket message, in UTF-8 bytes. Checked before JSON.parse.
@@ -979,6 +987,77 @@ export const connectorDeleteSchema = z.strictObject({
   id: connectorIdSchema,
 });
 
+/* ── Groups (v22) ────────────────────────────────────────────────────── */
+
+/** Groups on one board. Beyond: groups_full. */
+export const MAX_GROUPS_PER_ROOM = 30;
+/** Members a group has: fewer is refused on create (group_size) and dissolves a group; more is refused (group_size). */
+export const MIN_GROUP_MEMBERS = 2;
+export const MAX_GROUP_MEMBERS = 100;
+/** A group's label length after cleaning, in characters (one line; may be empty). */
+export const MAX_GROUP_LABEL = 40;
+/** Group colours are keys, never colour values: the frame keys (neutral plus the six note hues). */
+export const GROUP_COLORS = FRAME_COLORS;
+export const groupColorSchema = frameColorSchema;
+export type GroupColor = FrameColor;
+/** The fields a groupUpdate may change; at least one. */
+export const GROUP_UPDATE_FIELDS = ["label", "color"] as const;
+/** The worst-case groupsSnapshot stays under 90% of this (shared/test/groups.test.ts checks). */
+export const GROUPS_SNAPSHOT_MAX_BYTES = 20 * 1024;
+
+export const groupIdSchema = serverIdSchema;
+const distinct = (ids: readonly string[]) => new Set(ids).size === ids.length;
+/** Item ids (notes and shapes), at most MAX_GROUP_MEMBERS, none twice. The relay checks each is on the board. */
+const groupItemsIn = z.array(serverIdSchema).max(MAX_GROUP_MEMBERS).refine(distinct, { message: "An item is named twice." });
+/** Inbound label: at most MAX_GROUP_LABEL characters (the server still cleans it to one line). */
+const groupLabelIn = z
+  .string()
+  .max(MAX_GROUP_LABEL * 4)
+  .refine((label) => codePointLength(label) <= MAX_GROUP_LABEL);
+
+/**
+ * A new group of notes and shapes. No id or rev (the server's). Fewer than MIN_GROUP_MEMBERS is
+ * group_size; an id that isn't a note or shape on the board (someone's sealed note included) is
+ * unknown_item. A member already in another group moves into this one.
+ */
+export const groupCreateSchema = z.strictObject({
+  type: z.literal("groupCreate"),
+  clientRef: clientRefSchema,
+  label: groupLabelIn,
+  color: groupColorSchema,
+  members: groupItemsIn,
+});
+
+/** A label and/or a colour, last write wins (in arrival order; every stored change bumps rev). */
+export const groupUpdateSchema = z
+  .strictObject({
+    type: z.literal("groupUpdate"),
+    id: groupIdSchema,
+    label: groupLabelIn.optional(),
+    color: groupColorSchema.optional(),
+  })
+  .refine((m) => GROUP_UPDATE_FIELDS.some((field) => m[field] !== undefined), { message: "Nothing to change." });
+
+/**
+ * Items to add (moved from any other group) and to take out. At least one id, none in both lists.
+ * Removing items that aren't members, and adding ones that are, changes nothing.
+ */
+export const groupMembersSchema = z
+  .strictObject({
+    type: z.literal("groupMembers"),
+    id: groupIdSchema,
+    add: groupItemsIn,
+    remove: groupItemsIn,
+  })
+  .refine((m) => m.add.length + m.remove.length > 0, { message: "Nothing to change." })
+  .refine((m) => distinct([...m.add, ...m.remove]), { message: "An item is added and removed." });
+
+/** Ungroups: the group goes, its items stay where they are. */
+export const groupDeleteSchema = z.strictObject({
+  type: z.literal("groupDelete"),
+  id: groupIdSchema,
+});
+
 /* ── Create with content (v11) ──────────────────────────────────────── */
 
 /**
@@ -1312,6 +1391,10 @@ export const clientMessageSchema = z.discriminatedUnion("type", [
   connectorAddSchema,
   connectorUpdateSchema,
   connectorDeleteSchema,
+  groupCreateSchema,
+  groupUpdateSchema,
+  groupMembersSchema,
+  groupDeleteSchema,
 ]);
 export type ClientMessage = z.infer<typeof clientMessageSchema>;
 export type ClientMessageType = ClientMessage["type"];
@@ -1372,6 +1455,11 @@ export const BOARD_WRITES: Readonly<Record<ClientMessageType, boolean>> = {
   connectorAdd: true,
   connectorUpdate: true,
   connectorDelete: true,
+  // Groups (v22) are board content too: a lock refuses a guest's.
+  groupCreate: true,
+  groupUpdate: true,
+  groupMembers: true,
+  groupDelete: true,
 };
 
 /** Host-only messages: anyone else gets not_host. */
@@ -1409,6 +1497,10 @@ export const errorCodeSchema = z.enum([
   // Connectors (v21): the room's cap; a bind to anything but a note or shape on the board.
   "connectors_full",
   "unknown_item",
+  // Groups (v22): the room's cap; fewer than 2 or more than 100 members; no such group.
+  "groups_full",
+  "group_size",
+  "unknown_group",
 ]);
 export type ErrorCode = z.infer<typeof errorCodeSchema>;
 
@@ -1452,6 +1544,8 @@ export const errorMessageSchema = z.object({
   refused: z.array(itemRefusalSchema).max(MAX_BATCH_ENTRIES).optional(),
   /** The connector a refused update or delete was about (v21). */
   connectorId: connectorIdSchema.optional(),
+  /** The group a refused update, member change or delete was about (v22). */
+  groupId: groupIdSchema.optional(),
 });
 
 /** The whole note on the board at its size. */
@@ -2003,6 +2097,43 @@ export const connectorDeletedSchema = z.object({
   id: connectorIdSchema,
 });
 
+/** A group as the server stores and sends it (v22): never a box (pages derive it from the members' boxes). */
+export const groupSchema = z.object({
+  id: groupIdSchema,
+  label: z.string().refine((label) => cleanGroupLabel(label) === label),
+  color: groupColorSchema,
+  /** Notes and shapes, in id order; an item is in at most one group. */
+  members: z.array(serverIdSchema).min(MIN_GROUP_MEMBERS).max(MAX_GROUP_MEMBERS).refine(distinct),
+  /** Server-assigned; starts at 1 and goes up by one on every stored change (members included). */
+  rev: z.number().int().min(1),
+});
+export type Group = z.infer<typeof groupSchema>;
+
+/** Every group, in creation order. On every join, right after connectorsSnapshot, in the same step. */
+export const groupsSnapshotSchema = z.strictObject({
+  type: z.literal("groupsSnapshot"),
+  groups: z.array(groupSchema).max(MAX_GROUPS_PER_ROOM),
+});
+
+export const groupCreatedSchema = z.object({
+  type: z.literal("groupCreated"),
+  group: groupSchema,
+  /** Only in the copy sent to the group's sender. */
+  clientRef: clientRefSchema.optional(),
+});
+
+/** A label, colour or member change (an item added, moved out, taken out or deleted). Carries the whole group. */
+export const groupUpdatedSchema = z.object({
+  type: z.literal("groupUpdated"),
+  group: groupSchema,
+});
+
+/** Ungrouped (groupDelete) or dissolved below MIN_GROUP_MEMBERS. Its items stay. */
+export const groupDeletedSchema = z.object({
+  type: z.literal("groupDeleted"),
+  id: groupIdSchema,
+});
+
 export const serverMessageSchema = z.discriminatedUnion("type", [
   welcomeSchema,
   errorMessageSchema,
@@ -2057,6 +2188,10 @@ export const serverMessageSchema = z.discriminatedUnion("type", [
   connectorAddedSchema,
   connectorUpdatedSchema,
   connectorDeletedSchema,
+  groupsSnapshotSchema,
+  groupCreatedSchema,
+  groupUpdatedSchema,
+  groupDeletedSchema,
 ]);
 export type ServerMessage = z.infer<typeof serverMessageSchema>;
 export type ServerMessageType = ServerMessage["type"];
@@ -2127,6 +2262,12 @@ export const SERVER_MESSAGES = {
   connectorAdded: { carriesNoteContent: true },
   connectorUpdated: { carriesNoteContent: true },
   connectorDeleted: { carriesNoteContent: false },
+  // Groups (v22): members can be notes, so the sealed filter sees them (the relay never puts a
+  // sealed note in a group). A delete names only the group.
+  groupsSnapshot: { carriesNoteContent: true },
+  groupCreated: { carriesNoteContent: true },
+  groupUpdated: { carriesNoteContent: true },
+  groupDeleted: { carriesNoteContent: false },
 } as const satisfies Record<ServerMessageType, { carriesNoteContent: boolean }>;
 
 /** The server message types that can carry note content (the relay filters each one). */

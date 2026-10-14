@@ -174,6 +174,10 @@ describe("server message registry", () => {
         "connectorsSnapshot",
         "connectorAdded",
         "connectorUpdated",
+        // Groups (protocol v22): members can be notes (groupDeleted names only the group).
+        "groupsSnapshot",
+        "groupCreated",
+        "groupUpdated",
       ].sort(),
     );
     expect(SERVER_MESSAGES.silentChanged.carriesNoteContent).toBe(false);

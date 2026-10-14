@@ -545,9 +545,9 @@ describe("a member's delete", () => {
       for (const id of shapes) store.insertShape(shape(id));
       // Four pairs: each path dissolves one.
       const pairs = notes.map((n, i) => [n, shapes[i]!] as const);
-      pairs.forEach(([n, s], i) => store.changeGroups([{ id: `group${String(i).padStart(11, "0")}`, label: HOSTILE, color: "neutral", members: sorted([n, s]), rev: 1 }], [], []));
+      store.saveGroups(pairs.map(([n, s], i) => ({ id: `group${String(i).padStart(11, "0")}`, label: HOSTILE, color: "neutral", members: sorted([n, s]), rev: 1 })));
       expect(store.allGroups()).toHaveLength(4);
-      const paths: [string, () => { groups: { dissolved: readonly string[] } }][] = [
+      const paths: [string, () => { groups: readonly { group: Group | null }[] }][] = [
         ["delete", () => store.delete(notes[0]!)],
         ["applyBatch", () => store.applyBatch([], [notes[1]!])],
         ["deleteShape", () => store.deleteShape(shapes[2]!)],
@@ -557,7 +557,7 @@ describe("a member's delete", () => {
         outside.length = 0;
         transacts = 0;
         const effects = run();
-        expect(effects.groups.dissolved, name).toHaveLength(1);
+        expect(effects.groups.filter((c) => c.group === null), name).toHaveLength(1);
         expect(transacts, name).toBe(1);
         expect(outside, name).toEqual([]);
       }
@@ -841,16 +841,22 @@ describe("rate", () => {
 
   it("members spend a second budget: a message naming more ids than are left is rate_limited and spends nothing", async () => {
     const { alex, sam, n1, n2, n3, n4, stub } = await groupRoom();
-    await patchAttachment(stub, "Sam", { groupMemberTokens: 3, groupMemberAt: Date.now() + 3_600_000 });
+    // Before each step: the member bucket at a known level, its clock an hour ahead (no refill, however slow the runner).
+    const members = (tokens: number) => patchAttachment(stub, "Sam", { groupMemberTokens: tokens, groupMemberAt: Date.now() + 3_600_000 });
+    await members(3);
     expect(await answers(sam, groupCreate([n1.id, n2.id, n3.id, n4.id]))).toMatchObject([{ type: "error", code: "rate_limited", clientRef: "g1" }]);
     expect((await attachmentOf(stub, "Sam"))?.groupMemberTokens).toBe(3);
+    await members(3);
     const g = await createGroup(sam, [n1.id, n2.id], [alex]);
     expect((await attachmentOf(stub, "Sam"))?.groupMemberTokens).toBe(1);
+    await members(1);
     expect(await answers(sam, { type: "groupMembers", id: g.id, add: [n3.id], remove: [n1.id] })).toMatchObject([{ type: "error", code: "rate_limited", groupId: g.id }]);
     // A groupUpdate or a groupDelete names no members, so it spends none.
+    await members(0);
     expect(await sam.request({ type: "groupUpdate", id: g.id, color: "pink" })).toMatchObject({ type: "groupUpdated" });
+    await members(0);
     expect(await sam.request({ type: "groupDelete", id: g.id })).toEqual({ type: "groupDeleted", id: g.id });
-    expect((await attachmentOf(stub, "Sam"))?.groupMemberTokens).toBe(1);
+    expect((await attachmentOf(stub, "Sam"))?.groupMemberTokens).toBe(0);
     closeAll(alex, sam);
   });
 
@@ -899,6 +905,7 @@ describe("costs (docs/LIMITS.md)", () => {
   it("rows: create 2 + 1 per member, update 1 (unchanged 0), members 1 per id changed + 1, delete 1 + 1 per member, a dissolve 1 + 1 per member left", async () => {
     const { alex, sam, n1, n2, n3, n4, s1, s2, stub } = await groupRoom();
     const cost = async (run: () => Promise<unknown>) => {
+      await drain(alex, sam);
       const before = await rowsWritten(stub);
       await run();
       return (await rowsWritten(stub)) - before;
@@ -1009,12 +1016,14 @@ describe(`schema migration 12 -> ${SCHEMA_VERSION}`, () => {
     await runInDurableObject(stub, (_room, state) => {
       const sql = state.storage.sql;
       loadSchemaV12(sql);
-      // The round in the fixture is over (a reveal), so groups can be made.
+      // The round in the fixture is over (a reveal) and the board unlocked, so groups can be made.
       sql.exec("UPDATE notes SET sealed = 0, writer = NULL");
-      sql.exec("UPDATE meta SET value = 0 WHERE key = 'silent_active'");
+      sql.exec("UPDATE meta SET value = 0 WHERE key IN ('silent_active', 'locked')");
       const store = new NoteStore(sql);
-      store.changeGroups([{ id: "grp0000000000001", label: HOSTILE, color: "neutral", members: sorted([first, V12_SHAPE_ID]), rev: 1 }], [], []);
-      store.changeGroups([{ id: "grp0000000000002", label: "", color: "pink", members: sorted([second, third, V10_SEALED.id]), rev: 1 }], [], []);
+      store.saveGroups([
+        { id: "grp0000000000001", label: HOSTILE, color: "neutral", members: sorted([first, V12_SHAPE_ID]), rev: 1 },
+        { id: "grp0000000000002", label: "", color: "pink", members: sorted([second, third, V10_SEALED.id]), rev: 1 },
+      ]);
       // Then v0.36.0 code (after a rollback) adds a note, deletes one and deletes the shape: it knows nothing of groups.
       sql.exec(V12_NOTE_INSERT, "fromV21code00001", 0, 0, 160, 160, HOSTILE, "green", "m", 0, 0, "auto", "left", "left", "m", 0, 0, "auto", 9, 1, "AAAAAAAAAAAAAAAA", 0, null);
       for (const statement of V12_NOTE_DELETE) sql.exec(statement, third);

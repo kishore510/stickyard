@@ -187,7 +187,7 @@ describe("claimHost", () => {
     await a.request({ type: "hello", protocolVersion: PROTOCOL_VERSION });
     const joined = await a.request({ type: "join", name: "host", host: true, participant: { host: true } });
     expect(joined).toMatchObject({ type: "joined", you: { host: false } });
-    await nextOfType(a, "connectorsSnapshot");
+    await nextOfType(a, "groupsSnapshot");
     expect(await a.request({ type: "lockSet", locked: true })).toMatchObject({ type: "error", code: "not_host" });
     a.close();
   });
@@ -249,6 +249,11 @@ function mutating(noteId: string, frameId: string, shapeId = "shape00000000000")
     ["connectorAdd", { type: "connectorAdd", clientRef: "g5", start: { item: noteId, anchor: "auto" }, end: { x: 900, y: 900 }, route: "straight", dash: "solid", width: "medium", ink: "neutral", startHead: "none", endHead: "arrow" }, { clientRef: "g5" }],
     ["connectorUpdate", { type: "connectorUpdate", id: "conn000000000000", dash: "dashed" }, { connectorId: "conn000000000000" }],
     ["connectorDelete", { type: "connectorDelete", id: "conn000000000000" }, { connectorId: "conn000000000000" }],
+    // Groups (protocol v22): refused whatever they name (the lock comes before any lookup).
+    ["groupCreate", { type: "groupCreate", clientRef: "g6", label: "No", color: "blue", members: [noteId, shapeId] }, { clientRef: "g6" }],
+    ["groupUpdate", { type: "groupUpdate", id: "group00000000000", color: "pink" }, { groupId: "group00000000000" }],
+    ["groupMembers", { type: "groupMembers", id: "group00000000000", add: [noteId], remove: [] }, { groupId: "group00000000000" }],
+    ["groupDelete", { type: "groupDelete", id: "group00000000000" }, { groupId: "group00000000000" }],
   ];
 }
 

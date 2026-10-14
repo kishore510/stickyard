@@ -3924,6 +3924,8 @@ export class RoomSession {
     // Follow and Bring to me (protocol v19) go straight to the follow sink, never a view update.
     const v = parsed.value;
     if (v.type === "viewportUpdate" || v.type === "followersChanged" || v.type === "followEnded" || v.type === "broughtToMe") return this.onFollow(v);
+    // Groups (protocol v22) are validated above and ignored until the groups UI: never a view update.
+    if (v.type === "groupsSnapshot" || v.type === "groupCreated" || v.type === "groupUpdated" || v.type === "groupDeleted") return;
     const before = this.view.board;
     this.handle(parsed.value);
     this.pruneVotes();

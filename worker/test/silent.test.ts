@@ -366,20 +366,18 @@ describe("the canary leak test", () => {
       expect(toSealed).toMatchObject([{ type: "error", code: "silent_active" }]);
     }
     expect(await answers(a, { type: "connectorDelete", id: kC.connector.id })).toMatchObject([{ type: "error", code: "silent_active", connectorId: kC.connector.id }]);
-    // 12c. Groups (protocol v22): every group message is refused during the round (silent_active),
-    // the host's too, and naming a sealed note gets exactly the reply a random id gets.
+    // 12c. Groups (protocol v22): every group message is refused during the round (silent_active;
+    // the host's too, in groups.test.ts), and naming a sealed note gets exactly the reply a random id gets.
     for (const make of [
       (id: string) => ({ type: "groupCreate", clientRef: "g9", label: "x", color: "blue", members: [id, old.id] }),
       (id: string) => ({ type: "groupMembers", id: gA.group.id, add: [id], remove: [] }),
     ]) {
-      for (const c of [a, host]) {
-        const toSealed = await answers(c, make(s1.id));
-        expect(toSealed).toEqual(await answers(c, make(random)));
-        expect(toSealed).toMatchObject([{ type: "error", code: "silent_active" }]);
-      }
+      const toSealed = await answers(a, make(s1.id));
+      expect(toSealed).toEqual(await answers(a, make(random)));
+      expect(toSealed).toMatchObject([{ type: "error", code: "silent_active" }]);
     }
     expect(await answers(a, { type: "groupUpdate", id: gA.group.id, label: "CANARY-label" })).toMatchObject([{ type: "error", code: "silent_active", groupId: gA.group.id }]);
-    expect(await answers(host, { type: "groupDelete", id: gB.group.id })).toMatchObject([{ type: "error", code: "silent_active", groupId: gB.group.id }]);
+    expect(await answers(a, { type: "groupDelete", id: gB.group.id })).toMatchObject([{ type: "error", code: "silent_active", groupId: gB.group.id }]);
     // A visible bound note deleted during the round: its connector's end turns free, and the group
     // it was in (two members) is dissolved, for everyone.
     host.send({ type: "noteDelete", id: bnote.id });
@@ -702,8 +700,8 @@ describe("silentMine (protocol v18): a page learns which of its notes are sealed
       await settle(100);
       const t = types(raw);
       const at = t.indexOf("shapesSnapshot");
-      // Protocol v20: the reaction counts come right after the shapes; protocol v21: then the connectors, then silentMine.
-      expect(t.slice(at - 3, at + 4), step).toEqual(["joined", "snapshot", "framesSnapshot", "shapesSnapshot", "reactionsSnapshot", "connectorsSnapshot", "silentMine"]);
+      // Protocol v20: the reaction counts come right after the shapes; protocol v21: then the connectors; protocol v22: then the groups, then silentMine.
+      expect(t.slice(at - 3, at + 5), step).toEqual(["joined", "snapshot", "framesSnapshot", "shapesSnapshot", "reactionsSnapshot", "connectorsSnapshot", "groupsSnapshot", "silentMine"]);
       expect(mineOf(raw), step).toEqual([{ type: "silentMine", ids: [a1.id, a3.id] }]);
       // Exactly the snapshot's notes that aren't everyone's.
       expect(tab.snapshot?.notes.map((n) => n.id)).toEqual([visible.id, a1.id, a3.id]);

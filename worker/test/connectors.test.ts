@@ -63,7 +63,8 @@ const allRows = (stub: Stub) =>
       .toArray()
       .map((t) => t.name);
     const rows: Record<string, Row[]> = {};
-    for (const t of tables) rows[t] = state.storage.sql.exec<Row>(`SELECT * FROM ${t} ORDER BY rowid`).toArray();
+    // group_members (schema 13) is WITHOUT ROWID.
+    for (const t of tables) rows[t] = state.storage.sql.exec<Row>(`SELECT * FROM ${t}${t === "group_members" ? "" : " ORDER BY rowid"}`).toArray();
     return rows;
   });
 const connectorRows = async (stub: Stub) => (await allRows(stub)).connectors ?? [];
@@ -854,7 +855,7 @@ describe(`schema migration 11 -> ${SCHEMA_VERSION}`, () => {
       const before = Object.fromEntries(["notes", "frames", "votes", "shapes", "reactions"].map((t) => [t, tableRows(sql, t)]));
       const metaBefore = tableRows(sql, "meta").filter((r) => r.key !== "schema_version");
       const store = new NoteStore(sql);
-      expect(version(sql)).toBe(12);
+      expect(version(sql)).toBe(SCHEMA_VERSION);
       for (const [t, rows] of Object.entries(before)) expect(tableRows(sql, t), t).toEqual(rows);
       expect(tableRows(sql, "meta").filter((r) => r.key !== "schema_version")).toEqual(metaBefore);
       const columns = sql.exec<{ name: string; dflt_value: string | null; notnull: number; pk: number }>("SELECT name, dflt_value, \"notnull\", pk FROM pragma_table_info('connectors')").toArray();
