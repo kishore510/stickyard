@@ -7,7 +7,7 @@ All notable changes to Stickyard, newest first. The format follows Keep a Change
 ### Fixed
 - **A frame keeps only its own notes.** Dropping a frame onto notes, or onto another frame's notes, no longer picks them up: the next time you move that frame they stay where they are, and the other frame still takes its own. A frame carries the notes and shapes that were added inside it, or moved there, after it was put down. To give a note to a frame, drag it within the frame.
 - **On a phone, the Add drawer adds when you let go.** A quick tap adds the note when you lift your finger. Touching a tile to scroll the drawer no longer adds it. Press and hold a tile to lift it, then drag it up out of the drawer onto the board; let go inside the drawer and nothing is added.
-- **The palette's Add and Stencils tabs** now have a row of their own across the panel, under the **Palette** heading and its collapse button, with room around each name, so they read as two separate tabs instead of running into each other.
+- **The palette's Add and Stencils tabs** now look like Chalkline's: each takes half of the row, with the chosen one raised, so they read as two separate tabs instead of running into each other. When the palette is narrow, the tabs get a row of their own under the collapse button.
 
 ### Changed
 - Everyone needs to reload once after this update. Boards from before it keep working: a frame still carries everything inside it until it, or one of those items, is moved.

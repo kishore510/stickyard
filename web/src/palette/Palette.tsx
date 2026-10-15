@@ -8,7 +8,7 @@ import { Button } from "../components/ui/button";
 import { readPxToken } from "../lib/cssVar";
 import { cn } from "../lib/utils";
 import { NOTE_COLOR_CLASSES } from "../notes/colours";
-import { tileColumns } from "../panels/layout";
+import { PALETTE_TABS_ONE_ROW, tileColumns } from "../panels/layout";
 import { frameSwatchStyle } from "../frames/style";
 import { templateBounds } from "../templates/place";
 import { stencilBounds, type Stencil } from "../stencils/data";
@@ -377,7 +377,7 @@ function Tabs({ tabs, value, onChange }: { tabs: { id: string; label: string }[]
           aria-selected={value === t.id}
           onClick={() => onChange(t.id)}
           className={cn(
-            "min-h-touch min-w-0 flex-auto cursor-pointer truncate rounded-sm px-sm text-sm font-medium whitespace-nowrap transition-colors",
+            "min-h-touch min-w-0 flex-1 cursor-pointer truncate rounded-sm text-sm font-medium whitespace-nowrap transition-colors",
             value === t.id ? "bg-surface text-fg shadow-sm" : "text-fg-muted hover:text-fg",
           )}
         >
@@ -422,14 +422,18 @@ export function PaletteContent({ host, width, collapse }: { host: PaletteHost; w
 
   return (
     <div className="flex flex-col gap-md p-md">
-      {tabs.length > 1 ? (
-        <>
-          {/* With tabs (Add, Stencils): the panel's name and collapse on their own row, then the tabs across
-              the full width, each padded, so they read as separate tabs at every panel width (v0.41.0). */}
-          <div className="flex items-center justify-between gap-xs">
-            <h2 className="pl-xs text-sm font-semibold">Palette</h2>
-            {collapse}
+      {tabs.length > 1 && width >= PALETTE_TABS_ONE_ROW ? (
+        // Chalkline's palette header: the tabs, each half of the row, then collapse (v0.41.0).
+        <div className="flex items-center gap-xs">
+          <div className="min-w-0 flex-1">
+            <Tabs tabs={tabs} value={current} onChange={setTab} />
           </div>
+          {collapse}
+        </div>
+      ) : tabs.length > 1 ? (
+        // Too narrow for both in one row (Chalkline's narrow layout): collapse on top, the tabs under it.
+        <>
+          <div className="flex justify-end">{collapse}</div>
           <Tabs tabs={tabs} value={current} onChange={setTab} />
         </>
       ) : (

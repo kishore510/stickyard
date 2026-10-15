@@ -33,6 +33,12 @@ export const TILE_MIN = 72;
 export const TILE_GAP = 8;
 export const PANEL_PADDING = 16;
 export const MAX_COLUMNS = 3;
+/**
+ * The palette is at least this wide (px) for its tabs to sit in one row beside the collapse
+ * button, each half of the row, as in Chalkline (v0.41.0). Narrower (768 px leaves 176), the
+ * collapse button goes on its own row and the tabs take the full width under it.
+ */
+export const PALETTE_TABS_ONE_ROW = 208;
 /** Dragging a resize handle this far past the minimum width collapses the panel on release (as in Chalkline). */
 export const COLLAPSE_SLACK = 64;
 /** Arrow keys on a resize handle move it this far; with Shift, KEY_STEP_BIG. */
