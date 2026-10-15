@@ -384,7 +384,7 @@ describe(`schema migration 5 -> ${SCHEMA_VERSION}`, () => {
     const c = await TestClient.open(code);
     await c.enter("Priya");
     expect(c.frames?.frames).toEqual([
-      { id: frameId(1), x: BOARD_WIDTH - 640, y: BOARD_HEIGHT - 400, w: 640, h: 400, title: "Continue", color: "blue", ...FRAME_DEFAULTS, rev: 3, authorId: "AAAAAAAAAAAAAAAA" },
+      { id: frameId(1), x: BOARD_WIDTH - 640, y: BOARD_HEIGHT - 400, w: 640, h: 400, title: "Continue", color: "blue", ...FRAME_DEFAULTS, rev: 3, authorId: "AAAAAAAAAAAAAAAA", placed: 0 },
     ]);
     c.close();
   });

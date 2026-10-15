@@ -115,3 +115,6 @@ Architecture notes, moved out of CLAUDE.md on 7 October 2026 so they load only w
 
 ## Hardening: what a held note shows (v0.39.1)
 - Found by the load harness (`npm run load`, burst): a note dragged here while someone else resized it kept the old size on this page for good (the drop's `noteMoved` only carries a position). Rule now (`heldRect` in `notes/board.ts`, and the same in `shapes/board.ts` and `frames/board.ts`): **resizing here holds the whole rect; dragging here holds only the position**, and a remote size (`noteResized`, `noteUpdated`) shows at once, with the position re-clamped for it. Tests: `web/test/heldSize.test.ts`; `noteSize.test.ts`'s "while dragging" case was changed to the new rule.
+
+## Frame membership (protocol v23, v0.41.0)
+- Notes carry optional `placed` (when last placed: the room's placement counter; schema 14 column). Set by the relay on adds and on final moves that change a place; final `noteMoved` gives it. Relay state like `rev`: never sent by a page. Details in frames.md "Frame membership, protocol v23".

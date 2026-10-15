@@ -141,11 +141,12 @@ describe(`schema migration 6 -> ${SCHEMA_VERSION}`, () => {
       const store = new NoteStore(sql);
       expect(SCHEMA_VERSION).toBeGreaterThanOrEqual(7);
       expect(version(sql)).toBe(SCHEMA_VERSION);
-      expect(store.allFrames()).toEqual(V6_FRAMES.map((f) => ({ ...f, ...FRAME_DEFAULTS, authorId: "AAAAAAAAAAAAAAAA" })));
+      // placed 0 since schema 14 (protocol v23): placed before frame membership.
+      expect(store.allFrames()).toEqual(V6_FRAMES.map((f) => ({ ...f, ...FRAME_DEFAULTS, authorId: "AAAAAAAAAAAAAAAA", placed: 0 })));
       expect(store.all().map((n) => [n.id, n.x, n.y, n.z, n.rev, n.text])).toEqual(V5_NOTES.map((n) => [n.id, n.x, n.y, n.z, n.rev, n.text]));
       const columns = sql.exec<{ name: string; dflt_value: string | null; notnull: number }>("SELECT name, dflt_value, \"notnull\" FROM pragma_table_info('frames')").toArray();
-      expect(columns.map((c) => c.name)).toEqual(["id", "x", "y", "w", "h", "title", "color", "rev", "author_id", "title_font_size", "title_bold", "title_italic", "title_text_color", "title_align"]);
-      const added = Object.fromEntries(columns.slice(9).map((c) => [c.name, [c.dflt_value, c.notnull]]));
+      expect(columns.map((c) => c.name)).toEqual(["id", "x", "y", "w", "h", "title", "color", "rev", "author_id", "title_font_size", "title_bold", "title_italic", "title_text_color", "title_align", "placed"]);
+      const added = Object.fromEntries(columns.slice(9, 14).map((c) => [c.name, [c.dflt_value, c.notnull]]));
       expect(added).toEqual({
         title_font_size: ["'m'", 1],
         title_bold: ["1", 1],

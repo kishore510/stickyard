@@ -270,7 +270,8 @@ describe("noteMove", () => {
     const before = await rowsWritten(stub);
     a.send({ type: "noteMove", id: note.id, x: 300, y: 400, final: false });
     a.send({ type: "noteMove", id: note.id, x: 310, y: 410, final: true });
-    const expected = { type: "noteMoved", id: note.id, x: 310, y: 410, rev: 2, final: true };
+    // Added at placement 1; the move that changed its place is placement 2 (protocol v23).
+    const expected = { type: "noteMoved", id: note.id, x: 310, y: 410, rev: 2, final: true, placed: 2 };
     expect(await nextOfType(a, "noteMoved")).toEqual(expected);
     let seen = await nextOfType(b, "noteMoved");
     while (!seen.final) seen = await nextOfType(b, "noteMoved");
@@ -397,7 +398,7 @@ describe("persistence", () => {
 
     const c = await TestClient.open(code);
     await c.enter("Kai");
-    expect(c.snapshot?.notes).toEqual([{ ...one, x: 500, y: 600, rev: 2 }]);
+    expect(c.snapshot?.notes).toEqual([{ ...one, x: 500, y: 600, rev: 2, placed: 2 }]);
     // Sockets from before hibernation can still edit.
     a.send({ type: "noteEdit", id: one.id, text: "Needs follow-up" });
     expect((await nextOfType(c, "noteUpdated")).note).toMatchObject({ text: "Needs follow-up", rev: 3 });

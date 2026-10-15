@@ -308,6 +308,20 @@ Web only; nothing new on the relay, no new message type.
 - *Placing an import* is the same messages as placing a stencil (above): itemsAdd messages packed by size (up to 50 items, paced at 10 a second), then one `connectorAdd` per arrow and one `groupCreate` per group (paced inside `CONNECTOR_LIMITS` and `GROUP_LIMITS`). A full board's import from empty is 280 items: from about 20 itemsAdd messages (short text) to about 150 (every item at its longest text; a message is at most 4 KB), paced at 10 a second so under 15 seconds, then 100 connectorAdds and 30 groupCreates: the same as building that board by hand, or as Clear board's undo of it. An import that wouldn't fit is refused in the browser before anything is sent.
 - *Rows written* are those of the add messages (LIMITS.md "Create with content", "Connectors", "Groups").
 
+## Frame membership (protocol v23, stored schema 14): what `placed` costs
+
+Every note, shape and frame carries `placed`, the room's placement counter (one value per message that adds items or moves them to a new place; a frame and what it carries share one). Decided 15 October 2026, with the fix it serves: a frame carries only what was placed at or after it.
+
+- *Rows written:* none extra. The value is written in the same row write as the add or the final move that sets it (an `UPDATE` that already happens). A carried item that somehow didn't move (never seen; the delta is clamped for the group) takes the frame's value as a stored change: 1 row, as a move. Live moves, resizes, edits and restacks don't touch it. The counter itself is never stored: it is read once, as the highest stored value, when the object wakes.
+- *Storage:* one integer column on notes, frames and shapes (`placed INTEGER NOT NULL DEFAULT 0`), under 10 bytes a row. Old rows read 0, which the web treats as placed before v23.
+- *Messages:* `,"placed":<n>` on every note, shape and frame (26 bytes at its widest, `Number.MAX_SAFE_INTEGER`), and on final `noteMoved`, `shapeMoved` and `frameMoved` that changed a place. Worst cases, recomputed in the tests:
+  - notes `snapshot` **409,429 bytes** (was 404,229; +5,200): 171 bytes under the 400 KiB tripwire, 114,859 bytes (112.2 KiB) of headroom under the 512 KiB cap, above the 100 KiB rule. The next per-note field still needs that tripwire revisited first.
+  - `framesSnapshot` **19,146 bytes** (was 18,366; +780). That is past the old 90% tripwire of the 20 KiB cap (18,432), so the cap is raised to **24 KiB** (24,576; tripwire 22,118). Decided 15 October 2026 with this change: it's a separate message, under 4% of the server cap, and a placement value per frame is what the fix needs. The 10% rule stands for the next per-frame field.
+  - `shapesSnapshot` **169,086 bytes** (was 167,786; cap 192 KiB and its 90% tripwire unchanged). Combined reconnect worst case (notes, frames, shapes) **597,661 bytes** (was 590,381), still three messages each under the cap.
+  - The largest `notesRevealed` chunk **102,398 bytes** (was 101,098; under 128 KiB), the largest `itemsAdded` **104,953 bytes** (was 103,653). `frameMoved` with 50 carried items stays under 4 KiB (one `placed` per message, not per item).
+- *Silent rounds:* adds and moves of sealed notes alone take the current value without advancing it, so the values everyone else sees have no gaps that would hint at hidden activity.
+- *Client messages:* unchanged. No client message carries `placed` (the item schemas are strict), so nothing new is accepted from a page.
+
 ## Hardening findings (v0.39.1)
 
 The basic hardening pass, measured on 14 October 2026 against a local `wrangler dev` only (fake secrets, a fake room-signing key, throwaway storage; never the deployed Worker). Rerun with `npm run load` (correctness, below) and the worker test `worker/test/budget.test.ts` (rows). The machine was a shared cloud container, with the clients and `wrangler dev` on the same CPU: **message counts, rows and correctness are reliable; every time below is rough**.

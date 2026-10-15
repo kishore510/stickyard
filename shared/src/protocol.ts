@@ -69,8 +69,14 @@ import { NOTE_Z_LIMIT, ORDER_ACTIONS } from "./stack";
  *   (adding it elsewhere moves it), and a group below 2 members is dissolved by the relay (after
  *   any change, a member's delete included). No box is sent or stored. v21 pages would refuse the
  *   new messages, so they get version_mismatch.
+ * v23 (frame membership): notes, shapes and frames carry `placed` (when each was last placed: a
+ *   per-room counter the relay advances on adds and on final moves that change a place), and final
+ *   noteMoved, shapeMoved and frameMoved give the new value. A frame carries only what was placed
+ *   at or after it, so dropping a frame onto notes (or onto another frame's notes) no longer picks
+ *   them up when it moves again. v22 pages would keep carrying everything inside, so they get
+ *   version_mismatch.
  */
-export const PROTOCOL_VERSION = 22;
+export const PROTOCOL_VERSION = 23;
 
 /**
  * Hard cap on a single client-to-server WebSocket message, in UTF-8 bytes. Checked before JSON.parse.
@@ -1551,6 +1557,16 @@ export const errorMessageSchema = z.object({
 /** The whole note on the board at its size. */
 const onBoard = (n: NoteRect) => n.x + n.w <= BOARD_WIDTH && n.y + n.h <= BOARD_HEIGHT;
 
+/**
+ * When an item was last placed (protocol v23): a per-room counter the relay advances on every add
+ * and every final move that changes where a note, shape or frame is. Carried notes and shapes take
+ * their frame's value. A frame carries only the notes and shapes inside it that were placed at or
+ * after it (`frameMembers` in the web), so a frame dropped onto notes, or onto another frame's
+ * notes, never picks them up; moving a note within a frame adopts it. Absent means 0: placed
+ * before v23 (stored rows from before schema 14), which keeps the old rule (everything inside).
+ */
+export const placedSchema = z.number().int().min(0).max(Number.MAX_SAFE_INTEGER);
+
 /** A note as the server stores and sends it. Text is already clean; anything else is rejected. */
 export const noteSchema = z.object({
   id: noteIdSchema,
@@ -1578,6 +1594,8 @@ export const noteSchema = z.object({
   rev: z.number().int().min(1),
   /** The participant who added it, from their socket. Participant ids are per visit. */
   authorId: participantIdSchema,
+  /** When it was last placed (protocol v23, see placedSchema). */
+  placed: placedSchema.optional(),
 }).refine(onBoard);
 export type Note = z.infer<typeof noteSchema>;
 /** The style fields of a note (what noteEdit can change besides text). */
@@ -1664,7 +1682,10 @@ export const noteUpdatedSchema = z.object({
   note: noteSchema,
 });
 
-/** Non-final moves go to everyone but the mover and carry the current rev; final ones bump it. */
+/**
+ * Non-final moves go to everyone but the mover and carry the current rev; final ones bump it.
+ * A final move that changed the note's place also gives its new `placed` (v23).
+ */
 export const noteMovedSchema = z.object({
   type: z.literal("noteMoved"),
   id: noteIdSchema,
@@ -1672,6 +1693,7 @@ export const noteMovedSchema = z.object({
   y: noteSchema.shape.y,
   rev: noteSchema.shape.rev,
   final: z.boolean(),
+  placed: placedSchema.optional(),
 });
 
 /** Like noteMoved, with the size: non-final ones go to everyone but the resizer at the current rev. */
@@ -1740,6 +1762,8 @@ export const frameSchema = z
     rev: z.number().int().min(1),
     /** The participant who added it, from their socket. */
     authorId: participantIdSchema,
+    /** When it was last placed (protocol v23, see placedSchema). */
+    placed: placedSchema.optional(),
   })
   .refine(onBoard);
 export type Frame = z.infer<typeof frameSchema>;
@@ -1781,7 +1805,9 @@ export const carriedShapeSchema = z.object({
 
 /**
  * A frame moved, with the notes it carried (one message, so pages apply both at once). Live
- * moves go to everyone but the mover at the current revs; final ones go to everyone.
+ * moves go to everyone but the mover at the current revs; final ones go to everyone. A final
+ * move that changed the frame's place gives its new `placed` (v23), which every carried note and
+ * shape in the message takes too.
  */
 export const frameMovedSchema = z.object({
   type: z.literal("frameMoved"),
@@ -1790,6 +1816,7 @@ export const frameMovedSchema = z.object({
   y: frameSchema.shape.y,
   rev: z.number().int().min(1),
   final: z.boolean(),
+  placed: placedSchema.optional(),
   notes: z.array(carriedNoteSchema).max(MAX_BATCH_ENTRIES).optional(),
   /** Since v15: the shapes it carried, like notes. */
   shapes: z.array(carriedShapeSchema).max(MAX_BATCH_ENTRIES).optional(),
@@ -1830,6 +1857,8 @@ export const shapeSchema = z
     rev: z.number().int().min(1),
     /** The participant who added it, from their socket. */
     authorId: participantIdSchema,
+    /** When it was last placed (protocol v23, see placedSchema). */
+    placed: placedSchema.optional(),
   })
   .refine(onBoard);
 export type Shape = z.infer<typeof shapeSchema>;
@@ -1853,7 +1882,7 @@ export const shapeUpdatedSchema = z.object({
   shape: shapeSchema,
 });
 
-/** Non-final moves go to everyone but the mover at the current rev; final ones bump it. */
+/** Non-final moves go to everyone but the mover at the current rev; final ones bump it (and, if it moved, give `placed`, v23). */
 export const shapeMovedSchema = z.object({
   type: z.literal("shapeMoved"),
   id: shapeIdSchema,
@@ -1861,6 +1890,7 @@ export const shapeMovedSchema = z.object({
   y: shapeSchema.shape.y,
   rev: z.number().int().min(1),
   final: z.boolean(),
+  placed: placedSchema.optional(),
 });
 
 export const shapeResizedSchema = z

@@ -1429,6 +1429,42 @@ describe("phone: add sheet and editor sheet", () => {
     expect(dialog()?.querySelector("h2")?.textContent).toBe("Edit note");
   });
 
+  it("touch adds on release only: a tap adds, a scroll or a hold let go inside the drawer adds nothing (v0.40.1)", async () => {
+    const socket = await withNotes();
+    await click(document.querySelector<HTMLElement>('[aria-label="Add note"]') ?? undefined);
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      const tile = () => dialog()?.querySelector<HTMLElement>('[aria-label="Purple note"]') ?? null;
+      const touch = async (target: EventTarget, type: string, x: number, y: number) => {
+        await act(async () => {
+          target.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, pointerType: "touch", pointerId: 7, button: 0, clientX: x, clientY: y }));
+        });
+      };
+      // Touch down: nothing yet.
+      await touch(tile() as HTMLElement, "pointerdown", 100, 700);
+      expect(sentOfType(socket, "noteAdd")).toHaveLength(0);
+      // A swipe along the row (no pointercancel reported) adds nothing on release.
+      await touch(window, "pointerup", 160, 700);
+      expect(sentOfType(socket, "noteAdd")).toHaveLength(0);
+      // Held past the long press and let go in place (still in the drawer): put back, nothing added.
+      await touch(tile() as HTMLElement, "pointerdown", 100, 700);
+      await act(async () => {
+        vi.advanceTimersByTime(600);
+      });
+      expect(sentOfType(socket, "noteAdd")).toHaveLength(0);
+      await touch(window, "pointerup", 100, 700);
+      expect(sentOfType(socket, "noteAdd")).toHaveLength(0);
+      expect(dialog()).not.toBeNull();
+      // A quick tap adds, on release.
+      await touch(tile() as HTMLElement, "pointerdown", 100, 700);
+      expect(sentOfType(socket, "noteAdd")).toHaveLength(0);
+      await touch(window, "pointerup", 101, 701);
+      expect(sentOfType(socket, "noteAdd")[0]).toMatchObject({ color: "purple" });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("tapping a note opens the editor sheet with Title, Body, colour, text style, size, author and Delete", async () => {
     const socket = await withNotes(one);
     const note = document.querySelector<HTMLElement>('[aria-roledescription="note"]');

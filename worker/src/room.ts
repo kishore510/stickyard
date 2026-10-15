@@ -1377,6 +1377,12 @@ export class Room extends DurableObject<Env> {
       return this.send(ws, { type: "error", code, message: "Nothing was added.", clientRef: message.clientRef, refused });
     }
 
+    // One placement for everything this message adds (protocol v23): new notes inside new frames
+    // belong to them. Only sealed notes (a silent round, nothing else): no new public value.
+    const at = this.notes.place(!sealing || frames.length + shapes.length > 0);
+    for (const n of notes) n.note = { ...n.note, placed: at };
+    for (const f of frames) f.frame = { ...f.frame, placed: at };
+    for (const x of shapes) x.shape = { ...x.shape, placed: at };
     this.notes.applyAdds(
       renumbered.notes,
       notes.map((n) => n.note),
@@ -1434,6 +1440,7 @@ export class Room extends DurableObject<Env> {
           ...FRAME_DEFAULTS,
           rev: 1,
           authorId: you.id,
+          placed: this.notes.place(),
         };
         this.notes.insertFrame(frame);
         this.send(ws, { type: "frameAdded", frame, clientRef: message.clientRef });
@@ -1490,18 +1497,24 @@ export class Room extends DurableObject<Env> {
           this.scheduleFlush();
           return;
         }
-        const frame = x !== current.x || y !== current.y ? { ...current, x, y, rev: current.rev + 1 } : null;
+        // A move that changes any place is one placement (protocol v23): the frame and everything it
+        // carried take the same value, so they stay its members (a carried item that somehow didn't
+        // move still takes it, as a stored change).
+        const moves =
+          x !== current.x || y !== current.y || placed.some((p) => p.x !== p.note.x || p.y !== p.note.y) || placedShapes.some((p) => p.x !== p.shape.x || p.y !== p.shape.y);
+        const at = moves ? this.notes.place() : undefined;
+        const frame = at !== undefined ? { ...current, x, y, rev: current.rev + 1, placed: at } : null;
         const changed: Note[] = [];
         const notes = placed.map(({ note, x: nx, y: ny }) => {
-          if (nx === note.x && ny === note.y) return note;
-          const next = { ...note, x: nx, y: ny, rev: note.rev + 1 };
+          if (at === undefined) return note;
+          const next = { ...note, x: nx, y: ny, rev: note.rev + 1, placed: at };
           changed.push(next);
           return next;
         });
         const changedShapes: Shape[] = [];
         const shapes = placedShapes.map(({ shape, x: sx, y: sy }) => {
-          if (sx === shape.x && sy === shape.y) return shape;
-          const next = { ...shape, x: sx, y: sy, rev: shape.rev + 1 };
+          if (at === undefined) return shape;
+          const next = { ...shape, x: sx, y: sy, rev: shape.rev + 1, placed: at };
           changedShapes.push(next);
           return next;
         });
@@ -1516,6 +1529,7 @@ export class Room extends DurableObject<Env> {
           y: moved.y,
           rev: moved.rev,
           final: true,
+          ...(at !== undefined ? { placed: at } : {}),
           ...(notes.length > 0 ? { notes: notes.map((n) => ({ id: n.id, x: n.x, y: n.y, rev: n.rev })) } : {}),
           ...(shapes.length > 0 ? { shapes: shapes.map((n) => ({ id: n.id, x: n.x, y: n.y, rev: n.rev })) } : {}),
         });
@@ -1635,6 +1649,8 @@ export class Room extends DurableObject<Env> {
     const updates: Note[] = [];
     const deletes: string[] = [];
     const results: NoteBatchResult[] = [];
+    // Moves that changed a place, placed together once the batch is read (protocol v23).
+    const moved: { note: Note; result: NoteBatchResult }[] = [];
     const sealedBefore = this.notes.sealedCount;
     for (const { entry } of valid) {
       const current = this.noteFor(viewer, entry.id);
@@ -1651,11 +1667,20 @@ export class Room extends DurableObject<Env> {
         updates.push(note);
       }
       // Reported even when unchanged, so everyone who saw the drag sees where it ended.
-      results.push(
+      const result: NoteBatchResult =
         entry.op === "move"
           ? { type: "noteMoved", id: note.id, x: note.x, y: note.y, rev: note.rev, final: true }
-          : { type: "noteResized", id: note.id, x: note.x, y: note.y, w: note.w, h: note.h, rev: note.rev, final: true },
-      );
+          : { type: "noteResized", id: note.id, x: note.x, y: note.y, w: note.w, h: note.h, rev: note.rev, final: true };
+      results.push(result);
+      if (entry.op === "move" && note !== current) moved.push({ note, result });
+    }
+    if (moved.length > 0) {
+      // Sealed notes alone (their writer's own moves) give away nothing: no new public value.
+      const at = this.notes.place(moved.some(({ note }) => this.notes.writerOf(note.id) === null));
+      for (const { note, result } of moved) {
+        Object.assign(note, { placed: at });
+        Object.assign(result, { placed: at });
+      }
     }
     const effects = this.notes.applyBatch(updates, deletes);
     if (results.length > 0) this.broadcast({ type: "notesBatchApplied", results, final: true });
@@ -1695,6 +1720,7 @@ export class Room extends DurableObject<Env> {
           z: stack.z,
           rev: 1,
           authorId: you.id,
+          placed: this.notes.place(writer === null),
         };
         this.notes.insert(note, writer);
         this.send(ws, { type: "noteAdded", note, clientRef: message.clientRef });
@@ -1750,12 +1776,15 @@ export class Room extends DurableObject<Env> {
           return;
         }
         let note = current;
+        let at: number | undefined;
         if (x !== current.x || y !== current.y) {
-          note = { ...current, x, y, rev: current.rev + 1 };
+          // A new place (protocol v23); a sealed note's own move gives away nothing.
+          at = this.notes.place(this.notes.writerOf(current.id) === null);
+          note = { ...current, x, y, rev: current.rev + 1, placed: at };
           this.notes.update(note);
         }
         // Sent even when unchanged, so everyone who saw the drag sees where it ended.
-        this.broadcast({ type: "noteMoved", id: note.id, x: note.x, y: note.y, rev: note.rev, final: true });
+        this.broadcast({ type: "noteMoved", id: note.id, x: note.x, y: note.y, rev: note.rev, final: true, ...(at !== undefined ? { placed: at } : {}) });
         return;
       }
 
@@ -1819,7 +1848,7 @@ export class Room extends DurableObject<Env> {
         }
         const { w, h, ...style } = shapeDefaults(message.kind);
         const { z } = this.newOnTop();
-        const shape: Shape = { id: randomBase64url(12), kind: message.kind, ...clampShapeRect({ x: message.x, y: message.y, w, h }), text: "", ...style, z, rev: 1, authorId: you.id };
+        const shape: Shape = { id: randomBase64url(12), kind: message.kind, ...clampShapeRect({ x: message.x, y: message.y, w, h }), text: "", ...style, z, rev: 1, authorId: you.id, placed: this.notes.place() };
         this.notes.insertShape(shape);
         this.send(ws, { type: "shapeAdded", shape, clientRef: message.clientRef });
         this.broadcast({ type: "shapeAdded", shape }, ws);
@@ -1853,12 +1882,14 @@ export class Room extends DurableObject<Env> {
           return;
         }
         let shape = current;
+        let at: number | undefined;
         if (x !== current.x || y !== current.y) {
-          shape = { ...current, x, y, rev: current.rev + 1 };
+          at = this.notes.place();
+          shape = { ...current, x, y, rev: current.rev + 1, placed: at };
           this.notes.updateShape(shape);
         }
         // Sent even when unchanged, so everyone who saw the drag sees where it ended.
-        this.broadcast({ type: "shapeMoved", id: shape.id, x: shape.x, y: shape.y, rev: shape.rev, final: true });
+        this.broadcast({ type: "shapeMoved", id: shape.id, x: shape.x, y: shape.y, rev: shape.rev, final: true, ...(at !== undefined ? { placed: at } : {}) });
         return;
       }
 
@@ -1925,6 +1956,8 @@ export class Room extends DurableObject<Env> {
     const updates: Shape[] = [];
     const deletes: string[] = [];
     const results: ShapeBatchResult[] = [];
+    // Moves that changed a place, placed together once the batch is read (protocol v23).
+    const moved: { shape: Shape; result: ShapeBatchResult }[] = [];
     for (const { entry } of valid) {
       const current = this.notes.getShape(entry.id);
       if (!current) continue;
@@ -1939,11 +1972,19 @@ export class Room extends DurableObject<Env> {
         shape = { ...current, ...rect, rev: current.rev + 1 };
         updates.push(shape);
       }
-      results.push(
+      const result: ShapeBatchResult =
         entry.op === "move"
           ? { type: "shapeMoved", id: shape.id, x: shape.x, y: shape.y, rev: shape.rev, final: true }
-          : { type: "shapeResized", id: shape.id, x: shape.x, y: shape.y, w: shape.w, h: shape.h, rev: shape.rev, final: true },
-      );
+          : { type: "shapeResized", id: shape.id, x: shape.x, y: shape.y, w: shape.w, h: shape.h, rev: shape.rev, final: true };
+      results.push(result);
+      if (entry.op === "move" && shape !== current) moved.push({ shape, result });
+    }
+    if (moved.length > 0) {
+      const at = this.notes.place();
+      for (const { shape, result } of moved) {
+        Object.assign(shape, { placed: at });
+        Object.assign(result, { placed: at });
+      }
     }
     const effects = this.notes.applyShapeBatch(updates, deletes);
     if (results.length > 0) this.broadcast({ type: "shapesBatchApplied", results, final: true });

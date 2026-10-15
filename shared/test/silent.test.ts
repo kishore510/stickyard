@@ -68,6 +68,7 @@ const worstNote = (i: number): Note => ({
   z: -NOTE_Z_LIMIT,
   rev: Number.MAX_SAFE_INTEGER,
   authorId: ID,
+  placed: Number.MAX_SAFE_INTEGER,
 });
 
 describe("protocol v17", () => {
@@ -195,7 +196,7 @@ describe("sizes", () => {
     expect(bytes).toBeLessThan(REVEAL_CHUNK_MAX_BYTES);
     expect(bytes).toBeLessThan(MAX_SERVER_MESSAGE_BYTES);
     // Recorded in docs/LIMITS.md.
-    expect(bytes).toBe(101_098);
+    expect(bytes).toBe(102_398);
   });
 
   it("silentChanged is tiny, and the largest joined with the silent state still stays under 8 KiB", () => {

@@ -18,7 +18,7 @@ import { V5_NOTES } from "./fixtures/schemaV5";
 import { V6_FRAMES } from "./fixtures/schemaV6";
 import { V9_SHAPE } from "./fixtures/schemaV9";
 import { V10_NOTE_DELETE, V10_NOTE_INSERT, V10_SEALED, loadSchemaV10 } from "./fixtures/schemaV10";
-import { TEST_SIGNING_KEY, TestClient, fullMessageBudget, nextOfType, specHostToken, specRoomCode } from "./helpers";
+import { TEST_SIGNING_KEY, TestClient, fullMessageBudget, nextOfType, specHostToken, specRoomCode, migratedRows } from "./helpers";
 
 /*
  * Reactions on notes, protocol v20 and stored schema 11 (part 1 of 2: relay and shared). A
@@ -662,7 +662,7 @@ describe(`schema migration 10 -> ${SCHEMA_VERSION}`, () => {
       const metaBefore = tableRows(sql, "meta").filter((r) => r.key !== "schema_version");
       const store = new NoteStore(sql);
       expect(version(sql)).toBe(SCHEMA_VERSION);
-      for (const [t, rows] of Object.entries(before)) expect(tableRows(sql, t), t).toEqual(rows);
+      for (const [t, rows] of Object.entries(before)) expect(tableRows(sql, t), t).toEqual(migratedRows(t, rows));
       expect(tableRows(sql, "meta").filter((r) => r.key !== "schema_version")).toEqual(metaBefore);
       const columns = sql.exec<{ name: string; dflt_value: string | null; notnull: number; pk: number }>("SELECT name, dflt_value, \"notnull\", pk FROM pragma_table_info('reactions')").toArray();
       expect(columns.map((c) => [c.name, c.dflt_value, c.notnull, c.pk])).toEqual([

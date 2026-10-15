@@ -354,6 +354,8 @@ describe(`schema migration 1 -> ${SCHEMA_VERSION}`, () => {
           ...NOTE_DEFAULTS,
           // Schema 5: stacked in creation order, as before.
           z: i,
+          // Schema 14: placed before frame membership (protocol v23).
+          placed: 0,
         });
       }
     });

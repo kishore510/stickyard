@@ -143,8 +143,8 @@ export type Plan =
 
 const sameValues = (state: Fields, values: Fields) => Object.entries(values).every(([k, v]) => state[k] === v);
 const without = (state: Fields, keys: readonly string[]): Fields => Object.fromEntries(Object.entries(state).filter(([k]) => !keys.includes(k)));
-/** Fields an item's content never carries: the server assigns them, and z travels apart. */
-const SERVER_FIELDS = ["id", "rev", "authorId", "z"] as const;
+/** Fields an item's content never carries: the server assigns them (`placed` since protocol v23), and z travels apart. */
+const SERVER_FIELDS = ["id", "rev", "authorId", "z", "placed"] as const;
 
 /** Rewrites references to an item id inside some fields (an arrow's bound ends); the same object when there are none. */
 export type RenameRefs = (fields: Fields, from: string, to: string) => Fields;

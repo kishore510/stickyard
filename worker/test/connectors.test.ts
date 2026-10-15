@@ -24,7 +24,7 @@ import { V5_NOTES } from "./fixtures/schemaV5";
 import { V6_FRAMES } from "./fixtures/schemaV6";
 import { V10_SEALED } from "./fixtures/schemaV10";
 import { V11_NOTE_DELETE, V11_NOTE_INSERT, V11_REACTIONS, V11_SHAPE_DELETE, V11_SHAPE_ID, loadSchemaV11 } from "./fixtures/schemaV11";
-import { TEST_SIGNING_KEY, TestClient, fullMessageBudget, nextOfType, specHostToken, specRoomCode } from "./helpers";
+import { TEST_SIGNING_KEY, TestClient, fullMessageBudget, nextOfType, specHostToken, specRoomCode, migratedRows } from "./helpers";
 
 /*
  * Connectors (arrows), protocol v21 and stored schema 12, part 1 of 2: relay and shared, no UI.
@@ -856,7 +856,7 @@ describe(`schema migration 11 -> ${SCHEMA_VERSION}`, () => {
       const metaBefore = tableRows(sql, "meta").filter((r) => r.key !== "schema_version");
       const store = new NoteStore(sql);
       expect(version(sql)).toBe(SCHEMA_VERSION);
-      for (const [t, rows] of Object.entries(before)) expect(tableRows(sql, t), t).toEqual(rows);
+      for (const [t, rows] of Object.entries(before)) expect(tableRows(sql, t), t).toEqual(migratedRows(t, rows));
       expect(tableRows(sql, "meta").filter((r) => r.key !== "schema_version")).toEqual(metaBefore);
       const columns = sql.exec<{ name: string; dflt_value: string | null; notnull: number; pk: number }>("SELECT name, dflt_value, \"notnull\", pk FROM pragma_table_info('connectors')").toArray();
       expect(columns.map((c) => [c.name, c.dflt_value, c.notnull, c.pk])).toEqual([

@@ -165,6 +165,12 @@ export class Relay {
   private dropReactions(noteId: string) {
     for (const notes of this.reactions.values()) notes.delete(noteId);
   }
+  /** The placement counter (protocol v23), as the Worker's: above every stored `placed`, one value per message. */
+  private placed = 0;
+  private place() {
+    this.placed = Math.max(this.placed, ...[...this.notes.values(), ...this.frames.values(), ...this.shapes.values()].map((x) => x.placed ?? 0)) + 1;
+    return this.placed;
+  }
   private topZ = () => Math.max(-1, ...[...this.notes.values()].map((n) => n.z), ...[...this.shapes.values()].map((x) => x.z)) + 1;
   socket = (handlers: SocketHandlers) => {
     this.handlers = handlers;
@@ -435,7 +441,7 @@ export class Relay {
     switch (m.type) {
       case "shapeAdd": {
         const kind = m.kind as ShapeKind;
-        const x: Shape = { id: this.newId("shap"), kind, x: m.x as number, y: m.y as number, ...shapeDefaults(kind), text: "", z: this.topZ(), rev: 1, authorId: alex.id };
+        const x: Shape = { id: this.newId("shap"), kind, x: m.x as number, y: m.y as number, ...shapeDefaults(kind), text: "", z: this.topZ(), rev: 1, authorId: alex.id, placed: this.place() };
         this.shapes.set(x.id, x);
         return this.out({ type: "shapeAdded", shape: x, clientRef: m.clientRef });
       }
@@ -452,9 +458,9 @@ export class Relay {
       case "shapeMove": {
         const c = this.shapes.get(m.id as string);
         if (!c || !m.final) return;
-        const x = c.x !== m.x || c.y !== m.y ? { ...c, x: m.x as number, y: m.y as number, rev: c.rev + 1 } : c;
+        const x = c.x !== m.x || c.y !== m.y ? { ...c, x: m.x as number, y: m.y as number, rev: c.rev + 1, placed: this.place() } : c;
         this.shapes.set(x.id, x);
-        return this.out({ type: "shapeMoved", id: x.id, x: x.x, y: x.y, rev: x.rev, final: true });
+        return this.out({ type: "shapeMoved", id: x.id, x: x.x, y: x.y, rev: x.rev, final: true, ...(x !== c ? { placed: x.placed } : {}) });
       }
       case "shapeResize": {
         const c = this.shapes.get(m.id as string);
@@ -475,6 +481,7 @@ export class Relay {
         if (!m.final) return;
         const boxes = this.snapshotBoxes();
         const results: unknown[] = [];
+        let at: number | undefined;
         for (const op of m.ops as { op: string; id: string; x: number; y: number; w: number; h: number }[]) {
           const c = this.shapes.get(op.id);
           if (!c) continue;
@@ -485,9 +492,10 @@ export class Relay {
           }
           const rect = op.op === "move" ? { x: op.x, y: op.y, w: c.w, h: c.h } : { x: op.x, y: op.y, w: op.w, h: op.h };
           const changed = rect.x !== c.x || rect.y !== c.y || rect.w !== c.w || rect.h !== c.h;
-          const x = changed ? { ...c, ...rect, rev: c.rev + 1 } : c;
+          const placed = changed && op.op === "move" ? { placed: (at ??= this.place()) } : {};
+          const x = changed ? { ...c, ...rect, rev: c.rev + 1, ...placed } : c;
           this.shapes.set(x.id, x);
-          results.push(op.op === "move" ? { type: "shapeMoved", id: x.id, x: x.x, y: x.y, rev: x.rev, final: true } : { type: "shapeResized", id: x.id, x: x.x, y: x.y, w: x.w, h: x.h, rev: x.rev, final: true });
+          results.push(op.op === "move" ? { type: "shapeMoved", id: x.id, x: x.x, y: x.y, rev: x.rev, final: true, ...placed } : { type: "shapeResized", id: x.id, x: x.x, y: x.y, w: x.w, h: x.h, rev: x.rev, final: true });
         }
         if (results.length > 0) this.out({ type: "shapesBatchApplied", results, final: true });
         const deleted = (m.ops as { op: string; id: string }[]).filter((o) => o.op === "delete").map((o) => o.id);
@@ -574,9 +582,9 @@ export class Relay {
       case "noteMove": {
         const c = this.notes.get(m.id as string);
         if (!c || !m.final) return;
-        const n = c.x !== m.x || c.y !== m.y ? { ...c, x: m.x as number, y: m.y as number, rev: c.rev + 1 } : c;
+        const n = c.x !== m.x || c.y !== m.y ? { ...c, x: m.x as number, y: m.y as number, rev: c.rev + 1, placed: this.place() } : c;
         this.notes.set(n.id, n);
-        return this.out({ type: "noteMoved", id: n.id, x: n.x, y: n.y, rev: n.rev, final: true });
+        return this.out({ type: "noteMoved", id: n.id, x: n.x, y: n.y, rev: n.rev, final: true, ...(n !== c ? { placed: n.placed } : {}) });
       }
       case "noteResize": {
         const c = this.notes.get(m.id as string);
@@ -611,6 +619,7 @@ export class Relay {
         }
         const boxes = this.snapshotBoxes();
         const results: unknown[] = [];
+        let at: number | undefined;
         for (const op of m.ops as { op: string; id: string; x: number; y: number; w: number; h: number }[]) {
           const c = this.notes.get(op.id);
           if (!c) continue;
@@ -622,9 +631,10 @@ export class Relay {
           }
           const rect = op.op === "move" ? { x: op.x, y: op.y, w: c.w, h: c.h } : { x: op.x, y: op.y, w: op.w, h: op.h };
           const changed = rect.x !== c.x || rect.y !== c.y || rect.w !== c.w || rect.h !== c.h;
-          const n = changed ? { ...c, ...rect, rev: c.rev + 1 } : c;
+          const placed = changed && op.op === "move" ? { placed: (at ??= this.place()) } : {};
+          const n = changed ? { ...c, ...rect, rev: c.rev + 1, ...placed } : c;
           this.notes.set(n.id, n);
-          results.push(op.op === "move" ? { type: "noteMoved", id: n.id, x: n.x, y: n.y, rev: n.rev, final: true } : { type: "noteResized", id: n.id, x: n.x, y: n.y, w: n.w, h: n.h, rev: n.rev, final: true });
+          results.push(op.op === "move" ? { type: "noteMoved", id: n.id, x: n.x, y: n.y, rev: n.rev, final: true, ...placed } : { type: "noteResized", id: n.id, x: n.x, y: n.y, w: n.w, h: n.h, rev: n.rev, final: true });
         }
         this.out({ type: "notesBatchApplied", results, final: true });
         const deleted = (m.ops as { op: string; id: string }[]).filter((o) => o.op === "delete").map((o) => o.id);
@@ -633,7 +643,7 @@ export class Relay {
         return;
       }
       case "noteAdd": {
-        const n: Note = { id: this.newId("note"), x: m.x as number, y: m.y as number, ...NOTE_DEFAULTS, text: m.text as string, color: m.color as Note["color"], z: this.topZ(), rev: 1, authorId: alex.id };
+        const n: Note = { id: this.newId("note"), x: m.x as number, y: m.y as number, ...NOTE_DEFAULTS, text: m.text as string, color: m.color as Note["color"], z: this.topZ(), rev: 1, authorId: alex.id, placed: this.place() };
         this.notes.set(n.id, n);
         return this.out({ type: "noteAdded", note: n, clientRef: m.clientRef });
       }
@@ -660,25 +670,27 @@ export class Relay {
           .map((e, order) => ({ ...e, order }))
           .sort((a, b) => (a.rank ?? 1e9) - (b.rank ?? 1e9) || a.order - b.order)
           .forEach((e) => zOf.set(`${e.kind}:${e.i}`, this.topZ() + zOf.size));
+        // One placement for the whole message (protocol v23).
+        const placed = this.place();
         const notes = noteItems.map(({ ref, rank: _, ...item }, i) => {
-          const n: Note = { id: this.newId("note"), ...item, z: zOf.get(`note:${i}`)!, rev: 1, authorId: alex.id };
+          const n: Note = { id: this.newId("note"), ...item, z: zOf.get(`note:${i}`)!, rev: 1, authorId: alex.id, placed };
           this.notes.set(n.id, n);
           return { ref, note: n };
         });
         const frames = ((m.frames ?? []) as FrameItem[]).map(({ ref, ...item }) => {
-          const f: Frame = { id: this.newId("frme"), ...item, rev: 1, authorId: alex.id };
+          const f: Frame = { id: this.newId("frme"), ...item, rev: 1, authorId: alex.id, placed };
           this.frames.set(f.id, f);
           return { ref, frame: f };
         });
         const shapes = shapeItems.map(({ ref, rank: _, ...item }, i) => {
-          const x: Shape = { id: this.newId("shap"), ...item, z: zOf.get(`shape:${i}`)!, rev: 1, authorId: alex.id };
+          const x: Shape = { id: this.newId("shap"), ...item, z: zOf.get(`shape:${i}`)!, rev: 1, authorId: alex.id, placed };
           this.shapes.set(x.id, x);
           return { ref, shape: x };
         });
         return this.out({ type: "itemsAdded", clientRef: m.clientRef, notes, frames, ...(shapes.length > 0 ? { shapes } : {}), refused: [] });
       }
       case "frameAdd": {
-        const f: Frame = { id: this.newId("frme"), x: m.x as number, y: m.y as number, w: 640, h: 400, title: m.title as string, color: m.color as Frame["color"], ...FRAME_DEFAULTS, rev: 1, authorId: alex.id };
+        const f: Frame = { id: this.newId("frme"), x: m.x as number, y: m.y as number, w: 640, h: 400, title: m.title as string, color: m.color as Frame["color"], ...FRAME_DEFAULTS, rev: 1, authorId: alex.id, placed: this.place() };
         this.frames.set(f.id, f);
         return this.out({ type: "frameAdded", frame: f, clientRef: m.clientRef });
       }
@@ -695,19 +707,21 @@ export class Relay {
         if (!c || !m.final) return;
         const dx = (m.x as number) - c.x;
         const dy = (m.y as number) - c.y;
-        const f = dx || dy ? { ...c, x: c.x + dx, y: c.y + dy, rev: c.rev + 1 } : c;
+        // One placement for the frame and everything it carries (protocol v23).
+        const placed = dx || dy ? { placed: this.place() } : {};
+        const f = dx || dy ? { ...c, x: c.x + dx, y: c.y + dy, rev: c.rev + 1, ...placed } : c;
         this.frames.set(f.id, f);
         const carried = ((m.noteIds ?? []) as string[]).flatMap((id) => {
           const n = this.notes.get(id);
           if (!n) return [];
-          const moved = dx || dy ? { ...n, x: n.x + dx, y: n.y + dy, rev: n.rev + 1 } : n;
+          const moved = dx || dy ? { ...n, x: n.x + dx, y: n.y + dy, rev: n.rev + 1, ...placed } : n;
           this.notes.set(id, moved);
           return [{ id, x: moved.x, y: moved.y, rev: moved.rev }];
         });
         const carriedShapes = ((m.shapeIds ?? []) as string[]).flatMap((id) => {
           const x = this.shapes.get(id);
           if (!x) return [];
-          const moved = dx || dy ? { ...x, x: x.x + dx, y: x.y + dy, rev: x.rev + 1 } : x;
+          const moved = dx || dy ? { ...x, x: x.x + dx, y: x.y + dy, rev: x.rev + 1, ...placed } : x;
           this.shapes.set(id, moved);
           return [{ id, x: moved.x, y: moved.y, rev: moved.rev }];
         });
@@ -718,6 +732,7 @@ export class Relay {
           y: f.y,
           rev: f.rev,
           final: true,
+          ...placed,
           ...(carried.length ? { notes: carried } : {}),
           ...(carriedShapes.length ? { shapes: carriedShapes } : {}),
         });

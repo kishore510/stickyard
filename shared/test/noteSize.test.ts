@@ -252,6 +252,8 @@ describe("notes on the wire (v4)", () => {
       // z at its widest (the minus sign makes the lower bound one character longer).
       z: -NOTE_Z_LIMIT,
       rev: Number.MAX_SAFE_INTEGER,
+      // When it was last placed (protocol v23), at its widest.
+      placed: Number.MAX_SAFE_INTEGER,
     };
     const raw = encodeMessage({ type: "snapshot", notes: Array.from({ length: MAX_NOTES_PER_ROOM }, () => big) });
     // Every character is ASCII here (the surrogates are escaped), so length is bytes.

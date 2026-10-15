@@ -23,7 +23,7 @@ import { V5_NOTES } from "./fixtures/schemaV5";
 import { V6_FRAMES } from "./fixtures/schemaV6";
 import { V10_SEALED } from "./fixtures/schemaV10";
 import { V12_CONNECTOR_IDS, V12_NOTE_DELETE, V12_NOTE_INSERT, V12_SHAPE_DELETE, V12_SHAPE_ID, loadSchemaV12 } from "./fixtures/schemaV12";
-import { TEST_SIGNING_KEY, TestClient, fullMessageBudget, nextOfType, specHostToken, specRoomCode } from "./helpers";
+import { TEST_SIGNING_KEY, TestClient, fullMessageBudget, nextOfType, specHostToken, specRoomCode, migratedRows } from "./helpers";
 
 /*
  * Group boxes, protocol v22 and stored schema 13, structure part 1 of 3: relay and shared, no UI.
@@ -178,9 +178,9 @@ async function groupRoom() {
 }
 
 describe("versions", () => {
-  it("protocol 22 and stored schema 13; a v21 page is asked to reload", async () => {
-    expect(PROTOCOL_VERSION).toBe(22);
-    expect(SCHEMA_VERSION).toBe(13);
+  it("protocol 22 and stored schema 13 or later; a v21 page is asked to reload", async () => {
+    expect(PROTOCOL_VERSION).toBeGreaterThanOrEqual(22);
+    expect(SCHEMA_VERSION).toBeGreaterThanOrEqual(13);
     const { code } = await newRoom();
     const c = await TestClient.open(code);
     expect(await c.request({ type: "hello", protocolVersion: 21 })).toMatchObject({ type: "error", code: "version_mismatch" });
@@ -972,8 +972,8 @@ describe(`schema migration 12 -> ${SCHEMA_VERSION}`, () => {
       const before = Object.fromEntries(["notes", "frames", "votes", "shapes", "reactions", "connectors"].map((t) => [t, tableRows(sql, t)]));
       const metaBefore = tableRows(sql, "meta").filter((r) => r.key !== "schema_version");
       const store = new NoteStore(sql);
-      expect(version(sql)).toBe(13);
-      for (const [t, rows] of Object.entries(before)) expect(tableRows(sql, t), t).toEqual(rows);
+      expect(version(sql)).toBe(SCHEMA_VERSION);
+      for (const [t, rows] of Object.entries(before)) expect(tableRows(sql, t), t).toEqual(migratedRows(t, rows));
       expect(tableRows(sql, "meta").filter((r) => r.key !== "schema_version")).toEqual(metaBefore);
       const columns = (t: string) =>
         sql.exec<{ name: string; dflt_value: string | null; notnull: number; pk: number }>(`SELECT name, dflt_value, "notnull", pk FROM pragma_table_info('${t}')`).toArray().map((c) => [c.name, c.dflt_value, c.notnull, c.pk]);

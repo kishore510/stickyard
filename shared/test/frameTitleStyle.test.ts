@@ -141,12 +141,12 @@ describe("frames carry their title style", () => {
   /**
    * Worst case per frame: the longest id/author, 4-digit positions, the largest size, a title of
    * lone surrogates (JSON escapes each as 6 bytes), the longest colour and style keys (false is
-   * longer than true), rev at MAX_SAFE_INTEGER. The cap is 20 KiB (raised from 16 KiB for v10:
-   * docs/LIMITS.md says why). Rule: a new per-frame field that takes the worst case within 10% of
-   * the cap needs a decision first. The notes snapshot, its 400 KiB tripwire and 100 KiB headroom
-   * rule are separate and unchanged (noteSize.test.ts).
+   * longer than true), rev and placed (v23) at MAX_SAFE_INTEGER. The cap is 24 KiB (16 KiB, raised
+   * to 20 KiB for v10 and to 24 KiB for v23's placed: docs/LIMITS.md says why). Rule: a new
+   * per-frame field that takes the worst case within 10% of the cap needs a decision first. The
+   * notes snapshot, its 400 KiB tripwire and 100 KiB headroom rule are separate (noteSize.test.ts).
    */
-  it("the largest possible framesSnapshot is 18,366 bytes, under the 20 KiB cap (recorded in docs/LIMITS.md)", () => {
+  it("the largest possible framesSnapshot is 19,146 bytes, under the 24 KiB cap (recorded in docs/LIMITS.md)", () => {
     const big: Frame = {
       id: id(0),
       x: BOARD_WIDTH - FRAME_MAX_W,
@@ -162,12 +162,13 @@ describe("frames carry their title style", () => {
       titleAlign: longest(NOTE_ALIGNS),
       rev: Number.MAX_SAFE_INTEGER,
       authorId: "AAAAAAAAAAAAAAAA",
+      placed: Number.MAX_SAFE_INTEGER,
     };
     const raw = encodeMessage({ type: "framesSnapshot", frames: Array.from({ length: MAX_FRAMES_PER_ROOM }, () => big) });
     expect(/^[\x20-\x7e]*$/.test(raw)).toBe(true);
     // docs/LIMITS.md records this figure; update both together.
-    expect(raw.length).toBe(18_366);
-    const CAP = 20 * 1024;
+    expect(raw.length).toBe(19_146);
+    const CAP = 24 * 1024;
     expect(raw.length).toBeLessThanOrEqual(CAP);
     // The 10% rule: past this, a new per-frame field needs a decision (and this test changes with it).
     expect(raw.length).toBeLessThanOrEqual(CAP * 0.9);

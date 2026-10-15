@@ -26,3 +26,6 @@ Architecture notes, moved out of CLAUDE.md on 7 October 2026 so they load only w
 
 ## Import is an add run (v0.40.0)
 - `RoomSession.importBoard` is the stencil placement (`placeContent`): `startItems` with `defer`, arrows and groups added to the run, one `history.recordAdd("Import", ...)`, so one undo removes it all. Notes and shapes are given to `startItems` in the file's stacking order. Details in canvas.md "Import".
+
+## Frame membership and history (v0.41.0)
+- Undo/redo sends frame moves before the note and shape batches (a frame put back is placed first, so its notes, placed after, stay its members). `SERVER_FIELDS` includes `placed`: a deleted item's content never carries it, so `itemsAdd` on undo stays valid. See frames.md "Frame membership, protocol v23".

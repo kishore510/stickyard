@@ -1,5 +1,5 @@
 import { MAX_BATCH_ENTRIES } from "@stickyard/shared";
-import { findFrame, framedNotes } from "../frames/board";
+import { findFrame, frameMembers, framedNotes } from "../frames/board";
 import type { Board } from "../notes/board";
 import { freedArrows } from "../connectors/geometry";
 import { ungroupedBy } from "../groups/geometry";
@@ -115,7 +115,8 @@ export function confirmDeleteSelection(counts: DeleteCounts, confirm: (message: 
   return confirm(`Delete ${what}? They’re removed for everyone in the session.${stay}${stayShapes}${freedSuffix(counts.freed ?? 0, counts.ungrouped ?? 0)}`);
 }
 
-type Rect = { id: string; x: number; y: number; w: number; h: number };
+/** A frame, note or shape as carryPlan reads it: its box and (protocol v23) when it was placed. */
+type Rect = { id: string; x: number; y: number; w: number; h: number; placed?: number | undefined };
 
 /** What a selection drag moves: each frame with the notes and shapes it carries, the loose selected items, and frames too full to carry. */
 export interface CarryPlan {
@@ -130,7 +131,8 @@ export interface CarryPlan {
 
 /**
  * Who carries what when a selection with frames moves (pure). Frames in selection order: each
- * carries the notes whose centre is inside it (`notes`: the notes that can move) that no earlier
+ * carries its members (`frameMembers`: inside it and placed since it was, protocol v23; `notes`:
+ * the notes that can move) that no earlier
  * frame took, so a note inside two selected frames goes with the first and nothing moves twice.
  * A frame with more than `cap` (MAX_BATCH_ENTRIES) such notes carries none (it moves alone, as a
  * single frame drag does). Without `carry` (Alt held at drag start) frames carry nothing. Selected
@@ -149,8 +151,8 @@ export function carryPlan(
   const alone: string[] = [];
   const planned = frames.map((f) => {
     if (!carry) return { id: f.id, noteIds: [], shapeIds: [] };
-    const inside = framedNotes(f, notes).filter((n) => !taken.has(n.id));
-    const insideShapes = framedNotes(f, shapes).filter((x) => !taken.has(x.id));
+    const inside = frameMembers(f, notes).filter((n) => !taken.has(n.id));
+    const insideShapes = frameMembers(f, shapes).filter((x) => !taken.has(x.id));
     // The carry cap is shared by notes and shapes (protocol v15).
     if (inside.length + insideShapes.length > cap) {
       alone.push(f.id);
