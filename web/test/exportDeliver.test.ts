@@ -13,8 +13,8 @@ const blob = () => new Blob(["{}"], { type: "application/json" });
 const named = (name: string) => Object.assign(new Error(name), { name });
 
 function nav({ can = true, share = async () => {} }: { can?: boolean | (() => boolean); share?: () => Promise<void> } = {}) {
-  const canShare = vi.fn(typeof can === "function" ? can : () => can);
-  const shareFn = vi.fn(share);
+  const canShare = vi.fn((_data: ShareData) => (typeof can === "function" ? can() : can));
+  const shareFn = vi.fn((_data: ShareData) => share());
   return { canShare, share: shareFn } satisfies ShareNavigator;
 }
 
@@ -24,7 +24,7 @@ describe("delivering an exported file", () => {
     const download = vi.fn();
     expect(await deliverFile(blob(), "stickyard-board-2026-10-15.json", { share: true }, n, download)).toBe("shared");
     expect(download).not.toHaveBeenCalled();
-    const data = n.share.mock.calls[0]![0] as unknown as ShareData;
+    const data = n.share.mock.calls[0]![0];
     expect(Object.keys(data)).toEqual(["files"]);
     expect(data.files![0]!.name).toBe("stickyard-board-2026-10-15.json");
     expect(data.files![0]!.type).toBe("application/json");

@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { EXPORT_CLASS, EXPORT_NOTICES } from "../src/export/png";
 import { BOARD_FILE_FORMAT } from "../src/export/boardFile";
 import { SILENT_TEXT } from "../src/silent/silent";
-import { CODE, ROOM_ID, alex, byText, cleanupUi, click, frameAt, inRoom, installUi, isOff, named, noteAt, sam, server, settle, shapeAt } from "./helpers/ui";
+import { CODE, ROOM_ID, alex, byText, cleanupUi, click, frameAt, inRoom, installUi, isOff, noteAt, sam, server, settle, shapeAt } from "./helpers/ui";
 
 /*
  * Export (v0.22.0) in Properties: nothing selected, md and up, for hosts and guests, locked or
@@ -178,7 +178,7 @@ describe("Export on phones", () => {
   const sheet = () => document.querySelector<HTMLElement>("[data-export-sheet]");
   const menuItem = () => byText('[role="menuitem"]', "Export board");
   async function openFromMenu() {
-    await click(named("Menu"));
+    await click(document.querySelector<HTMLElement>('header button[aria-label^="Menu"]'));
     await click(menuItem());
     await settle();
   }

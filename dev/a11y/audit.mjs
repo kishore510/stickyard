@@ -289,6 +289,14 @@ async function main() {
           v.push(...(await axe(page, `share ${tag}`)));
           await page.keyboard.press("Escape");
           await page.waitForTimeout(300);
+          // Export board (v0.40.0): the sheet from the menu, phones too.
+          await page.getByRole("button", { name: /^Menu/ }).click();
+          await page.getByRole("menuitem", { name: "Export board" }).click();
+          await page.locator("[data-export-sheet]").waitFor({ timeout: 5_000 }).catch(() => {});
+          await page.waitForTimeout(300);
+          v.push(...(await axe(page, `export ${tag}`)));
+          await page.keyboard.press("Escape");
+          await page.waitForTimeout(300);
 
           // The host (Sam) runs the session: a vote, then a silent round, the lock and a timer.
           const liveFrom = await page.evaluate(() => Date.now());

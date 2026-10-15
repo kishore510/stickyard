@@ -109,6 +109,8 @@ export interface PropertiesRoom {
   onPickResult?: (noteId: string) => void;
   /** React Flow's viewport element, for Export PNG (v0.22.0); without it there's no Export section. */
   exportViewport?: () => HTMLElement | null;
+  /** Notes never put in the board file (v0.40.0: my sealed ones during a silent round). */
+  exportHidden?: ReadonlySet<string>;
   /** A silent round is running (v0.27.0): Clear board and Export are off. */
   silent?: boolean;
   /** The silent round and my sealed notes in it (absent: none): the count says how many are hidden. */
@@ -196,7 +198,7 @@ function Summary({ room }: { room: PropertiesRoom }) {
           </p>
         )}
       </div>
-      {room.exportViewport && <ExportSection board={room.board} results={room.results ?? null} viewport={room.exportViewport} silent={room.silent ?? false} />}
+      {room.exportViewport && <ExportSection board={room.board} results={room.results ?? null} viewport={room.exportViewport} silent={room.silent ?? false} {...(room.exportHidden ? { hidden: room.exportHidden } : {})} />}
       {room.isHost && room.endSession && (
         <div className="flex flex-col gap-xs border-t border-border pt-md">
           <p className="text-sm text-fg-muted">You’re the host. Ending the session deletes the board for everyone.</p>

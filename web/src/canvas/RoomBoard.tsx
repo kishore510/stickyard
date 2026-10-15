@@ -84,6 +84,7 @@ import { STENCIL_TEXT, stencilReason as stencilBaseReason } from "../stencils/ru
 import { buildStencil, stencilBounds, type Stencil } from "../stencils/data";
 import { newStencilId, useStencils } from "../stencils/stencilStore";
 import { StencilSaveDialog } from "../stencils/StencilUi";
+import { ExportSheet } from "../export/ExportSheet";
 import { UNDO_TEXT } from "../rooms/session";
 
 /*
@@ -732,6 +733,8 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
   // Export PNG draws React Flow's viewport element (export/png.ts).
   const flowStore = useStoreApi();
   const exportViewport = useCallback(() => flowStore.getState().domNode?.querySelector<HTMLElement>(".react-flow__viewport") ?? null, [flowStore]);
+  // v0.40.0: my sealed notes never go into a board file (export is off during a round anyway).
+  const exportHidden = useMemo<ReadonlySet<string>>(() => (view.silent.active ? view.mySealed : new Set()), [view.silent.active, view.mySealed]);
   const revealRequest = useBoardUi((s) => s.revealRequest);
   useEffect(() => {
     if (!revealRequest) return;
@@ -978,6 +981,7 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
                 results: resultRows,
                 onPickResult: pickResult,
                 exportViewport,
+                exportHidden,
                 silent: silentOn,
                 silentRound: { silent: view.silent, mine: view.mySealed.size },
               }}
@@ -987,6 +991,7 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
       )}
       {wide && <TimerPicker />}
       {wide && <StencilSaveDialog save={saveStencilAs} />}
+      <ExportSheet board={view.board} results={resultRows} viewport={exportViewport} silent={silentOn} hidden={exportHidden} share={!wide} />
       {!wide && <AddDrawer host={paletteHost} open={addSheetOpen} onClose={() => useBoardUi.getState().setAddSheetOpen(false)} />}
     </div>
   );

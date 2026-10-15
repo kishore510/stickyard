@@ -6,6 +6,7 @@
 // Extra pages: SHOTS_HASHES="#/help,#/about" (each shot over the welcome page).
 import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { chromium } from "playwright-core";
@@ -393,6 +394,28 @@ async function main() {
           await page.getByRole("button", { name: "Large" }).click();
           await page.waitForTimeout(400);
           await shot("share-large");
+          await page.keyboard.press("Escape");
+          await page.waitForTimeout(200);
+          // Export board (v0.40.0): the sheet from the menu (phones too); a board file and a PNG really made
+          // in Chromium (no Web Share here, so both download).
+          await page.getByRole("button", { name: /^Menu/ }).click();
+          await page.getByRole("menuitem", { name: "Export board" }).click();
+          await page.locator("[data-export-sheet]").waitFor({ timeout: 5_000 });
+          await page.waitForTimeout(300);
+          await shot("export");
+          for (const [kind, ext] of [["json", ".json"], ["png", ".png"]]) {
+            const download = page.waitForEvent("download", { timeout: 30_000 });
+            await page.locator(`[data-export-sheet] [data-export="${kind}"]`).click();
+            const file = await download;
+            if (!/^stickyard-board-\d{4}-\d{2}-\d{2}/.test(file.suggestedFilename()) || !file.suggestedFilename().endsWith(ext)) throw new Error(`export ${kind} named ${file.suggestedFilename()}`);
+            if (kind === "json") {
+              const text = await readFile(await file.path(), "utf8");
+              const parsed = JSON.parse(text);
+              if (parsed.format !== "stickyard-board" || parsed.formatVersion !== 1 || text.includes(room.code)) throw new Error("board file content");
+            }
+          }
+          await page.waitForTimeout(300);
+          await shot("export-done");
           await page.keyboard.press("Escape");
           await context.close();
         }

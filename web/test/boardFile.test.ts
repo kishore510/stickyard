@@ -19,8 +19,8 @@ import { parseStencil } from "../src/stencils/data";
 const HOSTILE = "<img src=x onerror=alert(1)>";
 const AUTHOR = "AuthorIdAAAAAAAA";
 
-const note = (id: string, x: number, y: number, z: number, extra: Partial<Note> = {}): Note => ({ id, x, y, ...NOTE_DEFAULTS, text: `note ${id}`, color: "yellow", z, rev: 7, authorId: AUTHOR, ...extra });
-const shape = (id: string, x: number, y: number, z: number): Shape => ({ id, kind: "oval", x, y, ...shapeDefaults("oval"), text: `shape ${id}`, z, rev: 3, authorId: AUTHOR });
+const note = (id: string, x: number, y: number, z: number, extra: Partial<Note> = {}): Note => ({ id, x, y, ...NOTE_DEFAULTS, text: "Bottom idea", color: "yellow", z, rev: 7, authorId: AUTHOR, ...extra });
+const shape = (id: string, x: number, y: number, z: number): Shape => ({ id, kind: "oval", x, y, ...shapeDefaults("oval"), text: "A shape", z, rev: 3, authorId: AUTHOR });
 const frame = (id: string, x: number, y: number, title: string): Frame => ({ id, x, y, w: 640, h: 400, color: "neutral", ...FRAME_DEFAULTS, title, rev: 2, authorId: AUTHOR });
 const arrow = (id: string, start: Connector["start"], end: Connector["end"]): Connector => ({ id, start, end, route: "elbow", dash: "dashed", width: "thick", ink: "pink", startHead: "none", endHead: "arrow", rev: 1, authorId: AUTHOR });
 const group = (id: string, label: string, members: string[]): Group => ({ id, label, color: "green", members: [...members].sort(), rev: 1 });
@@ -56,13 +56,13 @@ describe("the board file", () => {
 
   it("keeps content, style and layout from the top-left, notes and shapes in stacking order", () => {
     const file = buildBoardFile(sample(), new Set(["NoteIdHidden0001"]))!;
-    expect(file.notes.map((n) => n.text)).toEqual(["note NoteIdBottom0001", `Top\n${HOSTILE}`]);
+    expect(file.notes.map((n) => n.text)).toEqual(["Bottom idea", `Top\n${HOSTILE}`]);
     expect(file.notes[0]).toMatchObject({ x: 100, y: 100, color: "yellow" });
     expect(file.frames).toEqual([expect.objectContaining({ x: 0, y: 0, title: "Ideas" })]);
-    expect(file.shapes).toEqual([expect.objectContaining({ kind: "oval", x: 100, y: 400, text: "shape ShapeId000000001" })]);
+    expect(file.shapes).toEqual([expect.objectContaining({ kind: "oval", x: 100, y: 400, text: "A shape" })]);
     // Bottom note (z 10), the shape (z 20), the top note (z 30): one stacking space.
     const refOf = (text: string) => [...file.notes, ...file.shapes].find((i) => i.text === text)!.ref;
-    expect(file.stack).toEqual([refOf("note NoteIdBottom0001"), refOf("shape ShapeId000000001"), refOf(`Top\n${HOSTILE}`)]);
+    expect(file.stack).toEqual([refOf("Bottom idea"), refOf("A shape"), refOf(`Top\n${HOSTILE}`)]);
   });
 
   it("keeps arrows and groups by ref; an arrow to a hidden note keeps a free end", () => {

@@ -50,7 +50,7 @@ export function localDate(date: Date): string {
 }
 
 /** The download's name: the date only (never a room code, id or name). */
-export function exportFileName(ext: "png" | "md", date: Date): string {
+export function exportFileName(ext: "png" | "md" | "json", date: Date): string {
   return `stickyard-board-${localDate(date)}.${ext}`;
 }
 

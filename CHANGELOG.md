@@ -2,6 +2,16 @@
 
 All notable changes to Stickyard, newest first. The format follows Keep a Changelog. Versions are 0.x: a minor bump for each slice and a patch bump for each follow-up fix. This file is shown in the app under **What’s new**, so entries are written for the people using it.
 
+## [0.40.0] - 2026-10-15
+
+### Added
+- **Export on phones.** The menu has **Export board**, on every screen size: a sheet with **Export PNG**, **Export Markdown** and **Export board file**. On a phone each file goes to your phone's share sheet (save it to Files or Photos, or send it to an app) when the browser can share that kind of file, and otherwise downloads. If the share sheet needs one more tap because the picture took a moment to draw, a **Share PNG** button takes it.
+- **Export board file**: the board as a `.json` file, from **Properties** too. It holds every note, shape and frame with its text, size, colour and style, the arrows and groups between them, and which is in front; no room code, names, authors, votes or reactions. Named by the date only, like the other exports.
+- If a phone can't draw a very big board as a picture, it now says so calmly and points to the Markdown file and the board file, which still work.
+
+### Changed
+- About > Privacy and Help describe the board file and the share sheet.
+
 ## [0.39.1] - 2026-10-14
 
 ### Fixed
