@@ -320,6 +320,14 @@ describe("About", () => {
       "On a phone the file goes to your phone’s share sheet",
       "Import reads the board file or text you choose in your browser",
       "nothing is uploaded or sent to the relay",
+      // AI part 1 (v0.42.0): bring your own key; the page can call api.anthropic.com.
+      "Stickyard has no AI server",
+      "AI features are off until you add your own Anthropic API key",
+      "api.anthropic.com",
+      "only when you press Send",
+      "never shared with the room, a board file, a stencil, a link or an error message",
+      "stored unencrypted in this browser",
+      "for this session only",
     ]) {
       expect(privacy, claim).toContain(claim);
     }
@@ -328,6 +336,8 @@ describe("About", () => {
     expect(privacy).not.toContain("When joining sessions arrives");
     expect(privacy).not.toContain("Nothing is saved");
     expect(privacy).not.toContain("don’t expire");
+    // Before v0.42.0 the page talked only to GitHub Pages and the relay.
+    expect(privacy).not.toMatch(/only (talks|connects) to the relay/i);
   });
 
   it("has Privacy and Credits sections", async () => {
