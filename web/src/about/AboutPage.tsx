@@ -154,6 +154,10 @@ export function AboutPage() {
             phone’s share sheet, and only where you choose to send it.
           </li>
           <li>
+            Import reads the board file or text you choose in your browser; nothing is uploaded to read it. Only when you choose Place
+            are its notes, shapes, frames, arrows and groups added to the board, like any others (recorded as added by your visit).
+          </li>
+          <li>
             The create passcode is sent only to the relay, only when you start a session, and is never stored in your
             browser.
           </li>

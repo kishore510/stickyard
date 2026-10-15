@@ -49,5 +49,5 @@ Architecture notes, moved out of CLAUDE.md on 7 October 2026 so they load only w
 - Fixed: `--sy-fg-muted` (light) #5a6368 to #566064, so muted text is 4.5:1 on the canvas and board too (`web/test/hardeningA11y.test.ts`); `.react-flow__attribution a` is a 44 px tall target; the top bar's start-page link has `min-w-touch`.
 - Kept as they are: the skip link outside a landmark (axe `region`, best practice: it must come first); group chips in summary mode partly covered by notes at low zoom, and the attribution under the follow strip on phones (backlog). Everything else passed: names and roles, contrast of text and note colours in both themes, visible focus at every stop, nothing animating with reduced motion, polite announcements each made once.
 
-## Export in the menu (v0.40.0)
-- The menu's Session group gains **Export board** after Share session (every width): it opens the Export sheet (`export/ExportSheet.tsx`, store-driven like Share session, not a hash route). Details in canvas.md "Export on phones and the board file".
+## Export and Import in the menu (v0.40.0)
+- The menu's Session group gains **Export board** and **Import** after Share session (every width): they open the Export sheet (`export/ExportSheet.tsx`) and the Import sheet (`importer/ImportSheet.tsx`), store-driven like Share session, not hash routes. Details in canvas.md "Export on phones and the board file" and "Import".

@@ -8,7 +8,7 @@ keywords: group, groups, ungroup, g, shift+g, chip, arrow, arrows, connector, re
 
 - The menu (three lines) and the theme button sit at the top right, in reach of your thumb.
 - On a phone, Help, What's new and About open as a sheet from the bottom. To close it, swipe it down by its top edge, tap the page above it, or tap **X**.
-- On a phone, **Export board** in the menu saves the board as a picture, a Markdown file or a board file, through your phone's share sheet where it can. See [Exporting the board](help:notes).
+- On a phone, **Export board** in the menu saves the board as a picture, a Markdown file or a board file, through your phone's share sheet where it can. See [Exporting the board](help:notes). **Import** in the menu adds a board file or text (one note per line) from your phone.
 - On a wider screen they open as a panel on the right. Click outside it or choose **X** to close it.
 - The back arrow in a sheet returns to the page you came from.
 - On the board, drag a note to move it, tap it to edit it, and swipe an empty part of the board to move around. Pinch to zoom. **Select** and **Hand**, **+** (**Add note**) and **Fit to notes** sit in the bar at the bottom. In the add drawer, tap a tile to add it, or press and hold one and drag it onto the board.

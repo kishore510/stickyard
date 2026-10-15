@@ -1,6 +1,6 @@
 # Phase plan: Stickyard
 
-Last updated: 15 October 2026 (Export on phones and Import, part 1 of 2: export on phones and the board file, v0.40.0)
+Last updated: 15 October 2026 (Export on phones and Import, both parts: export on phones, the board file and Import, v0.40.0)
 
 Draft roadmap. When a slice starts, rewrite its prompt against the real code (see the skeleton in PROJECT_BRIEF.md). Do not treat these notes as final prompts.
 
@@ -57,7 +57,7 @@ Draft roadmap. When a slice starts, rewrite its prompt against the real code (se
 | 7c Structure, part 1 of 3 | Group data and relay, no visible UI: `groupCreate` (label, colour key, 2 to 100 members), `groupUpdate` (label, colour), `groupMembers` (add, remove; adding moves an item from another group), `groupDelete` (ungroups); `groupsSnapshot` on every join; members are notes and shapes, an item in at most one group; a group below 2 members is dissolved by the relay (any change, any delete path); no box stored; cap 30 a room; refused on a locked board (guests) and during a silent round; own rate buckets. Protocol v22, stored schema 13 (groups and group_members tables) | Done (v0.37.0, protocol v22, stored schema 13, relay and shared only, PR #60, merged and deployed 14 October 2026) |
 | 7c Structure, part 2 of 3 | The groups UI: group a selection, the box drawn from the members' boxes plus padding (above frames, below arrows, notes and shapes), label and colour, add and remove members, ungroup, move a group as one, affinity grouping; Clear board, duplicate and undo cover groups; Help. Web only | Done (v0.38.0, web only, PR #61, merged and deployed 14 October 2026) |
 | 7c Structure, part 3 of 3 | Stencils tab and Save as stencil. Frames, templates and export moved to their own slices | Done (v0.39.0, web only, PR #62, merged and deployed 14 October 2026; 7c Structure Done, PRs #60, #61, #62) |
-| Export on phones and Import | Part 1: Export PNG and Markdown on phones (the menu's Export board sheet, share sheet with a download fallback, a calm notice when a phone can't draw the PNG) and Export board file (JSON: the stencil item schemas plus `format`, `formatVersion` and the stacking order) on laptop and phone. Part 2: Import, add-only (a board file or plain text, preview, refused up front when it doesn't fit, one undo). Web only, no protocol, relay or stored-schema change | Done (v0.40.0, web only; part 1 of 2 built: export on phones and the board file. Import is part 2) |
+| Export on phones and Import | Part 1: Export PNG and Markdown on phones (the menu's Export board sheet, share sheet with a download fallback, a calm notice when a phone can't draw the PNG) and Export board file (JSON: the stencil item schemas plus `format`, `formatVersion` and the stacking order) on laptop and phone. Part 2: Import, add-only (a board file or plain text, preview, refused up front when it doesn't fit, one undo). Web only, no protocol, relay or stored-schema change | Done (v0.40.0, web only, both parts: export on phones and the board file, then Import; on `claude/phase-export-import-72gwel`) |
 | QR join | Share session: the join link as a QR code made on the device (lean-qr, level M), the link as text, Copy link and Large for a shared screen; from the menu's Session group and Participants > Invite, for everyone who can copy the link. Phone audit in the PR. Web only, no protocol, relay or stored-schema change | Done (v0.32.0, web only, PR #54, merged and deployed 13 October 2026) |
 | 8 Phone view | Simplified phone participant view (QR join done separately in v0.32.0); whether it's worth a slice is decided from the v0.32.0 phone audit | Not started |
 | 10 AI | Summary and sentiment analysis, explicit buttons, add-only | Optional, last |
@@ -211,6 +211,12 @@ Draft roadmap. When a slice starts, rewrite its prompt against the real code (se
   - Anonymous notes mode stays in the backlog: after the reveal a note's author is its participant id, as for any note.
   - The host can use Bring to me (a later slice) to take everyone to the reveal.
 - Facilitator-defined note palette (host-only, a small list of { id, colorKey, label } from a fixed set of token colours, caps on entries and label length, labels untrusted plain text): no slot yet; see the backlog.
+
+### Export on phones and Import (done, v0.40.0)
+- One slice, two parts, web only: no protocol, relay or stored-schema change (protocol v22, stored schema 13). Tests first in each part (red commit, then green). Details in `docs/architecture/canvas.md` ("Export on phones and the board file", "Import"); costs in LIMITS.md.
+- Part 1: the menu's Export board (every width) opens a sheet with Export PNG, Export Markdown and Export board file (also in Properties); on phones each file goes to the share sheet where `navigator.canShare` allows it, else downloads; a calm notice when a phone can't draw the PNG. The board file is the stencil item schemas (`buildStencil` + `parseStencil`) with `format`, `formatVersion` and `stack` (the notes' and shapes' stacking order, which the stencil lists can't hold).
+- Part 2: Import from the menu and Properties: a board file or text (one note per line), a preview with the counts, Place or Cancel; add-only, at the view centre, through the stencil path (`placeContent`), one undo; refused up front with everything that wouldn't fit; untrusted input (1 MB cap, unknown or newer format refused, ids, authors, votes and reactions ignored, text cleaned as typed). Round trip tested: export, Clear board, import gives the same board.
+- Differences found: a stencil serialiser existed and was reused; `stack` added to the format; the menu entries show at every width; joined emoji lose their zero-width joiners on import, as typed text does; real phones not tested (share paths from specs and stubs).
 
 ### Export PNG/Markdown (done, v0.22.0)
 - One session, so a retro leaves something behind. Moved out of 7c. Web only: no protocol or stored-schema change. Built in two parts on `phase-export`, tests first: Markdown (`export/markdown.ts`, pure, every room string escaped), then PNG (`export/png.ts`, html-to-image 1.11.13 pinned and loaded with a dynamic import). Both from Properties with nothing selected, md and up, for hosts and guests, locked or not, connected or not. Details in `docs/architecture/canvas.md` ("Export").
@@ -425,6 +431,10 @@ Draft roadmap. When a slice starts, rewrite its prompt against the real code (se
 - ~~Export on phones~~: done in v0.40.0 (the menu's Export board sheet, with the share sheet)
 - Share session: the browser's Back button doesn't close it (it isn't a hash route, so it can sit over Participants and give focus back to its button)
 - Export selection only
+- CSV import (v0.40.0 imports a board file or plain text, one note per line)
+- Stencils between browsers: a stencil file to export and import (the board file format could carry one)
+- Import and typed text drop zero-width joiners, so a joined emoji (for example a person with a laptop) shows as its parts; keeping ZWJ inside emoji sequences would change the shared cleaner (relay and web)
+- Export on phones: check the share sheet on a real iPhone and Android phone (v0.40.0 was checked with stubs and in desktop Chromium only)
 - Follow: a person on a phone (or a hidden tab) never sends a view, and the page can't tell who is on a phone, so following them waits forever with "Waiting for Sam's view." Telling the page (a `compact` flag on the participant) needs a protocol change.
 - Follow: a leader whose tab was hidden sends nothing on return until their view next moves (the session doesn't re-send on `visibilitychange`); a follower waits until then.
 - Participants lists nobody while not connected, so Follow's "Not connected." reason only shows in the moment between a drop and the list emptying.

@@ -16,3 +16,4 @@ Architecture notes for stencils. Sections are in build order and keep the versio
 
 ## The board file reuses the stencil format (v0.40.0)
 - Export board file (`export/boardFile.ts`) is `buildStencil` over the whole board, checked by `parseStencil`, without `id` and `name`, plus `format`, `formatVersion` and `stack`. A change to the stencil item schemas changes the board file too: bump `BOARD_FILE_VERSION` when it isn't backwards compatible. Details in canvas.md "Export on phones and the board file".
+- Import (v0.40.0) reads board files back through `parseStencil` and places them through the same session path (`placeContent`, shared by `placeStencil` and `importBoard`). Details in canvas.md "Import".

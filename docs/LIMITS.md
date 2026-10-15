@@ -299,6 +299,15 @@ Web only; nothing new on the relay. Saved stencils live in this browser (at most
 - *Placing one* is the same messages as adding the items by hand: itemsAdd messages of up to 50 items (paced at 10 a second), then one `connectorAdd` per arrow and one `groupCreate` per group (paced inside `CONNECTOR_LIMITS` and `GROUP_LIMITS`). The largest built-in (Pros and cons) is 7 items and 2 groups: 1 itemsAdd and 2 groupCreates. A saved stencil can be at most the room's caps, so its worst case is a full board's worth of adds, which the room refuses up front when it wouldn't fit.
 - *Rows written* are those of the add messages (LIMITS.md "Create with content", "Connectors", "Groups").
 
+## Export on phones and Import (v0.40.0): what they cost
+
+Web only; nothing new on the relay, no new message type.
+
+- *Export* on phones (the share sheet) and *Export board file* are made in the browser like the other exports: no message, request or row. Zero relay cost.
+- *Import file cap*: **1 MB** (UTF-8 bytes; `IMPORT_MAX_BYTES`, for a board file and for text alike), checked on the file's size before it is read and on the text before it is parsed. The largest board Stickyard can hold (200 notes of 280 four-byte emoji, 50 shapes of 500, 30 frames, 100 arrows, 30 groups) exports to about 470 KB (tested), so the cap leaves about twice that.
+- *Placing an import* is the same messages as placing a stencil (above): itemsAdd messages packed by size (up to 50 items, paced at 10 a second), then one `connectorAdd` per arrow and one `groupCreate` per group (paced inside `CONNECTOR_LIMITS` and `GROUP_LIMITS`). A full board's import from empty is 280 items: from about 20 itemsAdd messages (short text) to about 150 (every item at its longest text; a message is at most 4 KB), paced at 10 a second so under 15 seconds, then 100 connectorAdds and 30 groupCreates: the same as building that board by hand, or as Clear board's undo of it. An import that wouldn't fit is refused in the browser before anything is sent.
+- *Rows written* are those of the add messages (LIMITS.md "Create with content", "Connectors", "Groups").
+
 ## Hardening findings (v0.39.1)
 
 The basic hardening pass, measured on 14 October 2026 against a local `wrangler dev` only (fake secrets, a fake room-signing key, throwaway storage; never the deployed Worker). Rerun with `npm run load` (correctness, below) and the worker test `worker/test/budget.test.ts` (rows). The machine was a shared cloud container, with the clients and `wrangler dev` on the same CPU: **message counts, rows and correctness are reliable; every time below is rough**.

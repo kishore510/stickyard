@@ -297,6 +297,20 @@ async function main() {
           v.push(...(await axe(page, `export ${tag}`)));
           await page.keyboard.press("Escape");
           await page.waitForTimeout(300);
+          // Import (v0.40.0): the sheet, then a text preview (cancelled: nothing placed).
+          await page.getByRole("button", { name: /^Menu/ }).click();
+          await page.getByRole("menuitem", { name: "Import" }).click();
+          await page.locator("[data-import-sheet]").waitFor({ timeout: 5_000 }).catch(() => {});
+          await page.waitForTimeout(300);
+          v.push(...(await axe(page, `import ${tag}`)));
+          await page.locator("[data-import-text]").fill("One\nTwo");
+          await page.locator("[data-import-preview-text]").click();
+          await page.locator("[data-import-preview]").waitFor({ timeout: 5_000 }).catch(() => {});
+          await page.waitForTimeout(300);
+          v.push(...(await axe(page, `import preview ${tag}`)));
+          await page.locator("[data-import-cancel]").click().catch(() => {});
+          await page.keyboard.press("Escape");
+          await page.waitForTimeout(300);
 
           // The host (Sam) runs the session: a vote, then a silent round, the lock and a timer.
           const liveFrom = await page.evaluate(() => Date.now());

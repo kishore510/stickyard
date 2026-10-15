@@ -315,6 +315,7 @@ describe("About", () => {
       // Export (v0.22.0): made in the browser, nothing uploaded.
       "Export PNG, Export Markdown and Export board file are made in your browser",
       "On a phone the file goes to your phone’s share sheet",
+      "Import reads the board file or text you choose in your browser",
       "nothing is uploaded or sent to the relay",
     ]) {
       expect(privacy, claim).toContain(claim);

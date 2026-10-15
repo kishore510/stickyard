@@ -8,9 +8,12 @@ All notable changes to Stickyard, newest first. The format follows Keep a Change
 - **Export on phones.** The menu has **Export board**, on every screen size: a sheet with **Export PNG**, **Export Markdown** and **Export board file**. On a phone each file goes to your phone's share sheet (save it to Files or Photos, or send it to an app) when the browser can share that kind of file, and otherwise downloads. If the share sheet needs one more tap because the picture took a moment to draw, a **Share PNG** button takes it.
 - **Export board file**: the board as a `.json` file, from **Properties** too. It holds every note, shape and frame with its text, size, colour and style, the arrows and groups between them, and which is in front; no room code, names, authors, votes or reactions. Named by the date only, like the other exports.
 - If a phone can't draw a very big board as a picture, it now says so calmly and points to the Markdown file and the board file, which still work.
+- **Import.** **Import** in the menu (any screen, phones too) or in **Properties** adds to the board: a board file (`.json` from **Export board file**), or text typed, pasted or chosen as a `.txt` file, one note per line. A preview shows how many notes, frames, shapes, arrows and groups it holds, then **Place** or **Cancel**.
+- Import only adds: nothing on the board is replaced or cleared. It goes in the middle of your view, keeping the file's layout and which item is in front, and one **Undo** removes all of it. Text lines become yellow notes in a grid; blank lines are skipped, and a line longer than a note holds is cut to fit.
+- If the board hasn't room for everything, nothing is added and the preview says what wouldn't fit. A file that isn't a Stickyard board file, comes from a newer version, can't be read, is bigger than the board or is over 1 MB is refused with a short reason. Import is off for guests on a locked board, during a silent round and while disconnected, saying why.
 
 ### Changed
-- About > Privacy and Help describe the board file and the share sheet.
+- About > Privacy and Help describe the board file, the share sheet and Import.
 
 ## [0.39.1] - 2026-10-14
 
