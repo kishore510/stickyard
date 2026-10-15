@@ -322,6 +322,13 @@ Every note, shape and frame carries `placed`, the room's placement counter (one 
 - *Silent rounds:* adds and moves of sealed notes alone take the current value without advancing it, so the values everyone else sees have no gaps that would hint at hidden activity.
 - *Client messages:* unchanged. No client message carries `placed` (the item schemas are strict), so nothing new is accepted from a page.
 
+## AI, 10a Settings and key (v0.42.0): what it costs
+
+Web only; nothing new on the relay, no new message type, no Worker involvement.
+
+- *Relay and Worker:* zero. AI requests go from the browser straight to api.anthropic.com with the person's own key; Stickyard has no AI server and no Anthropic account of its own.
+- *Anthropic:* billed to the key's owner. Test key uses the token-counting endpoint, which is free (it has its own requests-per-minute limit), once per model. Anthropic's own rate and spend limits apply to the key and show as their own messages.
+
 ## Hardening findings (v0.39.1)
 
 The basic hardening pass, measured on 14 October 2026 against a local `wrangler dev` only (fake secrets, a fake room-signing key, throwaway storage; never the deployed Worker). Rerun with `npm run load` (correctness, below) and the worker test `worker/test/budget.test.ts` (rows). The machine was a shared cloud container, with the clients and `wrangler dev` on the same CPU: **message counts, rows and correctness are reliable; every time below is rough**.

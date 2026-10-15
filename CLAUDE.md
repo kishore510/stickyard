@@ -4,7 +4,7 @@ Real-time collaborative sticky-note whiteboard. Personal learning project.
 Source of truth: `docs/PROJECT_BRIEF.md` (decisions, rules) and `docs/PHASE_PLAN.md` (slices). Free-plan limits: `docs/LIMITS.md`.
 
 ## Before touching an area
-Read the matching file in `docs/architecture/` first (index: `docs/architecture/README.md`): shell, rooms, notes, canvas, frames, editing, connection, facilitation, shapes, connectors, groups. Update it in the same change. Keep this file short (a test caps it at 6 KB): area detail goes in those files, not here.
+Read the matching file in `docs/architecture/` first (index: `docs/architecture/README.md`): shell, rooms, notes, canvas, frames, editing, connection, facilitation, shapes, connectors, groups, ai. Update it in the same change. Keep this file short (a test caps it at 6 KB): area detail goes in those files, not here.
 
 ## Current versions
 `PROTOCOL_VERSION = 23` (`shared/src/protocol.ts`), stored `SCHEMA_VERSION = 14` (`worker/src/noteStore.ts`). A test checks these lines against the code.
@@ -25,6 +25,7 @@ Read the matching file in `docs/architecture/` first (index: `docs/architecture/
 - Never render room content or names as HTML; Markdown (Help) is parsed to a tree and rendered as React elements.
 - No `console.` in `worker/src` (test enforces). Never log bodies, names, text, passcodes, codes or IPs.
 - Storage keys only via `STORAGE_KEYS` and `readKey`/`writeKey` in `web/src/storage.ts`. About > Privacy must stay true.
+- AI (docs/architecture/ai.md): bring your own Anthropic key; the browser calls api.anthropic.com itself. Nothing AI-related over the WebSocket or in a message schema; the key only via `ai/keyStore.ts`, errors and logs only via `ai/redact.ts`, no `console.` in `web/src/ai`.
 
 ## Working rules
 - One slice at a time on its own `phase-...` branch. Never commit to `main`. Stop for review at the end of each slice.
