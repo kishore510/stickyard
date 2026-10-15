@@ -148,8 +148,14 @@ export function AboutPage() {
             leave or reconnect. Notes, frames and shapes that undo brings back are added again as new ones, recorded as added by your visit.
           </li>
           <li>
-            Export PNG and Export Markdown are made in your browser from the board your page shows: nothing is uploaded or sent to the relay, and
-            nothing is kept. The files are named by the date only, and contain no room code and no names.
+            Export PNG, Export Markdown and Export board file are made in your browser from the board your page shows: nothing is uploaded or sent to the
+            relay, and nothing is kept. The files are named by the date only, and contain no room code and no names. The board file holds the
+            notes’, shapes’ and frames’ text and style, arrows and groups, and no authors, votes or reactions. On a phone the file goes to your
+            phone’s share sheet, and only where you choose to send it.
+          </li>
+          <li>
+            Import reads the board file or text you choose in your browser; nothing is uploaded to read it. Only when you choose Place
+            are its notes, shapes, frames, arrows and groups added to the board, like any others (recorded as added by your visit).
           </li>
           <li>
             The create passcode is sent only to the relay, only when you start a session, and is never stored in your

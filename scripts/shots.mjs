@@ -6,6 +6,7 @@
 // Extra pages: SHOTS_HASHES="#/help,#/about" (each shot over the welcome page).
 import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { chromium } from "playwright-core";
@@ -394,6 +395,54 @@ async function main() {
           await page.waitForTimeout(400);
           await shot("share-large");
           await page.keyboard.press("Escape");
+          await page.waitForTimeout(200);
+          // Export board (v0.40.0): the sheet from the menu (phones too); a board file and a PNG really made
+          // in Chromium (no Web Share here, so both download).
+          await page.getByRole("button", { name: /^Menu/ }).click();
+          await page.getByRole("menuitem", { name: "Export board" }).click();
+          await page.locator("[data-export-sheet]").waitFor({ timeout: 5_000 });
+          await page.waitForTimeout(300);
+          await shot("export");
+          let boardFile = "";
+          for (const [kind, ext] of [["json", ".json"], ["png", ".png"]]) {
+            const download = page.waitForEvent("download", { timeout: 30_000 });
+            await page.locator(`[data-export-sheet] [data-export="${kind}"]`).click();
+            const file = await download;
+            if (!/^stickyard-board-\d{4}-\d{2}-\d{2}/.test(file.suggestedFilename()) || !file.suggestedFilename().endsWith(ext)) throw new Error(`export ${kind} named ${file.suggestedFilename()}`);
+            if (kind === "json") {
+              const text = await readFile(await file.path(), "utf8");
+              const parsed = JSON.parse(text);
+              if (parsed.format !== "stickyard-board" || parsed.formatVersion !== 1 || text.includes(room.code)) throw new Error("board file content");
+              boardFile = join(persist, `board-${size.name}-${theme}.json`);
+              await file.saveAs(boardFile);
+            }
+          }
+          await page.waitForTimeout(300);
+          await shot("export-done");
+          await page.keyboard.press("Escape");
+          await page.waitForTimeout(200);
+          // Import (v0.40.0): the sheet, then the board file just exported, previewed. Only the last
+          // context places it (the room is shared by every shot), checking the notes doubled.
+          await page.getByRole("button", { name: /^Menu/ }).click();
+          await page.getByRole("menuitem", { name: "Import" }).click();
+          await page.locator("[data-import-sheet]").waitFor({ timeout: 5_000 });
+          await page.locator("[data-import-text]").fill("Keep the retro short\nTry a silent round first");
+          await page.waitForTimeout(300);
+          await shot("import");
+          await page.locator("[data-import-file]").setInputFiles(boardFile);
+          await page.locator("[data-import-preview]").waitFor({ timeout: 5_000 });
+          await page.waitForTimeout(300);
+          await shot("import-preview");
+          if (theme === THEMES.at(-1) && size === SIZES.at(-1)) {
+            const notesBefore = await page.locator('[aria-roledescription="note"]').count();
+            await page.locator("[data-import-place]").click();
+            await page.waitForFunction((n) => document.querySelectorAll('[aria-roledescription="note"]').length >= 2 * n, notesBefore, { timeout: 30_000 });
+            await page.waitForTimeout(1500);
+            await shot("import-placed");
+          } else {
+            await page.locator("[data-import-cancel]").click();
+            await page.keyboard.press("Escape");
+          }
           await context.close();
         }
       }

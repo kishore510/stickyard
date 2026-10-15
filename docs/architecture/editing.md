@@ -23,3 +23,6 @@ Architecture notes, moved out of CLAUDE.md on 7 October 2026 so they load only w
 
 ## Groups in undo, Duplicate and Clear board (v0.38.0)
 - History kind `group` (members as a JSON id list, renamed with their items' new ids); an item delete records the groups the relay dissolves or shrinks, so undo re-creates them or puts the items back; Clear board ungroups first and its undo restores items, then arrows, then groups; Duplicate copies whole groups. Details in groups.md "Groups: the UI".
+
+## Import is an add run (v0.40.0)
+- `RoomSession.importBoard` is the stencil placement (`placeContent`): `startItems` with `defer`, arrows and groups added to the run, one `history.recordAdd("Import", ...)`, so one undo removes it all. Notes and shapes are given to `startItems` in the file's stacking order. Details in canvas.md "Import".

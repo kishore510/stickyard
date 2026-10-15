@@ -30,10 +30,20 @@ export const EXPORT_NOTICES = {
   empty: "Nothing on the board to export.",
   pngStart: "Exporting PNG…",
   mdStart: "Exporting Markdown…",
+  jsonStart: "Exporting board file…",
   pngDone: "PNG downloaded",
   mdDone: "Markdown downloaded",
+  jsonDone: "Board file downloaded",
+  // v0.40.0: the share sheet (phones), and a share that needs one more tap.
+  pngShared: "PNG shared",
+  mdShared: "Markdown shared",
+  jsonShared: "Board file shared",
+  cancelled: "Sharing cancelled. Nothing was saved.",
+  ready: (what: string) => `Your ${what} is ready. Tap Share ${what} to send it.`,
   failed: "Export failed",
   failedDetail: "Export failed. Try again, or zoom out and export a smaller board.",
+  /** v0.40.0: a PNG that couldn't be drawn (often a phone's memory on a big board): the text exports still work. */
+  pngFailed: "This picture couldn’t be made on this device; the board may be too big for its memory. Export Markdown or a board file instead: they hold the same content as text.",
 } as const;
 
 /** What the image must hold: every note, frame and shape, each arrow's ends (as points) and every group's box. */

@@ -650,8 +650,18 @@ export class Relay {
         return this.out({ type: "notesOrdered", results });
       }
       case "itemsAdd": {
-        const notes = ((m.notes ?? []) as NoteItem[]).map(({ ref, ...item }) => {
-          const n: Note = { id: this.newId("note"), ...item, z: this.topZ(), rev: 1, authorId: alex.id };
+        // Notes and shapes stack by rank when given (protocol v15: ranked first, by rank, then the
+        // rest in order, notes before shapes), as the relay does.
+        const noteItems = (m.notes ?? []) as NoteItem[];
+        const shapeItems = (m.shapes ?? []) as ShapeItem[];
+        const stackable = [...noteItems.map((item, i) => ({ kind: "note" as const, i, rank: item.rank })), ...shapeItems.map((item, i) => ({ kind: "shape" as const, i, rank: item.rank }))];
+        const zOf = new Map<string, number>();
+        stackable
+          .map((e, order) => ({ ...e, order }))
+          .sort((a, b) => (a.rank ?? 1e9) - (b.rank ?? 1e9) || a.order - b.order)
+          .forEach((e) => zOf.set(`${e.kind}:${e.i}`, this.topZ() + zOf.size));
+        const notes = noteItems.map(({ ref, rank: _, ...item }, i) => {
+          const n: Note = { id: this.newId("note"), ...item, z: zOf.get(`note:${i}`)!, rev: 1, authorId: alex.id };
           this.notes.set(n.id, n);
           return { ref, note: n };
         });
@@ -660,9 +670,8 @@ export class Relay {
           this.frames.set(f.id, f);
           return { ref, frame: f };
         });
-        // Notes and shapes stack by rank when given (protocol v15), else notes then shapes.
-        const shapes = ((m.shapes ?? []) as ShapeItem[]).map(({ ref, rank: _, ...item }) => {
-          const x: Shape = { id: this.newId("shap"), ...item, z: this.topZ(), rev: 1, authorId: alex.id };
+        const shapes = shapeItems.map(({ ref, rank: _, ...item }, i) => {
+          const x: Shape = { id: this.newId("shap"), ...item, z: zOf.get(`shape:${i}`)!, rev: 1, authorId: alex.id };
           this.shapes.set(x.id, x);
           return { ref, shape: x };
         });
