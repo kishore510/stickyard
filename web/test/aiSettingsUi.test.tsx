@@ -214,7 +214,7 @@ describe("Remember on this device", () => {
     await mount("#/");
     await openSettings();
     await saveKey();
-    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+    vi.spyOn(localStorage, "setItem").mockImplementation(() => {
       throw new Error("QuotaExceededError");
     });
     await choose("device");

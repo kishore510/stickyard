@@ -165,7 +165,7 @@ describe("Help", () => {
     await mount("#/help");
     expect(button(/Quick start/)).toBeDefined();
     const topics = [...(dialog()?.querySelectorAll('[aria-labelledby="help-topics"] li') ?? [])].map((li) => li.textContent);
-    expect(topics).toEqual(["Starting and joining a session", "Notes", "Text and shapes", "Arrows", "Groups and affinity grouping", "Participants", "Stencils", "Chat", "Names and identity", "Connection", "Touch and keyboard tips", "Running a session", "Dot voting", "Reactions", "Silent brainstorm", "Follow and Bring to me", "Joining by QR code"]);
+    expect(topics).toEqual(["Starting and joining a session", "Notes", "Text and shapes", "Arrows", "Groups and affinity grouping", "Participants", "Stencils", "Chat", "Names and identity", "Connection", "Touch and keyboard tips", "Running a session", "Dot voting", "Reactions", "Silent brainstorm", "Follow and Bring to me", "Joining by QR code", "AI features"]);
   });
 
   it("search filters topics", async () => {
@@ -382,14 +382,14 @@ describe("shell landmarks", () => {
     await mount();
     await click(byLabel(/^Menu/));
     const items = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')];
-    expect(items.map((i) => i.textContent?.replace("New", ""))).toEqual(["Help", "What’s new", "About Stickyard"]);
+    expect(items.map((i) => i.textContent?.replace("New", ""))).toEqual(["Help", "What’s new", "Settings", "About Stickyard"]);
     expect(document.querySelectorAll('[role="menu"] [role="separator"]')).toHaveLength(1);
     expect(document.activeElement).toBe(items[0]);
     await press("ArrowDown");
     expect(document.activeElement).toBe(items[1]);
     await press("ArrowUp");
     await press("ArrowUp");
-    expect(document.activeElement).toBe(items[2]);
+    expect(document.activeElement).toBe(items[3]);
     await press("Escape");
     expect(document.querySelector('[role="menu"]')).toBeNull();
     expect(document.activeElement?.getAttribute("aria-label")).toMatch(/^Menu/);

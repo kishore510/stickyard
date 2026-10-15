@@ -46,6 +46,9 @@ describe("storage keys", () => {
       voterKeyPrefix: "stickyard:voter:",
       // Stencils (v0.39.0): saved in this browser only, { version, stencils }.
       stencils: "stickyard:stencils",
+      // AI part 1 (v0.42.0): the Anthropic key, only after "Remember on this device" (secret), and the AI preferences.
+      aiKey: "stickyard:ai-key",
+      aiPrefs: "stickyard:ai-prefs",
     });
   });
 });
