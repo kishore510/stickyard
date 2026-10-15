@@ -1,3 +1,4 @@
+import type { ImportContent } from "../importer/parse";
 import { useEffect, useRef, useState } from "react";
 import type { FrameColor, NoteColor, NoteRect, OrderAction, ReactionKey, ShapeKind } from "@stickyard/shared";
 import { WORKER_URL, healthUrl, toWebSocketUrl } from "../config";
@@ -135,6 +136,7 @@ export function useRoom(code: string) {
     removeFromGroup: (id: string, ids: readonly string[]) => session.current?.removeFromGroup(id, ids) ?? false,
     ungroup: (ids: readonly string[]) => session.current?.ungroup(ids) ?? false,
     placeStencil: (stencil: Stencil, centre: { x: number; y: number }) => session.current?.placeStencil(stencil, centre) ?? false,
+    importBoard: (content: ImportContent, centre: { x: number; y: number }) => session.current?.importBoard(content, centre) ?? false,
     startSelectionDrag: (frameIds: readonly string[], noteIds: readonly string[], carry: boolean, shapeIds: readonly string[] = []) =>
       session.current?.startSelectionDrag(frameIds, noteIds, carry, shapeIds) ?? false,
     applyFrameRects: (rects: readonly (NoteRect & { id: string })[]) => session.current?.applyFrameRects(rects) ?? false,

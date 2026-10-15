@@ -96,7 +96,7 @@ describe("reading a board file", () => {
 
   it.each([
     ["a bad colour key", valid({ notes: [{ ref: "n1", x: 0, y: 0, text: "x", ...NOTE_DEFAULTS, color: "red; background:url(x)" }] as never, arrows: [], groups: [], stack: undefined as never })],
-    ["an arrow to an unknown ref", valid({ arrows: [{ ...(valid().arrows as never[])[0]!, end: { ref: "nope", anchor: "auto" } }] as never })],
+    ["an arrow to an unknown ref", valid({ arrows: [{ ...(valid().arrows as Record<string, unknown>[])[0]!, end: { ref: "nope", anchor: "auto" } }] as never })],
     ["a group of one", valid({ groups: [{ label: "", color: "blue", members: ["n1"] }] as never })],
     ["a duplicate ref", valid({ notes: [(valid().notes as never[])[0]!, { ...(valid().notes as Record<string, unknown>[])[1]!, ref: "n1" }] as never })],
     ["a coordinate that isn't a number", valid({ notes: [{ ...(valid().notes as Record<string, unknown>[])[0]!, x: "0" }] as never, arrows: [], groups: [], stack: ["n1"] })],
@@ -118,8 +118,8 @@ describe("reading a board file", () => {
       arrows: (valid().arrows as Record<string, unknown>[]).map((a) => ({ ...a, id: "conn1", rev: 1, authorId: "A" })) as never,
       groups: (valid().groups as Record<string, unknown>[]).map((g) => ({ ...g, id: "grp1", rev: 2 })) as never,
     });
-    const c = ok(parseBoardFile(json(raw)));
-    const text = JSON.stringify(c);
+    const { notes, shapes, frames, arrows, groups, stack } = ok(parseBoardFile(json(raw)));
+    const text = JSON.stringify({ notes, shapes, frames, arrows, groups, stack });
     for (const key of ['"id"', '"rev"', '"z"', '"authorId"', '"votes"', '"dots"', '"reactions"', '"rank"', "secret", "roomCode"]) expect(text).not.toContain(key);
   });
 
@@ -198,7 +198,7 @@ describe("reading a board file", () => {
 
 describe("reading plain text", () => {
   it("one note per line, trimmed, blank lines dropped, default colour, in a grid from 0, 0", () => {
-    const c = ok(parseTextImport("  First  \r\n\n   \nSecond\rThird Fourth\n"));
+    const c = ok(parseTextImport("  First  \r\n\n   \nSecond\rThird\u2028Fourth\n"));
     expect(c.notes.map((n) => n.text)).toEqual(["First", "Second", "Third", "Fourth"]);
     expect(c.notes.every((n) => n.color === "yellow" && n.w === NOTE_DEFAULTS.w && n.h === NOTE_DEFAULTS.h)).toBe(true);
     expect(c.notes[0]).toMatchObject({ x: 0, y: 0 });
@@ -213,7 +213,8 @@ describe("reading plain text", () => {
     const lines = ["Ship it 🚀👩🏽‍💻", "tab\there", "bell\u0007 and ‮reversed‬", "zero​width", HOSTILE];
     const c = ok(parseTextImport(lines.join("\n")));
     expect(c.notes.map((n) => n.text)).toEqual(lines.map((l) => cleanNoteText(l)));
-    expect(c.notes[0]!.text).toBe("Ship it 🚀👩🏽‍💻");
+    // Typed text drops zero-width joiners (the editor does too), so a joined emoji shows as its parts.
+    expect(c.notes[0]!.text).toBe("Ship it 🚀👩🏽💻");
   });
 
   it("a very long line is cut to the note cap, and counted", () => {

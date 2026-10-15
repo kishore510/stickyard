@@ -373,6 +373,12 @@ async function inRoom() {
   await mount(`#/room/${CODE}`);
   const socket = await joinAs("Alex");
   await server(socket, { data: { type: "joined", you: alex, participants: [alex, sam], locked: false, timer: null, voting: { state: "off", budget: 5, round: 0 }, silent: { active: false, count: 0 } } });
+  // The board is lazy-loaded (RoomScreen): load the same module here so a cold import on a busy
+  // runner is waited for, not raced (as helpers/ui's inRoom does).
+  await act(async () => {
+    await import("../src/canvas/RoomBoard");
+  });
+  await settle();
   return socket;
 }
 

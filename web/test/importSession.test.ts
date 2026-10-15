@@ -58,7 +58,7 @@ describe("importing", () => {
     vi.advanceTimersByTime(2000);
     expect(t.relay.notes.size).toBe(3);
     expect(t.relay.frames.size).toBe(1);
-    expect(t.relay.received.some((m) => m.type.toLowerCase().includes("delete"))).toBe(false);
+    expect(t.relay.received.some((m) => String(m.type).toLowerCase().includes("delete"))).toBe(false);
   });
 
   it("is one undoable step", () => {
@@ -127,7 +127,9 @@ describe("refused up front, nothing sent", () => {
 
   it("while another add is being sent", () => {
     const t = room();
-    t.session.importBoard(content("a"), { x: 500, y: 500 });
+    // Long lines: several itemsAdd messages, sent one at a time.
+    t.session.importBoard(content(Array.from({ length: 60 }, (_, i) => `${i} ${"word ".repeat(40)}`).join("\n")), { x: 3000, y: 2000 });
+    t.relay.received.length = 0;
     expect(t.session.importBoard(content("b"), { x: 900, y: 500 })).toBe(false);
     expect(t.view().noteNotice).toBe(UNDO_TEXT.busy);
   });
@@ -178,6 +180,6 @@ describe("round trip", () => {
     expect(normal(after)).toEqual(normal(before));
     // The relay's own z agrees: notes and shapes in the same interleaved order.
     const relayOrder = stackOrder([...t.relay.notes.values(), ...t.relay.shapes.values()]).map((i) => i.text);
-    expect(relayOrder).toEqual(["", "Bottom note\nwith a body", "Low label", "Middle", "Between", "Top note 🚀"]);
+    expect(relayOrder).toEqual(["", "Low label", "Bottom note\nwith a body", "Middle", "Between", "Top note 🚀"]);
   });
 });

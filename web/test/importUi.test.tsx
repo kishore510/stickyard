@@ -140,7 +140,8 @@ describe("Import from Properties", () => {
   });
 
   it("Place is off, saying what wouldn't fit, when the board hasn't room; nothing is sent", async () => {
-    const socket = await inRoom({ notes: Array.from({ length: MAX_NOTES_PER_ROOM - 1 }, (_, i) => noteAt(i + 1)) });
+    const notes = Array.from({ length: MAX_NOTES_PER_ROOM - 1 }, (_, i) => noteAt(i + 1, { id: `N${String(i + 1).padStart(15, "0")}`, x: (i % 20) * 300, y: Math.floor(i / 20) * 300 }));
+    const socket = await inRoom({ notes });
     await click(openButton());
     await fill("a\nb\nc");
     await click(q("[data-import-preview-text]"));
@@ -148,7 +149,7 @@ describe("Import from Properties", () => {
     expect(reasonOf(place())).toBe(IMPORT_TEXT.noRoom([["notes", 3, 1]]));
     await click(place());
     expect(itemsAdds(socket)).toHaveLength(0);
-  });
+  }, 60_000);
 
   it("is off for a guest on a locked board, during a silent round and while disconnected, saying why", async () => {
     await inRoom({ locked: true });

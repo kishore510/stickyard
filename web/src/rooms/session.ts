@@ -209,6 +209,7 @@ import { GroupPacer, type GroupMessage } from "../groups/pace";
 import { GROUP_TEXT } from "../groups/rules";
 import { stencilBounds, type Stencil, type StencilArrow } from "../stencils/data";
 import { STENCIL_TEXT, type StencilCap } from "../stencils/rules";
+import { IMPORT_TEXT, type ImportContent } from "../importer/parse";
 import { DUPLICATE_HINTS, DUPLICATE_OFFSET, duplicateFrameInput, duplicateNoteInputs, duplicateSelectionInputs } from "../canvas/duplicate";
 import { HISTORY_TEXT, History, type Fields, type ItemKind, type Lookup, type Plan } from "../history/history";
 import type { CodeCheck } from "./api";
@@ -3625,6 +3626,26 @@ export class RoomSession {
    * or any room cap it wouldn't fit (notes, shapes, frames, 100 arrows, 30 groups).
    */
   placeStencil(stencil: Stencil, centre: { x: number; y: number }): boolean {
+    return this.placeContent(stencil, centre, { label: "Stencil", noRoom: (fails) => STENCIL_TEXT.noRoom(...fails[0]!) });
+  }
+
+  /**
+   * Import (v0.40.0): a board file's or a text's content (importer/parse.ts), add-only, through the
+   * stencil path: centred on `centre` and clamped onto the board, frames then notes and shapes in
+   * the file's stacking order (paced itemsAdd), then arrows and groups by ref; one history step
+   * ("Import"). Refused up front as a stencil is, nothing sent; the room notice names everything
+   * that wouldn't fit.
+   */
+  importBoard(content: ImportContent, centre: { x: number; y: number }): boolean {
+    return this.placeContent(content, centre, { label: "Import", stack: content.stack, noRoom: (fails) => IMPORT_TEXT.noRoom(fails) });
+  }
+
+  /** placeStencil and importBoard: `stack` (refs, bottom first) orders the notes and shapes, else notes then shapes. */
+  private placeContent(
+    stencil: Stencil,
+    centre: { x: number; y: number },
+    { label, stack, noRoom }: { label: string; stack?: readonly string[]; noRoom: (fails: [StencilCap, number, number][]) => string },
+  ): boolean {
     if (!this.live || !this.view.you) return false;
     if (lockedOut(this.view)) {
       this.update({ noteNotice: LOCK_TEXT.reason });
@@ -3643,11 +3664,10 @@ export class RoomSession {
       ["arrows", stencil.arrows.length, MAX_CONNECTORS_PER_ROOM - board.connectors.length],
       ["groups", stencil.groups.length, MAX_GROUPS_PER_ROOM - board.groups.length],
     ];
-    for (const [kind, needs, free] of room) {
-      if (needs > Math.max(0, free)) {
-        this.update({ noteNotice: STENCIL_TEXT.noRoom(kind, needs, Math.max(0, free)) });
-        return false;
-      }
+    const fails = room.flatMap(([kind, needs, free]): [StencilCap, number, number][] => (needs > Math.max(0, free) ? [[kind, needs, Math.max(0, free)]] : []));
+    if (fails.length > 0) {
+      this.update({ noteNotice: noRoom(fails) });
+      return false;
     }
     const { width, height } = stencilBounds(stencil);
     const clamp = (v: number, max: number) => Math.min(Math.max(0, Math.round(v)), Math.max(0, max));
@@ -3659,13 +3679,16 @@ export class RoomSession {
       refs.push(ref);
       inputs.push({ kind: "frame", ...f, x: f.x + ox, y: f.y + oy });
     }
-    for (const { ref, ...n } of stencil.notes) {
+    const stackable = new Map<string, ItemInput>();
+    for (const { ref, ...n } of stencil.notes) stackable.set(ref, { kind: "note", ...n, x: n.x + ox, y: n.y + oy });
+    for (const { ref, kind, ...x } of stencil.shapes) stackable.set(ref, { kind: "shape", shapeKind: kind, ...x, x: x.x + ox, y: x.y + oy });
+    // The stack's order first; anything it doesn't name (never from the parser) after, in list order.
+    for (const ref of [...(stack ?? []), ...stackable.keys()]) {
+      const input = stackable.get(ref);
+      if (!input) continue;
+      stackable.delete(ref);
       refs.push(ref);
-      inputs.push({ kind: "note", ...n, x: n.x + ox, y: n.y + oy });
-    }
-    for (const { ref, kind, ...x } of stencil.shapes) {
-      refs.push(ref);
-      inputs.push({ kind: "shape", shapeKind: kind, ...x, x: x.x + ox, y: x.y + oy });
+      inputs.push(input);
     }
     const run = this.startItems(inputs, null, { defer: true });
     if (!run) return false;
@@ -3694,7 +3717,7 @@ export class RoomSession {
       added.push({ kind: "group", id: localId(clientRef) });
     }
     this.update({ board: next, noteNotice: null });
-    this.history.recordAdd("Stencil", added, Date.now());
+    this.history.recordAdd(label, added, Date.now());
     if (run.pending.size === 0) {
       this.update(this.itemsDone(run, this.view.board));
       this.flushRun(run);

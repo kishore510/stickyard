@@ -85,6 +85,10 @@ import { buildStencil, stencilBounds, type Stencil } from "../stencils/data";
 import { newStencilId, useStencils } from "../stencils/stencilStore";
 import { StencilSaveDialog } from "../stencils/StencilUi";
 import { ExportSheet } from "../export/ExportSheet";
+import { ImportAnnouncer, ImportSheet } from "../importer/ImportSheet";
+import { useImport } from "../importer/importStore";
+import { importReason as importBaseReason } from "../importer/rules";
+import type { ImportContent, ImportCounts } from "../importer/parse";
 import { UNDO_TEXT } from "../rooms/session";
 
 /*
@@ -311,6 +315,12 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
   // Groups (v0.38.0): off for a guest on a locked board and for everyone during a silent round.
   const groupBase = groupReason({ live, lockedOut: locked, silent: silentOn });
   // Stencils (v0.39.0): placed like templates, so off while one is applying or items are being added.
+  // Import (v0.40.0): Duplicate's and stencils' reasons (not connected, locked, silent round, busy).
+  const importGate = importBaseReason({ live, lockedOut: locked, silent: silentOn, busy: view.adding || view.template?.state === "applying" });
+  const importUsed = useMemo<ImportCounts>(
+    () => ({ notes: view.totalNotes, frames: view.board.frames.length, shapes: view.board.shapes.length, arrows: view.board.connectors.length, groups: view.board.groups.length }),
+    [view.totalNotes, view.board],
+  );
   const stencilReason = stencilBaseReason({ live, lockedOut: locked, silent: silentOn }) ?? (view.adding || view.template?.state === "applying" ? UNDO_TEXT.busy : null);
   const savedStencils = useStencils((s) => s.loaded.stencils);
   useEffect(() => useStencils.getState().reload(), []);
@@ -421,6 +431,9 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
   );
 
   /** Places a stencil: centred on the view, or (a drop) with its box's top-left at `at`. */
+  /** Import (v0.40.0): the content centred on the view, through the stencil path. */
+  const placeImport = useCallback((content: ImportContent) => latest.current.room.importBoard(content, canvas.centre()), [canvas]);
+
   const placeStencil = useCallback(
     (stencil: Stencil, at?: XY) => {
       const { width, height } = stencilBounds(stencil);
@@ -802,6 +815,8 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
         <ConnectorAnnouncer />
         {/* Groups (v0.38.0): my own group and ungroup only, politely. */}
         <GroupAnnouncer />
+        {/* Import (v0.40.0): a placed import, once its sheet has closed, politely. */}
+        <ImportAnnouncer />
         <ConnectorDrawHint />
       </>
     ),
@@ -982,6 +997,8 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
                 onPickResult: pickResult,
                 exportViewport,
                 exportHidden,
+                importReason: importGate,
+                openImport: () => useImport.getState().show(),
                 silent: silentOn,
                 silentRound: { silent: view.silent, mine: view.mySealed.size },
               }}
@@ -992,6 +1009,7 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
       {wide && <TimerPicker />}
       {wide && <StencilSaveDialog save={saveStencilAs} />}
       <ExportSheet board={view.board} results={resultRows} viewport={exportViewport} silent={silentOn} hidden={exportHidden} share={!wide} />
+      <ImportSheet reason={importGate} used={importUsed} place={placeImport} />
       {!wide && <AddDrawer host={paletteHost} open={addSheetOpen} onClose={() => useBoardUi.getState().setAddSheetOpen(false)} />}
     </div>
   );

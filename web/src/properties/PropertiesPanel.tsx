@@ -1,5 +1,5 @@
 import { useId, type ReactNode } from "react";
-import { BookmarkPlus, Eraser, Power, Trash2 } from "lucide-react";
+import { BookmarkPlus, Eraser, Power, Trash2, Upload } from "lucide-react";
 import { BOARD_HEIGHT, BOARD_WIDTH, MAX_SHAPES_PER_ROOM, NOTE_STYLE_FIELDS, type FrameColor, type Note, type OrderAction, type Participant, type SilentState } from "@stickyard/shared";
 import { Button } from "../components/ui/button";
 import { cn } from "../lib/utils";
@@ -111,6 +111,9 @@ export interface PropertiesRoom {
   exportViewport?: () => HTMLElement | null;
   /** Notes never put in the board file (v0.40.0: my sealed ones during a silent round). */
   exportHidden?: ReadonlySet<string>;
+  /** Import (v0.40.0): why it can't run now (null: it can), and what opens its sheet. */
+  importReason?: string | null;
+  openImport?: () => void;
   /** A silent round is running (v0.27.0): Clear board and Export are off. */
   silent?: boolean;
   /** The silent round and my sealed notes in it (absent: none): the count says how many are hidden. */
@@ -157,6 +160,28 @@ function SelectionFields({ notes, live, onOrder }: { notes: Note[]; live: boolea
   );
 }
 
+/** Import (v0.40.0): opens the Import sheet; off with the reason as text. */
+function ImportSection({ reason, open }: { reason: string | null; open: () => void }) {
+  const id = useId();
+  return (
+    <section aria-labelledby={`${id}-h`} className="flex flex-col gap-xs border-t border-border pt-md">
+      <h4 id={`${id}-h`} className="text-sm font-semibold">
+        Import
+      </h4>
+      <p className="text-sm text-fg-muted">Add a board file or text (one note per line). Import only adds; nothing is replaced.</p>
+      <Button data-import-open="" className="self-start" disabled={reason !== null} aria-describedby={reason ? `${id}-r` : undefined} onClick={open}>
+        <Upload />
+        Import…
+      </Button>
+      {reason && (
+        <p id={`${id}-r`} className="text-xs text-fg-muted">
+          {reason}
+        </p>
+      )}
+    </section>
+  );
+}
+
 /** Nothing selected: the board's counts, and Clear board (asks once; one undo brings it all back). */
 function Summary({ room }: { room: PropertiesRoom }) {
   const hintId = useId();
@@ -198,6 +223,7 @@ function Summary({ room }: { room: PropertiesRoom }) {
           </p>
         )}
       </div>
+      {room.openImport && <ImportSection reason={room.importReason ?? null} open={room.openImport} />}
       {room.exportViewport && <ExportSection board={room.board} results={room.results ?? null} viewport={room.exportViewport} silent={room.silent ?? false} {...(room.exportHidden ? { hidden: room.exportHidden } : {})} />}
       {room.isHost && room.endSession && (
         <div className="flex flex-col gap-xs border-t border-border pt-md">
