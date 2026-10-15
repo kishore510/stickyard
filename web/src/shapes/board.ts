@@ -105,13 +105,15 @@ export function applyShapeUpdated(board: Board, shape: Shape): Board {
   return patch(board, shape.id, (e) => ({ ...e, confirmed: shape, shape: isShapeHeld(e) ? { ...shape, ...heldRect(e, shape) } : shape }));
 }
 
-export function applyShapeMoved(board: Board, move: { id: string; x: number; y: number; rev: number; final: boolean }): Board {
+export function applyShapeMoved(board: Board, move: { id: string; x: number; y: number; rev: number; final: boolean; placed?: number | undefined }): Board {
   const entry = findShape(board, move.id);
   if (!entry || isStale(entry, move.rev)) return board;
+  // A final move that changed its place gives the new placement (protocol v23).
+  const placed = move.placed === undefined ? {} : { placed: move.placed };
   return patch(board, move.id, (e) => {
-    const confirmed = move.final && e.confirmed ? { ...e.confirmed, x: move.x, y: move.y, rev: move.rev } : e.confirmed;
+    const confirmed = move.final && e.confirmed ? { ...e.confirmed, x: move.x, y: move.y, rev: move.rev, ...placed } : e.confirmed;
     const position = isShapeHeld(e) ? { x: e.shape.x, y: e.shape.y } : { x: move.x, y: move.y };
-    return { ...e, confirmed, shape: { ...e.shape, ...position, rev: Math.max(e.shape.rev, move.rev) } };
+    return { ...e, confirmed, shape: { ...e.shape, ...position, rev: Math.max(e.shape.rev, move.rev), ...placed } };
   });
 }
 

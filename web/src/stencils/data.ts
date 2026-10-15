@@ -254,15 +254,16 @@ export function buildStencil(board: Board, sel: StencilSelection, name: string, 
     id,
     name: cleanStencilName(name),
     notes: notes.map((n, i) => {
-      const { id: _, z: __, rev: ___, authorId: ____, ...content } = n;
+      // Relay state (ids, z, rev, author and, since protocol v23, placed) never goes in a stencil.
+      const { id: _, z: __, rev: ___, authorId: ____, placed: _____, ...content } = n;
       return shift({ ref: `n${i + 1}`, ...content });
     }),
     shapes: shapes.map((s, i) => {
-      const { id: _, z: __, rev: ___, authorId: ____, ...content } = s;
+      const { id: _, z: __, rev: ___, authorId: ____, placed: _____, ...content } = s;
       return shift({ ref: `s${i + 1}`, ...content });
     }),
     frames: frames.map((f, i) => {
-      const { id: _, rev: __, authorId: ___, ...content } = f;
+      const { id: _, rev: __, authorId: ___, placed: ____, ...content } = f;
       return shift({ ref: `f${i + 1}`, ...content });
     }),
     arrows: arrows.map((a) => ({ ...a, start: "x" in a.start ? shift(a.start) : a.start, end: "x" in a.end ? shift(a.end) : a.end })),

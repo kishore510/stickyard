@@ -311,12 +311,12 @@ describe("a v22 relay: groups", () => {
   const HOSTILE = "<img src=x onerror=alert(1)>";
   const group = { id: "GGGGGGGGGGGGGGG1", label: HOSTILE, color: "blue", members: ["NNNNNNNNNNNNNNN1", "SSSSSSSSSSSSSSS1"], rev: 1 };
 
-  it("joins with protocol 22", () => {
-    expect(PROTOCOL_VERSION).toBe(22);
+  it("joins with protocol 22 or later", () => {
+    expect(PROTOCOL_VERSION).toBeGreaterThanOrEqual(22);
     const t = setup();
     t.session.join("Alex");
     t.sock().open();
-    expect(t.sock().sent[0]).toEqual({ type: "hello", protocolVersion: 22 });
+    expect(t.sock().sent[0]).toEqual({ type: "hello", protocolVersion: PROTOCOL_VERSION });
   });
 
   it("the four group messages are applied (v0.38.0): hostile labels stay plain text, nothing is sent back", () => {

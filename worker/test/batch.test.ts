@@ -57,13 +57,14 @@ describe("final batches", () => {
         { op: "move", id: id(2), x: 520, y: 620 },
       ],
     });
+    // One placement for the whole batch (protocol v23): the seeded rows were placed 0, so it's 1.
     const expected = {
       type: "notesBatchApplied",
       final: true,
       results: [
-        { type: "noteMoved", id: id(0), x: 500, y: 600, rev: 2, final: true },
-        { type: "noteMoved", id: id(1), x: 510, y: 610, rev: 2, final: true },
-        { type: "noteMoved", id: id(2), x: 520, y: 620, rev: 2, final: true },
+        { type: "noteMoved", id: id(0), x: 500, y: 600, rev: 2, final: true, placed: 1 },
+        { type: "noteMoved", id: id(1), x: 510, y: 610, rev: 2, final: true, placed: 1 },
+        { type: "noteMoved", id: id(2), x: 520, y: 620, rev: 2, final: true, placed: 1 },
       ],
     };
     expect(await nextOfType(a, "notesBatchApplied")).toEqual(expected);

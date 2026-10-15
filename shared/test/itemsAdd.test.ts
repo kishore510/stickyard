@@ -267,6 +267,7 @@ describe("sizes (docs/LIMITS.md)", () => {
       z: -NOTE_Z_LIMIT,
       rev: Number.MAX_SAFE_INTEGER,
       authorId: AUTHOR,
+      placed: Number.MAX_SAFE_INTEGER,
     };
     const { ref: _, ...plain } = note as Note & { ref?: string };
     const message = {
@@ -279,7 +280,7 @@ describe("sizes (docs/LIMITS.md)", () => {
     expect(serverParses(message)).toBe(true);
     const bytes = utf8Length(encodeMessage(message));
     // An upper bound: an itemsAdd that fits 4 KiB carries far less text than this.
-    expect(bytes).toBe(103_653);
+    expect(bytes).toBe(104_953);
     expect(bytes).toBeLessThan(MAX_SERVER_MESSAGE_BYTES / 4);
     expect(parseMessage(encodeMessage(message), serverMessageSchema, MAX_SERVER_MESSAGE_BYTES).ok).toBe(true);
   });

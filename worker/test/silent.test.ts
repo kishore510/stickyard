@@ -1177,7 +1177,7 @@ describe(`schema migration 9 -> ${SCHEMA_VERSION}`, () => {
       const store = new NoteStore(sql);
       expect(sql.exec<{ value: number }>("SELECT value FROM meta WHERE key = 'schema_version'").one().value).toBe(SCHEMA_VERSION);
       const after = sql.exec<Row>("SELECT * FROM notes ORDER BY rowid").toArray();
-      expect(after.map(({ sealed: _s, writer: _w, ...rest }) => rest)).toEqual(before);
+      expect(after.map(({ sealed: _s, writer: _w, placed: _p, ...rest }) => rest)).toEqual(before);
       expect(after.map((r) => [r.sealed, r.writer])).toEqual(before.map(() => [0, null]));
       const columns = sql.exec<{ name: string; dflt_value: string | null; notnull: number }>("SELECT name, dflt_value, \"notnull\" FROM pragma_table_info('notes')").toArray();
       expect(columns.find((c) => c.name === "sealed")).toMatchObject({ dflt_value: "0", notnull: 1 });

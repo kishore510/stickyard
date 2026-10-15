@@ -161,14 +161,16 @@ export function applyUpdated(board: Board, note: Note): Board {
 
 export function applyMoved(
   board: Board,
-  move: { id: string; x: number; y: number; rev: number; final: boolean },
+  move: { id: string; x: number; y: number; rev: number; final: boolean; placed?: number | undefined },
 ): Board {
   const entry = findNote(board, move.id);
   if (!entry || isStale(entry, move.rev)) return board;
+  // A final move that changed its place gives the new placement (protocol v23).
+  const placed = move.placed === undefined ? {} : { placed: move.placed };
   return patch(board, move.id, (e) => {
-    const confirmed = move.final && e.confirmed ? { ...e.confirmed, x: move.x, y: move.y, rev: move.rev } : e.confirmed;
+    const confirmed = move.final && e.confirmed ? { ...e.confirmed, x: move.x, y: move.y, rev: move.rev, ...placed } : e.confirmed;
     const position = isHeld(e) ? { x: e.note.x, y: e.note.y } : { x: move.x, y: move.y };
-    return { ...e, confirmed, note: { ...e.note, ...position, rev: Math.max(e.note.rev, move.rev) } };
+    return { ...e, confirmed, note: { ...e.note, ...position, rev: Math.max(e.note.rev, move.rev), ...placed } };
   });
 }
 

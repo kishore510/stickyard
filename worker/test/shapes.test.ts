@@ -139,7 +139,7 @@ describe("shapeAdd", () => {
     const theirs = await nextOfType(b, "shapeAdded");
     expect(mine.clientRef).toBe("r1");
     expect(theirs.clientRef).toBeUndefined();
-    expect(mine.shape).toEqual({ id: mine.shape.id, kind: "diamond", ...shapeDefaults("diamond"), x: BOARD_WIDTH - 200, y: 10, text: "", z: 10, rev: 1, authorId: mine.shape.authorId });
+    expect(mine.shape).toEqual({ id: mine.shape.id, kind: "diamond", ...shapeDefaults("diamond"), x: BOARD_WIDTH - 200, y: 10, text: "", z: 10, rev: 1, authorId: mine.shape.authorId, placed: 1 });
     expect(theirs.shape).toEqual(mine.shape);
     expect((await rowsWritten(stub)) - writes).toBe(2);
     for (const kind of ["text", "rect", "oval"] as const) {
@@ -224,7 +224,7 @@ describe("shapeMove and shapeResize", () => {
     expect(await a.quiet()).toBe(true);
     expect((await rowsWritten(stub)) - writes).toBe(0);
     a.send({ type: "shapeMove", id: shapeId(0), x: BOARD_WIDTH, y: 100, final: true });
-    expect(await nextOfType(b, "shapeMoved")).toEqual({ type: "shapeMoved", id: shapeId(0), x: BOARD_WIDTH - 200, y: 100, rev: 2, final: true });
+    expect(await nextOfType(b, "shapeMoved")).toEqual({ type: "shapeMoved", id: shapeId(0), x: BOARD_WIDTH - 200, y: 100, rev: 2, final: true, placed: 1 });
     expect(await nextOfType(a, "shapeMoved")).toMatchObject({ final: true });
     expect((await rowsWritten(stub)) - writes).toBe(1);
     close(a, b);
@@ -286,7 +286,7 @@ describe("shapeBatch", () => {
       type: "shapesBatchApplied",
       final: true,
       results: [
-        { type: "shapeMoved", id: shapeId(0), x: 50, y: 50, rev: 2, final: true },
+        { type: "shapeMoved", id: shapeId(0), x: 50, y: 50, rev: 2, final: true, placed: 1 },
         { type: "shapeResized", id: shapeId(2), x: 600, y: 0, w: 400, h: 300, rev: 2, final: true },
         { type: "shapeDeleted", id: shapeId(3) },
       ],
@@ -569,7 +569,7 @@ describe(`schema migration 8 -> ${SCHEMA_VERSION}`, () => {
       const columns = sql.exec<{ name: string; dflt_value: string | null }>("SELECT name, dflt_value FROM pragma_table_info('shapes')").toArray();
       expect(columns.map((c) => c.name)).toEqual([
         "id", "kind", "x", "y", "w", "h", "text", "fill", "stroke", "stroke_width", "stroke_style", "font_size",
-        "bold", "italic", "underline", "text_color", "align", "valign", "z", "rev", "author_id",
+        "bold", "italic", "underline", "text_color", "align", "valign", "z", "rev", "author_id", "placed",
       ]);
       expect(columns.filter((c) => c.name !== "id" && c.dflt_value === null)).toEqual([]);
       // Runs once: a second load writes nothing.
@@ -606,7 +606,7 @@ describe(`schema migration 8 -> ${SCHEMA_VERSION}`, () => {
     await c.enter("Priya");
     const { w, h, ...style } = shapeDefaults("rect");
     expect(c.shapes?.shapes).toEqual([
-      { id: shapeId(1), kind: "oval", x: BOARD_WIDTH - 200, y: BOARD_HEIGHT - 120, w: 200, h: 120, text: "Step 1", ...style, z: 3, rev: 4, authorId: AUTHOR },
+      { id: shapeId(1), kind: "oval", x: BOARD_WIDTH - 200, y: BOARD_HEIGHT - 120, w: 200, h: 120, text: "Step 1", ...style, z: 3, rev: 4, authorId: AUTHOR, placed: 0 },
     ]);
     expect([w, h]).toEqual([200, 120]);
     c.close();

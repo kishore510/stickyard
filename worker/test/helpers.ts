@@ -258,3 +258,11 @@ export function createRequest(
 /** A fresh random client IP (IPv6 documentation range), so per-client limits don't leak between tests. */
 export const freshIp = () =>
   `2001:db8::${Array.from(crypto.getRandomValues(new Uint16Array(3)), (n) => n.toString(16)).join(":")}`;
+
+/**
+ * Stored rows as a migration to the current schema leaves them: schema 14 (protocol v23) gives every
+ * note, frame and shape row `placed` 0; nothing else changes. For "every existing table untouched" checks.
+ */
+export function migratedRows<T extends Record<string, unknown>>(table: string, rows: readonly T[]): (T & { placed?: number })[] {
+  return ["notes", "frames", "shapes"].includes(table) ? rows.map((r) => ({ ...r, placed: 0 })) : [...rows];
+}

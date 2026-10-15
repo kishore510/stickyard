@@ -329,6 +329,7 @@ function worstShape(i = 0): Shape {
     z: -NOTE_Z_LIMIT,
     rev: Number.MAX_SAFE_INTEGER,
     authorId: AUTHOR,
+    placed: Number.MAX_SAFE_INTEGER,
   };
 }
 
@@ -353,7 +354,7 @@ describe("message sizes", () => {
       });
       expect(utf8Length(edit)).toBeLessThanOrEqual(MAX_MESSAGE_BYTES);
       expect(parseMessage(edit, clientMessageSchema).ok).toBe(true);
-      const { id: _i, z: _z, rev: _r, authorId: _a, ...content } = worstShape();
+      const { id: _i, z: _z, rev: _r, authorId: _a, placed: _p, ...content } = worstShape();
       const item: ShapeItem = { ...content, text, ref: "r".repeat(32), rank: MAX_BATCH_ENTRIES - 1 };
       const add = encodeMessage({ type: "itemsAdd", clientRef: "c".repeat(32), shapes: [item] });
       expect(utf8Length(add)).toBeLessThanOrEqual(MAX_MESSAGE_BYTES);
@@ -368,23 +369,23 @@ describe("message sizes", () => {
       while (n < MAX_BATCH_ENTRIES && fits(Array.from({ length: n + 1 }, (_, i) => make(i)))) n++;
       return n;
     };
-    const { id: _i, z: _z, rev: _r, authorId: _a, ...content } = worstShape();
+    const { id: _i, z: _z, rev: _r, authorId: _a, placed: _p, ...content } = worstShape();
     expect(count((i) => ({ ...content, ref: `r${String(i).padStart(11, "0")}` }))).toBe(1);
     expect(count((i) => shapeItem(`r${String(i).padStart(11, "0")}`, { text: "" }))).toBe(14);
   });
 
   /**
    * Worst case for the shapes message: 50 shapes at the largest size with 500 lone surrogates
-   * each, the longest keys, z at its lowest and rev at MAX_SAFE_INTEGER. The test cap is 192 KiB
+   * each, the longest keys, z at its lowest and rev and placed (v23) at MAX_SAFE_INTEGER. The test cap is 192 KiB
    * (docs/LIMITS.md says why); the test also fails past 90% of it, so a new per-shape field
    * needs a decision first (the frames rule). It is a separate message from the notes and frames
    * snapshots, whose tripwires are unchanged.
    */
-  it("the largest possible shapesSnapshot is 167,786 bytes, under the 192 KiB cap and its 90% tripwire", () => {
+  it("the largest possible shapesSnapshot is 169,086 bytes, under the 192 KiB cap and its 90% tripwire", () => {
     const raw = encodeMessage({ type: "shapesSnapshot", shapes: Array.from({ length: MAX_SHAPES_PER_ROOM }, (_, i) => worstShape(i)) });
     expect(/^[\x20-\x7e]*$/.test(raw)).toBe(true);
     // docs/LIMITS.md records this figure; update both together.
-    expect(raw.length).toBe(167_786);
+    expect(raw.length).toBe(169_086);
     const CAP = 192 * 1024;
     expect(raw.length).toBeLessThanOrEqual(CAP * 0.9);
     expect(raw.length).toBeLessThan(MAX_SERVER_MESSAGE_BYTES / 2);
@@ -400,6 +401,7 @@ describe("message sizes", () => {
       y: 1000,
       rev: Number.MAX_SAFE_INTEGER,
       final: true,
+      placed: Number.MAX_SAFE_INTEGER,
       notes: Array.from({ length: 25 }, (_, i) => carried(nid(i), { w: 96, h: 96 })),
       shapes: Array.from({ length: 25 }, (_, i) => carried(sid(i))),
     });

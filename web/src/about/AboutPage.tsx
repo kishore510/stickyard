@@ -103,6 +103,11 @@ export function AboutPage() {
             and only where it ends up is stored.
           </li>
           <li>
+            With each note, shape and frame the relay also keeps a placement number: a count it goes up by one each time
+            something is added or moved to a new place in that session (not a time, and nothing about who). It is how a frame
+            knows which notes and shapes were put in it after it was, so it moves only those. It goes with the item.
+          </li>
+          <li>
             Frames are stored with the room in the same way: each frame’s position, size, title, colour and title style, and the random
             id the relay gave the visit that added it. Deleting a frame removes only the frame, never its notes.
           </li>

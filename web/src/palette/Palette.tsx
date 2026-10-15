@@ -173,7 +173,11 @@ interface Ghost {
  *   "panel":  the list scrolls vertically, so a vertical move scrolls and a sideways one pulls
  *             the tile out;
  *   "drawer": rows scroll sideways and the drawer scrolls down, so moving scrolls, and press
- *             and hold (--sy-long-press) picks the tile up.
+ *             and hold (--sy-long-press) lifts the tile. A lifted tile only becomes a drag once
+ *             the finger leaves the drawer (then the drawer slides away); letting go inside it
+ *             adds nothing. So on a phone a tile adds on release only: a quick tap (at the
+ *             viewport centre) or a drag out onto the board, never a touch that lingers before
+ *             a scroll (v0.40.1).
  */
 type DragMode = "panel" | "drawer";
 
@@ -182,6 +186,11 @@ interface DragHooks {
   /** After a drop or a cancel. */
   onDragEnd?: () => void;
 }
+
+/** Marks the element a drawer drag must leave before it counts (the drawer itself). */
+const SOURCE_SELECTOR = "[data-palette-source]";
+
+const inside = (r: DOMRect, x: number, y: number) => x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
 
 function usePaletteDrag(host: PaletteHost, mode: DragMode, hooks: DragHooks = {}) {
   const [ghost, setGhost] = useState<Ghost | null>(null);
@@ -194,6 +203,10 @@ function usePaletteDrag(host: PaletteHost, mode: DragMode, hooks: DragHooks = {}
       const touch = e.pointerType !== "mouse";
       const start = { x: e.clientX, y: e.clientY };
       const pointerId = e.pointerId;
+      // The drawer, read once at the press (it slides away only after the finger has left it).
+      const source = mode === "drawer" ? (e.currentTarget.closest(SOURCE_SELECTOR)?.getBoundingClientRect() ?? null) : null;
+      /** Held long enough (drawer, touch): the ghost shows and the page stops scrolling, but nothing is dragged yet. */
+      let lifted = false;
       let dragging = false;
 
       const begin = (x: number, y: number) => {
@@ -201,11 +214,15 @@ function usePaletteDrag(host: PaletteHost, mode: DragMode, hooks: DragHooks = {}
         latest.current.hooks.onDragStart?.();
         setGhost({ item, x, y });
       };
-      // Once a held tile is picked up, the page mustn't scroll under it.
-      const blockScroll = (ev: TouchEvent) => {
-        if (dragging && ev.cancelable) ev.preventDefault();
+      const lift = () => {
+        lifted = true;
+        setGhost({ item, x: start.x, y: start.y });
       };
-      const hold = touch && mode === "drawer" ? window.setTimeout(() => begin(start.x, start.y), readPxToken("--sy-long-press", 500)) : 0;
+      // Once a held tile is lifted, the page mustn't scroll under it.
+      const blockScroll = (ev: TouchEvent) => {
+        if ((lifted || dragging) && ev.cancelable) ev.preventDefault();
+      };
+      const hold = touch && mode === "drawer" ? window.setTimeout(lift, readPxToken("--sy-long-press", 500)) : 0;
 
       const stop = () => {
         window.clearTimeout(hold);
@@ -219,6 +236,12 @@ function usePaletteDrag(host: PaletteHost, mode: DragMode, hooks: DragHooks = {}
       const move = (ev: PointerEvent) => {
         if (ev.pointerId !== pointerId) return;
         if (dragging) return setGhost({ item, x: ev.clientX, y: ev.clientY });
+        if (lifted) {
+          setGhost({ item, x: ev.clientX, y: ev.clientY });
+          // Out of the drawer: now it's a drag (the drawer slides away and the board takes the drop).
+          if (!source || !inside(source, ev.clientX, ev.clientY)) begin(ev.clientX, ev.clientY);
+          return;
+        }
         const dx = Math.abs(ev.clientX - start.x);
         const dy = Math.abs(ev.clientY - start.y);
         if (Math.hypot(dx, dy) <= DRAG_THRESHOLD) return;
@@ -229,10 +252,16 @@ function usePaletteDrag(host: PaletteHost, mode: DragMode, hooks: DragHooks = {}
       const up = (ev: PointerEvent) => {
         if (ev.pointerId !== pointerId) return;
         const wasDragging = dragging;
+        const wasLifted = lifted;
         stop();
         const h = latest.current.host;
         if (item.disabled(h.ctx) !== null) return;
-        if (!wasDragging) return h.activate(item);
+        if (!wasDragging) {
+          // A tap adds; a lifted tile let go inside the drawer is put back, and a finger that
+          // travelled (a scroll the browser didn't report) adds nothing either.
+          if (!wasLifted && Math.hypot(ev.clientX - start.x, ev.clientY - start.y) <= DRAG_THRESHOLD) h.activate(item);
+          return;
+        }
         const at = h.dropAt({ x: ev.clientX, y: ev.clientY }, item.dropSize);
         if (at) h.activate(item, at);
       };
@@ -245,7 +274,7 @@ function usePaletteDrag(host: PaletteHost, mode: DragMode, hooks: DragHooks = {}
       if (hold) window.addEventListener("touchmove", blockScroll, { passive: false });
     },
     onContextMenu(e: ReactMouseEvent<HTMLButtonElement>) {
-      // Press and hold drags; don't let the browser open its own menu.
+      // Press and hold lifts the tile; don't let the browser open its own menu.
       if (mode === "drawer") e.preventDefault();
     },
     onClick(e: ReactMouseEvent<HTMLButtonElement>) {
@@ -348,7 +377,7 @@ function Tabs({ tabs, value, onChange }: { tabs: { id: string; label: string }[]
           aria-selected={value === t.id}
           onClick={() => onChange(t.id)}
           className={cn(
-            "min-h-touch flex-1 cursor-pointer rounded-sm text-sm font-medium transition-colors",
+            "min-h-touch min-w-0 flex-auto cursor-pointer truncate rounded-sm px-sm text-sm font-medium whitespace-nowrap transition-colors",
             value === t.id ? "bg-surface text-fg shadow-sm" : "text-fg-muted hover:text-fg",
           )}
         >
@@ -393,19 +422,25 @@ export function PaletteContent({ host, width, collapse }: { host: PaletteHost; w
 
   return (
     <div className="flex flex-col gap-md p-md">
-      {/* Chalkline's palette header: the tabs (or, with one, its name in the same segmented style) and collapse. */}
-      <div className="flex items-center gap-xs">
-        <div className="min-w-0">
-          {tabs.length > 1 ? (
-            <Tabs tabs={tabs} value={current} onChange={setTab} />
-          ) : (
-            <div className="inline-flex rounded-md bg-surface-muted p-xs">
-              <h2 className="flex min-h-touch items-center rounded-sm bg-surface px-ms text-sm font-medium shadow-sm">Palette</h2>
-            </div>
-          )}
+      {tabs.length > 1 ? (
+        <>
+          {/* With tabs (Add, Stencils): the panel's name and collapse on their own row, then the tabs across
+              the full width, each padded, so they read as separate tabs at every panel width (v0.41.0). */}
+          <div className="flex items-center justify-between gap-xs">
+            <h2 className="pl-xs text-sm font-semibold">Palette</h2>
+            {collapse}
+          </div>
+          <Tabs tabs={tabs} value={current} onChange={setTab} />
+        </>
+      ) : (
+        // Chalkline's palette header: with one tab, its name in the segmented style, and collapse.
+        <div className="flex items-center gap-xs">
+          <div className="inline-flex min-w-0 rounded-md bg-surface-muted p-xs">
+            <h2 className="flex min-h-touch items-center rounded-sm bg-surface px-ms text-sm font-medium shadow-sm">Palette</h2>
+          </div>
+          {collapse}
         </div>
-        {collapse}
-      </div>
+      )}
       <SearchField value={query} onChange={setQuery} />
       {reason && (
         <p role="status" className="text-sm text-fg-muted">
@@ -465,8 +500,8 @@ export function CompactPalette({ host }: { host: PaletteHost }) {
 /**
  * Phones: Add note opens this drawer (after Chalkline's palette drawer). Non-modal: it slides up
  * from the bottom (at most --sy-drawer-max-h tall) over the board, which stays visible above
- * it. Tap a tile to add at the viewport centre; press and hold one to pick it up and drag it
- * onto the board (the drawer slides away while you drag). Adding closes it, as do X and Esc.
+ * it. Tap a tile to add at the viewport centre (on release); press and hold one to lift it and
+ * drag it up out of the drawer onto the board (the drawer then slides away while you drag). Adding closes it, as do X and Esc.
  * It stays mounted, so a drag keeps its pointer after the drawer hides; focus moves in on open
  * and back to Add note on close.
  */
@@ -508,6 +543,7 @@ export function AddDrawer({ host, open, onClose }: { host: PaletteHost; open: bo
   return (
     <div
       ref={ref}
+      data-palette-source=""
       role={open ? "dialog" : undefined}
       aria-labelledby={headingId}
       aria-hidden={!open}
@@ -538,7 +574,7 @@ export function AddDrawer({ host, open, onClose }: { host: PaletteHost; open: bo
       </div>
       <div className="sy-scroll-hidden flex min-h-0 flex-col gap-md overflow-y-auto overscroll-contain px-md pb-sm">
         <Sections host={host} tab={current} query={query} columns={1} tileProps={tileProps} rows />
-        <p className="text-xs text-fg-muted">Tap a tile to add it, or press and hold one to drag it onto the board.</p>
+        <p className="text-xs text-fg-muted">Tap a tile to add it, or press and hold one and drag it up onto the board.</p>
       </div>
       {ghostElement}
     </div>

@@ -96,8 +96,13 @@ import { memberIndex, regroup, type GroupChange } from "./groups";
  *     (after a rollback) is skipped on load, and a group left with fewer than 2 members is dropped
  *     (in memory: its rows stay until it is written again or the room is buried), as are rows
  *     that don't validate.
+ *  14 (frame membership): notes, frames and shapes each gain placed (INTEGER NOT NULL DEFAULT 0):
+ *     when the item was last placed, from the room's placement counter (`place`), written on adds
+ *     and on final moves that change a place. Existing rows get 0, which the web reads as "before
+ *     v23" (a frame still carries everything inside it until one of them moves). Version 13 code
+ *     still inserts (placed 0) and updates (placed kept) without it.
  */
-export const SCHEMA_VERSION = 13;
+export const SCHEMA_VERSION = 14;
 
 /** The groups tables (schema 13). */
 const GROUPS_TABLE = `CREATE TABLE IF NOT EXISTS groups (
@@ -256,6 +261,7 @@ interface NoteRow extends Record<string, SqlStorageValue> {
   z: number;
   rev: number;
   author_id: string;
+  placed: number;
   sealed: number;
   writer: string | null;
 }
@@ -275,6 +281,7 @@ interface FrameRow extends Record<string, SqlStorageValue> {
   title_italic: number;
   title_text_color: string;
   title_align: string;
+  placed: number;
 }
 
 interface ShapeRow extends Record<string, SqlStorageValue> {
@@ -299,14 +306,18 @@ interface ShapeRow extends Record<string, SqlStorageValue> {
   z: number;
   rev: number;
   author_id: string;
+  placed: number;
 }
 
-const SHAPE_COLUMNS = "id, kind, x, y, w, h, text, fill, stroke, stroke_width, stroke_style, font_size, bold, italic, underline, text_color, align, valign, z, rev, author_id";
+const SHAPE_COLUMNS = "id, kind, x, y, w, h, text, fill, stroke, stroke_width, stroke_style, font_size, bold, italic, underline, text_color, align, valign, z, rev, author_id, placed";
 
-const FRAME_COLUMNS = "id, x, y, w, h, title, color, rev, author_id, title_font_size, title_bold, title_italic, title_text_color, title_align";
+const FRAME_COLUMNS = "id, x, y, w, h, title, color, rev, author_id, title_font_size, title_bold, title_italic, title_text_color, title_align, placed";
 
 const COLUMNS =
-  "id, x, y, w, h, text, color, font_size, bold, italic, text_color, align, title_align, title_font_size, title_bold, title_italic, title_text_color, z, rev, author_id";
+  "id, x, y, w, h, text, color, font_size, bold, italic, text_color, align, title_align, title_font_size, title_bold, title_italic, title_text_color, z, rev, author_id, placed";
+
+/** The tables that gained `placed` in schema 14. */
+const PLACED_TABLES = ["notes", "frames", "shapes"] as const;
 
 /** Runs `fn` as one SQLite transaction (the Durable Object's transactionSync). */
 export type Transact = (fn: () => void) => void;
@@ -341,6 +352,8 @@ export class NoteStore {
    * their noteDeleted is the writer's alone. Cleared by forgetGone before each message.
    */
   private goneWriters = new Map<string, string>();
+  /** The room's placement counter (schema 14): the highest `placed` handed out, or null until first read. */
+  private clock: number | null = null;
 
   constructor(
     private readonly sql: SqlStorage,
@@ -442,6 +455,12 @@ export class NoteStore {
       this.sql.exec(GROUPS_TABLE);
       this.sql.exec(GROUP_MEMBERS_TABLE);
     }
+    if (version < 14) {
+      for (const table of PLACED_TABLES) {
+        const existing = new Set(this.sql.exec<{ name: string }>(`SELECT name FROM pragma_table_info('${table}')`).toArray().map((c) => c.name));
+        if (!existing.has("placed")) this.sql.exec(`ALTER TABLE ${table} ADD COLUMN placed INTEGER NOT NULL DEFAULT 0`);
+      }
+    }
     this.write("INSERT OR REPLACE INTO meta (key, value) VALUES ('schema_version', ?)", SCHEMA_VERSION);
   }
 
@@ -474,6 +493,7 @@ export class NoteStore {
         z: clampZ(row.z),
         rev: row.rev,
         authorId: row.author_id,
+        placed: row.placed,
       });
       if (!parsed.success) continue;
       cache.set(parsed.data.id, parsed.data);
@@ -506,6 +526,27 @@ export class NoteStore {
   private writeInsert(note: Note, writer: string | null): void {
     const row = [...values(note), writer === null ? 0 : 1, writer];
     this.write(`INSERT INTO notes (${COLUMNS}, sealed, writer) VALUES (${row.map(() => "?").join(", ")})`, ...row);
+  }
+
+  /* ── Placement (schema 14, protocol v23) ────────────────────────────────────────────── */
+
+  /**
+   * The `placed` for an add or a final move that changes a place. The counter starts above every
+   * stored item's value (read once, from the caches) and goes up by one per placement, so a later
+   * placement always compares higher. Everything placed by one message shares one value (a frame
+   * and the notes it carries, one itemsAdd, one final batch). `publicly` false (only sealed notes
+   * placed, protocol v17) hands out the current value without advancing it, so the values
+   * everyone else sees have no gaps that would give away a sealed note's moves; a tie still counts
+   * as placed after (the web compares with >=). Never stored on its own: it goes out with the items.
+   */
+  place(publicly = true): number {
+    if (this.clock === null) {
+      let top = 0;
+      for (const item of [...this.notes().values(), ...this.frames().values(), ...this.shapes().values()]) top = Math.max(top, item.placed ?? 0);
+      this.clock = top;
+    }
+    if (publicly && this.clock < Number.MAX_SAFE_INTEGER) this.clock += 1;
+    return this.clock;
   }
 
   /* ── Sealed notes (schema 10, protocol v17) ──────────────────────────────────────────── */
@@ -646,9 +687,10 @@ export class NoteStore {
   private writeUpdate(note: Note): void {
     this.write(
       `UPDATE notes SET x = ?, y = ?, w = ?, h = ?, text = ?, color = ?, font_size = ?, bold = ?, italic = ?, text_color = ?, align = ?, title_align = ?,
-       title_font_size = ?, title_bold = ?, title_italic = ?, title_text_color = ?, z = ?, rev = ?
+       title_font_size = ?, title_bold = ?, title_italic = ?, title_text_color = ?, z = ?, rev = ?, placed = ?
        WHERE id = ?`,
-      ...values(note).slice(1, -1),
+      ...values(note).slice(1, -2),
+      note.placed ?? 0,
       note.id,
     );
   }
@@ -701,6 +743,7 @@ export class NoteStore {
         titleAlign: row.title_align,
         rev: row.rev,
         authorId: row.author_id,
+        placed: row.placed,
       });
       if (parsed.success) cache.set(parsed.data.id, parsed.data);
     }
@@ -763,7 +806,7 @@ export class NoteStore {
   private writeFrameUpdate(frame: Frame): void {
     this.write(
       `UPDATE frames SET x = ?, y = ?, w = ?, h = ?, title = ?, color = ?, rev = ?,
-       title_font_size = ?, title_bold = ?, title_italic = ?, title_text_color = ?, title_align = ?
+       title_font_size = ?, title_bold = ?, title_italic = ?, title_text_color = ?, title_align = ?, placed = ?
        WHERE id = ?`,
       ...frameUpdateValues(frame),
       frame.id,
@@ -799,6 +842,7 @@ export class NoteStore {
         z: clampZ(row.z),
         rev: row.rev,
         authorId: row.author_id,
+        placed: row.placed,
       });
       if (parsed.success) cache.set(parsed.data.id, parsed.data);
     }
@@ -879,9 +923,10 @@ export class NoteStore {
   private writeShapeUpdate(shape: Shape): void {
     this.write(
       `UPDATE shapes SET x = ?, y = ?, w = ?, h = ?, text = ?, fill = ?, stroke = ?, stroke_width = ?, stroke_style = ?, font_size = ?,
-       bold = ?, italic = ?, underline = ?, text_color = ?, align = ?, valign = ?, z = ?, rev = ?
+       bold = ?, italic = ?, underline = ?, text_color = ?, align = ?, valign = ?, z = ?, rev = ?, placed = ?
        WHERE id = ?`,
-      ...shapeValues(shape).slice(2, -1),
+      ...shapeValues(shape).slice(2, -2),
+      shape.placed ?? 0,
       shape.id,
     );
   }
@@ -1342,7 +1387,7 @@ function values(n: Note): SqlStorageValue[] {
     n.id, n.x, n.y, n.w, n.h, n.text, n.color,
     n.fontSize, Number(n.bold), Number(n.italic), n.textColor, n.align,
     n.titleAlign, n.titleFontSize, Number(n.titleBold), Number(n.titleItalic), n.titleTextColor,
-    n.z, n.rev, n.authorId,
+    n.z, n.rev, n.authorId, n.placed ?? 0,
   ];
 }
 
@@ -1350,7 +1395,7 @@ function values(n: Note): SqlStorageValue[] {
 function shapeValues(s: Shape): SqlStorageValue[] {
   return [
     s.id, s.kind, s.x, s.y, s.w, s.h, s.text, s.fill, s.stroke, s.strokeWidth, s.strokeStyle, s.fontSize,
-    Number(s.bold), Number(s.italic), Number(s.underline), s.textColor, s.align, s.valign, s.z, s.rev, s.authorId,
+    Number(s.bold), Number(s.italic), Number(s.underline), s.textColor, s.align, s.valign, s.z, s.rev, s.authorId, s.placed ?? 0,
   ];
 }
 
@@ -1362,12 +1407,12 @@ function connectorValues(k: Connector): SqlStorageValue[] {
 
 /** A frame's column values, in FRAME_COLUMNS order. */
 function frameValues(f: Frame): SqlStorageValue[] {
-  return [f.id, f.x, f.y, f.w, f.h, f.title, f.color, f.rev, f.authorId, ...frameStyleValues(f)];
+  return [f.id, f.x, f.y, f.w, f.h, f.title, f.color, f.rev, f.authorId, ...frameStyleValues(f), f.placed ?? 0];
 }
 
 /** The values for writeFrameUpdate's SET list, in order. */
 function frameUpdateValues(f: Frame): SqlStorageValue[] {
-  return [f.x, f.y, f.w, f.h, f.title, f.color, f.rev, ...frameStyleValues(f)];
+  return [f.x, f.y, f.w, f.h, f.title, f.color, f.rev, ...frameStyleValues(f), f.placed ?? 0];
 }
 
 function frameStyleValues(f: Frame): SqlStorageValue[] {

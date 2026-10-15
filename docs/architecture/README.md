@@ -8,7 +8,7 @@ Detail for each area of Stickyard, one file per area. CLAUDE.md stays short and 
 | [rooms.md](rooms.md) | Room codes, Worker checks, secrets, limits, the room Durable Object, expiry and burial, host token, lock, timer relay |
 | [notes.md](notes.md) | Note protocol and storage, size, colour and text style, inline editing, z-order, sealed notes and the leak inventory, reactions on notes (relay and UI) |
 | [canvas.md](canvas.md) | React Flow canvas, palette and Properties panels, selection, marquee, arrange and grid, delete keys, Duplicate, Export (also on phones, and the board file), Import, panel defaults, navigation (fit, zoom to selection, minimap, jump), reaction chips on the canvas |
-| [frames.md](frames.md) | Frames, frame title style, templates and their palette groups, frame multi-select |
+| [frames.md](frames.md) | Frames, frame title style, templates and their palette groups, frame multi-select, frame membership (`placed`) |
 | [editing.md](editing.md) | `itemsAdd` (create with content), undo/redo history, Clear board |
 | [connection.md](connection.md) | Reconnect, resync, presence (avatars, toasts), live cursors, last known pointers, following |
 | [facilitation.md](facilitation.md) | Timer and lock UI, End session, dot voting (relay and UI), silent brainstorm, Bring to me |
@@ -36,6 +36,8 @@ Sections are named after the slice that introduced them. Cross-references in quo
 | Navigation (v0.24.0, part 2) | canvas.md |
 | Export on phones and the board file (v0.40.0, part 1 of 2) | canvas.md (pointers in shell.md, stencils.md) |
 | Import (v0.40.0, part 2 of 2) | canvas.md (pointers in editing.md, stencils.md, shell.md) |
+| Palette fixes (v0.41.0) | canvas.md |
+| Frame membership, protocol v23 (v0.41.0) | frames.md (pointers in notes.md, shapes.md, editing.md) |
 | Reconnect and presence (v0.13.0) | connection.md |
 | Live cursors, protocol v14 (v0.19.0) | connection.md |
 | Navigation: last known pointers (v0.24.0) | connection.md |

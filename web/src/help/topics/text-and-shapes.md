@@ -35,7 +35,7 @@ With two or more shapes selected (and nothing else), **Text style**, **Fill** an
 ## With notes and frames
 
 - Select shapes as you select notes: click, **Shift**-click or **Ctrl**-click (**Cmd**-click on a Mac), a marquee (it picks up every shape it touches), or **Ctrl+A** for everything.
-- Drag any selected item to move the whole selection, or use the arrow keys. A frame brings the shapes inside it (any shape whose middle is inside) as well as its notes; **Alt** leaves them behind. A frame holding more than 50 notes and shapes together moves on its own.
+- Drag any selected item to move the whole selection, or use the arrow keys. A frame brings its shapes (any shape whose middle is inside that was added or moved there after the frame was put down) as well as its notes; **Alt** leaves them behind. A frame holding more than 50 notes and shapes together moves on its own.
 - **Align**, **Distribute**, **Grid** and **Match size** work on notes and shapes together. With frames in the selection as well, they're off, and the Arrange panel says why.
 - **Duplicate** (**Ctrl+D**) copies shapes with everything they have, and **Delete** asks once for a mix, with how many of each. One **Undo** brings back what was deleted.
 - If two people change the same shape, the change that reaches the relay last wins.

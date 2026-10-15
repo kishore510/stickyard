@@ -16,3 +16,6 @@ Architecture notes, moved out of CLAUDE.md on 7 October 2026 so they load only w
 
 ## Board size (v0.23.0)
 - Shapes on the 6400 x 4000 board (protocol v16, see canvas.md "Board size, protocol v16"): limits unchanged (40 x 24 to 2400 x 1600, 50 a room). Worst-case shapesSnapshot 167,786 bytes; combined reconnect payload 590,381.
+
+## Frame membership (protocol v23, v0.41.0)
+- Shapes carry `placed` like notes (schema 14 column; final `shapeMoved` and `shapeBatch` move results give it), and a frame carries a shape only if it was placed at or after the frame. Details in frames.md "Frame membership, protocol v23".

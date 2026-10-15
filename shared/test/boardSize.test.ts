@@ -83,6 +83,7 @@ const worstNote = (i: number): Note => ({
   z: -NOTE_Z_LIMIT,
   rev: Number.MAX_SAFE_INTEGER,
   authorId: AUTHOR,
+  placed: Number.MAX_SAFE_INTEGER,
 });
 const worstFrame = (i: number): Frame => ({
   id: pad("frame", i),
@@ -99,6 +100,7 @@ const worstFrame = (i: number): Frame => ({
   titleAlign: longest(NOTE_ALIGNS),
   rev: Number.MAX_SAFE_INTEGER,
   authorId: AUTHOR,
+  placed: Number.MAX_SAFE_INTEGER,
 });
 const worstShape = (i: number): Shape => ({
   id: pad("shape", i),
@@ -122,6 +124,7 @@ const worstShape = (i: number): Shape => ({
   z: -NOTE_Z_LIMIT,
   rev: Number.MAX_SAFE_INTEGER,
   authorId: AUTHOR,
+  placed: Number.MAX_SAFE_INTEGER,
 });
 
 const notesSnapshot = encodeMessage({ type: "snapshot", notes: Array.from({ length: MAX_NOTES_PER_ROOM }, (_, i) => worstNote(i)) });
@@ -150,10 +153,11 @@ const frameMoved = encodeMessage({
   y: BOARD_HEIGHT - FRAME_MIN_H,
   rev: Number.MAX_SAFE_INTEGER,
   final: true,
+  placed: Number.MAX_SAFE_INTEGER,
   notes: Array.from({ length: 25 }, (_, i) => ({ id: pad("note", i), x: BOARD_WIDTH - NOTE_MIN_W, y: BOARD_HEIGHT - NOTE_MIN_H, rev: Number.MAX_SAFE_INTEGER })),
   shapes: Array.from({ length: 25 }, (_, i) => ({ id: pad("shape", i), x: BOARD_WIDTH - SHAPE_MIN_W, y: BOARD_HEIGHT - SHAPE_MIN_H, rev: Number.MAX_SAFE_INTEGER })),
 });
-const { id: _id, rev: _rev, authorId: _a, z: _z, ...noteContent } = worstNote(0);
+const { id: _id, rev: _rev, authorId: _a, z: _z, placed: _p, ...noteContent } = worstNote(0);
 const itemsAdd = encodeMessage({ type: "itemsAdd", clientRef: "c".repeat(32), notes: [{ ...noteContent, text: "x", ref: "r".repeat(32) }] });
 
 const WORST = { notesSnapshot, framesSnapshot, shapesSnapshot, noteBatch, frameMove, frameMoved, itemsAdd };
@@ -194,18 +198,20 @@ describe("protocol v16: the board size", () => {
 });
 
 describe("worst-case message sizes on the bigger board (recorded in docs/LIMITS.md)", () => {
-  it("the notes snapshot is unchanged: 404,229 bytes (its positions were already 4 digits)", () => {
-    expect(notesSnapshot.length).toBe(404_229);
+  // Protocol v23 adds `placed` (26 bytes at its widest) to every note, frame and shape: notes
+  // 404,229 -> 409,429, frames 18,366 -> 19,146, shapes 167,786 -> 169,086.
+  it("the notes snapshot is 409,429 bytes (its positions were already 4 digits; v23 adds placed)", () => {
+    expect(notesSnapshot.length).toBe(409_429);
     expect(notesSnapshot.length).toBeLessThanOrEqual(400 * 1024);
   });
 
-  it("frames 18,366 and shapes 167,786 bytes (each 1 more byte per coordinate that went from 3 to 4 digits)", () => {
-    expect(framesSnapshot.length).toBe(18_366);
-    expect(shapesSnapshot.length).toBe(167_786);
+  it("frames 19,146 and shapes 169,086 bytes (1 more byte per coordinate that went from 3 to 4 digits; v23 adds placed)", () => {
+    expect(framesSnapshot.length).toBe(19_146);
+    expect(shapesSnapshot.length).toBe(169_086);
   });
 
-  it("the combined reconnect payload is 590,381 bytes, in three messages each under the server cap", () => {
-    expect(notesSnapshot.length + framesSnapshot.length + shapesSnapshot.length).toBe(590_381);
+  it("the combined reconnect payload is 597,661 bytes, in three messages each under the server cap", () => {
+    expect(notesSnapshot.length + framesSnapshot.length + shapesSnapshot.length).toBe(597_661);
     for (const raw of [notesSnapshot, framesSnapshot, shapesSnapshot]) {
       expect(raw.length).toBeLessThan(MAX_SERVER_MESSAGE_BYTES);
       expect(parseMessage(raw, serverMessageSchema, MAX_SERVER_MESSAGE_BYTES).ok).toBe(true);

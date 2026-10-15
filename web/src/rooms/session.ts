@@ -97,7 +97,7 @@ import {
   findFrame,
   isFrameHeld,
   frameChanges,
-  framedNotes,
+  frameMembers,
   moveFrameLocal,
   rejectFrameAdd,
   resizeFrameLocal,
@@ -1862,16 +1862,16 @@ export class RoomSession {
   }
 
   /**
-   * Starts dragging a frame. With `carry`, the notes whose centre is inside it come along (unless
-   * there are more than MAX_BATCH_ENTRIES: then it moves alone, and says so; it never carries
-   * some). False if the frame can't move now.
+   * Starts dragging a frame. With `carry`, its members come along (`frameMembers`: inside it and
+   * placed since it was, protocol v23), unless there are more than MAX_BATCH_ENTRIES: then it
+   * moves alone, and says so; it never carries some. False if the frame can't move now.
    */
   startFrameDrag(id: string, carry: boolean): boolean {
     const entry = findFrame(this.view.board, id);
     if (!this.live || isLocalId(id) || !entry) return false;
     if (this.refuseSilent()) return false;
-    const inside = carry ? framedNotes(entry.frame, this.view.board.notes.map((n) => n.note)).filter((n) => !isLocalId(n.id)) : [];
-    const insideShapes = carry ? framedNotes(entry.frame, this.view.board.shapes.map((x) => x.shape)).filter((x) => !isLocalId(x.id)) : [];
+    const inside = carry ? frameMembers(entry.frame, this.view.board.notes.map((n) => n.note)).filter((n) => !isLocalId(n.id)) : [];
+    const insideShapes = carry ? frameMembers(entry.frame, this.view.board.shapes.map((x) => x.shape)).filter((x) => !isLocalId(x.id)) : [];
     // The carry cap is shared by notes and shapes (protocol v15).
     const tooMany = inside.length + insideShapes.length > MAX_BATCH_ENTRIES;
     const notes = new Map(tooMany ? [] : inside.map((n) => [n.id, { x: n.x, y: n.y, w: n.w, h: n.h }] as const));
@@ -3876,6 +3876,7 @@ export class RoomSession {
     const ops: NoteBatchEntry[] = [];
     const shapeOps: ShapeBatchEntry[] = [];
     const sends: ClientMessage[] = [];
+    const frameMoves: ClientMessage[] = [];
     const arrowSends: ConnectorMessage[] = [];
     const groupDeletes: GroupMessage[] = [];
     const groupSends: GroupMessage[] = [];
@@ -3947,7 +3948,7 @@ export class RoomSession {
       } else if (hasRect) {
         board = moveFrameLocal(board, id, x ?? before.x, y ?? before.y);
         const f = findFrame(board, id)?.frame ?? before;
-        sends.push({ type: "frameMove", id, x: f.x, y: f.y, final: true });
+        frameMoves.push({ type: "frameMove", id, x: f.x, y: f.y, final: true });
       }
       if (Object.keys(fields).length > 0) {
         board = editFrameLocal(board, id, fields as FrameEdit);
@@ -3989,6 +3990,9 @@ export class RoomSession {
     for (const message of arrowSends) this.pacer.enqueue(message);
     this.pacer.whenSent(() => {
       if (!this.live) return;
+      // Frames move before the notes and shapes (protocol v23): an item put back inside a frame is
+      // placed after it, so the frame carries it again.
+      for (const message of frameMoves) this.send(message);
       this.sendBatch(ops, true);
       this.sendShapeBatch(shapeOps, true);
       for (const message of sends) this.send(message);
@@ -4951,10 +4955,12 @@ export class RoomSession {
         return this.update({ board: applyFrameUpdated(this.view.board, message.frame) });
 
       case "frameMoved": {
-        // The frame and the notes it carried, in one view update.
+        // The frame and the notes it carried, in one view update. A new placement (protocol v23) is
+        // theirs too, so they stay its members.
         let board = applyFrameMoved(this.view.board, message);
-        for (const n of message.notes ?? []) board = applyMoved(board, { ...n, final: message.final });
-        for (const x of message.shapes ?? []) board = applyShapeMoved(board, { ...x, final: message.final });
+        const placed = message.placed === undefined ? {} : { placed: message.placed };
+        for (const n of message.notes ?? []) board = applyMoved(board, { ...n, final: message.final, ...placed });
+        for (const x of message.shapes ?? []) board = applyShapeMoved(board, { ...x, final: message.final, ...placed });
         return this.update({ board });
       }
 
