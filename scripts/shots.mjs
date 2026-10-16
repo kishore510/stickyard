@@ -449,8 +449,12 @@ async function main() {
           await page.keyboard.press("Escape");
           await page.getByRole("button", { name: /^Menu/ }).click();
           await page.getByRole("menuitem", { name: "Settings" }).click();
-          await page.locator("[data-ai-key-input]").fill("sk-ant-api03-FAKE-shots-key-0000abcd");
-          await page.getByRole("button", { name: "Save key" }).click();
+          await page.locator("[data-settings-sheet]").waitFor({ timeout: 5_000 });
+          // The fake key saved for the Settings shots is still there unless the page reloaded since.
+          if ((await page.locator("[data-ai-key-input]").count()) > 0) {
+            await page.locator("[data-ai-key-input]").fill("sk-ant-api03-FAKE-shots-key-0000abcd");
+            await page.getByRole("button", { name: "Save key" }).click();
+          }
           await page.keyboard.press("Escape");
           await page.waitForTimeout(200);
           await page.getByRole("button", { name: /^Menu/ }).click();
