@@ -2,7 +2,7 @@
 
 All notable changes to Stickyard, newest first. The format follows Keep a Changelog. Versions are 0.x: a minor bump for each slice and a patch bump for each follow-up fix. This file is shown in the app under **What’s new**, so entries are written for the people using it.
 
-## [0.42.0] - 2026-10-15
+## [0.42.0] - 2026-10-16
 
 ### Added
 - **Settings**, in the menu on every screen (also the start page, before you join a session). It has one section for now: **AI (your own key)**.
