@@ -112,13 +112,13 @@ describe("the pages", () => {
     expect(document.activeElement).toBe(textBox());
     expect(textBox()?.maxLength).toBe(1000);
     expect(sheet()?.textContent).toContain("0 / 1,000");
-    expect(button("Continue")?.disabled).toBe(true);
+    expect((button("Continue") as HTMLButtonElement | undefined)?.disabled).toBe(true);
     const chips = [...document.querySelectorAll<HTMLButtonElement>("[data-setup-example]")];
     expect(chips).toHaveLength(3);
     await click(chips[0]);
     expect(textBox()?.value).toBe(chips[0]!.textContent);
     expect(sheet()?.textContent).toContain(`${chips[0]!.textContent!.length} / 1,000`);
-    expect(button("Continue")?.disabled).toBe(false);
+    expect((button("Continue") as HTMLButtonElement | undefined)?.disabled).toBe(false);
   });
 
   it("the check page: model, what's sent, the estimate, where it goes, the first-time notice; Cancel focused", async () => {
@@ -286,7 +286,7 @@ describe("who can use it, and when", () => {
     await openSetup();
     expect(sheet()?.textContent).toContain(SILENT_TEXT.on);
     await typeText("Retro");
-    expect(button("Continue")?.disabled).toBe(true);
+    expect((button("Continue") as HTMLButtonElement | undefined)?.disabled).toBe(true);
   });
 
   it("off for a guest on a locked board, with the reason", async () => {
@@ -294,7 +294,7 @@ describe("who can use it, and when", () => {
     await openSetup();
     expect(sheet()?.textContent).toContain(LOCK_TEXT.reason);
     await typeText("Retro");
-    expect(button("Continue")?.disabled).toBe(true);
+    expect((button("Continue") as HTMLButtonElement | undefined)?.disabled).toBe(true);
   });
 
   it("a lock that arrives during the wait: checked again before adding, and said", async () => {
@@ -321,7 +321,7 @@ describe("who can use it, and when", () => {
     await server(socket, { data: { type: "lockChanged", locked: true } });
     await act(async () => push!(setupStream(JSON.stringify(RETRO_REPLY))));
     await waitFor(() => document.querySelector("[data-setup-preview]") !== null);
-    expect(button("Add to board")?.disabled).toBe(true);
+    expect((button("Add to board") as HTMLButtonElement | undefined)?.disabled).toBe(true);
     expect(document.querySelector("[data-setup-preview]")?.textContent).toContain(LOCK_TEXT.reason);
     await click(button("Add to board"));
     expect(socket.ofType("itemsAdd")).toEqual([]);

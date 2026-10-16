@@ -2,6 +2,21 @@
 
 All notable changes to Stickyard, newest first. The format follows Keep a Changelog. Versions are 0.x: a minor bump for each slice and a patch bump for each follow-up fix. This file is shown in the app under **What’s new**, so entries are written for the people using it.
 
+## [0.43.0] - 2026-10-16
+
+### Added
+- **Set up board from a prompt**, the first AI feature. Describe the session you want to run (up to 1,000 characters), or start from an example: a retro, sprint planning, or risks for a project kick-off. It's in the menu during a session, and there's a button for it on an empty board.
+- Before anything is sent you see the model (Claude Sonnet 5.5) and exactly what goes: only the description you typed. No board content, no names and no notes are sent. It goes from your browser straight to Anthropic, using your own key. Without a key saved, it says to add one first and opens Settings.
+- While the reply arrives you see how much has come in, and **Cancel** stops it.
+- **A preview before anything changes**: each frame's title and colour with its notes, the counts, anything the page had to fix in the reply, and the tokens used. Nothing is added until you choose **Add to board**; **Try again** keeps your description; **Cancel** adds nothing.
+- **Add to board** puts the frames and notes in the nearest free space to the middle of your view, without covering anything already there, and selects them. The view moves only if they're off screen. Frames carry their own notes when you drag them, and dropping one onto other notes doesn't pick those up. One **Undo** removes all of it.
+- Limits: at most 60 items at a time (frames and notes), at most 8 frames, notes of at most 140 characters, in the board's own colours. Anything beyond that, or beyond what the board has room for, is left out and listed in the preview. A reply that can't be turned into a board, is cut short or is declined shows a short reason and **Retry**.
+
+### Changed
+- It's off for guests on a locked board, during a silent round and while disconnected, saying why; if that changes while the reply is coming, **Add to board** says so instead of adding.
+- Help (AI features) and About > Privacy describe what's sent.
+- No reload needed: nothing changed in how the page talks to the relay.
+
 ## [0.42.0] - 2026-10-16
 
 ### Added

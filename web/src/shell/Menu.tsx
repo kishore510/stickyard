@@ -1,4 +1,4 @@
-import { CircleHelp, Download, Info, Menu as MenuIcon, Upload, MessageCircle, QrCode, Settings, Sparkles, Users, type LucideIcon } from "lucide-react";
+import { CircleHelp, Download, Info, Menu as MenuIcon, Upload, MessageCircle, QrCode, Settings, Sparkles, Users, WandSparkles, type LucideIcon } from "lucide-react";
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
 import { useWhatsNew } from "../changelog/whatsNew";
 import { Button } from "../components/ui/button";
@@ -9,6 +9,7 @@ import { useShare } from "../share/shareStore";
 import { useExport } from "../export/exportStore";
 import { useImport } from "../importer/importStore";
 import { useSettings } from "../settings/settingsStore";
+import { useSetup } from "../ai/setupStore";
 import type { Sheet } from "../router";
 import { openSheet } from "./nav";
 
@@ -34,6 +35,8 @@ const SESSION_GROUP: MenuItem[] = [
   { label: "Export board", icon: Download, action: () => useExport.getState().show() },
   // v0.40.0: Import (importer/ImportSheet.tsx), beside Export; off with the reason inside the sheet.
   { label: "Import", icon: Upload, action: () => useImport.getState().show() },
+  // v0.43.0: Set up board from a prompt (ai/SetupSheet.tsx); needs a board, so in a session only. Off with the reason inside the sheet.
+  { label: "Set up board from a prompt", icon: WandSparkles, action: () => useSetup.getState().show() },
 ];
 
 const GROUPS: MenuItem[][] = [

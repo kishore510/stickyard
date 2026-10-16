@@ -210,6 +210,7 @@ import { GROUP_TEXT } from "../groups/rules";
 import { stencilBounds, type Stencil, type StencilArrow } from "../stencils/data";
 import { STENCIL_TEXT, type StencilCap } from "../stencils/rules";
 import { IMPORT_TEXT, type ImportContent } from "../importer/parse";
+import { SETUP_TEXT } from "../ai/setupRules";
 import { DUPLICATE_HINTS, DUPLICATE_OFFSET, duplicateFrameInput, duplicateNoteInputs, duplicateSelectionInputs } from "../canvas/duplicate";
 import { HISTORY_TEXT, History, type Fields, type ItemKind, type Lookup, type Plan } from "../history/history";
 import type { CodeCheck } from "./api";
@@ -268,6 +269,14 @@ export const ENDED_TEXT = {
 } as const;
 
 /** The room's timer here: the relay's start and length, and the relay's clock minus this device's. */
+/** What a stencil, an import or a board setup added: local ids until the relay confirms each (v0.43.0). */
+export interface PlacedIds {
+  notes: string[];
+  frames: string[];
+  shapes: string[];
+  connectors: string[];
+}
+
 export interface RoomTimer {
   startedAt: number;
   durationMs: number;
@@ -3626,7 +3635,7 @@ export class RoomSession {
    * or any room cap it wouldn't fit (notes, shapes, frames, 100 arrows, 30 groups).
    */
   placeStencil(stencil: Stencil, centre: { x: number; y: number }): boolean {
-    return this.placeContent(stencil, centre, { label: "Stencil", noRoom: (fails) => STENCIL_TEXT.noRoom(...fails[0]!) });
+    return this.placeContent(stencil, centre, { label: "Stencil", noRoom: (fails) => STENCIL_TEXT.noRoom(...fails[0]!) }) !== null;
   }
 
   /**
@@ -3637,24 +3646,41 @@ export class RoomSession {
    * that wouldn't fit.
    */
   importBoard(content: ImportContent, centre: { x: number; y: number }): boolean {
-    return this.placeContent(content, centre, { label: "Import", stack: content.stack, noRoom: (fails) => IMPORT_TEXT.noRoom(fails) });
+    return this.placeContent(content, centre, { label: "Import", stack: content.stack, noRoom: (fails) => IMPORT_TEXT.noRoom(fails) }) !== null;
   }
 
-  /** placeStencil and importBoard: `stack` (refs, bottom first) orders the notes and shapes, else notes then shapes. */
+  /**
+   * Board setup from a prompt (v0.43.0, ai/setupParse.ts): generated frames and notes, add-only,
+   * through the same path as Import, with the result's top-left at `origin` (ai/setupPlace.ts
+   * found a free spot) and clamped onto the board. Frames go first, so their notes are placed at or
+   * after them and the frames carry them (frame membership, v0.41.0). One history step ("Board
+   * setup"). Refused up front as Import is, nothing sent: checked again here at Add to board, so a
+   * lock, a silent round or a full board that arrived while the reply was coming is caught. The new
+   * items' local ids (renamed to server ids as each is confirmed), or null.
+   */
+  placeSetup(content: ImportContent, origin: { x: number; y: number }): PlacedIds | null {
+    const { width, height } = stencilBounds(content);
+    return this.placeContent(content, { x: origin.x + width / 2, y: origin.y + height / 2 }, { label: "Board setup", stack: content.stack, noRoom: (fails) => SETUP_TEXT.noRoom(fails) });
+  }
+
+  /**
+   * placeStencil, importBoard and placeSetup: `stack` (refs, bottom first) orders the notes and
+   * shapes, else notes then shapes. The new items' local ids, or null when refused.
+   */
   private placeContent(
     stencil: Stencil,
     centre: { x: number; y: number },
     { label, stack, noRoom }: { label: string; stack?: readonly string[]; noRoom: (fails: [StencilCap, number, number][]) => string },
-  ): boolean {
-    if (!this.live || !this.view.you) return false;
+  ): PlacedIds | null {
+    if (!this.live || !this.view.you) return null;
     if (lockedOut(this.view)) {
       this.update({ noteNotice: LOCK_TEXT.reason });
-      return false;
+      return null;
     }
-    if (this.refuseSilent()) return false;
+    if (this.refuseSilent()) return null;
     if (this.itemBatches.size > 0 || this.restoreRun || this.template) {
       this.update({ noteNotice: UNDO_TEXT.busy });
-      return false;
+      return null;
     }
     const board = this.view.board;
     const room: [StencilCap, number, number][] = [
@@ -3667,7 +3693,7 @@ export class RoomSession {
     const fails = room.flatMap(([kind, needs, free]): [StencilCap, number, number][] => (needs > Math.max(0, free) ? [[kind, needs, Math.max(0, free)]] : []));
     if (fails.length > 0) {
       this.update({ noteNotice: noRoom(fails) });
-      return false;
+      return null;
     }
     const { width, height } = stencilBounds(stencil);
     const clamp = (v: number, max: number) => Math.min(Math.max(0, Math.round(v)), Math.max(0, max));
@@ -3691,7 +3717,7 @@ export class RoomSession {
       inputs.push(input);
     }
     const run = this.startItems(inputs, null, { defer: true });
-    if (!run) return false;
+    if (!run) return null;
     const localOf = new Map<string, string>();
     refs.forEach((ref, i) => {
       const r = run.refs[i];
@@ -3723,7 +3749,8 @@ export class RoomSession {
       this.flushRun(run);
     }
     this.pumpItems();
-    return true;
+    const ids = (kind: ItemKind) => added.flatMap((a) => (a.kind === kind ? [a.id] : []));
+    return { notes: ids("note"), frames: ids("frame"), shapes: ids("shape"), connectors: ids("connector") };
   }
 
   /* ── Undo and redo (history/history.ts) ─────────────────────────── */

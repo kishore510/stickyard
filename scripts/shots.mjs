@@ -157,6 +157,34 @@ async function seedRoom(page) {
   );
 }
 
+/** Board setup (v0.43.0): a canned, generic reply for the preview shot. */
+const SETUP_SHOT_REPLY = {
+  frames: [
+    { ref: "f1", title: "Went well", color: "green", x: 0, y: 0, w: 640, h: 440 },
+    { ref: "f2", title: "To improve", color: "pink", x: 720, y: 0, w: 640, h: 440 },
+    { ref: "f3", title: "Actions", color: "blue", x: 1440, y: 0, w: 640, h: 440 },
+  ],
+  notes: [
+    { text: "What helped us this sprint?", color: "green", frame: "f1", x: 24, y: 72 },
+    { text: "What slowed us down?", color: "pink", frame: "f2", x: 744, y: 72 },
+    { text: "One action, one owner", color: "blue", frame: "f3", x: 1464, y: 72 },
+    { text: "Parking lot", color: "yellow", frame: null, x: 0, y: 520 },
+  ],
+};
+
+/** A reply's text as the API's SSE stream (message_start, text deltas, message_delta, message_stop). */
+function setupStream(text) {
+  const sse = (event, data) => `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
+  return [
+    sse("message_start", { type: "message_start", message: { id: "msg_shots", type: "message", role: "assistant", content: [], model: "fake", stop_reason: null, usage: { input_tokens: 980, output_tokens: 1 } } }),
+    sse("content_block_start", { type: "content_block_start", index: 0, content_block: { type: "text", text: "" } }),
+    sse("content_block_delta", { type: "content_block_delta", index: 0, delta: { type: "text_delta", text } }),
+    sse("content_block_stop", { type: "content_block_stop", index: 0 }),
+    sse("message_delta", { type: "message_delta", delta: { stop_reason: "end_turn", stop_sequence: null }, usage: { output_tokens: 410 } }),
+    sse("message_stop", { type: "message_stop" }),
+  ].join("");
+}
+
 async function main() {
   mkdirSync(OUT, { recursive: true });
   const persist = mkdtempSync(join(tmpdir(), "stickyard-shots-"));
@@ -213,8 +241,14 @@ async function main() {
           };
 
           // AI (v0.42.0): nothing in the shots may reach Anthropic; a fake key only, and Test key is never pressed.
+          // Board setup (v0.43.0): while `setupReply` is set, Playwright answers /v1/messages itself with that
+          // canned stream (nothing goes to the network); any other Anthropic request is aborted and counted.
           let anthropicCalls = 0;
+          let setupReply = null;
           await context.route("https://api.anthropic.com/**", (route) => {
+            if (setupReply !== null && route.request().url() === "https://api.anthropic.com/v1/messages") {
+              return route.fulfill({ status: 200, headers: { "content-type": "text/event-stream" }, body: setupStream(setupReply) });
+            }
             anthropicCalls += 1;
             return route.abort();
           });
@@ -410,6 +444,41 @@ async function main() {
             if ((await page.locator("[data-stencil-blocked]").count()) === 0) throw new Error(`blocked storage not said at ${size.name} ${theme}`);
             await shot("stencils-blocked");
           }
+          // Board setup from a prompt (v0.43.0): the sheet with a fake session key, the check page, the preview
+          // from a canned reply, and the unreadable-reply error. Nothing is added (the room is shared by every shot).
+          await page.keyboard.press("Escape");
+          await page.getByRole("button", { name: /^Menu/ }).click();
+          await page.getByRole("menuitem", { name: "Settings" }).click();
+          await page.locator("[data-ai-key-input]").fill("sk-ant-api03-FAKE-shots-key-0000abcd");
+          await page.getByRole("button", { name: "Save key" }).click();
+          await page.keyboard.press("Escape");
+          await page.waitForTimeout(200);
+          await page.getByRole("button", { name: /^Menu/ }).click();
+          await page.getByRole("menuitem", { name: "Set up board from a prompt" }).click();
+          await page.locator("[data-setup-sheet]").waitFor({ timeout: 5_000 });
+          await page.locator("[data-setup-example]").first().click();
+          await page.waitForTimeout(300);
+          await shot("setup");
+          await page.getByRole("button", { name: "Continue" }).click();
+          await page.locator("[data-send-check]").waitFor({ timeout: 5_000 });
+          await page.waitForTimeout(300);
+          await shot("setup-check");
+          setupReply = JSON.stringify(SETUP_SHOT_REPLY);
+          await page.getByRole("button", { name: "Send" }).click();
+          await page.locator("[data-setup-preview]").waitFor({ timeout: 10_000 });
+          await page.waitForTimeout(300);
+          await shot("setup-preview");
+          await page.getByRole("button", { name: "Try again" }).click();
+          await page.getByRole("button", { name: "Continue" }).click();
+          setupReply = "Sorry, here is a plain list instead of a board.";
+          await page.getByRole("button", { name: "Send" }).click();
+          await page.locator("[data-setup-error]").waitFor({ timeout: 10_000 });
+          await page.waitForTimeout(300);
+          await shot("setup-error");
+          setupReply = null;
+          await page.keyboard.press("Escape");
+          await page.waitForTimeout(200);
+          if (anthropicCalls > 0) throw new Error(`the shots called api.anthropic.com at ${size.name} ${theme}`);
           // Share session (v0.32.0): the QR sheet from the menu, then Large.
           await page.getByRole("button", { name: /^Menu/ }).click();
           await page.getByRole("menuitem", { name: "Share session" }).click();

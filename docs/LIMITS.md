@@ -329,6 +329,13 @@ Web only; nothing new on the relay, no new message type, no Worker involvement.
 - *Relay and Worker:* zero. AI requests go from the browser straight to api.anthropic.com with the person's own key; Stickyard has no AI server and no Anthropic account of its own.
 - *Anthropic:* billed to the key's owner. Test key uses the token-counting endpoint, which is free (it has its own requests-per-minute limit), once per model. Anthropic's own rate and spend limits apply to the key and show as their own messages.
 
+## AI, 10b Board setup from a prompt (v0.43.0): what it costs
+
+Web only; nothing new on the relay, no new message type, no Worker involvement.
+
+- *Relay and Worker:* one board setup is an ordinary add: frames and notes in `itemsAdd` messages (at most 60 items, so one or two messages), the same rows as Import or a stencil of that size. The model's reply never reaches the relay; only what Add to board places does.
+- *Anthropic:* billed to the key's owner, one request per Send (Retry and Try again are new requests). Input is the fixed system prompt (about 1,800 characters) and the schema (about 900), roughly 1,000 tokens with the API's own structured-output instructions (an estimate; the preview shows the real count), plus the description (at most 1,000 characters). Output is capped at `max_tokens` 12,200 (5,000 for the JSON's keys and the model's thinking at low effort, plus 120 per item for 60 items); a typical retro reply is far smaller. Claude Sonnet 5.5 is $2 / $10 per million input / output tokens, so even a reply at the cap costs about 12 cents. The preview shows the tokens actually used.
+
 ## Hardening findings (v0.39.1)
 
 The basic hardening pass, measured on 14 October 2026 against a local `wrangler dev` only (fake secrets, a fake room-signing key, throwaway storage; never the deployed Worker). Rerun with `npm run load` (correctness, below) and the worker test `worker/test/budget.test.ts` (rows). The machine was a shared cloud container, with the clients and `wrangler dev` on the same CPU: **message counts, rows and correctness are reliable; every time below is rough**.

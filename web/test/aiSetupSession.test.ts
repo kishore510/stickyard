@@ -72,7 +72,7 @@ describe("Add to board", () => {
     const f = frameByTitle(t, "To improve");
     dragFrame(t, f.id, f.x + 500, f.y + 1500);
     const ids = [noteByText(t, "Fewer meetings").id, noteByText(t, "Clearer tickets").id].sort();
-    expect([...(lastCarry(t)?.noteIds ?? [])].sort()).toEqual(ids);
+    expect([...((lastCarry(t)?.noteIds ?? []) as string[])].sort()).toEqual(ids);
     expect(noteByText(t, "Fewer meetings")).toMatchObject({ x: 1744 + 500, y: 672 + 1500 });
   });
 
@@ -95,9 +95,9 @@ describe("Add to board", () => {
     const f = frameByTitle(t, "Went well");
     // Over the loose notes, then away again.
     dragFrame(t, f.id, 3900, 2500);
-    expect([...(lastCarry(t)?.noteIds ?? [])]).not.toContain(nid(1));
+    expect([...((lastCarry(t)?.noteIds ?? []) as string[])]).not.toContain(nid(1));
     dragFrame(t, f.id, 200, 200);
-    const carried = lastCarry(t)?.noteIds ?? [];
+    const carried = (lastCarry(t)?.noteIds ?? []) as string[];
     expect(carried).not.toContain(nid(1));
     expect(carried).not.toContain(nid(2));
     expect(carried).toHaveLength(2);
