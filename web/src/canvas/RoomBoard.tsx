@@ -89,6 +89,10 @@ import { ImportAnnouncer, ImportSheet } from "../importer/ImportSheet";
 import { useImport } from "../importer/importStore";
 import { importReason as importBaseReason } from "../importer/rules";
 import type { ImportContent, ImportCounts } from "../importer/parse";
+import { EmptyBoardSetup, SetupAnnouncer, SetupSheet } from "../ai/SetupSheet";
+import { useSetup } from "../ai/setupStore";
+import { setupReason } from "../ai/setupRules";
+import { findSetupPlace } from "../ai/setupPlace";
 import { UNDO_TEXT } from "../rooms/session";
 
 /*
@@ -321,6 +325,9 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
     () => ({ notes: view.totalNotes, frames: view.board.frames.length, shapes: view.board.shapes.length, arrows: view.board.connectors.length, groups: view.board.groups.length }),
     [view.totalNotes, view.board],
   );
+  // Board setup from a prompt (v0.43.0): Import's reasons; checked again at Add to board (the sheet gets them live).
+  const setupGate = setupReason({ live, lockedOut: locked, silent: silentOn, busy: view.adding || view.template?.state === "applying" });
+  const boardEmpty = live && view.synced && view.totalNotes + view.board.frames.length + view.board.shapes.length + view.board.connectors.length === 0;
   const stencilReason = stencilBaseReason({ live, lockedOut: locked, silent: silentOn }) ?? (view.adding || view.template?.state === "applying" ? UNDO_TEXT.busy : null);
   const savedStencils = useStencils((s) => s.loaded.stencils);
   useEffect(() => useStencils.getState().reload(), []);
@@ -433,6 +440,27 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
   /** Places a stencil: centred on the view, or (a drop) with its box's top-left at `at`. */
   /** Import (v0.40.0): the content centred on the view, through the stencil path. */
   const placeImport = useCallback((content: ImportContent) => latest.current.room.importBoard(content, canvas.centre()), [canvas]);
+
+  /**
+   * Board setup from a prompt (v0.43.0): the nearest free spot to the view centre (ai/setupPlace.ts),
+   * through the Import path as one undo step; the result is selected, and the view moves to it only
+   * if it isn't all on screen (animated, or not with reduced motion).
+   */
+  const placeSetup = useCallback(
+    (content: ImportContent) => {
+      const { view: v, room: r } = latest.current;
+      const { width, height } = stencilBounds(content);
+      const items = boardItems(v.board).map((i) => ({ x: i.x, y: i.y, w: i.w ?? 0, h: i.h ?? 0 }));
+      const origin = findSetupPlace({ width, height }, items, canvas.centre());
+      const ids = r.placeSetup(content, origin);
+      if (!ids) return false;
+      useBoardUi.getState().setSelections(new Set(ids.notes), new Set(ids.frames), new Set(ids.shapes), new Set(ids.connectors));
+      const box = { x: origin.x, y: origin.y, w: width, h: height };
+      if (!canvas.visible(box)) canvas.zoomTo([box]);
+      return true;
+    },
+    [canvas],
+  );
 
   const placeStencil = useCallback(
     (stencil: Stencil, at?: XY) => {
@@ -817,6 +845,8 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
         <GroupAnnouncer />
         {/* Import (v0.40.0): a placed import, once its sheet has closed, politely. */}
         <ImportAnnouncer />
+        {/* Board setup from a prompt (v0.43.0): an added set-up, once its sheet has closed, politely. */}
+        <SetupAnnouncer />
         <ConnectorDrawHint />
       </>
     ),
@@ -921,6 +951,8 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
           banner={lockNotices}
           viewNotices={<ViewNotices onShowAll={showAll} onFit={ctx.fit} />}
         />
+        {/* Board setup from a prompt (v0.43.0): offered while nothing is on the board. */}
+        {boardEmpty && <EmptyBoardSetup onOpen={() => useSetup.getState().show()} />}
         {/* The board actions live in the top bar (v0.15.1), between the mark and the menu. */}
         {bar && barSlot && createPortal(bar, barSlot)}
         {wide ? (
@@ -1010,6 +1042,7 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
       {wide && <StencilSaveDialog save={saveStencilAs} />}
       <ExportSheet board={view.board} results={resultRows} viewport={exportViewport} silent={silentOn} hidden={exportHidden} share={!wide} />
       <ImportSheet reason={importGate} used={importUsed} place={placeImport} />
+      <SetupSheet reason={setupGate} used={importUsed} place={placeSetup} />
       {!wide && <AddDrawer host={paletteHost} open={addSheetOpen} onClose={() => useBoardUi.getState().setAddSheetOpen(false)} />}
     </div>
   );

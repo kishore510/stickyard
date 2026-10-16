@@ -41,11 +41,28 @@ export interface ChatMessage {
   content: string;
 }
 
+export type Effort = "low" | "medium" | "high";
+
 export interface MessageRequest {
   model: string;
   maxTokens: number;
   system?: string;
   messages: ChatMessage[];
+  /** Structured output (v0.43.0): the reply must be JSON in this schema (output_config.format). */
+  schema?: Record<string, unknown>;
+  /** How much the model thinks before answering (output_config.effort); the model's default when absent. */
+  effort?: Effort;
+}
+
+/** output_config for a request, or nothing when it sets neither. */
+function outputConfig(request: MessageRequest): { output_config?: Record<string, unknown> } {
+  if (request.schema === undefined && request.effort === undefined) return {};
+  return {
+    output_config: {
+      ...(request.effort === undefined ? {} : { effort: request.effort }),
+      ...(request.schema === undefined ? {} : { format: { type: "json_schema", schema: request.schema } }),
+    },
+  };
 }
 
 export interface Usage {
@@ -343,6 +360,7 @@ export async function streamMessage(request: MessageRequest, options: CallOption
       stream: true,
       ...(request.system === undefined ? {} : { system: request.system }),
       messages: request.messages,
+      ...outputConfig(request),
     };
     const response = await post(MESSAGES_URL, body, w, options);
     if (!(response instanceof Response)) return fail(response);

@@ -165,8 +165,9 @@ export function AboutPage() {
           <li>
             AI features (Settings &gt; AI): Stickyard has no AI server. AI features are off until you add your own Anthropic API key, and you
             pay Anthropic for what you use. Requests go from your browser straight to Anthropic (api.anthropic.com), only when you press Send
-            after seeing what will be sent; the only request so far is Test key, which sends the word “Hi”. Anthropic then handles what you
-            sent under its own terms. Your key is kept for this session only (in this tab’s memory, nothing stored) unless you choose Remember
+            after seeing what will be sent. Test key sends the word “Hi”. Set up board from a prompt sends only the description you type,
+            with Stickyard’s fixed instructions: no board content, no names and no notes, and nothing is added to the board until you choose Add
+            to board. Anthropic then handles what you sent under its own terms. Your key is kept for this session only (in this tab’s memory, nothing stored) unless you choose Remember
             on this device: then it is stored unencrypted in this browser, where anyone who uses this browser, and other pages on this web
             address, could read it. It is sent only to Anthropic, in a request header, and never shared with the room, a board file, a stencil,
             a link or an error message. Remove key forgets it. Your Settings choices (where to keep the key, and whether you’ve seen the

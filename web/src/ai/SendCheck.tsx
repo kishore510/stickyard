@@ -36,6 +36,7 @@ export function SendCheck({
   onSend,
   onCancel,
   notice,
+  extra = [],
 }: {
   models: readonly AiModel[];
   /** What's sent, one bullet each. */
@@ -46,6 +47,8 @@ export function SendCheck({
   onCancel: () => void;
   /** The first-time notice: shown while not `seen`; Send calls `onSeen`. */
   notice?: { seen: boolean; onSeen: () => void } | undefined;
+  /** More lines for this request (v0.43.0: board setup's "using your key" and the reply's cap), after the size. */
+  extra?: readonly string[];
 }) {
   const headingId = useId();
   const cancelRef = useRef<HTMLButtonElement>(null);
@@ -78,6 +81,9 @@ export function SendCheck({
         <span className="text-fg-muted">Size: </span>
         About {plural(estimateTokens(chars), "token")} (an estimate: {plural(chars, "character")} ÷ 3)
       </p>
+      {extra.map((line) => (
+        <p key={line}>{line}</p>
+      ))}
       <p>{WHERE_IT_GOES}</p>
       <div className="flex flex-wrap gap-sm">
         <Button ref={cancelRef} onClick={onCancel}>

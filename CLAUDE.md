@@ -26,6 +26,7 @@ Read the matching file in `docs/architecture/` first (index: `docs/architecture/
 - No `console.` in `worker/src` (test enforces). Never log bodies, names, text, passcodes, codes or IPs.
 - Storage keys only via `STORAGE_KEYS` and `readKey`/`writeKey` in `web/src/storage.ts`. About > Privacy must stay true.
 - AI (docs/architecture/ai.md): bring your own Anthropic key; the browser calls api.anthropic.com itself. Nothing AI-related over the WebSocket or in a message schema; the key only via `ai/keyStore.ts`, errors and logs only via `ai/redact.ts`, no `console.` in `web/src/ai`.
+- AI replies are untrusted data: validated, previewed, and added only through the existing add path when the person chooses to; only what the person typed is sent.
 
 ## Working rules
 - One slice at a time on its own `phase-...` branch. Never commit to `main`. Stop for review at the end of each slice.

@@ -29,3 +29,6 @@ Architecture notes, moved out of CLAUDE.md on 7 October 2026 so they load only w
 
 ## Frame membership and history (v0.41.0)
 - Undo/redo sends frame moves before the note and shape batches (a frame put back is placed first, so its notes, placed after, stay its members). `SERVER_FIELDS` includes `placed`: a deleted item's content never carries it, so `itemsAdd` on undo stays valid. See frames.md "Frame membership, protocol v23".
+
+## Board setup is an add run (v0.43.0)
+- Set up board from a prompt places through Import's `placeContent` (one history step, "Board setup"; frames before notes so frames carry their notes). `placeContent` now returns the new items' local ids (`PlacedIds`) instead of a boolean, so the page can select them; `placeStencil` and `importBoard` still return booleans. Detail in ai.md "Board setup from a prompt".
