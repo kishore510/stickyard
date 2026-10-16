@@ -5,9 +5,38 @@ import { buildTopics, parseFrontMatter, searchTopics } from "../src/help/topics"
 
 describe("help topics", () => {
   it("loads the topics, quick start first", () => {
-    expect(HELP_TOPICS.map((t) => t.id)).toEqual(["quick-start", "sessions", "notes", "text-and-shapes", "arrows", "groups", "participants", "stencils", "chat", "names", "connection", "touch-and-keyboard", "hosting", "dot-voting", "reactions", "silent-brainstorm", "follow", "join-by-qr"]);
+    expect(HELP_TOPICS.map((t) => t.id)).toEqual(["quick-start", "sessions", "notes", "text-and-shapes", "arrows", "groups", "participants", "stencils", "chat", "names", "connection", "touch-and-keyboard", "hosting", "dot-voting", "reactions", "silent-brainstorm", "follow", "join-by-qr", "ai-features"]);
     expect(topicById("sessions")?.title).toBe("Starting and joining a session");
     expect(topicById(QUICK_START_ID)?.title).toBe("Quick start");
+  });
+
+  it("AI features (v0.42.0) covers the key, where it's kept, removing it, Test key, cost of cancelled requests and the models", () => {
+    const ai = topicById("ai-features");
+    expect(ai?.title).toBe("AI features");
+    const text = ai?.text ?? "";
+    for (const claim of [
+      "your own anthropic api key",
+      "claude console",
+      "this session only",
+      "remember on this device",
+      "unencrypted",
+      "remove key",
+      "test key",
+      "count_tokens",
+      "\u201chi\u201d",
+      "free",
+      "can still be billed",
+      "api.anthropic.com",
+      "stickyard has no ai server",
+      "never shared with the room",
+      "claude haiku 5.5",
+      "claude sonnet 5.5",
+      "nothing is sent until you press send",
+    ]) {
+      expect(text, claim).toContain(claim);
+    }
+    // Only what exists: no AI feature buttons yet.
+    expect(text).toContain("no ai feature buttons yet");
   });
 
   it("every help: link points at a topic that exists", () => {

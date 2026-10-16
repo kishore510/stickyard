@@ -51,3 +51,7 @@ Architecture notes, moved out of CLAUDE.md on 7 October 2026 so they load only w
 
 ## Export and Import in the menu (v0.40.0)
 - The menu's Session group gains **Export board** and **Import** after Share session (every width): they open the Export sheet (`export/ExportSheet.tsx`) and the Import sheet (`importer/ImportSheet.tsx`), store-driven like Share session, not hash routes. Details in canvas.md "Export on phones and the board file" and "Import".
+
+## Settings in the menu (v0.42.0)
+- The menu's last group gains **Settings** before About Stickyard, on every screen (start page, room, no room joined). It opens `settings/SettingsSheet.tsx` (`SettingsSheetHost`, mounted in `App` after `ShareSheetHost`; open state in `settings/settingsStore.ts`, memory only), store-driven like Share session, not a hash route. One section for now, AI (your own key); details in ai.md. `Sheet`'s body has `data-sheet-body` (pages inside a sheet scroll it back to the top).
+- Storage keys: `STORAGE_KEYS.aiKey` (`stickyard:ai-key`, only after "Remember on this device"; listed in `SECRET_STORAGE_KEYS`) and `STORAGE_KEYS.aiPrefs` (`stickyard:ai-prefs`). About > Privacy and the Help topic `ai-features` (order 14) describe them.

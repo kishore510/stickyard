@@ -1,4 +1,4 @@
-import { CircleHelp, Download, Info, Menu as MenuIcon, Upload, MessageCircle, QrCode, Sparkles, Users, type LucideIcon } from "lucide-react";
+import { CircleHelp, Download, Info, Menu as MenuIcon, Upload, MessageCircle, QrCode, Settings, Sparkles, Users, type LucideIcon } from "lucide-react";
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
 import { useWhatsNew } from "../changelog/whatsNew";
 import { Button } from "../components/ui/button";
@@ -8,6 +8,7 @@ import { useRoomUi, useUnread } from "../rooms/roomStore";
 import { useShare } from "../share/shareStore";
 import { useExport } from "../export/exportStore";
 import { useImport } from "../importer/importStore";
+import { useSettings } from "../settings/settingsStore";
 import type { Sheet } from "../router";
 import { openSheet } from "./nav";
 
@@ -40,7 +41,11 @@ const GROUPS: MenuItem[][] = [
     { label: "Help", icon: CircleHelp, sheet: { kind: "help" } },
     { label: "What’s new", icon: Sparkles, sheet: { kind: "changelog" } },
   ],
-  [{ label: "About Stickyard", icon: Info, sheet: { kind: "about" } }],
+  [
+    // v0.42.0: Settings (settings/SettingsSheet.tsx), on every screen, with or without a room.
+    { label: "Settings", icon: Settings, action: () => useSettings.getState().show() },
+    { label: "About Stickyard", icon: Info, sheet: { kind: "about" } },
+  ],
 ];
 
 /** "Unread release notes" dot. Decorative; the button's label says it in words. */

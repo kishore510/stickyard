@@ -212,9 +212,34 @@ async function main() {
             written.push(file);
           };
 
+          // AI (v0.42.0): nothing in the shots may reach Anthropic; a fake key only, and Test key is never pressed.
+          let anthropicCalls = 0;
+          await context.route("https://api.anthropic.com/**", (route) => {
+            anthropicCalls += 1;
+            return route.abort();
+          });
+
           await page.goto(`${WEB}/#/`);
           await page.waitForLoadState("networkidle");
           await shot("welcome");
+          // Settings (v0.42.0): the AI (your own key) section on the start page with no room joined, a fake
+          // key saved for this session only, then the Remember on this device warning page.
+          await page.getByRole("button", { name: /^Menu/ }).click();
+          await page.getByRole("menuitem", { name: "Settings" }).click();
+          await page.locator("[data-settings-sheet]").waitFor({ timeout: 5_000 });
+          await page.waitForTimeout(300);
+          await shot("settings");
+          await page.locator("[data-ai-key-input]").fill("sk-ant-api03-FAKE-shots-key-0000abcd");
+          await page.getByRole("button", { name: "Save key" }).click();
+          await page.waitForTimeout(300);
+          await shot("settings-saved");
+          await page.locator('input[name="ai-keep"][value="device"]').click();
+          await page.locator("[data-ai-remember-warning]").waitFor({ timeout: 5_000 });
+          await page.waitForTimeout(300);
+          await shot("settings-remember-warning");
+          await page.keyboard.press("Escape");
+          await page.waitForTimeout(200);
+          if (anthropicCalls > 0) throw new Error(`the shots called api.anthropic.com at ${size.name} ${theme}`);
           for (const hash of EXTRA) {
             await page.goto(`${WEB}/${hash}`);
             await page.waitForTimeout(600);

@@ -1,6 +1,6 @@
 # Phase plan: Stickyard
 
-Last updated: 15 October 2026 (Fixes: frame membership, tap to add on phones, palette tabs; v0.41.0, protocol v23, stored schema 14)
+Last updated: 16 October 2026 (10a AI: Settings and your own key; v0.42.0, web only, protocol v23, stored schema 14)
 
 Draft roadmap. When a slice starts, rewrite its prompt against the real code (see the skeleton in PROJECT_BRIEF.md). Do not treat these notes as final prompts.
 
@@ -61,7 +61,10 @@ Draft roadmap. When a slice starts, rewrite its prompt against the real code (se
 | Fixes: frame membership, tap to add, palette tabs | A frame carries only the notes and shapes placed at or after it (`placed`, a per-room placement counter on every note, shape and frame; final moves give the new value), so a frame dropped onto notes, or onto another frame's notes, no longer picks them up; the phone's add drawer adds on release only (a lifted tile counts as a drag once it leaves the drawer); the palette's Add and Stencils tabs as Chalkline's (equal halves; their own row when the palette is narrow). Protocol v23, stored schema 14 (`placed` on notes, frames and shapes) | Done (v0.41.0, protocol v23, stored schema 14, PR #65, merged and deployed 15 October 2026) |
 | QR join | Share session: the join link as a QR code made on the device (lean-qr, level M), the link as text, Copy link and Large for a shared screen; from the menu's Session group and Participants > Invite, for everyone who can copy the link. Phone audit in the PR. Web only, no protocol, relay or stored-schema change | Done (v0.32.0, web only, PR #54, merged and deployed 13 October 2026) |
 | 8 Phone view | Simplified phone participant view (QR join done separately in v0.32.0); whether it's worth a slice is decided from the v0.32.0 phone audit | Not started |
-| 10 AI | Summary and sentiment analysis, explicit buttons, add-only | Optional, last |
+| 10 AI, 10a Settings and key (part 1 of 4) | Settings in the menu (every screen) with AI (your own key): save, test, replace and remove an Anthropic API key, kept for this session only or remembered on this device after a warning; the browser's own client (plain fetch to api.anthropic.com, streaming, no-data timeout, cancel, no automatic retry), one error table, one redaction module, the reusable check-before-sending page. Test key (count_tokens, free) is the only call to Anthropic; no AI feature button. Web only, no protocol, relay or stored-schema change | Done (v0.42.0, web only, PR #66, merged and deployed 16 October 2026) |
+| 10 AI, 10b Board setup from a prompt (part 2 of 4) | Lay out a board (frames, notes) from a typed prompt, add-only, through the check-before-sending page. No protocol bump expected | Not started |
+| 10 AI, 10c Summary and sentiment (part 3 of 4) | Summary and sentiment of board content, explicit buttons, add-only output, content treated as data. No protocol bump expected | Not started |
+| 10 AI, 10d Iterative edits (part 4 of 4) | Ask for changes to what AI added, add-only and undoable. No protocol bump expected | Not started |
 | Later | Yjs migration, anonymous mode, PWA | Parked |
 
 ## Order and principles
@@ -380,7 +383,15 @@ Draft roadmap. When a slice starts, rewrite its prompt against the real code (se
 - Checked in Chromium at 360/768/1280, light and dark, normal and Large; every shot decoded back to the join link (off-repo decoder).
 
 ### 10 AI (optional)
-- Summary and sentiment of board content. Explicit buttons, confirmation with size estimate, add-only output, content treated as data. Key handling decided then.
+- Summary and sentiment of board content. Explicit buttons, confirmation with size estimate, add-only output, content treated as data.
+- Key handling decided 15 October 2026: bring your own Anthropic key, as Chalkline does. The page calls api.anthropic.com directly with plain fetch (no SDK, no proxy, no Worker involvement); there is no server-side secret, and whoever presses an AI button pays with their own key. Nothing AI-related goes over the WebSocket or into a message schema.
+- Split into four parts, all keeping the name "10 AI", none expected to need a protocol bump: 10a Settings and key, 10b Board setup from a prompt, 10c Summary and sentiment, 10d Iterative edits. Each later part reuses 10a's client, error table, redaction, key store and check-before-sending page (with the first-time notice).
+
+### 10a Settings and key (web only) — done, v0.42.0
+- PR #66 (merged and deployed 16 October 2026). Branch `claude/ai-settings-byok-jah8hb` (the session's assigned branch; the prompt named `phase-ai-settings`), tests first (red commit, then green). Protocol 23 and schema 14 unchanged; nothing AI-related on the WebSocket.
+- Settings in the menu (every screen, with or without a room), store-driven like Share session, so it stacks over other sheets. AI (your own key): status line, key form, Test key / Replace key / Remove key, error box with Details and Retry, Keep the key (this session only, or remember on this device after a red warning page). Two new storage keys: `stickyard:ai-key` (secret, only when remembered) and `stickyard:ai-prefs`.
+- Models checked against Anthropic's models and deprecations pages on 15 October 2026: `claude-haiku-5-5` (small, retirement not sooner than 7 October 2027) and `claude-sonnet-5-5` (large, not sooner than 28 September 2027). Chalkline's `claude-haiku-4-5` is due to retire from 15 October 2026 and isn't used.
+- Differences from the prompt: the architecture index is `docs/architecture/README.md` (not `index.md`); Test key's Retry is offered for every failure (counting is free), not only for the kinds whose Retry flag is set; the typed key lives in the form's field until Save key (then cleared); there is no Content-Security-Policy, so none was added (backlog). See docs/architecture/ai.md.
 
 ## Open questions
 
@@ -446,4 +457,6 @@ Draft roadmap. When a slice starts, rewrite its prompt against the real code (se
 - Export on phones: check the share sheet on a real iPhone and Android phone (v0.40.0 was checked with stubs and in desktop Chromium only)
 - Follow: a person on a phone (or a hidden tab) never sends a view, and the page can't tell who is on a phone, so following them waits forever with "Waiting for Sam's view." Telling the page (a `compact` flag on the participant) needs a protocol change.
 - Follow: a leader whose tab was hidden sends nothing on return until their view next moves (the session doesn't re-send on `visibilitychange`); a follower waits until then.
+- Add a Content-Security-Policy (connect-src for the Worker, wss and api.anthropic.com). None exists today (checked for 10a, v0.42.0); GitHub Pages can't send headers, so it would be a `<meta http-equiv>` in `index.html`, tested against every route and the shots.
+- AI (10a, v0.42.0): a second tab doesn't see a key saved or removed in another tab until it reloads (the key is read at the moment of a send, so a removed remembered key is gone for both; only the status line is stale). A `storage` event listener would fix the display.
 - Participants lists nobody while not connected, so Follow's "Not connected." reason only shows in the moment between a drop and the list emptying.

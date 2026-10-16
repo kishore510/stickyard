@@ -2,6 +2,19 @@
 
 All notable changes to Stickyard, newest first. The format follows Keep a Changelog. Versions are 0.x: a minor bump for each slice and a patch bump for each follow-up fix. This file is shown in the app under **What’s new**, so entries are written for the people using it.
 
+## [0.42.0] - 2026-10-16
+
+### Added
+- **Settings**, in the menu on every screen (also the start page, before you join a session). It has one section for now: **AI (your own key)**.
+- **Your own Anthropic API key.** AI features (coming in later versions) will use your own Anthropic API key, and you pay Anthropic for what you use. Paste a key from the Claude Console and choose **Save key**. The page only ever shows its last four characters.
+- **Where the key is kept**: **This session only** (the default) keeps it in this tab's memory and stores nothing; it's forgotten when you reload or close the tab. **Remember on this device** stores it in this browser, unencrypted, after a warning; only choose it on a device that's yours alone. **Remove key** forgets it at once.
+- **Test key** checks the key with both models (Claude Haiku 5.5 and Claude Sonnet 5.5). It first shows exactly what it will send, then sends the word “Hi” to Anthropic's free token-counting endpoint, straight from your browser to api.anthropic.com. If something goes wrong it says what, which model, what to do next, and offers **Retry**.
+- Help has a new topic, **AI features**.
+
+### Changed
+- About > Privacy now covers AI: Stickyard has no AI server, AI features are off until you add your own key, requests go from your browser to Anthropic only when you press Send, and your key is never shared with the room, a board file, a stencil, a link or an error message.
+- No reload needed: nothing changed in how the page talks to the relay.
+
 ## [0.41.0] - 2026-10-15
 
 ### Fixed

@@ -109,7 +109,7 @@ export function Sheet({
             </Button>
           </div>
         </div>
-        <div ref={bodyRef} className="sy-safe-bottom min-h-0 flex-1 overflow-y-auto overscroll-contain px-md pt-md">
+        <div ref={bodyRef} data-sheet-body="" className="sy-safe-bottom min-h-0 flex-1 overflow-y-auto overscroll-contain px-md pt-md">
           {children}
         </div>
       </div>

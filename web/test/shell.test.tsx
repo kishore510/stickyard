@@ -165,7 +165,7 @@ describe("Help", () => {
     await mount("#/help");
     expect(button(/Quick start/)).toBeDefined();
     const topics = [...(dialog()?.querySelectorAll('[aria-labelledby="help-topics"] li') ?? [])].map((li) => li.textContent);
-    expect(topics).toEqual(["Starting and joining a session", "Notes", "Text and shapes", "Arrows", "Groups and affinity grouping", "Participants", "Stencils", "Chat", "Names and identity", "Connection", "Touch and keyboard tips", "Running a session", "Dot voting", "Reactions", "Silent brainstorm", "Follow and Bring to me", "Joining by QR code"]);
+    expect(topics).toEqual(["Starting and joining a session", "Notes", "Text and shapes", "Arrows", "Groups and affinity grouping", "Participants", "Stencils", "Chat", "Names and identity", "Connection", "Touch and keyboard tips", "Running a session", "Dot voting", "Reactions", "Silent brainstorm", "Follow and Bring to me", "Joining by QR code", "AI features"]);
   });
 
   it("search filters topics", async () => {
@@ -201,7 +201,7 @@ describe("What's new", () => {
   it("shows the current version with the This version badge", async () => {
     await mount("#/changelog");
     const current = dialog()?.querySelector('[aria-current="true"]');
-    expect(current?.querySelector("h3")?.textContent).toBe("0.41.0");
+    expect(current?.querySelector("h3")?.textContent).toBe("0.42.0");
     expect(current?.textContent).toContain("This version");
     expect(current?.textContent).toMatch(/Added|Changed|Fixed/);
   });
@@ -215,11 +215,11 @@ describe("What's new", () => {
     await openFromMenu("What’s new");
     await press("Escape");
     expect(document.querySelector('[data-testid="unseen-dot"]')).toBeNull();
-    expect(localStorage.getItem("stickyard:last-seen-version")).toBe("0.41.0");
+    expect(localStorage.getItem("stickyard:last-seen-version")).toBe("0.42.0");
   });
 
   it("no dot once this version has been seen", async () => {
-    localStorage.setItem("stickyard:last-seen-version", "0.41.0");
+    localStorage.setItem("stickyard:last-seen-version", "0.42.0");
     await mount();
     expect(document.querySelector('[data-testid="unseen-dot"]')).toBeNull();
   });
@@ -231,7 +231,7 @@ describe("About", () => {
 
   it("shows version, build, protocol and relay", async () => {
     await mount("#/about");
-    expect(detail("Version")).toBe("0.41.0");
+    expect(detail("Version")).toBe("0.42.0");
     expect(detail("Build")).toMatch(/^([0-9a-f]{4,40}|dev)$/);
     expect(detail("Built")).not.toBe("unknown");
     expect(detail("Protocol")).toBe(`v${PROTOCOL_VERSION}`);
@@ -320,6 +320,14 @@ describe("About", () => {
       "On a phone the file goes to your phone’s share sheet",
       "Import reads the board file or text you choose in your browser",
       "nothing is uploaded or sent to the relay",
+      // AI part 1 (v0.42.0): bring your own key; the page can call api.anthropic.com.
+      "Stickyard has no AI server",
+      "AI features are off until you add your own Anthropic API key",
+      "api.anthropic.com",
+      "only when you press Send",
+      "never shared with the room, a board file, a stencil, a link or an error message",
+      "stored unencrypted in this browser",
+      "for this session only",
     ]) {
       expect(privacy, claim).toContain(claim);
     }
@@ -328,6 +336,8 @@ describe("About", () => {
     expect(privacy).not.toContain("When joining sessions arrives");
     expect(privacy).not.toContain("Nothing is saved");
     expect(privacy).not.toContain("don’t expire");
+    // Before v0.42.0 the page talked only to GitHub Pages and the relay.
+    expect(privacy).not.toMatch(/only (talks|connects) to the relay/i);
   });
 
   it("has Privacy and Credits sections", async () => {
@@ -372,14 +382,14 @@ describe("shell landmarks", () => {
     await mount();
     await click(byLabel(/^Menu/));
     const items = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')];
-    expect(items.map((i) => i.textContent?.replace("New", ""))).toEqual(["Help", "What’s new", "About Stickyard"]);
+    expect(items.map((i) => i.textContent?.replace("New", ""))).toEqual(["Help", "What’s new", "Settings", "About Stickyard"]);
     expect(document.querySelectorAll('[role="menu"] [role="separator"]')).toHaveLength(1);
     expect(document.activeElement).toBe(items[0]);
     await press("ArrowDown");
     expect(document.activeElement).toBe(items[1]);
     await press("ArrowUp");
     await press("ArrowUp");
-    expect(document.activeElement).toBe(items[2]);
+    expect(document.activeElement).toBe(items[3]);
     await press("Escape");
     expect(document.querySelector('[role="menu"]')).toBeNull();
     expect(document.activeElement?.getAttribute("aria-label")).toMatch(/^Menu/);

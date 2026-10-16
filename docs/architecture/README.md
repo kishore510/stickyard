@@ -15,6 +15,7 @@ Detail for each area of Stickyard, one file per area. CLAUDE.md stays short and 
 | [shapes.md](shapes.md) | Text labels and shapes, one stacking space with notes, emoji picker |
 | [stencils.md](stencils.md) | Stencils: the format, parsing stored ones as untrusted, built-ins, storage and caps, placing and Save as stencil |
 | [groups.md](groups.md) | Groups: protocol and storage, membership and moves, dissolving below 2 on every delete path, gating and limits; the groups UI (box layer, chip, Properties, undo, pacing, export) |
+| [ai.md](ai.md) | AI: Settings and the AI (your own key) section, the key store and its storage keys, the Anthropic client (streaming, timeouts, errors), redaction, Test key, the check-before-sending page, leak tests |
 | [connectors.md](connectors.md) | Connectors (arrows): protocol and storage, endpoints and anchors, `anchorPoint`, the delete rule, gating and limits; the arrows UI (layer, drawing, selection, Properties, pacing, undo, export) |
 
 ## Where each section lives
@@ -93,3 +94,4 @@ Sections are named after the slice that introduced them. Cross-references in quo
 | Silent brainstorm in the shell (v0.28.0) | shell.md |
 | Follow and Bring to me in the shell (v0.31.0) | shell.md |
 | Share session and QR join (v0.32.0) | shell.md |
+| Settings and bring your own key (v0.42.0, 10a, AI part 1 of 4) | ai.md (pointer in shell.md) |

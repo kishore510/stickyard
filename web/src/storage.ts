@@ -1,6 +1,8 @@
 /**
  * Every browser storage key goes through this. GitHub Pages serves all *.github.io
- * projects of an account from one origin, so keys must be namespaced. Never store anything sensitive.
+ * projects of an account from one origin, so keys must be namespaced. Never store anything sensitive,
+ * with one exception the person chooses: the Anthropic API key under "Remember on this device"
+ * (v0.42.0, `aiKey`, listed in SECRET_STORAGE_KEYS).
  */
 const PREFIX = "stickyard:";
 
@@ -42,7 +44,25 @@ export const STORAGE_KEYS = {
    * untrusted data (stencils/storage.ts).
    */
   stencils: storageKey("stencils"),
+  /**
+   * The Anthropic API key (v0.42.0), only when the person chose "Remember on this device" after the
+   * warning page; unencrypted. Written and read only by ai/keyStore.ts, at the moment of a send.
+   * Secret: never shown in full, sent only to api.anthropic.com in its header, never backed up or exported.
+   */
+  aiKey: storageKey("ai-key"),
+  /** AI preferences (v0.42.0): `{ keep, noticeSeen }`. Never the key. */
+  aiPrefs: storageKey("ai-prefs"),
 } as const;
+
+/**
+ * Keys whose values are secrets (v0.42.0): never backed up, exported, copied into Details or logged.
+ * Anything that ever lists or copies stored values must skip these.
+ */
+export const SECRET_STORAGE_KEYS: readonly string[] = [STORAGE_KEYS.aiKey];
+
+export function isSecretStorageKey(key: string): boolean {
+  return SECRET_STORAGE_KEYS.includes(key);
+}
 
 /** The key holding a room's host token on this device. */
 export function hostTokenKey(roomId: string): string {

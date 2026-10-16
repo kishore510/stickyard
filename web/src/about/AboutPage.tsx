@@ -163,13 +163,24 @@ export function AboutPage() {
             are its notes, shapes, frames, arrows and groups added to the board, like any others (recorded as added by your visit).
           </li>
           <li>
+            AI features (Settings &gt; AI): Stickyard has no AI server. AI features are off until you add your own Anthropic API key, and you
+            pay Anthropic for what you use. Requests go from your browser straight to Anthropic (api.anthropic.com), only when you press Send
+            after seeing what will be sent; the only request so far is Test key, which sends the word “Hi”. Anthropic then handles what you
+            sent under its own terms. Your key is kept for this session only (in this tab’s memory, nothing stored) unless you choose Remember
+            on this device: then it is stored unencrypted in this browser, where anyone who uses this browser, and other pages on this web
+            address, could read it. It is sent only to Anthropic, in a request header, and never shared with the room, a board file, a stencil,
+            a link or an error message. Remove key forgets it. Your Settings choices (where to keep the key, and whether you’ve seen the
+            first-time notice) are stored in this browser too, without the key.
+          </li>
+          <li>
             The create passcode is sent only to the relay, only when you start a session, and is never stored in your
             browser.
           </li>
           <li>
             The app is served by GitHub Pages and the relay runs on Cloudflare. Cloudflare keeps short-term request logs
             that can include the web address you connect to (which contains the session’s room code), your approximate
-            location and possibly your IP address. GitHub receives similar request details.
+            location and possibly your IP address. GitHub receives similar request details. When you send something to Anthropic with
+            your key, Anthropic receives the request and similar request details.
           </li>
           <li>
             This browser stores your theme choice, the last version whose notes you opened, the last name you joined with,
