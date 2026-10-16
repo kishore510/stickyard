@@ -35,8 +35,30 @@ describe("help topics", () => {
     ]) {
       expect(text, claim).toContain(claim);
     }
-    // Only what exists: no AI feature buttons yet.
-    expect(text).toContain("no ai feature buttons yet");
+    // Only what exists: Set up board from a prompt (v0.43.0) is the first AI feature.
+    expect(text).not.toContain("no ai feature buttons yet");
+  });
+
+  it("AI features (v0.43.0) covers Set up board from a prompt: what is sent, the preview, undo and the limits", () => {
+    const text = topicById("ai-features")?.text ?? "";
+    for (const claim of [
+      "set up board from a prompt",
+      "only the description you type",
+      "no board content, no names and no notes",
+      "1,000 characters",
+      "preview",
+      "add to board",
+      "nothing is added until",
+      "one undo removes all of it",
+      "at most 60 items",
+      "8 frames",
+      "140 characters",
+      "try again",
+      "locked board",
+      "silent round",
+    ]) {
+      expect(text, claim).toContain(claim);
+    }
   });
 
   it("every help: link points at a topic that exists", () => {

@@ -328,6 +328,10 @@ describe("About", () => {
       "never shared with the room, a board file, a stencil, a link or an error message",
       "stored unencrypted in this browser",
       "for this session only",
+      // AI part 2 (v0.43.0): Set up board from a prompt sends only the typed description.
+      "Set up board from a prompt sends only the description you type",
+      "no board content, no names and no notes",
+      "nothing is added to the board until you choose Add to board",
     ]) {
       expect(privacy, claim).toContain(claim);
     }
@@ -338,6 +342,8 @@ describe("About", () => {
     expect(privacy).not.toContain("don’t expire");
     // Before v0.42.0 the page talked only to GitHub Pages and the relay.
     expect(privacy).not.toMatch(/only (talks|connects) to the relay/i);
+    // Before v0.43.0 Test key was the only request.
+    expect(privacy).not.toContain("the only request so far is Test key");
   });
 
   it("has Privacy and Credits sections", async () => {
