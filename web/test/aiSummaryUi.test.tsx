@@ -277,6 +277,42 @@ describe("the pages", () => {
     expect(announcer()).toContain("Copied");
   });
 
+  it("Copy for documents puts formatted HTML and plain text on the clipboard, and says so", async () => {
+    const items: Record<string, Blob>[] = [];
+    class FakeClipboardItem {
+      constructor(readonly data: Record<string, Blob>) {
+        items.push(data);
+      }
+    }
+    vi.stubGlobal("ClipboardItem", FakeClipboardItem);
+    Object.defineProperty(navigator, "clipboard", { value: { write: () => Promise.resolve(), writeText: () => Promise.reject(new Error("not used")) }, configurable: true });
+    fakeAnthropic(replyWith(JSON.stringify({ ...RETRO_SUMMARY, overview: "Read <b>this</b> now." })));
+    await retroRoom();
+    await toResult();
+    await click(button("Copy for documents"));
+    await settle();
+    expect(items).toHaveLength(1);
+    expect(Object.keys(items[0]!).sort()).toEqual(["text/html", "text/plain"]);
+    const html = await items[0]!["text/html"]!.text();
+    expect(html).toContain("<h2>Overview</h2>");
+    expect(html).toContain("Read &lt;b&gt;this&lt;/b&gt; now.");
+    expect(await items[0]!["text/plain"]!.text()).toContain("Overview\nRead <b>this</b> now.");
+    expect(announcer()).toContain("Copied the summary for documents");
+  });
+
+  it("Copy for documents falls back to plain text where the browser can't copy formatting", async () => {
+    const writes: string[] = [];
+    Object.defineProperty(navigator, "clipboard", { value: { writeText: (t: string) => (writes.push(t), Promise.resolve()) }, configurable: true });
+    fakeAnthropic(replyWith(JSON.stringify(RETRO_SUMMARY)));
+    await retroRoom();
+    await toResult();
+    await click(button("Copy for documents"));
+    await settle();
+    expect(writes).toHaveLength(1);
+    expect(writes[0]).toContain("• Delivery (2 notes)");
+    expect(announcer()).toContain("Copied the summary as plain text");
+  });
+
   it("Cancel while waiting stops the request, says it may still be billed, adds nothing", async () => {
     let aborted = false;
     fakeAnthropic((signal) => {

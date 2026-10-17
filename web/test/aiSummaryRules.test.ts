@@ -9,7 +9,9 @@ import {
   summaryColour,
   summaryContent,
   summaryLimitReason,
+  summaryHtml,
   summaryMarkdown,
+  summaryPlainText,
   summaryReason,
   summaryRoomReason,
 } from "../src/ai/summaryRules";
@@ -24,7 +26,7 @@ import { RETRO_SUMMARY } from "./helpers/aiSummaryFake";
 
 /*
  * Summary and sentiment (10c, v0.44.0): who can use it and when (host only, never during a silent
- * round), the caps, what Add to board puts on the board, and Copy as Markdown.
+ * round), the caps, what Add to board puts on the board, Copy as Markdown and Copy for documents.
  */
 
 beforeEach(() => vi.useFakeTimers());
@@ -165,6 +167,50 @@ describe("Copy as Markdown", () => {
     expect(out).not.toMatch(/(^|[^\\])<img/);
     expect(out).toContain("\\<img");
     expect(out).toContain("\\[click\\]");
+  });
+});
+
+describe("Copy for documents", () => {
+  const at = new Date(2026, 9, 17, 9, 5);
+
+  it("HTML with real headings and lists, every part, escaped; no links, chips or refs", () => {
+    const { scope, result } = retro();
+    const html = summaryHtml(result, scope, at);
+    expect(html).toContain("<h1>AI summary (draft)</h1>");
+    expect(html).toContain("<p><em>Written by AI from short notes. Check it against the board.</em></p>");
+    expect(html).toContain("<p>Generated at 09:05 from 5 notes; the board may have changed since.</p>");
+    expect(html).toContain("<h2>Overview</h2>");
+    expect(html).toContain("<h2>Themes</h2><ul><li><strong>Delivery</strong> (2 notes): Shipping on time and pairing went well.</li>");
+    expect(html).toContain("<h2>Sentiment</h2><p>Overall: Mixed. Wins on delivery, friction in the process.</p><ul><li>Positive: 2</li>");
+    expect(html).toContain("<h3>By frame</h3><ul><li>Went well: Positive</li><li>To improve: Negative (Process friction.)</li></ul>");
+    expect(html).toContain("<h2>Possible actions</h2><ul><li>Trial a meeting-free afternoon.</li>");
+    for (const leak of ["Show note", "n1", "f1", "<a", "href"]) expect(html, leak).not.toContain(leak);
+  });
+
+  it("model and board text can't become markup: tags, entities and quotes are escaped", () => {
+    const { scope, result } = retro();
+    const evil = {
+      ...result,
+      overview: `<img src=x onerror=alert(1)> & "quoted" 'single' [link](https://example.com)`,
+      themes: [{ title: "<script>alert(1)</script>", summary: "</li></ul><h1>Fake</h1>", refs: [] }],
+    };
+    const evilScope = { ...scope, frames: scope.frames.map((f, i) => (i === 0 ? { ...f, title: "<b>Frame</b>" } : f)) };
+    const html = summaryHtml(evil, evilScope, at);
+    expect(html).not.toMatch(/<img|<script|<b>|<h1>Fake/);
+    expect(html).toContain("&lt;img src=x onerror=alert(1)&gt; &amp; &quot;quoted&quot; &#39;single&#39; [link](https://example.com)");
+    expect(html).toContain("&lt;script&gt;alert(1)&lt;/script&gt;");
+    expect(html).toContain("&lt;b&gt;Frame&lt;/b&gt;: Positive");
+  });
+
+  it("plain text for anything that takes no formatting: no Markdown marks", () => {
+    const { scope, result } = retro();
+    const text = summaryPlainText(result, scope, at);
+    expect(text.startsWith("AI summary (draft)\n")).toBe(true);
+    expect(text).toContain("Overview\n" + RETRO_SUMMARY.overview);
+    expect(text).toContain("• Delivery (2 notes): Shipping on time and pairing went well.");
+    expect(text).toContain("• Positive: 2");
+    expect(text).toContain("• Went well: Positive");
+    expect(text).not.toMatch(/[#*]|\\/);
   });
 });
 
