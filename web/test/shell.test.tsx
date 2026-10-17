@@ -332,6 +332,11 @@ describe("About", () => {
       "Set up board from a prompt sends only the description you type",
       "no board content, no names and no notes",
       "nothing is added to the board until you choose Add to board",
+      // AI part 3 (v0.44.0): Summarise board, host only, sends everyone's note text and frame titles.
+      "Only the host can use Summarise board",
+      "sends the text of everyone’s notes and the frame titles to Anthropic using the host’s own key",
+      "No names, authors, ids, colours, positions or votes are sent",
+      "The others in the session are not told",
     ]) {
       expect(privacy, claim).toContain(claim);
     }

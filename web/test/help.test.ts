@@ -61,6 +61,27 @@ describe("help topics", () => {
     }
   });
 
+  it("AI features (v0.44.0) covers Summarise board: host only, what is sent and what is not, accuracy, add-only", () => {
+    const text = topicById("ai-features")?.text ?? "";
+    for (const claim of [
+      "summarise board",
+      "only the host",
+      "silent round",
+      "note text and frame titles",
+      "no names, authors, ids, colours, positions or votes",
+      "written by everyone in this session",
+      "deeper analysis",
+      "check it against the board",
+      "add to board",
+      "only adds",
+      "copy as markdown",
+      "24,000 characters",
+      "never stored",
+    ]) {
+      expect(text, claim).toContain(claim);
+    }
+  });
+
   it("every help: link points at a topic that exists", () => {
     for (const topic of HELP_TOPICS) {
       for (const href of linksIn(topic.blocks)) {
