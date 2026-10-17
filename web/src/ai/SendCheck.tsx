@@ -37,6 +37,7 @@ export function SendCheck({
   onCancel,
   notice,
   extra = [],
+  blocked = null,
 }: {
   models: readonly AiModel[];
   /** What's sent, one bullet each. */
@@ -49,11 +50,15 @@ export function SendCheck({
   notice?: { seen: boolean; onSeen: () => void } | undefined;
   /** More lines for this request (v0.43.0: board setup's "using your key" and the reply's cap), after the size. */
   extra?: readonly string[];
+  /** Why this can't be sent (v0.44.0: the summary's caps): said under the size, and Send is off. */
+  blocked?: string | null;
 }) {
   const headingId = useId();
   const cancelRef = useRef<HTMLButtonElement>(null);
   useEffect(() => cancelRef.current?.focus(), []);
+  const blockedId = useId();
   const send = () => {
+    if (blocked !== null) return;
     if (notice && !notice.seen) notice.onSeen();
     onSend();
   };
@@ -85,11 +90,16 @@ export function SendCheck({
         <p key={line}>{line}</p>
       ))}
       <p>{WHERE_IT_GOES}</p>
+      {blocked !== null && (
+        <p id={blockedId} data-send-blocked="" className="font-medium text-status-error">
+          {blocked}
+        </p>
+      )}
       <div className="flex flex-wrap gap-sm">
         <Button ref={cancelRef} onClick={onCancel}>
           Cancel
         </Button>
-        <Button variant="primary" onClick={send}>
+        <Button variant="primary" disabled={blocked !== null} aria-describedby={blocked !== null ? blockedId : undefined} onClick={send}>
           Send
         </Button>
       </div>

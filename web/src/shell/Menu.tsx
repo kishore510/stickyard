@@ -1,4 +1,4 @@
-import { CircleHelp, Download, Info, Menu as MenuIcon, Upload, MessageCircle, QrCode, Settings, Sparkles, Users, WandSparkles, type LucideIcon } from "lucide-react";
+import { CircleHelp, ClipboardList, Download, Info, Menu as MenuIcon, Upload, MessageCircle, QrCode, Settings, Sparkles, Users, WandSparkles, type LucideIcon } from "lucide-react";
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
 import { useWhatsNew } from "../changelog/whatsNew";
 import { Button } from "../components/ui/button";
@@ -10,6 +10,7 @@ import { useExport } from "../export/exportStore";
 import { useImport } from "../importer/importStore";
 import { useSettings } from "../settings/settingsStore";
 import { useSetup } from "../ai/setupStore";
+import { useSummary } from "../ai/summaryStore";
 import type { Sheet } from "../router";
 import { openSheet } from "./nav";
 
@@ -19,6 +20,8 @@ interface MenuItem {
   /** A sheet to open, or an action. */
   sheet?: Sheet;
   action?: () => void;
+  /** Off with this reason (shown in the item and as its tooltip; still focusable). */
+  reason?: () => string | null;
 }
 
 /*
@@ -37,6 +40,8 @@ const SESSION_GROUP: MenuItem[] = [
   { label: "Import", icon: Upload, action: () => useImport.getState().show() },
   // v0.43.0: Set up board from a prompt (ai/SetupSheet.tsx); needs a board, so in a session only. Off with the reason inside the sheet.
   { label: "Set up board from a prompt", icon: WandSparkles, action: () => useSetup.getState().show() },
+  // v0.44.0: Summarise board (ai/SummarySheet.tsx); host only, off during a silent round, with the reason in the item.
+  { label: "Summarise board", icon: ClipboardList, action: () => useSummary.getState().show(), reason: () => useSummary.getState().gate },
 ];
 
 const GROUPS: MenuItem[][] = [
@@ -68,6 +73,8 @@ export function Menu() {
   const unseen = useWhatsNew((s) => s.unseen);
   const inRoom = useRoomUi((s) => s.room !== null);
   const unread = useUnread();
+  // Re-render when the summary's reason changes (items read it through `reason`).
+  useSummary((s) => s.gate);
   const groups = inRoom ? [SESSION_GROUP, ...GROUPS] : GROUPS;
   const buttonRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -115,6 +122,7 @@ export function Menu() {
   };
 
   const choose = (item: MenuItem) => {
+    if (item.reason?.()) return;
     setOpen(false);
     // Focus goes back to the menu button, so closing the sheet returns it there.
     buttonRef.current?.focus();
@@ -153,22 +161,34 @@ export function Menu() {
           {groups.map((group, g) => (
             <div key={g} role="group" className="flex flex-col">
               {g > 0 && <div role="separator" className="my-xs h-px bg-border" />}
-              {group.map((item) => (
+              {group.map((item) => {
+                const reason = item.reason?.() ?? null;
+                return (
                 <Button
                   key={item.label}
                   role="menuitem"
                   tabIndex={-1}
                   variant="ghost"
-                  className="justify-start"
+                  className={reason ? "h-auto min-h-touch justify-start py-xs text-fg-muted" : "justify-start"}
+                  aria-disabled={reason ? true : undefined}
+                  title={reason ?? undefined}
                   onClick={() => choose(item)}
                 >
                   <item.icon />
-                  <span className="flex-1 text-left">{item.label === "Chat" ? chatLabel(unread) : item.label}</span>
+                  <span className="flex flex-1 flex-col text-left">
+                    {item.label === "Chat" ? chatLabel(unread) : item.label}
+                    {reason && (
+                      <span data-menu-reason="" className="text-xs font-normal whitespace-normal">
+                        {reason}
+                      </span>
+                    )}
+                  </span>
                   {item.sheet?.kind === "changelog" && unseen && (
                     <span className="rounded-full bg-accent px-sm text-xs font-semibold text-accent-fg">New</span>
                   )}
                 </Button>
-              ))}
+                );
+              })}
             </div>
           ))}
         </Panel>

@@ -1,6 +1,6 @@
 # Phase plan: Stickyard
 
-Last updated: 16 October 2026 (10b AI: Board setup from a prompt; v0.43.0, web only, protocol v23, stored schema 14)
+Last updated: 17 October 2026 (10c AI: Summary and sentiment; v0.44.0, web only, protocol v23, stored schema 14)
 
 Draft roadmap. When a slice starts, rewrite its prompt against the real code (see the skeleton in PROJECT_BRIEF.md). Do not treat these notes as final prompts.
 
@@ -63,7 +63,7 @@ Draft roadmap. When a slice starts, rewrite its prompt against the real code (se
 | 8 Phone view | Simplified phone participant view (QR join done separately in v0.32.0); whether it's worth a slice is decided from the v0.32.0 phone audit | Not started |
 | 10 AI, 10a Settings and key (part 1 of 4) | Settings in the menu (every screen) with AI (your own key): save, test, replace and remove an Anthropic API key, kept for this session only or remembered on this device after a warning; the browser's own client (plain fetch to api.anthropic.com, streaming, no-data timeout, cancel, no automatic retry), one error table, one redaction module, the reusable check-before-sending page. Test key (count_tokens, free) is the only call to Anthropic; no AI feature button. Web only, no protocol, relay or stored-schema change | Done (v0.42.0, web only, PR #66, merged and deployed 16 October 2026) |
 | 10 AI, 10b Board setup from a prompt (part 2 of 4) | Set up board from a prompt (menu in a session, and the empty board): a typed description (the only user content sent) to the large model with structured JSON output, streamed with a no-data timeout and Cancel; the reply validated as untrusted (caps 60 items, 8 frames, 140-character notes, palette keys; fix-ups listed), re-laid out by a fixed rule when untidy; a preview by frame; Add to board through the Import path at the nearest free spot as one undo step, frames carrying their notes. Web only, no protocol, relay or stored-schema change | Done (v0.43.0, web only, PR #67, merged and deployed 16 October 2026) |
-| 10 AI, 10c Summary and sentiment (part 3 of 4) | Summary and sentiment of board content, explicit buttons, add-only output, content treated as data. No protocol bump expected | Not started |
+| 10 AI, 10c Summary and sentiment (part 3 of 4) | Summarise board, host only and off during a silent round: note text and frame titles (grouped by frame membership, stand-in refs, no names or ids) to the small model (Deeper analysis: the large one) with structured JSON output, streamed with a no-data timeout and Cancel; the reply validated as untrusted, counts computed by the page; a text-only result with Show note chips, Copy as Markdown, and Add to board (one frame of notes through the paced add path, one undo step). Web only, no protocol, relay or stored-schema change | Done (v0.44.0, web only, branch `phase-ai-summary`; not merged yet) |
 | 10 AI, 10d Iterative edits (part 4 of 4) | Ask for changes to what AI added, add-only and undoable. No protocol bump expected | Not started |
 | Later | Yjs migration, anonymous mode, PWA | Parked |
 
@@ -398,6 +398,12 @@ Draft roadmap. When a slice starts, rewrite its prompt against the real code (se
 - `web/src/ai/`: `setupPrompt.ts` (the fixed system prompt, the JSON schema, the request: `claude-sonnet-5-5`, streaming, `output_config` with `effort: "low"` and the schema, `max_tokens` 12,200 from the 60-item cap, 120 s no-data timeout; typed `<description>` tags stripped), `setupParse.ts` (fences stripped, JSON.parse, the board-file item checks and caps, fix-ups listed, the fixed re-layout), `setupPlace.ts` (nearest free rectangle to the view centre, else below the lowest item, clamped), `setupRules.ts` (Import's reasons plus a full board; the page's text), `setupStore.ts`, `SetupSheet.tsx` (the pages, the empty-board prompt, the announcers). The client gained `schema` and `effort` (output_config). `RoomSession.placeSetup` reuses `placeContent` (Import's), which now returns the new local ids so the result can be selected.
 - Differences from the prompt: there was no empty-board state, so a small one was added (only while nothing is on the board); the first-time notice and the check page are 10a's, with an `extra` lines prop for "using your key" and the reply's token cap; Retry after an error goes back through the check page (a paid request), unlike Test key's; a note's size isn't in the reply (every generated note is 160 x 160); the shared cleaner removes zero-width joiners, so emoji joined by one show as their parts (as for typed text). See docs/architecture/ai.md.
 
+### 10c Summary and sentiment (web only) — done, v0.44.0
+- Branch `phase-ai-summary` (also pushed to the session's assigned branch), off `main` with 10a and 10b merged, tests first (red commit, then green). Protocol 23 and schema 14 unchanged; nothing AI-related on the WebSocket.
+- Decisions (17 October 2026): host only (it sends everyone's notes under one key, and the others don't see it happen), off during a silent round, read-only until Add to board, small model by default with a Deeper analysis switch, never stored.
+- `web/src/ai/`: `summaryScope.ts` (what is sent: note text and frame titles grouped by `frameMembers`, loose notes in "loose", refs f1/n1..., sealed notes never, `<` escaped), `summaryPrompt.ts` (fixed system prompt, schema, request: Haiku 5.5 effort low or Sonnet 5.5 effort medium, `max_tokens` from the caps and the scope, 90 s no-data timeout), `summaryParse.ts` (validation, fix-ups listed, counts by the page), `summaryRules.ts` (gating, caps, texts, the added frame, Markdown), `summaryStore.ts` (open, the menu's reason, the result in memory, stale), `SummarySheet.tsx`. `RoomSession.placeSummary` reuses `placeContent`; `SendCheck` gained `blocked`; the menu gained items that are off with a reason.
+- Differences from the prompt: see docs/architecture/ai.md "Summary and sentiment".
+
 ## Open questions
 
 - Stickyard name availability
@@ -463,6 +469,8 @@ Draft roadmap. When a slice starts, rewrite its prompt against the real code (se
 - Follow: a person on a phone (or a hidden tab) never sends a view, and the page can't tell who is on a phone, so following them waits forever with "Waiting for Sam's view." Telling the page (a `compact` flag on the participant) needs a protocol change.
 - Follow: a leader whose tab was hidden sends nothing on return until their view next moves (the session doesn't re-send on `visibilitychange`); a follower waits until then.
 - Add a Content-Security-Policy (connect-src for the Worker, wss and api.anthropic.com). None exists today (checked for 10a, v0.42.0); GitHub Pages can't send headers, so it would be a `<meta http-equiv>` in `index.html`, tested against every route and the shots.
+- AI (10c, v0.44.0): nothing tells the room when the host sends the board to AI (that would need a protocol change: a relayed notice); today only the join screen's line says the host can.
+- AI (10c, v0.44.0): Show note selects the note and moves the view only when it's off screen (the existing reveal), rather than always centring it.
 - AI (10b, v0.43.0): the model's own layout is kept only when it's complete and tidy; otherwise a fixed grid is used. A smarter fix-up (moving only what overlaps) could keep more of the model's intent.
 - AI (10a, v0.42.0): a second tab doesn't see a key saved or removed in another tab until it reloads (the key is read at the moment of a send, so a removed remembered key is gone for both; only the status line is stale). A `storage` event listener would fix the display.
 - Participants lists nobody while not connected, so Follow's "Not connected." reason only shows in the moment between a drop and the list emptying.

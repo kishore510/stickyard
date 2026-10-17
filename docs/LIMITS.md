@@ -336,6 +336,13 @@ Web only; nothing new on the relay, no new message type, no Worker involvement.
 - *Relay and Worker:* one board setup is an ordinary add: frames and notes in `itemsAdd` messages (at most 60 items, so one or two messages), the same rows as Import or a stencil of that size. The model's reply never reaches the relay; only what Add to board places does.
 - *Anthropic:* billed to the key's owner, one request per Send (Retry and Try again are new requests). Input is the fixed system prompt (about 1,800 characters) and the schema (about 900), roughly 1,000 tokens with the API's own structured-output instructions (an estimate; the preview shows the real count), plus the description (at most 1,000 characters). Output is capped at `max_tokens` 12,200 (5,000 for the JSON's keys and the model's thinking at low effort, plus 120 per item for 60 items); a typical retro reply is far smaller. Claude Sonnet 5.5 is $2 / $10 per million input / output tokens, so even a reply at the cap costs about 12 cents. The preview shows the tokens actually used.
 
+## AI, 10c Summary and sentiment (v0.44.0): what it costs
+
+Web only; nothing new on the relay, no new message type, no Worker involvement.
+
+- *Relay and Worker:* reading the board for a summary costs nothing (it's the page's own copy). Add to board is an ordinary add: one frame and at most 14 notes (overview, 6 themes, 6 actions, sentiment) in one `itemsAdd`. The model's reply never reaches the relay; only what Add to board places does.
+- *Anthropic:* billed to the host's key, one request per Send (Retry and Try again are new requests). Input is the fixed system prompt (about 2,100 characters), the schema and the board's text: at most 200 notes and 24,000 characters (about 8,000 tokens by the page's estimate of characters ÷ 3). Output is capped by `max_tokens` = thinking allowance (4,000; Deeper analysis 10,000) + 800 + 3,480 for the text caps + 30 per note + 150 per frame: 18,780 (Deeper 24,780) for a full board of 200 notes and 30 frames. Claude Haiku 5.5 is $0.10 / $0.50 per million input / output tokens (prompts up to 100K tokens), so a full board costs about 1 cent at the cap; with Deeper analysis (Claude Sonnet 5.5, $2 / $10) about 27 cents at the cap. The result shows the tokens actually used.
+
 ## Hardening findings (v0.39.1)
 
 The basic hardening pass, measured on 14 October 2026 against a local `wrangler dev` only (fake secrets, a fake room-signing key, throwaway storage; never the deployed Worker). Rerun with `npm run load` (correctness, below) and the worker test `worker/test/budget.test.ts` (rows). The machine was a shared cloud container, with the clients and `wrangler dev` on the same CPU: **message counts, rows and correctness are reliable; every time below is rough**.

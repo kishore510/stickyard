@@ -79,7 +79,7 @@ describe("Add to board", () => {
   });
 
   it("refused up front with nothing sent when the board has no room", () => {
-    const full = Array.from({ length: MAX_NOTES_PER_ROOM - 6 }, (_, i) => note(i + 1, { x: (i % 20) * 200, y: 3000 + Math.floor(i / 20) * 200 }));
+    const full = Array.from({ length: MAX_NOTES_PER_ROOM - 6 }, (_, i) => note(i + 1, { x: (i % 20) * 170, y: 1500 + Math.floor(i / 20) * 170 }));
     const t = room([...full, ...RETRO_NOTES.map((n, i) => ({ ...n, id: nid(500 + i) })).slice(0, 3)], RETRO_FRAMES);
     t.relay.received.length = 0;
     const content = contentFor(t);

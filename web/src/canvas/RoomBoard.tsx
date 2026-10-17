@@ -31,7 +31,7 @@ import { SidePanel } from "../panels/SidePanel";
 import { PropertiesContent } from "../properties/PropertiesPanel";
 import { connectionMessage } from "../rooms/connectionText";
 import type { OrphanDraft } from "../rooms/resync";
-import type { DeleteReport, ReconnectView, RoomView } from "../rooms/session";
+import type { DeleteReport, PlacedIds, ReconnectView, RoomView } from "../rooms/session";
 import { cn } from "../lib/utils";
 import type { useRoom } from "../rooms/useRoom";
 import { MEDIA } from "../styles/breakpoints";
@@ -93,6 +93,9 @@ import { EmptyBoardSetup, SetupAnnouncer, SetupSheet } from "../ai/SetupSheet";
 import { useSetup } from "../ai/setupStore";
 import { setupReason } from "../ai/setupRules";
 import { findSetupPlace } from "../ai/setupPlace";
+import { SummaryAnnouncer, SummarySheet } from "../ai/SummarySheet";
+import { summaryAddReason, summaryReason } from "../ai/summaryRules";
+import { useSummary } from "../ai/summaryStore";
 import { UNDO_TEXT } from "../rooms/session";
 
 /*
@@ -327,6 +330,23 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
   );
   // Board setup from a prompt (v0.43.0): Import's reasons; checked again at Add to board (the sheet gets them live).
   const setupGate = setupReason({ live, lockedOut: locked, silent: silentOn, busy: view.adding || view.template?.state === "applying" });
+  // Summary and sentiment (v0.44.0): the host only, never during a silent round; published for the menu.
+  const summaryGate = summaryReason({ live, isHost, silent: silentOn });
+  const summaryAddGate = summaryAddReason({ live, isHost, lockedOut: locked, silent: silentOn, busy: view.adding || view.template?.state === "applying" });
+  useEffect(() => useSummary.getState().setGate(summaryGate), [summaryGate]);
+  // A reconnect, losing the host or a silent round starting while a summary is coming (or held) means it can't be added.
+  useEffect(() => {
+    if (!live) useSummary.getState().invalidate("reconnect");
+  }, [live]);
+  useEffect(() => {
+    if (!isHost) useSummary.getState().invalidate("host");
+  }, [isHost]);
+  useEffect(() => {
+    if (silentOn) useSummary.getState().invalidate("silent");
+  }, [silentOn]);
+  // The summary is this room's: dropped when the board goes (memory only, never stored).
+  useEffect(() => () => useSummary.getState().reset(), []);
+  const summaryUsed = useMemo(() => ({ notes: view.totalNotes, frames: view.board.frames.length }), [view.totalNotes, view.board.frames.length]);
   const boardEmpty = live && view.synced && view.totalNotes + view.board.frames.length + view.board.shapes.length + view.board.connectors.length === 0;
   const stencilReason = stencilBaseReason({ live, lockedOut: locked, silent: silentOn }) ?? (view.adding || view.template?.state === "applying" ? UNDO_TEXT.busy : null);
   const savedStencils = useStencils((s) => s.loaded.stencils);
@@ -442,17 +462,18 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
   const placeImport = useCallback((content: ImportContent) => latest.current.room.importBoard(content, canvas.centre()), [canvas]);
 
   /**
-   * Board setup from a prompt (v0.43.0): the nearest free spot to the view centre (ai/setupPlace.ts),
-   * through the Import path as one undo step; the result is selected, and the view moves to it only
-   * if it isn't all on screen (animated, or not with reduced motion).
+   * Board setup from a prompt (v0.43.0) and the AI summary (v0.44.0): the nearest free spot to the
+   * view centre (ai/setupPlace.ts), through the Import path as one undo step; the result is
+   * selected, and the view moves to it only if it isn't all on screen (animated, or not with
+   * reduced motion).
    */
-  const placeSetup = useCallback(
-    (content: ImportContent) => {
-      const { view: v, room: r } = latest.current;
+  const placeAi = useCallback(
+    (content: ImportContent, put: (content: ImportContent, origin: XY) => PlacedIds | null) => {
+      const { view: v } = latest.current;
       const { width, height } = stencilBounds(content);
       const items = boardItems(v.board).map((i) => ({ x: i.x, y: i.y, w: i.w ?? 0, h: i.h ?? 0 }));
       const origin = findSetupPlace({ width, height }, items, canvas.centre());
-      const ids = r.placeSetup(content, origin);
+      const ids = put(content, origin);
       if (!ids) return false;
       useBoardUi.getState().setSelections(new Set(ids.notes), new Set(ids.frames), new Set(ids.shapes), new Set(ids.connectors));
       const box = { x: origin.x, y: origin.y, w: width, h: height };
@@ -461,6 +482,8 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
     },
     [canvas],
   );
+  const placeSetup = useCallback((content: ImportContent) => placeAi(content, latest.current.room.placeSetup), [placeAi]);
+  const placeSummary = useCallback((content: ImportContent) => placeAi(content, latest.current.room.placeSummary), [placeAi]);
 
   const placeStencil = useCallback(
     (stencil: Stencil, at?: XY) => {
@@ -847,6 +870,8 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
         <ImportAnnouncer />
         {/* Board setup from a prompt (v0.43.0): an added set-up, once its sheet has closed, politely. */}
         <SetupAnnouncer />
+        {/* Summary and sentiment (v0.44.0): an added summary, once its sheet has closed, politely. */}
+        <SummaryAnnouncer />
         <ConnectorDrawHint />
       </>
     ),
@@ -1031,6 +1056,7 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
                 exportHidden,
                 importReason: importGate,
                 openImport: () => useImport.getState().show(),
+                summaryReason: summaryGate,
                 silent: silentOn,
                 silentRound: { silent: view.silent, mine: view.mySealed.size },
               }}
@@ -1043,6 +1069,7 @@ function BoardArea({ view, room, editing, onRejoin }: RoomBoardProps) {
       <ExportSheet board={view.board} results={resultRows} viewport={exportViewport} silent={silentOn} hidden={exportHidden} share={!wide} />
       <ImportSheet reason={importGate} used={importUsed} place={placeImport} />
       <SetupSheet reason={setupGate} used={importUsed} place={placeSetup} />
+      <SummarySheet board={view.board} hidden={view.mySealed} gate={summaryGate} addReason={summaryAddGate} used={summaryUsed} place={placeSummary} />
       {!wide && <AddDrawer host={paletteHost} open={addSheetOpen} onClose={() => useBoardUi.getState().setAddSheetOpen(false)} />}
     </div>
   );

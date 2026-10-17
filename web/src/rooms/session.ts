@@ -211,6 +211,7 @@ import { stencilBounds, type Stencil, type StencilArrow } from "../stencils/data
 import { STENCIL_TEXT, type StencilCap } from "../stencils/rules";
 import { IMPORT_TEXT, type ImportContent } from "../importer/parse";
 import { SETUP_TEXT } from "../ai/setupRules";
+import { SUMMARY_TEXT } from "../ai/summaryRules";
 import { DUPLICATE_HINTS, DUPLICATE_OFFSET, duplicateFrameInput, duplicateNoteInputs, duplicateSelectionInputs } from "../canvas/duplicate";
 import { HISTORY_TEXT, History, type Fields, type ItemKind, type Lookup, type Plan } from "../history/history";
 import type { CodeCheck } from "./api";
@@ -3664,7 +3665,18 @@ export class RoomSession {
   }
 
   /**
-   * placeStencil, importBoard and placeSetup: `stack` (refs, bottom first) orders the notes and
+   * Summary and sentiment (v0.44.0, ai/summaryRules.ts): the summary's one frame and its notes,
+   * add-only, through the same path as board setup, with the top-left at `origin` (ai/setupPlace.ts
+   * found a free spot). The frame goes first, so it carries its notes. One history step ("AI
+   * summary"). Refused up front as Import is, nothing sent. The new items' local ids, or null.
+   */
+  placeSummary(content: ImportContent, origin: { x: number; y: number }): PlacedIds | null {
+    const { width, height } = stencilBounds(content);
+    return this.placeContent(content, { x: origin.x + width / 2, y: origin.y + height / 2 }, { label: "AI summary", stack: content.stack, noRoom: (fails) => SUMMARY_TEXT.noRoom(fails) });
+  }
+
+  /**
+   * placeStencil, importBoard, placeSetup and placeSummary: `stack` (refs, bottom first) orders the notes and
    * shapes, else notes then shapes. The new items' local ids, or null when refused.
    */
   private placeContent(

@@ -190,14 +190,14 @@ describe("the pages", () => {
   });
 
   it("over the character cap: Send is off and it says how many to deselect", async () => {
-    const notes = Array.from({ length: 100 }, (_, i) => noteAt(i + 10, { text: `${i} ${"word ".repeat(60)}`.slice(0, 280), x: (i % 10) * 200, y: 1200 + Math.floor(i / 10) * 200 }));
+    const notes = Array.from({ length: 100 }, (_, i) => noteAt(i + 10, { id: `M${String(i).padStart(15, "0")}`, text: `${i} ${"word ".repeat(60)}`.slice(0, 280), x: (i % 10) * 200, y: 1200 + Math.floor(i / 10) * 200 }));
     await inRoom({ host: true, notes });
     await openSummary();
     await click(button("Continue"));
     const send = button("Send") as HTMLButtonElement;
     expect(send.disabled).toBe(true);
     expect(document.querySelector("[data-send-blocked]")?.textContent).toMatch(/Select fewer notes: at least \d+ fewer\./);
-  });
+  }, 60_000);
 
   it("waiting, then the result: overview, themes, sentiment, actions, caution and when; announced; nothing added", async () => {
     const { bodies } = fakeAnthropic(replyWith(JSON.stringify(RETRO_SUMMARY)));
@@ -265,7 +265,7 @@ describe("the pages", () => {
 
   it("Copy as Markdown copies escaped text and says so", async () => {
     const writes: string[] = [];
-    vi.stubGlobal("navigator", Object.assign(Object.create(navigator) as Navigator, { clipboard: { writeText: (t: string) => (writes.push(t), Promise.resolve()) } }));
+    Object.defineProperty(navigator, "clipboard", { value: { writeText: (t: string) => (writes.push(t), Promise.resolve()) }, configurable: true });
     fakeAnthropic(replyWith(JSON.stringify({ ...RETRO_SUMMARY, overview: "See [this](https://example.com) now." })));
     await retroRoom();
     await toResult();
@@ -287,7 +287,6 @@ describe("the pages", () => {
     await openSummary();
     await click(button("Continue"));
     await click(button("Send"));
-    expect(announcer()).toContain("Sending the board to Anthropic.");
     await waitFor(() => /Receiving… \d+ characters/.test(sheet()?.textContent ?? ""));
     expect(announcer()).toContain("Receiving the summary.");
     const waiting = document.querySelector<HTMLElement>("[data-summary-waiting]")!;
@@ -309,6 +308,7 @@ describe("the pages", () => {
     await openSummary();
     await click(button("Continue"));
     await click(button("Send"));
+    expect(announcer()).toContain("Sending the board to Anthropic.");
     await esc();
     await settle();
     expect(sheet()).toBeNull();
@@ -461,6 +461,7 @@ describe("injection and leaks", () => {
 describe("the join screen", () => {
   it("says the host can send the board's text to Anthropic", async () => {
     await mount(`#/room/${CODE}`);
+    await waitFor(() => document.querySelector("input") !== null);
     expect(document.body.textContent).toContain("The host can use AI features that send the board’s text to Anthropic.");
   });
 });

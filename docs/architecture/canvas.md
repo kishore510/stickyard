@@ -106,3 +106,6 @@ Architecture notes, moved out of CLAUDE.md on 7 October 2026 so they load only w
 
 ## Board setup on the canvas (v0.43.0)
 - The empty board shows a small prompt (`EmptyBoardSetup`, centred on the canvas, clear of the notice strips; only the card takes pointer input) with Set up board from a prompt while there are no notes (hidden ones included), frames, shapes or arrows. After Add to board the new items are selected and the view moves to them only when they aren't all on screen (`canvas.visible`, then `canvas.zoomTo`). Detail in ai.md "Board setup from a prompt".
+
+## Summary and sentiment (v0.44.0)
+- Summary and sentiment (v0.44.0): Properties' board summary (nothing selected) has an AI summary section (`SummarySection`, `data-summary-open`), off with the reason as text for anyone but the host and during a silent round. `RoomBoard` publishes the reason to `summaryStore` for the menu, watches live / host / silent round to mark a pending or held summary stale, and drops the summary when the board unmounts. Its Show note chips use `requestReveal` (select, and move the view only if the note is off screen). Placement shares board setup's `placeAi` (nearest free spot). Detail in ai.md.

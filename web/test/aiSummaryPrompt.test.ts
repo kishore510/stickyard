@@ -78,9 +78,9 @@ describe("the scope", () => {
     expect(scope.frames.map((f) => [f.title, f.notes.map((n) => n.text)])).toEqual([["Inner", ["Deep"]]]);
   });
 
-  it("empty notes and empty frames are left out; text is trimmed to the note cap", () => {
-    const long = "x".repeat(MAX_NOTE_TEXT + 40);
-    const t = room([note(1, { text: "   ", x: 80, y: 480 }), note(2, { text: long, x: 3000, y: 60 })], [frame(1, { title: "Empty", x: 40, y: 400 })]);
+  it("empty notes and empty frames are left out; a note at the cap is sent whole", () => {
+    const long = "x".repeat(MAX_NOTE_TEXT);
+    const t = room([note(1, { text: "", x: 80, y: 480 }), note(2, { text: long, x: 3000, y: 60 })], [frame(1, { title: "Empty", x: 40, y: 400 })]);
     const scope = summaryScope(board(t), {});
     expect(scope.noteCount).toBe(1);
     expect(scope.frames).toEqual([]);

@@ -162,7 +162,8 @@ describe("Copy as Markdown", () => {
     const evil = { ...result, overview: "[click](https://example.com) <img src=x onerror=alert(1)> # heading" };
     const out = summaryMarkdown(evil, scope, new Date(2026, 9, 17, 9, 5));
     expect(out).not.toContain("[click](");
-    expect(out).not.toContain("<img");
+    expect(out).not.toMatch(/(^|[^\\])<img/);
+    expect(out).toContain("\\<img");
     expect(out).toContain("\\[click\\]");
   });
 });

@@ -36,6 +36,7 @@ import type { GroupColor } from "@stickyard/shared";
 import { CONNECTOR_TEXT } from "../connectors/rules";
 import { useConnectorUi } from "../connectors/connectorUi";
 import type { ConnectorPatch } from "../connectors/board";
+import { SummarySection } from "../ai/SummarySheet";
 
 /*
  * The Properties panel's content (md and up, inside the SidePanel frame), laid out like
@@ -114,6 +115,8 @@ export interface PropertiesRoom {
   /** Import (v0.40.0): why it can't run now (null: it can), and what opens its sheet. */
   importReason?: string | null;
   openImport?: () => void;
+  /** Summary and sentiment (v0.44.0): why this page can't send the board (absent: no section). */
+  summaryReason?: string | null;
   /** A silent round is running (v0.27.0): Clear board and Export are off. */
   silent?: boolean;
   /** The silent round and my sealed notes in it (absent: none): the count says how many are hidden. */
@@ -224,6 +227,7 @@ function Summary({ room }: { room: PropertiesRoom }) {
         )}
       </div>
       {room.openImport && <ImportSection reason={room.importReason ?? null} open={room.openImport} />}
+      {room.summaryReason !== undefined && <SummarySection reason={room.summaryReason} />}
       {room.exportViewport && <ExportSection board={room.board} results={room.results ?? null} viewport={room.exportViewport} silent={room.silent ?? false} {...(room.exportHidden ? { hidden: room.exportHidden } : {})} />}
       {room.isHost && room.endSession && (
         <div className="flex flex-col gap-xs border-t border-border pt-md">
