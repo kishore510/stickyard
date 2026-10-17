@@ -138,6 +138,7 @@ export function useRoom(code: string) {
     placeStencil: (stencil: Stencil, centre: { x: number; y: number }) => session.current?.placeStencil(stencil, centre) ?? false,
     importBoard: (content: ImportContent, centre: { x: number; y: number }) => session.current?.importBoard(content, centre) ?? false,
     placeSetup: (content: ImportContent, origin: { x: number; y: number }) => session.current?.placeSetup(content, origin) ?? null,
+    placeSummary: (content: ImportContent, origin: { x: number; y: number }) => session.current?.placeSummary(content, origin) ?? null,
     startSelectionDrag: (frameIds: readonly string[], noteIds: readonly string[], carry: boolean, shapeIds: readonly string[] = []) =>
       session.current?.startSelectionDrag(frameIds, noteIds, carry, shapeIds) ?? false,
     applyFrameRects: (rects: readonly (NoteRect & { id: string })[]) => session.current?.applyFrameRects(rects) ?? false,

@@ -2,6 +2,21 @@
 
 All notable changes to Stickyard, newest first. The format follows Keep a Changelog. Versions are 0.x: a minor bump for each slice and a patch bump for each follow-up fix. This file is shown in the app under **What’s new**, so entries are written for the people using it.
 
+## [0.44.0] - 2026-10-17
+
+### Added
+- **Summarise board**, for the host. It asks Anthropic for a short summary of the board: an overview, up to 6 themes, the sentiment (overall, and a label for each frame) and up to 6 possible actions. It's in the menu during a session, and in Properties when nothing is selected.
+- Summarise the whole board, or just what's selected (the selected notes and the notes in the selected frames). **Deeper analysis** uses the larger model (Claude Sonnet 5.5) instead of Claude Haiku 5.5.
+- Before anything is sent you see the model and exactly what goes: only note text and frame titles, grouped by frame. No names, authors, ids, colours, positions or votes. It reminds you that these notes were written by everyone in the session and go to Anthropic using your key. At most 200 notes and 24,000 characters at a time; over that, it says how many notes to deselect.
+- **The result is text only**, with a reminder that it's written by AI from short notes and should be checked against the board, and when it was made. The sentiment counts are worked out by the page from each note's label. **Show note** selects a note a theme or action is based on and shows it on the board. **Copy for documents** copies it with real headings and lists, ready to paste into a document such as Word; **Copy as Markdown** copies it for tools that read Markdown. It's kept only while the page is open.
+- **Add to board** is a separate step: one frame, “AI summary (draft)”, next to what's already there, with a note for the overview, each theme, each action and the sentiment. It only adds, and one **Undo** removes all of it.
+
+### Changed
+- Only the host can send the board to AI. Everyone else sees **Summarise board** off with the reason, and it's off for everyone during a silent round. The join screen now says the host can use AI features that send the board's text to Anthropic.
+- If the connection drops, you stop being the host or a silent round starts while a summary is coming, it's still shown but **Add to board** stays off, saying why.
+- Help (AI features) and About > Privacy describe what Summarise board sends.
+- No reload needed: nothing changed in how the page talks to the relay.
+
 ## [0.43.0] - 2026-10-16
 
 ### Added

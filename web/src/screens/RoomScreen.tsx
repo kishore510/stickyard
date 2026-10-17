@@ -183,7 +183,7 @@ function NameSheet({
         </div>
         <p id={`${id}-notice`} className="rounded-md bg-surface-muted p-ms text-sm">
           Names aren’t verified: anyone with the link can join, and anyone can type any name. Up to {MAX_NAME_LENGTH}{" "}
-          characters. Everyone in the session sees your name.
+          characters. Everyone in the session sees your name. The host can use AI features that send the board’s text to Anthropic.
         </p>
         <Button type="submit" variant="primary" className="self-start" disabled={busy}>
           Join

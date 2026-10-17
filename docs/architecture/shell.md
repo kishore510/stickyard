@@ -55,3 +55,6 @@ Architecture notes, moved out of CLAUDE.md on 7 October 2026 so they load only w
 ## Settings in the menu (v0.42.0)
 - The menu's last group gains **Settings** before About Stickyard, on every screen (start page, room, no room joined). It opens `settings/SettingsSheet.tsx` (`SettingsSheetHost`, mounted in `App` after `ShareSheetHost`; open state in `settings/settingsStore.ts`, memory only), store-driven like Share session, not a hash route. One section for now, AI (your own key); details in ai.md. `Sheet`'s body has `data-sheet-body` (pages inside a sheet scroll it back to the top).
 - Storage keys: `STORAGE_KEYS.aiKey` (`stickyard:ai-key`, only after "Remember on this device"; listed in `SECRET_STORAGE_KEYS`) and `STORAGE_KEYS.aiPrefs` (`stickyard:ai-prefs`). About > Privacy and the Help topic `ai-features` (order 14) describe them.
+
+## Summary and sentiment (v0.44.0)
+- Summary and sentiment (v0.44.0): menu items can be off with a reason (`MenuItem.reason`): `aria-disabled` (still focusable), the reason as the tooltip and as a second line in the item, and pressing it does nothing. Used by Summarise board (host only, not in a silent round). The join screen's names notice adds "The host can use AI features that send the board’s text to Anthropic." (static text). Detail in ai.md "Summary and sentiment".

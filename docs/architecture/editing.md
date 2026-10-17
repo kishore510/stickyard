@@ -32,3 +32,6 @@ Architecture notes, moved out of CLAUDE.md on 7 October 2026 so they load only w
 
 ## Board setup is an add run (v0.43.0)
 - Set up board from a prompt places through Import's `placeContent` (one history step, "Board setup"; frames before notes so frames carry their notes). `placeContent` now returns the new items' local ids (`PlacedIds`) instead of a boolean, so the page can select them; `placeStencil` and `importBoard` still return booleans. Detail in ai.md "Board setup from a prompt".
+
+## Summary and sentiment (v0.44.0)
+- Summary and sentiment (v0.44.0): `RoomSession.placeSummary` places the summary's one frame and its notes through `placeContent` (one history step, "AI summary"; the frame first so it carries its notes). Detail in ai.md "Summary and sentiment".

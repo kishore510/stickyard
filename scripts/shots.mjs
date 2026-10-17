@@ -172,6 +172,26 @@ const SETUP_SHOT_REPLY = {
   ],
 };
 
+/** Summary and sentiment (v0.44.0): a canned, generic reply for the result shot (refs the page doesn't know are dropped and listed). */
+const SUMMARY_SHOT_REPLY = {
+  overview: "The team is broadly positive about delivery and pairing, with some friction around meetings and unclear tickets.",
+  themes: [
+    { title: "Delivery", summary: "Work shipped on time and pairing helped.", noteRefs: ["n1", "n2"] },
+    { title: "Process friction", summary: "Meetings and ticket quality slowed things down.", noteRefs: ["n3"] },
+  ],
+  sentiment: {
+    overall: "mixed",
+    reason: "Good delivery, some friction in the process.",
+    notes: [
+      { ref: "n1", label: "positive" },
+      { ref: "n2", label: "positive" },
+      { ref: "n3", label: "negative" },
+    ],
+    frames: [{ ref: "f1", label: "positive", reason: null }],
+  },
+  actions: [{ text: "Agree a ticket template before planning.", noteRefs: ["n3"] }],
+};
+
 /** A reply's text as the API's SSE stream (message_start, text deltas, message_delta, message_stop). */
 function setupStream(text) {
   const sse = (event, data) => `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
@@ -482,7 +502,57 @@ async function main() {
           setupReply = null;
           await page.keyboard.press("Escape");
           await page.waitForTimeout(200);
+          // Summary and sentiment (v0.44.0): the host's sheet, the check page, a canned result and the
+          // unreadable-reply error; nothing is added. Then a guest's menu with the entry off and its reason.
+          await page.getByRole("button", { name: /^Menu/ }).click();
+          await page.getByRole("menuitem", { name: /^Summarise board/ }).click();
+          await page.locator("[data-summary-sheet]").waitFor({ timeout: 5_000 });
+          await page.waitForTimeout(300);
+          await shot("summary");
+          await page.locator("[data-summary-sheet]").getByRole("button", { name: "Continue", exact: true }).click();
+          await page.locator("[data-send-check]").waitFor({ timeout: 5_000 });
+          await page.waitForTimeout(300);
+          await shot("summary-check");
+          setupReply = JSON.stringify(SUMMARY_SHOT_REPLY);
+          await page.locator("[data-summary-sheet]").getByRole("button", { name: "Send", exact: true }).click();
+          await page.locator("[data-summary-result]").waitFor({ timeout: 10_000 });
+          await page.waitForTimeout(300);
+          await shot("summary-result");
+          await page.locator("[data-summary-sheet]").getByRole("button", { name: "Try again", exact: true }).click();
+          await page.locator("[data-summary-sheet]").getByRole("button", { name: "Continue", exact: true }).click();
+          setupReply = "Here is a summary in prose instead.";
+          await page.locator("[data-summary-sheet]").getByRole("button", { name: "Send", exact: true }).click();
+          await page.locator("[data-summary-error]").waitFor({ timeout: 10_000 });
+          await page.waitForTimeout(300);
+          await shot("summary-error");
+          setupReply = null;
+          await page.keyboard.press("Escape");
+          await page.waitForTimeout(200);
           if (anthropicCalls > 0) throw new Error(`the shots called api.anthropic.com at ${size.name} ${theme}`);
+          {
+            const guestContext = await browser.newContext({ viewport: { width: size.width, height: size.height }, colorScheme: theme, hasTouch: size.width < 768 });
+            await guestContext.addInitScript((theme) => {
+              localStorage.setItem("stickyard:theme", theme);
+              localStorage.setItem("stickyard:name", "Sam");
+            }, theme);
+            await guestContext.route("https://api.anthropic.com/**", (route) => {
+              anthropicCalls += 1;
+              return route.abort();
+            });
+            const guest = await guestContext.newPage();
+            await guest.goto(`${WEB}/#/room/${room.code}`);
+            await guest.getByRole("button", { name: "Join", exact: true }).click();
+            await guest.locator(".react-flow__node").first().waitFor({ timeout: 20_000 });
+            await guest.getByRole("button", { name: /^Menu/ }).click();
+            const item = guest.getByRole("menuitem", { name: /^Summarise board/ });
+            if ((await item.getAttribute("aria-disabled")) !== "true") throw new Error(`Summarise board on for a guest at ${size.name} ${theme}`);
+            await guest.waitForTimeout(300);
+            const file = join(OUT, `summary-guest-${size.name}-${theme}.png`);
+            await guest.screenshot({ path: file });
+            written.push(file);
+            await guestContext.close();
+            if (anthropicCalls > 0) throw new Error(`the guest called api.anthropic.com at ${size.name} ${theme}`);
+          }
           // Share session (v0.32.0): the QR sheet from the menu, then Large.
           await page.getByRole("button", { name: /^Menu/ }).click();
           await page.getByRole("menuitem", { name: "Share session" }).click();
