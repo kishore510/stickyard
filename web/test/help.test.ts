@@ -75,6 +75,7 @@ describe("help topics", () => {
       "add to board",
       "only adds",
       "copy as markdown",
+      "copy for documents",
       "24,000 characters",
       "never stored",
     ]) {

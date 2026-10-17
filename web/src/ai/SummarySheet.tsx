@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState, type ReactNode, type RefObject } from "react";
-import { ClipboardList, Copy, Plus } from "lucide-react";
+import { ClipboardList, Copy, FileText, Plus } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { Sheet } from "../shell/Sheet";
 import { useSettings } from "../settings/settingsStore";
@@ -20,8 +20,10 @@ import {
   summaryColour,
   summaryContent,
   summaryFree,
+  summaryHtml,
   summaryLimitReason,
   summaryMarkdown,
+  summaryPlainText,
   summaryNeeds,
   summaryRoomReason,
 } from "./summaryRules";
@@ -256,6 +258,20 @@ function SummaryBody({ board, hidden, gate, addReason, used, place, close }: Sum
             () => setAnnouncement(SUMMARY_TEXT.copyFailed),
           );
         }}
+        copyDocs={() => {
+          const at = new Date(stored.at);
+          const text = summaryPlainText(stored.result, stored.scope, at);
+          const clipboard = navigator.clipboard;
+          // Formatted (HTML) and plain text together, so a document gets real headings and lists; else plain text only.
+          const done =
+            clipboard && "write" in clipboard && typeof ClipboardItem !== "undefined"
+              ? clipboard
+                  .write([new ClipboardItem({ "text/html": new Blob([summaryHtml(stored.result, stored.scope, at)], { type: "text/html" }), "text/plain": new Blob([text], { type: "text/plain" }) })])
+                  .then(() => SUMMARY_TEXT.copiedDocs)
+              : clipboard?.writeText(text).then(() => SUMMARY_TEXT.copiedPlain);
+          if (!done) return setAnnouncement(SUMMARY_TEXT.copyFailed);
+          done.then(setAnnouncement, () => setAnnouncement(SUMMARY_TEXT.copyFailed));
+        }}
         again={() => setPage("options")}
         close={close}
         show={(id) => {
@@ -371,6 +387,7 @@ function Result({
   blocked,
   add,
   copy,
+  copyDocs,
   again,
   close,
   show,
@@ -381,6 +398,7 @@ function Result({
   blocked: string | null;
   add: (content: ImportContent) => void;
   copy: () => void;
+  copyDocs: () => void;
   again: () => void;
   close: () => void;
   show: (noteId: string) => void;
@@ -505,6 +523,10 @@ function Result({
         >
           <Plus />
           Add to board
+        </Button>
+        <Button onClick={copyDocs}>
+          <FileText />
+          Copy for documents
         </Button>
         <Button onClick={copy}>
           <Copy />

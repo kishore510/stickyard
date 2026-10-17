@@ -83,6 +83,8 @@ export const SUMMARY_TEXT = {
   notAdded: "Nothing was added. Close this to see why on the board.",
   addOnly: "Add to board only adds: one frame of notes, nothing replaced or cleared. One Undo removes all of it.",
   copied: "Copied the summary as Markdown.",
+  copiedDocs: "Copied the summary for documents: paste it into a document to keep the headings and lists.",
+  copiedPlain: "Copied the summary as plain text: this browser can’t copy formatting.",
   copyFailed: "Couldn’t copy: this browser didn’t allow it.",
   frameTitle: "AI summary (draft)",
 } as const;
@@ -203,26 +205,105 @@ export function summaryContent(result: SummaryResult, _scope: SummaryScope, colo
   return { ...stencil, stack: stencil.notes.map((n) => n.ref), cut: 0 };
 }
 
-const md = (text: string) => escapeInline(cleanText(text));
+/*
+ * Copy as Markdown and Copy for documents (v0.44.0): one outline of the summary, three renderings.
+ * Every model and board text is cleaned to one plain line first, then escaped for the format, so
+ * nothing in it becomes a link, heading, list, HTML or markup. No refs and no Show note chips.
+ */
+/** A piece of text: our own (fixed) or the model's or the board's (`{ u }`, untrusted, cleaned to one line). */
+type Piece = string | { u: string };
+type Text = Piece[];
+type ListItem = { lead?: Text; text: Text };
+type Block = { kind: "h1" | "h2" | "h3" | "p" | "caution"; text: Text } | { kind: "list"; items: ListItem[] };
 
-/** Copy as Markdown: every model and board text escaped, so nothing in it becomes a link, heading, HTML or list. */
-export function summaryMarkdown(result: SummaryResult, scope: SummaryScope, at: Date): string {
+const u = (text: string): Piece => ({ u: cleanText(text) });
+
+function summaryOutline(result: SummaryResult, scope: SummaryScope, at: Date): Block[] {
   const s = result.sentiment;
   const titleOf = new Map(scope.frames.map((f) => [f.ref, f.title]));
-  const out = [`# ${SUMMARY_TEXT.frameTitle}`, "", SUMMARY_TEXT.caution, "", SUMMARY_TEXT.generated(at.getTime(), scope.noteCount), "", "## Overview", "", md(result.overview)];
+  const label = (l: SentimentLabel | null) => (l ? SENTIMENT_NAMES[l] : SENTIMENT_NAMES.notRated);
+  const out: Block[] = [
+    { kind: "h1", text: [SUMMARY_TEXT.frameTitle] },
+    { kind: "caution", text: [SUMMARY_TEXT.caution] },
+    { kind: "p", text: [SUMMARY_TEXT.generated(at.getTime(), scope.noteCount)] },
+    { kind: "h2", text: ["Overview"] },
+    { kind: "p", text: [u(result.overview)] },
+  ];
   if (result.themes.length > 0) {
-    out.push("", "## Themes", "");
-    for (const t of result.themes) out.push(`- **${md(t.title)}** (${SUMMARY_TEXT.notes(t.refs.length)})${t.summary ? `: ${md(t.summary)}` : ""}`);
+    out.push({ kind: "h2", text: ["Themes"] });
+    out.push({
+      kind: "list",
+      items: result.themes.map((t) => ({ lead: [u(t.title)], text: [`(${SUMMARY_TEXT.notes(t.refs.length)})`, ...(t.summary ? [": ", u(t.summary)] : [])] })),
+    });
   }
-  out.push("", "## Sentiment", "", `Overall: ${s.overall ? SENTIMENT_NAMES[s.overall] : SENTIMENT_NAMES.notRated}.${s.reason ? ` ${md(s.reason)}` : ""}`, "");
-  for (const k of ["positive", "neutral", "negative", "mixed", "notRated"] as const) if (k !== "notRated" || s.counts.notRated > 0) out.push(`- ${SENTIMENT_NAMES[k]}: ${s.counts[k]}`);
+  out.push({ kind: "h2", text: ["Sentiment"] }, { kind: "p", text: [`Overall: ${label(s.overall)}.`, ...(s.reason ? [" ", u(s.reason)] : [])] });
+  out.push({
+    kind: "list",
+    items: (["positive", "neutral", "negative", "mixed", "notRated"] as const).filter((k) => k !== "notRated" || s.counts.notRated > 0).map((k) => ({ text: [`${SENTIMENT_NAMES[k]}: ${s.counts[k]}`] })),
+  });
   if (s.frames.length > 0) {
-    out.push("", "### By frame", "");
-    for (const f of s.frames) out.push(`- ${md(titleOf.get(f.ref) || "Untitled frame")}: ${f.label ? SENTIMENT_NAMES[f.label] : SENTIMENT_NAMES.notRated}${f.reason ? ` (${md(f.reason)})` : ""}`);
+    out.push({ kind: "h3", text: ["By frame"] });
+    out.push({ kind: "list", items: s.frames.map((f) => ({ text: [u(titleOf.get(f.ref) || "Untitled frame"), `: ${label(f.label)}`, ...(f.reason ? [" (", u(f.reason), ")"] : [])] })) });
   }
   if (result.actions.length > 0) {
-    out.push("", "## Possible actions", "");
-    for (const a of result.actions) out.push(`- ${md(a.text)}`);
+    out.push({ kind: "h2", text: ["Possible actions"] }, { kind: "list", items: result.actions.map((a) => ({ text: [u(a.text)] })) });
   }
-  return `${out.join("\n")}\n`;
+  return out;
+}
+
+/** Renders pieces: `escape` for untrusted text, `fixed` for our own. */
+const render = (text: Text, escape: (s: string) => string, fixed: (s: string) => string = (x) => x) => text.map((p) => (typeof p === "string" ? fixed(p) : escape(p.u))).join("");
+
+/** Copy as Markdown. */
+export function summaryMarkdown(result: SummaryResult, scope: SummaryScope, at: Date): string {
+  const md = (text: Text) => render(text, escapeInline);
+  const lines = summaryOutline(result, scope, at).map((b) => {
+    switch (b.kind) {
+      case "h1":
+        return `# ${md(b.text)}`;
+      case "h2":
+        return `## ${md(b.text)}`;
+      case "h3":
+        return `### ${md(b.text)}`;
+      case "list":
+        return b.items.map((i) => `- ${i.lead !== undefined ? `**${md(i.lead)}** ` : ""}${md(i.text)}`).join("\n");
+      default:
+        return md(b.text);
+    }
+  });
+  return `${lines.join("\n\n")}\n`;
+}
+
+const ENTITIES: Record<string, string> = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
+const escapeHtml = (text: string) => text.replace(/[&<>"']/g, (c) => ENTITIES[c]!);
+
+/** Copy for documents, the formatted part: headings, paragraphs and lists only; every text escaped (ours too). */
+export function summaryHtml(result: SummaryResult, scope: SummaryScope, at: Date): string {
+  const h = (text: Text) => render(text, escapeHtml, escapeHtml);
+  return summaryOutline(result, scope, at)
+    .map((b) => {
+      switch (b.kind) {
+        case "h1":
+        case "h2":
+        case "h3":
+          return `<${b.kind}>${h(b.text)}</${b.kind}>`;
+        case "caution":
+          return `<p><em>${h(b.text)}</em></p>`;
+        case "list":
+          return `<ul>${b.items.map((i) => `<li>${i.lead !== undefined ? `<strong>${h(i.lead)}</strong> ` : ""}${h(i.text)}</li>`).join("")}</ul>`;
+        default:
+          return `<p>${h(b.text)}</p>`;
+      }
+    })
+    .join("");
+}
+
+/** Copy for documents, the plain part (and the fallback): no markup at all, bullets as "•". */
+export function summaryPlainText(result: SummaryResult, scope: SummaryScope, at: Date): string {
+  const t = (text: Text) => render(text, (x) => x);
+  const blocks = summaryOutline(result, scope, at);
+  const lines = blocks.map((b) => (b.kind === "list" ? b.items.map((i) => `• ${i.lead !== undefined ? `${t(i.lead)} ` : ""}${t(i.text)}`).join("\n") : t(b.text)));
+  // A heading sits right above what it heads; other blocks are a blank line apart.
+  const gap = (i: number) => (blocks[i - 1]!.kind === "h2" || blocks[i - 1]!.kind === "h3" ? "\n" : "\n\n");
+  return `${lines.map((line, i) => (i === 0 ? line : `${gap(i)}${line}`)).join("")}\n`;
 }
