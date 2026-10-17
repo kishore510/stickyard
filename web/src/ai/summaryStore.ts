@@ -42,7 +42,8 @@ interface SummaryState {
 
 export const useSummary = create<SummaryState>((set, get) => ({
   open: false,
-  gate: null,
+  // Off until the board says otherwise (it loads lazily; a guest must never see the entry on meanwhile).
+  gate: SUMMARY_TEXT.hostOnly,
   summary: null,
   pending: false,
   stale: null,
@@ -58,5 +59,5 @@ export const useSummary = create<SummaryState>((set, get) => ({
     if (stale === null && (pending || summary !== null)) set({ stale: SUMMARY_TEXT.stale[kind] });
   },
   announce: (announcement) => set({ announcement }),
-  reset: () => set({ open: false, gate: null, summary: null, pending: false, stale: null, announcement: "" }),
+  reset: () => set({ open: false, gate: SUMMARY_TEXT.hostOnly, summary: null, pending: false, stale: null, announcement: "" }),
 }));

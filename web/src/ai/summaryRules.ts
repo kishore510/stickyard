@@ -47,7 +47,7 @@ export const SUMMARY_TEXT = {
   deeperHint: (small: string, large: string) => `Uses ${large} instead of ${small}: slower and costs more.`,
   empty: "Nothing to summarise.",
   sent: (notes: number, frames: number) =>
-    `What's sent: the text of ${plural(notes, "note")} and ${plural(frames, "frame title")}, grouped by frame. No names, authors, ids, colours, positions or votes.`,
+    `The text of ${plural(notes, "note")} and ${plural(frames, "frame title")}, grouped by frame. No names, authors, ids, colours, positions or votes.`,
   everyone: "These notes were written by everyone in this session. They go to Anthropic using your key.",
   replyCap: (tokens: number) => `The reply can use up to ${tokens.toLocaleString("en-GB")} tokens (the most it is allowed).`,
   tooMany: (n: number) => `Too many notes to send at once: ${n.toLocaleString("en-GB")}, and the most is ${SUMMARY_LIMITS.notes}. Select fewer notes: at least ${(n - SUMMARY_LIMITS.notes).toLocaleString("en-GB")} fewer.`,

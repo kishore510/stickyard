@@ -162,7 +162,7 @@ describe("the pages", () => {
     expect(radios.map((r) => r.closest("label")?.textContent)).toEqual(["Whole board (5 notes)", "Selection (3 notes)"]);
     expect(radios[1]!.checked).toBe(true);
     await click(button("Continue"));
-    expect(document.querySelector("[data-send-check]")?.textContent).toContain("the text of 3 notes and 1 frame title");
+    expect(document.querySelector("[data-send-check]")?.textContent).toContain("The text of 3 notes and 1 frame title, grouped by frame.");
     await click(button("Send"));
     await waitFor(() => bodies.length === 1);
     const content = (JSON.parse(bodies[0]!) as { messages: { content: string }[] }).messages[0]!.content;
@@ -177,7 +177,7 @@ describe("the pages", () => {
     await click(button("Continue"));
     const check = document.querySelector<HTMLElement>("[data-send-check]")!;
     expect(check.textContent).toContain("Claude Haiku 5.5");
-    expect(check.textContent).toContain("What's sent: the text of 5 notes and 2 frame titles, grouped by frame. No names, authors, ids, colours, positions or votes.");
+    expect(check.textContent).toContain("What's sentThe text of 5 notes and 2 frame titles, grouped by frame. No names, authors, ids, colours, positions or votes.");
     expect(check.textContent).toContain("These notes were written by everyone in this session. They go to Anthropic using your key.");
     expect(check.textContent).toMatch(/About [\d,]+ tokens/);
     expect(check.querySelector("[data-ai-notice]")).not.toBeNull();
